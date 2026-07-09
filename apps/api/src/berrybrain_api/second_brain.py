@@ -514,9 +514,7 @@ def _prune_generated_graph_insights(session: Session) -> int:
     return removed
 
 
-def _prune_stale_graph_insights(
-    session: Session, valid_normalized: set[str]
-) -> int:
+def _prune_stale_graph_insights(session: Session, valid_normalized: set[str]) -> int:
     removed = 0
     insights = list(
         session.execute(
@@ -626,7 +624,9 @@ def _generate_graph_insights(session: Session) -> int:
             insight.id,
             related_ids,
             _parse_json_list(insight.evidence),
-            "ai" if insight.provider and insight.provider != "deterministic" else "system",
+            "ai"
+            if insight.provider and insight.provider != "deterministic"
+            else "system",
             confidence=insight.confidence or 0.7,
             status=insight.status or "suggested",
             model=insight.model or "graph-insight.v1",
@@ -870,12 +870,19 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
             )
         ).scalars()
     )
+    edge_types = {}
+    for edge in edges:
+        edge_types[edge.type] = edge_types.get(edge.type, 0) + 1
+    synthetic_summary = node.summary or _build_node_summary(
+        node, notes, edges, edge_types
+    )
+
     return {
         "id": node.id,
         "type": node.type,
         "label": node.label,
         "title": node.title or node.label,
-        "summary": node.summary,
+        "summary": synthetic_summary,
         "source": node.source,
         "sourceNoteIds": note_ids,
         "confidence": node.confidence,
@@ -1283,17 +1290,67 @@ def _serialize_edge(edge: GraphEdgeRecord) -> dict[str, Any]:
     }
 
 
+def _build_node_summary(
+    node: GraphNodeRecord,
+    notes: list[NoteRecord],
+    edges: list[GraphEdgeRecord],
+    edge_types: dict,
+) -> str:
+    parts = []
+    note_titles = [n.title for n in notes[:3] if n.title]
+    if note_titles:
+        parts.append(f"Vem destas notas: {', '.join(note_titles)}.")
+    if edge_types:
+        type_names = {
+            "backlink": "backlinks",
+            "semantic": "semânticas",
+            "shared_concept": "conceitos compartilhados",
+            "related": "relações",
+        }
+        conn_list = [
+            f"{edge_types[t]} {type_names.get(t, t)}"
+            for t in sorted(edge_types.keys())[:4]
+        ]
+        parts.append(f"Conecta-se por: {', '.join(conn_list)}.")
+    if node.type == "note" and len(notes) == 1:
+        snippet = (getattr(notes[0], "content", "") or "")[:150].strip()
+        if snippet:
+            parts.append(f'Conteúdo: "{snippet}..."')
+    if node.type == "topico" and node.label:
+        parts.append(
+            f"É um tópico extraído das notas. Expanda-o como nota permanente ou conecte-o a outros conceitos."
+        )
+    if node.type == "concept" and node.label:
+        parts.append(
+            f"Conceito recorrente. Relacione-o com notas para fortalecer o grafo."
+        )
+    return (
+        " ".join(parts)
+        if parts
+        else "Nó do grafo de conhecimento. Clique para ver conexões e notas de origem."
+    )
+
+
 def _why_node_exists(node: GraphNodeRecord, notes: list[NoteRecord]) -> str:
     if node.type == "note":
-        return "Este nó existe porque a nota está registrada no vault."
+        path = notes[0].path if notes else ""
+        folder = path.split("/")[0] if "/" in path else ""
+        return f"Esta nota está no vault{f' em {folder}' if folder else ''}."
     if node.type == "concept":
         titles = ", ".join(note.title for note in notes[:3])
         return (
-            f"Este conceito foi extraído de notas reais: {titles}."
-            if titles
-            else ("Este conceito foi extraído de metadados reais do sistema.")
+            f"Extraído de: {titles}." if titles else "Extraído de metadados do sistema."
         )
-    return "Este nó foi criado por uma etapa registrada do segundo cérebro."
+    if node.type == "topico":
+        titles = ", ".join(note.title for note in notes[:3])
+        return (
+            f"Tópico extraído de: {titles}."
+            if titles
+            else "Tópico detectado nos headings das notas."
+        )
+    if node.type == "entidade":
+        return "Entidade técnica detectada nos metadados."
+    return f"Este nó ({node.type}) foi criado pelo pipeline de conhecimento."
 
 
 def _estimate_clusters(
