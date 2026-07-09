@@ -1,0 +1,13 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env
+data/
+.cursor/
+.opencode/
+.codex/
+.DS_Store
+*.egg-info/
+build/
+dist/

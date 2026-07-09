@@ -1,0 +1,22 @@
+export type NoteSummary = { title: string; path: string; folder: string };
+export type NoteDetail = NoteSummary & { content: string };
+export type JobSummary = { id: number; type: string; status: string; payload: { note_path?: string }; error_message: string | null };
+export type Toast = { id: number; text: string; kind: "info" | "error" | "success" };
+export type Stats = { notes: number; connections: number; metadata: number; jobs: { pending: number } };
+export type Insight = {
+  id: number;
+  type: string;
+  title: string;
+  description: string;
+  priority: number;
+  related_notes?: number[];
+  evidence?: string[];
+  suggested_action?: string;
+  graph_impact?: string;
+  confidence?: number;
+  status?: string;
+  provider?: string;
+  model?: string;
+};
+export type AutosaveStatus = "saved" | "saving" | "unsaved";
+export type ViewMode = "edit" | "preview" | "split";

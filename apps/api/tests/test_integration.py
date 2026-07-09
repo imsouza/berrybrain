@@ -1,0 +1,323 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+os.environ["BERRYBRAIN_VAULT_WATCHER_ENABLED"] = "false"
+
+
+class IntegrationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.tmp_dir.name) / "test.db"
+        vault_path = Path(cls.tmp_dir.name) / "vault"
+        vault_path.mkdir()
+        backup_path = Path(cls.tmp_dir.name) / "backups"
+
+        cls.db_url = f"sqlite:///{db_path}"
+
+        from berrybrain_api.config import Settings, get_settings
+        from berrybrain_api.database import Base, SessionLocal, engine, init_database
+        import berrybrain_api.models  # noqa: F401 — register all ORM models
+
+        cls.settings = get_settings()
+        cls.settings.database_url = cls.db_url
+        cls.settings.vault_path = vault_path
+        cls.settings.backup_path = backup_path
+        cls.settings.vault_watcher_enabled = False
+        cls.settings.api_token = ""
+
+        new_engine = create_engine(
+            cls.db_url, connect_args={"check_same_thread": False}
+        )
+        import berrybrain_api.database as db_mod
+
+        db_mod.engine = new_engine
+        db_mod.SessionLocal = sessionmaker(
+            bind=new_engine, autoflush=False, autocommit=False
+        )
+        Base.metadata.create_all(bind=new_engine)
+        from berrybrain_api.search import init_fts
+
+        with db_mod.SessionLocal() as session:
+            init_fts(session)
+
+        from berrybrain_api.main import app
+
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp_dir.cleanup()
+
+    def test_01_health(self):
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "ok")
+
+    def test_02_status_empty(self):
+        resp = self.client.get("/api/v1/status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["app"], "berrybrain")
+        self.assertEqual(data["notes"], 0)
+
+    def test_03_create_note_and_jobs(self):
+        resp = self.client.post(
+            "/api/v1/notes",
+            json={
+                "title": "Integration Test",
+                "folder": "inbox",
+                "content": "# Test\n\nHello world",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        note = resp.json()
+        self.assertIn("path", note)
+        self.assertTrue(note["path"].endswith(".md"))
+
+        resp2 = self.client.get("/api/v1/status")
+        self.assertEqual(resp2.json()["notes"], 1)
+
+        resp3 = self.client.get("/api/v1/jobs", params={"status": "pending"})
+        self.assertGreater(len(resp3.json()["jobs"]), 0)
+
+    def test_03b_create_note_without_title(self):
+        resp = self.client.post(
+            "/api/v1/notes",
+            json={
+                "folder": "inbox",
+                "content": "Texto inicial criado direto pelo editor.",
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        note = resp.json()
+        self.assertEqual(note["path"], "inbox/rascunho.md")
+        self.assertIn("Texto inicial", note["content"])
+
+    def test_04_read_and_update_note(self):
+        notes = self.client.get("/api/v1/notes").json()["notes"]
+        self.assertGreater(len(notes), 0)
+        path = notes[0]["path"]
+
+        resp = self.client.get(f"/api/v1/notes/{path}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("Hello world", resp.json()["content"])
+
+        resp2 = self.client.put(
+            f"/api/v1/notes/{path}",
+            json={"content": "# Updated\n\nUpdated content"},
+        )
+        self.assertEqual(resp2.status_code, 200)
+        self.assertIn("Updated content", resp2.json()["content"])
+
+    def test_05_job_lifecycle(self):
+        resp = self.client.post("/api/v1/jobs/claim")
+        self.assertEqual(resp.status_code, 200)
+        job = resp.json()["job"]
+        self.assertIsNotNone(job)
+        self.assertEqual(job["status"], "running")
+
+        resp2 = self.client.post(f"/api/v1/jobs/{job['id']}/complete")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["job"]["status"], "completed")
+
+    def test_06_job_fail_with_retry(self):
+        resp = self.client.post("/api/v1/jobs/claim")
+        job = resp.json()["job"]
+        self.assertIsNotNone(job)
+
+        resp2 = self.client.post(
+            f"/api/v1/jobs/{job['id']}/fail",
+            json={"error_message": "test error"},
+        )
+        self.assertEqual(resp2.status_code, 200)
+        failed_job = resp2.json()["job"]
+        self.assertEqual(failed_job["status"], "pending")
+
+    def test_07_scan_vault(self):
+        resp = self.client.post("/api/v1/vault/scan")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("created", data)
+        self.assertIn("updated", data)
+        self.assertIn("unchanged", data)
+
+    def test_08_connections(self):
+        notes = self.client.get("/api/v1/notes").json()["notes"]
+        path = notes[0]["path"]
+        resp = self.client.get(f"/api/v1/connections/{path}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("connections", resp.json())
+
+    def test_09_flashcards_and_review_are_removed_from_public_api(self):
+        notes = self.client.get("/api/v1/notes").json()["notes"]
+        path = notes[0]["path"]
+
+        write_resp = self.client.put(f"/api/v1/flashcards/{path}", json={"flashcards": []})
+        self.assertEqual(write_resp.status_code, 404)
+
+        resp = self.client.get(f"/api/v1/flashcards/{path}")
+        self.assertEqual(resp.status_code, 404)
+        resp2 = self.client.get("/api/v1/review/today")
+        self.assertEqual(resp2.status_code, 404)
+
+    def test_10_insights(self):
+        resp = self.client.get("/api/v1/insights")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("insights", resp.json())
+
+    def test_11_graph(self):
+        resp = self.client.get("/api/v1/graph")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("nodes", resp.json())
+
+        rebuild = self.client.post("/api/v1/graph/rebuild", params={"dry_run": True})
+        self.assertEqual(rebuild.status_code, 200)
+        self.assertTrue(rebuild.json()["dryRun"])
+        self.assertIn("summary", rebuild.json())
+
+    def test_12_search(self):
+        resp = self.client.get("/api/v1/search", params={"q": "Test"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("results", resp.json())
+
+        body_resp = self.client.get("/api/v1/search", params={"q": "Updated content"})
+        self.assertEqual(body_resp.status_code, 200)
+        body_results = body_resp.json()["results"]
+        self.assertTrue(any("Updated content" in item.get("snippet", "") for item in body_results))
+
+    def test_13_worker_heartbeat(self):
+        resp = self.client.post(
+            "/api/v1/worker/heartbeat", json={"jobs_processed": 5, "errors": 0}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["worker"]["jobs_processed"], 5)
+
+        resp2 = self.client.get("/api/v1/worker/status")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["worker"]["jobs_processed"], 5)
+
+    def test_14_settings(self):
+        resp = self.client.put(
+            "/api/v1/settings/test.key",
+            json={"value": "42"},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        resp2 = self.client.get("/api/v1/settings/test.key")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["setting"]["value"], "42")
+
+        resp3 = self.client.get("/api/v1/settings")
+        self.assertGreater(len(resp3.json()["settings"]), 0)
+
+    def test_15_generated_metadata(self):
+        notes = self.client.get("/api/v1/notes").json()["notes"]
+        path = notes[0]["path"]
+
+        resp = self.client.put(
+            f"/api/v1/metadata/classification?note_path={path}",
+            json={
+                "content": {"note_type": "study"},
+                "content_hash": "abc123",
+                "model_used": "qwen3",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        resp2 = self.client.get(f"/api/v1/metadata/classification?note_path={path}")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["metadata"][0]["content"]["note_type"], "study")
+
+        resp3 = self.client.delete(f"/api/v1/metadata/classification?note_path={path}")
+        self.assertEqual(resp3.status_code, 200)
+
+    def test_16_automation_logs(self):
+        resp = self.client.post(
+            "/api/v1/automation-logs",
+            json={"action_type": "test_action", "description": "integration test"},
+        )
+        self.assertEqual(resp.status_code, 201)
+
+        resp2 = self.client.get("/api/v1/automation-logs", params={"limit": 5})
+        self.assertEqual(resp2.status_code, 200)
+        self.assertGreater(len(resp2.json()["logs"]), 0)
+
+    def test_17_backup_and_restore(self):
+        resp = self.client.post("/api/v1/backups")
+        self.assertEqual(resp.status_code, 201)
+        backup = resp.json()["backup"]
+        self.assertIn("id", backup)
+
+        resp2 = self.client.get("/api/v1/backups")
+        self.assertEqual(resp2.status_code, 200)
+        self.assertGreater(len(resp2.json()["backups"]), 0)
+
+        resp3 = self.client.post(f"/api/v1/backups/{backup['id']}/restore")
+        self.assertEqual(resp3.status_code, 200)
+
+        resp4 = self.client.delete(f"/api/v1/backups/{backup['id']}")
+        self.assertEqual(resp4.status_code, 200)
+        self.assertEqual(resp4.json()["status"], "deleted")
+
+    def test_18_delete_note(self):
+        notes = self.client.get("/api/v1/notes").json()["notes"]
+        path = notes[0]["path"]
+        resp = self.client.delete(f"/api/v1/notes/{path}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "deleted")
+
+    def test_19_api_token_auth(self):
+        from berrybrain_api.main import settings as app_settings
+
+        app_settings.api_token = "secret123"
+        try:
+            get_resp = self.client.get("/api/v1/notes")
+            self.assertEqual(get_resp.status_code, 401)
+
+            resp = self.client.post(
+                "/api/v1/notes",
+                json={"title": "Auth Test", "folder": "inbox"},
+            )
+            self.assertEqual(resp.status_code, 401)
+
+            resp2 = self.client.post(
+                "/api/v1/notes",
+                json={"title": "Auth Test", "folder": "inbox"},
+                headers={"Authorization": "Bearer secret123"},
+            )
+            self.assertEqual(resp2.status_code, 201)
+
+            auth_get = self.client.get(
+                "/api/v1/notes", headers={"Authorization": "Bearer secret123"}
+            )
+            self.assertEqual(auth_get.status_code, 200)
+
+            path = resp2.json()["path"]
+            self.client.delete(
+                f"/api/v1/notes/{path}",
+                headers={"Authorization": "Bearer secret123"},
+            )
+        finally:
+            app_settings.api_token = ""
+
+    def test_20_jobs_health_and_recover_stale(self):
+        health = self.client.get("/api/v1/jobs/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertIn("counts", health.json())
+
+        recovered = self.client.post("/api/v1/jobs/recover-stale")
+        self.assertEqual(recovered.status_code, 200)
+        self.assertIn("recovered", recovered.json())
+
+
+if __name__ == "__main__":
+    unittest.main()

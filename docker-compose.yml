@@ -1,0 +1,62 @@
+services:
+  api:
+    image: python:3.12-slim
+    working_dir: /app/apps/api
+    command: >
+      sh -c "pip install --no-cache-dir -e . &&
+             uvicorn berrybrain_api.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    env_file:
+      - .env
+    ports:
+      - "${BERRYBRAIN_API_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    image: node:22-alpine
+    working_dir: /app/apps/web
+    command: >
+      sh -c "npm install &&
+             npm run dev -- --hostname 0.0.0.0 --port 3000"
+    env_file:
+      - .env
+    environment:
+      BERRYBRAIN_INTERNAL_API_URL: http://api:8000
+      NEXT_PUBLIC_BERRYBRAIN_API_URL: ""
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "${BERRYBRAIN_WEB_PORT:-3000}:3000"
+    volumes:
+      - .:/app
+      - web_node_modules:/app/apps/web/node_modules
+      - web_next_cache:/app/apps/web/.next
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker:
+    image: python:3.12-slim
+    profiles:
+      - worker
+    working_dir: /app/apps/worker
+    command: >
+      sh -c "(pip show berrybrain-worker >/dev/null 2>&1 && echo 'skip install') || pip install --no-cache-dir -e .;
+             python -u -m berrybrain_worker.main"
+    env_file:
+      - .env
+    environment:
+      BERRYBRAIN_API_URL: http://api:8000
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - .:/app
+
+volumes:
+  web_node_modules:
+  web_next_cache:
