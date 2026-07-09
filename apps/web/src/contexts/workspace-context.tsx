@@ -97,10 +97,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
       if (!r.ok) { toast("Erro ao criar nota.", "error"); return; }
       const n = await r.json();
+      setNotes((prev) => [n, ...prev]);
       setActive(n); setDraft(n.content || content); setAutosave("saved");
-      await loadAll();
-    } catch (e) {
-      toast("API indisponivel. Verifique o container.", "error");
+    } catch {
+      toast("API indisponivel.", "error");
     }
   }
 

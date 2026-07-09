@@ -385,8 +385,17 @@ export function GraphCanvas({
           style={{ left: tooltip.x + 14, top: tooltip.y - 20, maxWidth: 260 }}>
           <div className="font-medium text-xs">{tooltip.n.label}</div>
           <div className="mt-0.5 text-[10px] opacity-70">{tooltip.n.type} · {tooltip.n.degree ?? 0} conexões</div>
+          {tooltip.n.summary && (
+            <div className="mt-1 text-[10px] opacity-80 line-clamp-3">{tooltip.n.summary}</div>
+          )}
+          {tooltip.n.path && (
+            <div className="mt-1 text-[9px] opacity-50 truncate">{tooltip.n.path}</div>
+          )}
+          {(tooltip.n.createdBy || tooltip.n.createdByModel) && (
+            <div className="mt-0.5 text-[9px] opacity-40">{tooltip.n.createdBy || ""}{tooltip.n.createdByModel ? ` · ${tooltip.n.createdByModel}` : ""}</div>
+          )}
           {tooltip.n.edgeTypes?.length > 0 && (
-            <div className="mt-0.5 flex flex-wrap gap-1">
+            <div className="mt-1 flex flex-wrap gap-1">
               {tooltip.n.edgeTypes.slice(0, 4).map((t: string) => (
                 <span key={t} className="inline-block h-1.5 w-3 rounded-sm" style={{ background: EDGE_COLORS[t] || EDGE_COLORS.default }} />
               ))}
