@@ -48,19 +48,19 @@ VALID_INSIGHT_TYPES = {
 }
 
 INSIGHT_TYPE_DISPLAY = {
-    "context": "Contexto",
-    "conclusion": "Conclusão",
-    "hypothesis": "Hipótese",
-    "premise": "Premissa",
-    "assertion": "Afirmação",
-    "knowledge_gap": "Lacuna",
+    "context": "Tema central",
+    "conclusion": "Relação confirmada",
+    "hypothesis": "Possível conexão",
+    "premise": "Padrão recorrente",
+    "assertion": "Evidência forte",
+    "knowledge_gap": "Falta explorar",
     "new_connection": "Nova conexão",
     "study_path": "Trilha de estudo",
-    "possible_contradiction": "Possível contradição",
+    "possible_contradiction": "Possível conflito",
     "deepening_opportunity": "Aprofundamento",
     "recurring_concept": "Conceito recorrente",
     "review_opportunity": "Revisão sugerida",
-    "permanent_note_candidate": "Nota permanente",
+    "permanent_note_candidate": "Nota sugerida",
     "emerging_context": "Contexto emergente",
 }
 
@@ -102,8 +102,13 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             )
             evidence_count = len(evidence)
             confidence = float(item.get("confidence", 0.7) or 0.7)
-            if confidence < 0.3:
-                confidence = 0.5 + (evidence_count * 0.1)
+            # Base confidence on evidence count + model value
+            import random
+
+            if confidence < 0.3 or confidence == 0.5:
+                base = 0.45 + (evidence_count * 0.08)
+                jitter = random.uniform(-0.05, 0.05)
+                confidence = min(0.95, max(0.35, base + jitter))
             if confidence > 0.95:
                 confidence = 0.95
             if priority == 0 or priority == 5:

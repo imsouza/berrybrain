@@ -74,6 +74,7 @@ export function WorkspaceSidebar() {
           <button className="rounded-lg p-1 text-muted hover:bg-surface" onClick={() => w.setGuideOpen(true)} aria-label="Guia">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </button>
+          <span className="text-[9px] text-muted/50 font-medium select-none px-0.5">v1.0.0</span>
           <button className={`relative rounded-lg p-1 text-muted hover:bg-surface ${attentionCount ? "text-accent" : ""}`} onClick={() => { localStorage.setItem("bb_notif_dismissed_at", String(Date.now())); setDismissedAt(Date.now()); setAttentionCount(0); w.setNotificationsOpen(true); }} aria-label="Notificações">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 01-6 0" /></svg>
             {attentionCount > 0 && (

@@ -166,7 +166,7 @@ export function GraphScreen({
     const nids = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => nids.has(e.source) && nids.has(e.target));
     return { nodes, edges };
-  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode]);
+  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitivos]);
 
   const selectedNode = selectedId
     ? graphData?.nodes.find((n) => n.id === selectedId) ?? null

@@ -302,6 +302,10 @@ async def process_job(
         await process_update_graph_stats(client, settings, job, payload)
     elif job_type == "EXPAND_CONCEPT_TO_NOTE":
         await process_expand_concept_to_note(client, settings, job, payload)
+    elif job_type == "CREATE_NOTE_FROM_INSIGHT":
+        await process_create_note_from_insight(client, settings, job, payload)
+    elif job_type == "CREATE_REVIEW_FROM_INSIGHT":
+        await process_create_review_from_insight(client, settings, job, payload)
     else:
         raise ValueError(f"Unsupported job type: {job_type}")
 
@@ -1307,6 +1311,108 @@ async def process_expand_concept_to_note(
         create_resp.raise_for_status()
 
     await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_create_note_from_insight(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    insight_id = payload.get("insight_id") or _extract_insight_id_from_payload(payload)
+    if not insight_id:
+        await fail_job(client, settings.api_url, int(job["id"]), "insight_id missing")
+        return
+    r = await client.get(f"{settings.api_url}/api/v1/insights?limit=50")
+    r.raise_for_status()
+    items = r.json().get("insights", [])
+    insight = next((i for i in items if i.get("id") == insight_id), None)
+    if not insight:
+        await fail_job(
+            client, settings.api_url, int(job["id"]), f"insight {insight_id} not found"
+        )
+        return
+    title = insight.get("title", "Nota de insight")
+    body_parts = [f"# {title}\n"]
+    if insight.get("description"):
+        body_parts.append(insight["description"] + "\n")
+    if insight.get("whyItMatters"):
+        body_parts.append(f"\n## Por que importa\n\n{insight['whyItMatters']}\n")
+    evidence = insight.get("evidence", [])
+    if isinstance(evidence, list) and evidence:
+        body_parts.append("\n## Evidências\n\n")
+        for e in evidence:
+            body_parts.append(f"- {str(e)}\n")
+    if insight.get("suggestedAction"):
+        body_parts.append(f"\n## Ação sugerida\n\n{insight['suggestedAction']}\n")
+    body_parts.append(
+        f"\n---\n*Nota gerada a partir do insight da IA [{insight.get('provider', '')} / {insight.get('model', '')}]*\n"
+    )
+    resp = await client.post(
+        f"{settings.api_url}/api/v1/notes",
+        json={"title": title, "content": "".join(body_parts), "folder": "insights"},
+    )
+    resp.raise_for_status()
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_create_review_from_insight(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    insight_id = payload.get("insight_id") or _extract_insight_id_from_payload(payload)
+    if not insight_id:
+        await fail_job(client, settings.api_url, int(job["id"]), "insight_id missing")
+        return
+    r = await client.get(f"{settings.api_url}/api/v1/insights?limit=50")
+    r.raise_for_status()
+    items = r.json().get("insights", [])
+    insight = next((i for i in items if i.get("id") == insight_id), None)
+    if not insight:
+        await fail_job(
+            client, settings.api_url, int(job["id"]), f"insight {insight_id} not found"
+        )
+        return
+    title = insight.get("title", "Revisão")
+    prompt_text = json.dumps(
+        {
+            "task": "Gere 3 perguntas de revisão baseadas neste insight.",
+            "insight_title": title,
+            "insight_description": insight.get("description", ""),
+            "evidence": insight.get("evidence", []),
+        },
+        ensure_ascii=False,
+    )
+    system = "Gere perguntas de revisão com resposta curta. Responda apenas com 3 perguntas, uma por linha, começando com 'Q: '."
+    try:
+        result = await ollama_call(
+            client,
+            settings.api_url,
+            settings,
+            "review",
+            settings.main_model,
+            prompt_text,
+            system,
+            json_mode=False,
+        )
+    except (OllamaError, CloudError) as e:
+        await fail_job(client, settings.api_url, int(job["id"]), str(e)[:200])
+        return
+    questions = str(result or "")
+    body = f"# Revisão: {title}\n\n## Perguntas\n\n{questions}\n\n---\n*Revisão gerada do insight [{insight.get('provider', '')} / {insight.get('model', '')}]*\n"
+    resp = await client.post(
+        f"{settings.api_url}/api/v1/notes",
+        json={"title": f"Revisão: {title[:50]}", "content": body, "folder": "revisoes"},
+    )
+    resp.raise_for_status()
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+def _extract_insight_id_from_payload(payload: dict) -> int | None:
+    raw = payload if isinstance(payload, dict) else {}
+    if isinstance(raw.get("payload"), str):
+        try:
+            raw = json.loads(raw["payload"])
+        except:
+            pass
+    vid = raw.get("insight_id")
+    return int(vid) if vid is not None else None
 
 
 if __name__ == "__main__":

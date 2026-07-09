@@ -146,11 +146,32 @@ export function GraphCanvas({
   const simRef = useRef(false);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; n: any } | null>(null);
   const W = 6000, H = 6000;
+  const knownNodes = useRef<Set<string>>(new Set());
+  const freshNodes = useRef<Map<string, number>>(new Map()); // id → added timestamp
 
   const tctx = useRef(tooltipCtx(data));
   useEffect(() => { tctx.current = tooltipCtx(data); }, [data]);
 
   const initLayout = useCallback(() => {
+    const now = performance.now();
+    if (knownNodes.current.size === 0) {
+      // First render — consider all nodes existing, don't pulse
+      for (const node of data.nodes) {
+        knownNodes.current.add(node.id);
+      }
+    } else {
+      for (const node of data.nodes) {
+        if (!knownNodes.current.has(node.id)) {
+          freshNodes.current.set(node.id, now);
+        }
+      }
+    }
+    for (const id of freshNodes.current.keys()) {
+      if (now - (freshNodes.current.get(id) || now) > 4000) {
+        freshNodes.current.delete(id);
+      }
+    }
+    knownNodes.current = new Set(data.nodes.map((n) => n.id));
     const degrees = new Map<string, number>();
     for (const node of data.nodes) degrees.set(node.id, 0);
     for (const edge of data.edges) {
@@ -260,10 +281,21 @@ export function GraphCanvas({
         const colors = isSel ? COLORS.selected : isOrphan ? COLORS.orphan : COLORS[nodeType] || COLORS.note;
         const r = isSel ? n.r * 1.2 : n.r;
         const isInsight = n.node.type === "insight";
+        const addedAt = freshNodes.current.get(n.node.id);
+        const isNew = addedAt && (performance.now() - addedAt) < 4000;
+        const pulsePhase = isNew ? (performance.now() - addedAt) / 4000 : 1; // 0 → 1 over 4s
 
         if (isSel) {
           ct.beginPath(); ct.arc(n.x, n.y, r + 6, 0, Math.PI * 2);
           ct.fillStyle = COLORS.selected.glow; ct.fill();
+        }
+
+        if (isNew && !isSel) {
+          const pulseRadius = r + 8 + Math.sin(pulsePhase * Math.PI * 4) * 4;
+          const alpha = (1 - pulsePhase) * 0.4;
+          ct.beginPath(); ct.arc(n.x, n.y, pulseRadius, 0, Math.PI * 2);
+          ct.fillStyle = `rgba(217,138,0,${alpha})`;
+          ct.fill();
         }
 
         if (isInsight) {

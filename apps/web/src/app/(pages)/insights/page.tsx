@@ -27,18 +27,22 @@ type InsightItem = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  knowledge_gap: "Lacuna detectada",
+  knowledge_gap: "Falta explorar",
   new_connection: "Nova conexão",
   recurring_concept: "Conceito recorrente",
   weak_concept: "Conceito fraco",
   isolated_note: "Nota isolada",
   duplicate_content: "Duplicidade",
-  permanent_note_candidate: "Nota permanente",
+  permanent_note_candidate: "Nota sugerida",
   study_path: "Trilha de estudo",
   review_opportunity: "Revisão sugerida",
-  possible_contradiction: "Possível contradição",
+  possible_contradiction: "Possível conflito",
   emerging_context: "Contexto emergente",
-  context: "Contexto",
+  context: "Tema central",
+  conclusion: "Relação confirmada",
+  hypothesis: "Possível conexão",
+  premise: "Padrão recorrente",
+  assertion: "Evidência forte",
   weak_note: "Nota a fortalecer",
 };
 
