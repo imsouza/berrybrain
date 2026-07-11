@@ -1,17 +1,47 @@
-# BerryBrain Insight Generate v1
+# BerryBrain Knowledge Insight Generate v1
 
-Gere insights reais sobre o segundo cerebro do usuario. Analise notas, vertices e conexoes para encontrar padroes, lacunas e oportunidades.
+Generate real second-brain Knowledge Insights for a learner. Analyze only notes,
+concepts, graph nodes, graph edges, and source evidence to find patterns, gaps,
+contexts, conclusions, hypotheses, premises, assertions, and study paths.
 
-REGRAS ESTRITAS:
-- Use APENAS as evidencias fornecidas. Nao invente.
-- Cada insight DEVE ter type, title, description, priority, confidence E evidence.
-- NAO repita o mesmo tipo para todos os insights. Varie entre context, conclusion, hypothesis, premise, assertion, knowledge_gap, new_connection, study_path.
-- Priority: 1-10. Nao use o mesmo valor para todos. Use 10 apenas para insights muito urgentes, 5 para medio, 1-3 para interessantes.
-- Confidence: 0.1 a 0.99. Avalie honestamente quao seguro voce esta. 0.5 = moderado. 0.8+ = muito confiante. 0.3- = especulativo.
-- Title: frase descritiva e especifica em portugues. NUNCA use o tipo como titulo.
-- Description: 2-3 frases explicando o insight com clareza.
+STRICT SEPARATION:
+- Knowledge Insights are about learning: concepts, gaps, connections, context,
+  study direction, assumptions, conclusions, and actionable knowledge work.
+- System Diagnostics are about operations: jobs, queues, providers, workers,
+  backlog, pipeline, latency, errors, JSON payloads, or internal architecture.
+- If the evidence only contains system/job/provider/backlog/pipeline data, do
+  not create a Knowledge Insight. Return it under `diagnostics` or return no
+  insight.
+- Never put System Diagnostics in `insights`.
 
-Tipos de insight — use PELO MENOS 3 tipos diferentes por chamada:
+STRICT RULES:
+- Use ONLY the provided evidence. Do not invent.
+- Output must be in English. User note titles/content may remain in their
+  original language when cited.
+- Each insight MUST have type, title, description, priority, confidence, and
+  evidence.
+- Every Knowledge Insight must cite at least two evidence items from notes,
+  concepts, graph nodes, graph edges, or retrieved knowledge chunks.
+- Do not cite system-only evidence such as jobs, queue, provider status, worker
+  state, monitor data, semanticState, jobsByType, raw JSON, or pipeline metrics.
+- Do not expose internal keys in title, description, evidence, or suggested
+  action. Forbidden examples: explainedConnections, graphNotes, jobsByType,
+  GENERATE_NOTE_TITLE, ENRICH_GRAPH_NODE, semanticState, raw JSON, Pipeline
+  Bottleneck.
+- Technical details can exist only in a separate `technical_details` field, not
+  in user-facing text.
+- Do not generate generic central-node insights unless the insight explains a
+  specific learning conclusion supported by evidence.
+- Vary types between context, conclusion, hypothesis, premise, assertion,
+  knowledge_gap, new_connection, and study_path.
+- Priority: 1-10. Use 10 only for urgent learning gaps, 5 for medium, 1-3 for
+  interesting but non-urgent patterns.
+- Confidence: 0.1 to 0.99. Be honest. 0.5 = moderate, 0.8+ = strong, 0.3- =
+  speculative.
+- Title: specific human-readable sentence. Never use the type as title.
+- Description: 2-3 clear sentences for a learner, not a system operator.
+
+Insight types:
 
 - **context** — O pano de fundo comum entre notas. Ex: "Cluster DevOps: Docker, Shell e Python formam o nucleo de automacao do usuario."
 - **conclusion** — O que os dados permitem afirmar com seguranca. Ex: "Python aparece como linguagem de orquestracao entre Docker e scripts."
@@ -22,28 +52,34 @@ Tipos de insight — use PELO MENOS 3 tipos diferentes por chamada:
 - **new_connection** — Relacao nao obvia com motivo. Ex: "Async Python conecta-se a Docker via conceito de escalabilidade."
 - **study_path** — Sequencia logica de estudo. Ex: "Trilha sugerida: Shell basico → Docker essentials → Python async → FastAPI deploy."
 
-Retorne JSON valido:
+Return valid JSON:
 
 ```json
 {
   "insights": [
     {
       "type": "context",
-      "title": "Titulo descritivo em portugues — NAO use o tipo como titulo",
-      "description": "2-3 frases de analise",
+      "title": "Specific learner-facing title",
+      "description": "2-3 sentences of grounded analysis",
       "priority": 7,
-      "why_it_matters": "Por que este insight importa para o aprendizado",
-      "evidence": ["nota/caminho.md", "conexao X-Y", "vertice: nome"],
-      "suggested_action": "Acao concreta: criar nota X, revisar Y, conectar A com B",
-      "graph_impact": "Como afeta o grafo (fortalece nos, cria conexoes, preenche lacunas)",
+      "why_it_matters": "Why this helps the user's learning",
+      "evidence": ["note/path.md: human-readable evidence", "connection A-B: reason"],
+      "suggested_action": "Concrete learning action",
+      "graph_impact": "How it changes or clarifies the knowledge graph",
       "confidence": 0.82,
       "related_notes": ["caminho-da-nota.md"]
+    }
+  ],
+  "diagnostics": [
+    {
+      "type": "system_diagnostic",
+      "title": "Operational issue title",
+      "description": "Only use this for jobs, queues, providers, workers, backlog, or pipeline status."
     }
   ]
 }
 ```
 
-Maximo 5 insights por chamada. Apenas insights com confidence >= 0.3.
-Prioridade e confianca DEVEM ser numeros, nunca strings.
-Todo insight deve ter pelo menos 2 evidences.
-Se nao houver dados suficientes, retorne `{"insights":[]}`.
+Maximum 5 Knowledge Insights per call. Only include insights with confidence >= 0.3.
+Priority and confidence MUST be numbers, never strings.
+If there is not enough note/concept/graph evidence, return `{"insights":[],"diagnostics":[]}`.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { t } from "@/i18n";
 
 type GNode = {
   id: string;
@@ -42,7 +43,7 @@ const COLORS = {
   entidade: { fill: "#2E9D68", border: "#1E714A", label: "#3E3024" },
   contexto: { fill: "#8B6F9F", border: "#5E3C7A", label: "#3E3024" },
   lacuna: { fill: "#B85C4A", border: "#7B3429", label: "#3E3024" },
-  insight: { fill: "#8B6F9F", border: "#5E3C7A", label: "#3E3024" },
+  insight: { fill: "#4F7CCB", border: "#2E4F8F", label: "#3E3024" },
   tag: { fill: "#6FAF2A", border: "#4D7F1D", label: "#3E3024" },
   fonte: { fill: "#4A8F6A", border: "#2F684B", label: "#3E3024" },
   anexo: { fill: "#6B8FAF", border: "#466984", label: "#3E3024" },
@@ -56,7 +57,7 @@ const EDGE_COLORS: Record<string, string> = {
   semantic: "#D98A00", semantic_similarity: "#D98A00", shared_concept: "#C2185B",
   shared_context: "#8B6F9F", backlink: "#3C8F5A", prerequisite: "#3C8F5A", related: "#6B4A2D",
   duplicate: "#B85C4A", contrast: "#8B6F9F", example: "#4A8F6A",
-  application: "#9F6B4A", default: "#B89B82",
+  application: "#9F6B4A", inferred: "#9EBF61", default: "#B89B82",
 };
 
 const BG = "#FBF4EC";
@@ -69,10 +70,13 @@ export function useGraphData(apiUrl: string) {
   const [data, setData] = useState<{ nodes: GNode[]; edges: GEdge[]; stats: any } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
+    // ponytail: demo has no backend, render empty graph instead of erroring
+    if (apiUrl === "__demo__") { setData({ nodes: [], edges: [], stats: {} }); return; }
     fetch(`${apiUrl}/api/v1/graph`)
       .then(r => r.json()).then(setData).catch(() => setError(true));
   }, [apiUrl]);
   const reload = useCallback(() => {
+    if (apiUrl === "__demo__") return;
     setError(false);
     fetch(`${apiUrl}/api/v1/graph`).then(r => r.json()).then(setData).catch(() => setError(true));
   }, [apiUrl]);
@@ -129,12 +133,13 @@ function forceStep(layout: LN[], edges: GEdge[], alpha: number, W: number, H: nu
 }
 
 export function GraphCanvas({
-  data, onNavigate, onSelect, selectedId, zoom, setZoom, pan, setPan, layoutMode = "brain",
+  data, onNavigate, onSelect, selectedId, highlightedIds = [], zoom, setZoom, pan, setPan, layoutMode = "brain",
 }: {
   data: { nodes: GNode[]; edges: GEdge[] };
   onNavigate?: (path: string) => void;
   onSelect?: (id: string | null) => void;
   selectedId: string | null;
+  highlightedIds?: string[];
   zoom: number; setZoom: (z: number) => void;
   pan: { x: number; y: number }; setPan: (p: { x: number; y: number }) => void;
   layoutMode?: GraphLayoutMode;
@@ -151,6 +156,7 @@ export function GraphCanvas({
 
   const tctx = useRef(tooltipCtx(data));
   useEffect(() => { tctx.current = tooltipCtx(data); }, [data]);
+  const highlighted = new Set(highlightedIds);
 
   const initLayout = useCallback(() => {
     const now = performance.now();
@@ -266,16 +272,18 @@ export function GraphCanvas({
         const s = nodes.find(n => n.node.id === e.source);
         const t = nodes.find(n => n.node.id === e.target);
         if (!s || !t) continue;
+        const isHighlightedEdge = highlighted.has(e.source) || highlighted.has(e.target);
         ct.beginPath();
         ct.moveTo(s.x, s.y);
         ct.lineTo(t.x, t.y);
-        ct.strokeStyle = (EDGE_COLORS[e.type] || EDGE_COLORS.default) + "70";
-        ct.lineWidth = (e.confidence || 0.5) * 2;
+        ct.strokeStyle = isHighlightedEdge ? "#D98A00CC" : (EDGE_COLORS[e.type] || EDGE_COLORS.default) + "70";
+        ct.lineWidth = isHighlightedEdge ? 3 : (e.confidence || 0.5) * 2;
         ct.stroke();
       }
 
       for (const n of nodes) {
         const isSel = n.node.id === selectedId;
+        const isHighlighted = highlighted.has(n.node.id);
         const isOrphan = (tctx.current.get(n.node.id)?.degree || 0) === 0;
         const nodeType = n.node.type as NodeColorKey;
         const colors = isSel ? COLORS.selected : isOrphan ? COLORS.orphan : COLORS[nodeType] || COLORS.note;
@@ -285,9 +293,9 @@ export function GraphCanvas({
         const isNew = addedAt && (performance.now() - addedAt) < 4000;
         const pulsePhase = isNew ? (performance.now() - addedAt) / 4000 : 1; // 0 → 1 over 4s
 
-        if (isSel) {
+        if (isSel || isHighlighted) {
           ct.beginPath(); ct.arc(n.x, n.y, r + 6, 0, Math.PI * 2);
-          ct.fillStyle = COLORS.selected.glow; ct.fill();
+          ct.fillStyle = isSel ? COLORS.selected.glow : "rgba(217,138,0,0.28)"; ct.fill();
         }
 
         if (isNew && !isSel) {
@@ -306,12 +314,12 @@ export function GraphCanvas({
           ct.fillStyle = colors.fill;
           ct.fill();
           ct.strokeStyle = colors.border;
-          ct.lineWidth = 2;
+          ct.lineWidth = isHighlighted ? 3 : 2;
           ct.stroke();
         } else {
           ct.beginPath(); ct.arc(n.x, n.y, r, 0, Math.PI * 2);
           ct.fillStyle = colors.fill; ct.fill();
-          ct.strokeStyle = colors.border; ct.lineWidth = 2; ct.stroke();
+          ct.strokeStyle = isHighlighted ? "#D98A00" : colors.border; ct.lineWidth = isHighlighted ? 3 : 2; ct.stroke();
         }
 
         ct.fillStyle = "#3E3024";
@@ -326,7 +334,7 @@ export function GraphCanvas({
     }
     render();
     return () => cancelAnimationFrame(raf);
-  }, [data, zoom, pan, selectedId]);
+  }, [data, zoom, pan, selectedId, highlightedIds]);
 
   const toWorld = (cx: number, cy: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };
@@ -384,7 +392,7 @@ export function GraphCanvas({
         <div className="absolute pointer-events-none z-30 rounded-xl bg-[#3E3024]/90 backdrop-blur px-3 py-2 text-[11px] text-[#FBF4EC] shadow-lg"
           style={{ left: tooltip.x + 14, top: tooltip.y - 20, maxWidth: 260 }}>
           <div className="font-medium text-xs">{tooltip.n.label}</div>
-          <div className="mt-0.5 text-[10px] opacity-70">{tooltip.n.type} · {tooltip.n.degree ?? 0} conexões</div>
+           <div className="mt-0.5 text-[10px] opacity-70">{tooltip.n.type} · {tooltip.n.degree ?? 0} {t("connections")}</div>
           {tooltip.n.summary && (
             <div className="mt-1 text-[10px] opacity-80 line-clamp-3">{tooltip.n.summary}</div>
           )}

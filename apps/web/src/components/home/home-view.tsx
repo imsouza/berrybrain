@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace } from "@/contexts/workspace-context";
+import { t, tf } from "@/i18n";
 import { ThemedProgressBar } from "./themed-progress-bar";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
@@ -64,6 +65,68 @@ type ConnectionItem = { id: number; type: string; confidence: number; confidence
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
 
+const DEMO_HOME_SUMMARY: HomeSummary = {
+  status: {
+    worker: "online",
+    workerLastHeartbeat: new Date().toISOString(),
+    ollama: "offline",
+    cloudProvider: "local-demo",
+    cloudModel: "demo",
+    cloudStatus: "completed",
+    pendingJobs: 0,
+    activeJobs: 0,
+    lastProcessingAt: new Date().toISOString(),
+  },
+  progress: {
+    mode: "determinate",
+    percent: 100,
+    active: 0,
+    pending: 0,
+    completed: 2,
+    failed: 0,
+    currentStep: "",
+    lastResult: "GENERATE_GRAPH_INSIGHTS",
+    status: "completed",
+  },
+  stats: {
+    notes: { total: 3, createdToday: 3, unassimilated: 0 },
+    connections: { total: 4, createdToday: 4, averageConfidence: 0.82 },
+    concepts: { total: 8, newToday: 8, withoutPermanentNote: 2 },
+    jobs: { pending: 0, active: 0, failed: 0, completedToday: 2, total: 2 },
+    ai: { provider: "local-demo", model: "demo", metadata: 3, embeddings: 3, jobsProcessed: 2, errors: 0 },
+  },
+  recentNotes: [],
+  activeJobs: [],
+  recentlyCompleted: [],
+  recentActivity: [],
+  recentInsights: [],
+  recentConnections: [],
+  graphSummary: { nodes: 8, edges: 4, orphans: 0, clusters: 2, centralNotes: [], updatedAt: new Date().toISOString() },
+  needsAttention: [],
+  jobsByType: {},
+};
+
+function homeJobLabel(type: string): string {
+  const labels: Record<string, string> = {
+    PARSE_NOTE: "Read note",
+    CLASSIFY_NOTE: "Classify note",
+    ASSIMILATE_NOTE: "Assimilate concepts",
+    EXTRACT_CONCEPTS: "Extract concepts",
+    EXTRACT_ENTITIES: "Extract entities",
+    DETECT_TOPICS: "Detect topics",
+    EXTRACT_CONTEXT: "Detect context",
+    GENERATE_EMBEDDING: "Generate embedding",
+    FIND_CONNECTIONS: "Find connections",
+    EXPAND_KNOWLEDGE_GRAPH: "Expand graph",
+    GENERATE_INFERRED_CONNECTIONS: "Infer connections",
+    EXPAND_CONCEPT_TO_NOTE: "Expand concepts",
+    GENERATE_GRAPH_INSIGHTS: "Generate graph insights",
+    UPDATE_GRAPH_STATS: "Update graph stats",
+    GENERATE_NOTE_TITLE: "Apply title",
+  };
+  return labels[type] || type;
+}
+
 export function HomeView() {
   const w = useWorkspace();
   const [summary, setSummary] = useState<HomeSummary | null>(null);
@@ -71,10 +134,22 @@ export function HomeView() {
   const [error, setError] = useState(false);
   const [starterText, setStarterText] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]>([]);
 
   const loadSummary = useCallback(() => {
     setLoading(true);
     setError(false);
+    if (w.demo) {
+      // ponytail: reflect the cloud provider the user configured in the demo
+      const provider = localStorage.getItem("bb_ai_provider") || "local";
+      const model = localStorage.getItem("bb_ai_model") || "";
+      setSummary({
+        ...DEMO_HOME_SUMMARY,
+        status: { ...DEMO_HOME_SUMMARY.status, cloudProvider: provider, cloudModel: model },
+      });
+      setLoading(false);
+      return;
+    }
     fetch(`${w.api}/api/v1/home/summary`)
       .then((r) => {
         if (!r.ok) throw new Error("home-summary");
@@ -83,7 +158,11 @@ export function HomeView() {
       .then(setSummary)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [w.api]);
+    fetch(`${w.api}/api/v1/jobs/pipeline-progress`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.notes) setPipelineProgress(d.notes); })
+      .catch(() => {});
+  }, [w.api, w.demo]);
 
   const updateConnectionStatus = useCallback(
     async (id: number, action: "confirm" | "ignore") => {
@@ -91,10 +170,10 @@ export function HomeView() {
         method: "POST",
       });
       if (!response.ok) {
-        w.toast("Não foi possível atualizar a conexão.", "error");
+        w.toast("Could not update the connection.", "error");
         return;
       }
-      w.toast(action === "confirm" ? "Conexão confirmada." : "Conexão ignorada.", "success");
+      w.toast(action === "confirm" ? "Connection confirmed." : "Connection ignored.", "success");
       loadSummary();
     },
     [loadSummary, w],
@@ -119,7 +198,7 @@ export function HomeView() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <div className="text-sm text-muted/40 animate-pulse-soft">Carregando resumo do BerryBrain...</div>
+        <div className="text-sm text-muted/40 animate-pulse-soft">{t("loadingSummary")}</div>
       </div>
     );
   }
@@ -128,8 +207,8 @@ export function HomeView() {
     return (
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="text-center">
-          <div className="text-sm font-medium">Não foi possível carregar a Home.</div>
-          <button className="mt-3 h-9 rounded-xl bg-accent px-4 text-xs font-medium text-white" onClick={loadSummary}>Tentar novamente</button>
+          <div className="text-sm font-medium">{t("loadHomeFailed")}</div>
+          <button className="mt-3 h-9 rounded-xl bg-accent px-4 text-xs font-medium text-white" onClick={loadSummary}>{t("retry")}</button>
         </div>
       </div>
     );
@@ -150,13 +229,13 @@ export function HomeView() {
             className="min-h-40 w-full resize-none rounded-3xl border border-border bg-panel px-5 py-4 text-sm leading-7 shadow-sm outline-none transition placeholder:text-muted/35 focus:border-accent"
             disabled={creatingDraft}
             onChange={(event) => startWriting(event.target.value)}
-            placeholder={noNotes ? "Comece escrevendo sua primeira nota." : "Comece a escrever. O BerryBrain cria a nota, salva no vault e aciona o Autopilot."}
+            placeholder={noNotes ? t("startFirstNote") : t("startNote")}
             value={starterText}
           />
           <div className="mt-2 flex items-center justify-between text-[11px] text-muted/45">
-            <span>{creatingDraft ? "Criando nota..." : "Sem título necessário"}</span>
+            <span>{creatingDraft ? t("creatingNote") : t("noTitleNeeded")}</span>
             <button className="rounded-lg px-2 py-1 hover:bg-surface hover:text-muted" onClick={() => w.createDraft()}>
-              Criar rascunho vazio
+              {t("createEmptyDraft")}
             </button>
           </div>
         </div>
@@ -168,7 +247,7 @@ export function HomeView() {
             <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
           </div>
           <div className="space-y-6">
-            <ActiveJobsPanel jobs={summary.activeJobs} onOpenMonitor={() => w.setMonitorOpen(true)} />
+            <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
             {summary.needsAttention.length > 0 && (
             <NeedsAttentionCard items={summary.needsAttention} onOpenMonitor={() => w.setMonitorOpen(true)} />
@@ -177,13 +256,14 @@ export function HomeView() {
         </div>
 
         <StatsGrid summary={summary} />
+        <InfographicsGrid summary={summary} />
         <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
         <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
 
         <div className="mt-8 flex flex-wrap gap-2">
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setGraphOpen(true)}>Ver grafo</button>
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setMonitorOpen(true)}>Monitor</button>
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={w.scanVault}>Scan vault</button>
+          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
+          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
+          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={w.scanVault}>{t("scanVault")}</button>
         </div>
       </div>
     </div>
@@ -193,19 +273,19 @@ export function HomeView() {
 function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: string; onGraph: () => void }) {
   return (
     <header className="mb-8">
-      <h1 className="text-lg font-semibold tracking-tight">Bom estudo, {nome}.</h1>
-      <p className="mt-1 text-sm text-muted/60">Continue escrevendo. O BerryBrain organiza, conecta e assimila automaticamente.</p>
+      <h1 className="text-lg font-semibold tracking-tight">{t("homeGreeting")}, {nome}.</h1>
+      <p className="mt-1 text-sm text-muted/60">{t("keepWriting")}</p>
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted/55">
-        <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" ? "ok" : "bad"} />
+        <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" || summary.status.worker === "online" ? "ok" : "bad"} />
         <StatusBadge label={`Ollama ${summary.status.ollama}`} status={summary.status.ollama === "online" ? "ok" : "bad"} />
         <StatusBadge label={`Cloud: ${providerLabel(summary.status.cloudProvider)}${summary.status.cloudModel ? ` · ${summary.status.cloudModel}` : ""}`} status={summary.status.cloudProvider === "local" ? "muted" : "ok"} />
-        <span>{summary.status.activeJobs} ativos · {summary.status.pendingJobs} na fila</span>
-        {summary.status.lastProcessingAt && <span>Último processamento {formatTime(summary.status.lastProcessingAt)}</span>}
+        <span>{tf("activeJobsCount", { count: summary.status.activeJobs })} · {tf("queuedCount", { count: summary.status.pendingJobs })}</span>
+        {summary.status.lastProcessingAt && <span>{t("lastProcessing")} {formatTime(summary.status.lastProcessingAt)}</span>}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <HeaderLink onClick={() => (window.location.href = "/activity")}>Ver atividade</HeaderLink>
-        <HeaderLink onClick={() => (window.location.href = "/insights")}>Ver insights</HeaderLink>
-        <HeaderLink onClick={onGraph}>Ver grafo</HeaderLink>
+        <HeaderLink onClick={() => (window.location.href = "/activity")}>{t("viewActivity")}</HeaderLink>
+        <HeaderLink onClick={() => (window.location.href = "/insights")}>{t("viewInsights")}</HeaderLink>
+        <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
       </div>
     </header>
   );
@@ -218,9 +298,9 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
     <button className="w-full rounded-2xl bg-surface p-5 text-left ring-1 ring-border/40 transition hover:ring-accent/30" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">{status === "completed" ? "Autopilot em dia" : "Autopilot processando"}</div>
+          <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
           <p className="mt-1 text-xs text-muted/60">
-            {summary.progress.active} ativos · {summary.progress.pending} na fila · {summary.progress.percent}% concluído
+            {tf("activeJobsCount", { count: summary.progress.active })} · {tf("queuedCount", { count: summary.progress.pending })} · {tf("percentDone", { percent: summary.progress.percent })}
           </p>
         </div>
         <span className="rounded-full bg-panel px-2.5 py-1 text-[11px] text-muted/60">{summary.progress.currentStep}</span>
@@ -234,10 +314,10 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
         />
       </div>
       <div className="mt-4 grid gap-3 text-xs text-muted/65 sm:grid-cols-2">
-        <div><span className="text-muted/45">Etapa atual:</span> {summary.progress.currentStep}</div>
-        <div><span className="text-muted/45">Último resultado:</span> {summary.progress.lastResult}</div>
+        <div><span className="text-muted/45">{t("currentStep")}:</span> {summary.progress.currentStep}</div>
+        <div><span className="text-muted/45">{t("lastResult")}:</span> {summary.progress.lastResult}</div>
       </div>
-      {running && <div className="mt-3 text-[11px] text-muted/45">Clique para abrir detalhes dos jobs ativos.</div>}
+      {running && <div className="mt-3 text-[11px] text-muted/45">{t("clickForJobDetails")}</div>}
     </button>
   );
 }
@@ -251,9 +331,9 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
   };
 
   return (
-    <Section title="Insights da IA">
+    <Section title={t("aiInsights")}>
       {insights.length === 0 ? (
-        <EmptyState title="Nenhum insight ainda." text="Continue escrevendo para o BerryBrain detectar padrões." />
+        <EmptyState title={t("noInsightsYet")} text={t("keepWritingForInsights")} />
       ) : (
         <div className="space-y-2">
           {insights.slice(0, 4).map((insight) => (
@@ -266,9 +346,9 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
               <p className="mt-1 text-xs font-medium">{insight.title}</p>
               {insight.description && <p className="mt-1 text-[11px] leading-5 text-muted/65 line-clamp-2">{insight.description}</p>}
               <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/insights"}>Ver detalhes</button>
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => dismissInsight(insight.id, "dismiss")}>Aplicar</button>
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => dismissInsight(insight.id, "ignore")}>Ignorar</button>
+                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/insights"}>{t("viewDetails")}</button>
+                <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => dismissInsight(insight.id, "dismiss")}>{t("apply")}</button>
+                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => dismissInsight(insight.id, "ignore")}>{t("ignore")}</button>
               </div>
             </div>
           ))}
@@ -278,23 +358,35 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
   );
 }
 
-function ActiveJobsPanel({ jobs, onOpenMonitor }: { jobs: ActiveJob[]; onOpenMonitor: () => void }) {
+function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: ActiveJob[]; pipelineProgress: { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]; onOpenMonitor: () => void }) {
+  const progressByPath = new Map(pipelineProgress.map((p) => [p.notePath, p]));
   return (
-    <Section title="Processando agora">
+    <Section title={t("processingNow")}>
       {jobs.length === 0 ? (
-        <EmptyState title="Tudo pronto." text="Nenhuma tarefa ativa no momento." />
+        <EmptyState title={t("allReady")} text={t("noActiveTasks")} />
       ) : (
         <div className="space-y-2">
-          {jobs.slice(0, 5).map((job) => (
-            <button key={job.id} className="w-full rounded-xl bg-surface p-3 text-left ring-1 ring-border/35 hover:ring-accent/30" onClick={onOpenMonitor}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">{job.label}</span>
-                <span className="text-[10px] text-muted/45">{formatElapsed(job.elapsedSeconds || 0)}</span>
-              </div>
-              <p className="mt-1 truncate text-[11px] text-muted/60">{job.noteTitle || job.notePath || "Sistema"}</p>
-              <p className="mt-1 text-[10px] text-muted/45">{providerLabel(job.provider || "")}{job.model ? ` · ${job.model}` : ""}</p>
-            </button>
-          ))}
+          {jobs.slice(0, 5).map((job) => {
+            const pp = job.notePath ? progressByPath.get(job.notePath) : undefined;
+            return (
+              <button key={job.id} className="w-full rounded-xl bg-surface p-3 text-left ring-1 ring-border/35 hover:ring-accent/30" onClick={onOpenMonitor}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium">{job.label}</span>
+                  <span className="text-[10px] text-muted/45">{formatElapsed(job.elapsedSeconds || 0)}</span>
+                </div>
+                <p className="mt-1 truncate text-[11px] text-muted/60">{job.noteTitle || job.notePath || "Sistema"}</p>
+                {pp && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-border/30">
+                      <div className="h-full rounded-full bg-accent/70" style={{ width: `${pp.percent}%` }} />
+                    </div>
+                    <span className="text-[10px] text-muted/50">{tf("pipelineStep", { step: String(pp.completed), total: String(pp.total) })}</span>
+                  </div>
+                )}
+                <p className="mt-1 text-[10px] text-muted/45">{providerLabel(job.provider || "")}{job.model ? ` · ${job.model}` : ""}</p>
+              </button>
+            );
+          })}
         </div>
       )}
     </Section>
@@ -307,20 +399,20 @@ function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: 
     try {
       const r = await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
       if (!r.ok) throw new Error("expand-fail");
-      onToast("Expansao do grafo iniciada.", "success");
+      onToast("Graph expansion started.", "success");
     } catch {
-      onToast("Erro ao expandir grafo.", "error");
+      onToast("Could not expand the graph.", "error");
     }
   };
   return (
-    <Section title="Grafo de conhecimento">
+    <Section title={t("knowledgeGraph")}>
       <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
-        <div className="text-sm font-semibold">{graph.nodes} nós · {graph.edges} conexões</div>
-        <p className="mt-1 text-xs text-muted/60">{graph.orphans} órfãs · {graph.clusters} clusters</p>
+        <div className="text-sm font-semibold">{graph.nodes} nodes · {graph.edges} connections</div>
+        <p className="mt-1 text-xs text-muted/60">{graph.orphans} {t("orphans")} · {graph.clusters} {t("clusters")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={onOpenGraph}>Abrir grafo</button>
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={() => { if (typeof window !== "undefined") localStorage.setItem("bb_graph_filter_orphans", "1"); onOpenGraph(); }}>Ver órfãs</button>
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={recalcular}>Recalcular conexões</button>
+          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={onOpenGraph}>{t("openGraph")}</button>
+          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={() => { if (typeof window !== "undefined") localStorage.setItem("bb_graph_filter_orphans", "1"); onOpenGraph(); }}>{t("viewOrphans")}</button>
+          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={recalcular}>{t("recalcConnections")}</button>
         </div>
       </div>
     </Section>
@@ -330,13 +422,13 @@ function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: 
 function NeedsAttentionCard({ items, onOpenMonitor }: { items: AttentionItem[]; onOpenMonitor: () => void }) {
   if (items.length === 0) {
     return (
-      <Section title="Precisa de atenção">
-        <div className="rounded-xl bg-surface p-4 text-xs text-muted/60 ring-1 ring-border/35">Tudo certo.</div>
+      <Section title={t("needsAttention")}>
+        <div className="rounded-xl bg-surface p-4 text-xs text-muted/60 ring-1 ring-border/35">{t("allGood")}</div>
       </Section>
     );
   }
   return (
-    <Section title="Precisa de atenção">
+    <Section title={t("needsAttention")}>
       <div className="space-y-2">
         {items.map((item) => (
           <button key={item.kind} className="w-full rounded-xl bg-surface p-3 text-left ring-1 ring-border/35 hover:ring-accent/30" onClick={onOpenMonitor}>
@@ -352,15 +444,81 @@ function NeedsAttentionCard({ items, onOpenMonitor }: { items: AttentionItem[]; 
 function StatsGrid({ summary }: { summary: HomeSummary }) {
   const s = summary.stats;
   return (
-    <Section title="Estatísticas" className="mt-8">
+    <Section title={t("stats")} className="mt-8">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Notas" value={s.notes.total} detail={`+${s.notes.createdToday} hoje · ${s.notes.unassimilated} não assimiladas`} />
-        <StatCard label="Conexões" value={s.connections.total} detail={`${s.connections.createdToday} novas · ${percent(s.connections.averageConfidence)} confiança`} />
-        <StatCard label="Conceitos" value={s.concepts.total} detail={`${s.concepts.newToday} novos · ${s.concepts.withoutPermanentNote} sem nota`} />
-        <StatCard label="Jobs" value={s.jobs.pending} detail={`${s.jobs.active} ativos · ${s.jobs.failed} erros`} />
-        <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? "Online" : "Local"} detail={`${s.ai.embeddings} embeddings · ${s.ai.metadata} metadados`} />
+        <StatCard label={t("notes")} value={s.notes.total} detail={`+${s.notes.createdToday} ${t("oneCreatedToday")} · ${s.notes.unassimilated} ${t("notAssimilated")}`} />
+        <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")} · ${percent(s.connections.averageConfidence)} ${t("confidence")}`} />
+        <StatCard label={t("concepts")} value={s.concepts.total} detail={`${s.concepts.newToday} ${t("newToday")} · ${s.concepts.withoutPermanentNote} ${t("withoutNote")}`} />
+        <StatCard label={t("jobs")} value={s.jobs.pending} detail={`${tf("activeJobsCount", { count: s.jobs.active })} · ${s.jobs.failed} ${t("errors")}`} />
+        <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? t("online") : t("local")} detail={`${s.ai.embeddings} ${t("embeddings")} · ${s.ai.metadata} ${t("metadata")}`} />
       </div>
     </Section>
+  );
+}
+
+function InfographicsGrid({ summary }: { summary: HomeSummary }) {
+  const s = summary.stats;
+  const g = summary.graphSummary;
+  const assimilated = s.notes.total > 0 ? (s.notes.total - s.notes.unassimilated) / s.notes.total : 0;
+  const graphHealth = g.nodes > 0 ? (g.nodes - g.orphans) / g.nodes : 0;
+  const jobEntries = Object.entries(summary.jobsByType || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  return (
+    <Section title={t("overview")} className="mt-8">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Donut label={t("assimilation")} value={assimilated} caption={`${s.notes.total - s.notes.unassimilated}/${s.notes.total} ${t("notes")}`} />
+        <Donut label={t("avgConfidence")} value={s.connections.averageConfidence} caption={`${s.connections.total} ${t("connections")}`} />
+        <Donut label={t("graphHealth")} value={graphHealth} caption={`${g.orphans} ${t("orphans")} ${t("of")} ${g.nodes}`} />
+        <div className="rounded-xl bg-surface px-4 py-3 ring-1 ring-border/30">
+          <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted/40">{t("jobsByType")}</div>
+          {jobEntries.length === 0 ? (
+            <p className="text-[11px] text-muted/50">{t("noJobsRecorded")}</p>
+          ) : (
+            <BarList entries={jobEntries} />
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function Donut({ label, value, caption }: { label: string; value: number; caption?: string }) {
+  const pct = Math.max(0, Math.min(1, value || 0));
+  const r = 26;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - pct);
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-surface px-4 py-3 ring-1 ring-border/30">
+      <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0 -rotate-90">
+        <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-border)" strokeWidth="7" />
+        <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-accent)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} />
+      </svg>
+      <div className="min-w-0">
+        <div className="text-lg font-semibold tabular-nums">{Math.round(pct * 100)}%</div>
+        <div className="text-[10px] text-muted/50">{label}</div>
+        {caption && <div className="mt-0.5 truncate text-[10px] text-muted/45">{caption}</div>}
+      </div>
+    </div>
+  );
+}
+
+function BarList({ entries }: { entries: [string, number][] }) {
+  const max = Math.max(...entries.map(([, v]) => v), 1);
+  return (
+    <div className="space-y-1.5">
+      {entries.map(([type, count]) => (
+        <div key={type}>
+          <div className="flex items-center justify-between text-[10px] text-muted/60">
+            <span className="min-w-0 truncate">{homeJobLabel(type)}</span>
+            <span className="ml-2 rounded-full bg-panel px-1.5 py-0.5 tabular-nums text-muted/55">{count}</span>
+          </div>
+          <div className="mt-0.5 h-1.5 rounded-full bg-panel">
+            <div className="h-full rounded-full bg-accent" style={{ width: `${(count / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -374,26 +532,26 @@ function RecentConnectionsList({
   onUpdateStatus: (id: number, action: "confirm" | "ignore") => void;
 }) {
   return (
-    <Section title="Conexões recentes" className="mt-8">
+    <Section title={t("recentConnections")} className="mt-8">
       {connections.length === 0 ? (
-        <EmptyState title="Nenhuma conexão encontrada ainda." text="O Autopilot criará relações conforme assimilar suas notas." />
+        <EmptyState title={t("noConnectionsYet")} text={t("autopilotCreatesRelations")} />
       ) : (
         <div className="space-y-2">
           {connections.slice(0, 5).map((connection) => (
             <div key={connection.id} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
               <div className="text-xs font-medium">
-                {connection.source?.title || "Origem"} ↔ {connection.target?.title || "Destino"}
+                {connection.source?.title || t("origin")} ↔ {connection.target?.title || t("destination")}
               </div>
-              <p className="mt-1 text-[11px] leading-5 text-muted/65">{connection.reason || "Conexão sem motivo registrado."}</p>
+              <p className="mt-1 text-[11px] leading-5 text-muted/65">{connection.reason || t("noReason")}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted/55">
-                <span>Confiança: {connection.confidencePercent}%</span>
-                <span className="rounded-full bg-panel px-2 py-1">{connection.status || "suggested"}</span>
-                <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={onOpenGraph}>Ver no grafo</button>
+                <span>{t("connectionConfidence")}: {connection.confidencePercent}%</span>
+                <span className="rounded-full bg-panel px-2 py-1">{connection.status || t("suggested")}</span>
+                <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={onOpenGraph}>{t("viewInGraph")}</button>
                 {connection.status !== "confirmed" && (
-                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "confirm")}>Confirmar</button>
+                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "confirm")}>{t("confirm")}</button>
                 )}
                 {connection.status !== "ignored" && (
-                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "ignore")}>Ignorar</button>
+                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "ignore")}>{t("ignore")}</button>
                 )}
               </div>
             </div>
@@ -406,17 +564,17 @@ function RecentConnectionsList({
 
 function RecentActivityTimeline({ activity, completed }: { activity: ActivityItem[]; completed: CompletionItem[] }) {
   return (
-    <Section title="Atividade recente" className="mt-8">
+    <Section title={t("recentActivity")} className="mt-8">
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
-          <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">Pronto recentemente</div>
-          {completed.length === 0 ? <p className="text-xs text-muted/50">Nenhum resultado concluído recentemente.</p> : completed.slice(0, 5).map((item) => (
+          <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("doneRecently")}</div>
+          {completed.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentResults")}</p> : completed.slice(0, 5).map((item) => (
             <RowLine key={item.id} left={item.label} right={formatTime(item.completedAt)} />
           ))}
         </div>
         <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
-          <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">Fila automática</div>
-          {activity.length === 0 ? <p className="text-xs text-muted/50">Nenhuma atividade recente.</p> : activity.slice(0, 5).map((item, index) => (
+          <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("autoQueue")}</div>
+          {activity.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentActivity")}</p> : activity.slice(0, 5).map((item, index) => (
             <RowLine key={item.id || index} left={item.description} right={formatTime(item.when)} />
           ))}
         </div>
@@ -490,24 +648,24 @@ function providerLabel(provider: string) {
 
 function insightTypeLabel(type: string) {
   return {
-    context: "Tema central",
-    conclusion: "Relação confirmada",
-    hypothesis: "Possível conexão",
-    premise: "Padrão recorrente",
-    assertion: "Evidência forte",
-    knowledge_gap: "Falta explorar",
-    new_connection: "Nova conexão",
-    study_path: "Trilha de estudo",
-    possible_contradiction: "Possível conflito",
-    deepening_opportunity: "Aprofundamento",
-    recurring_concept: "Conceito recorrente",
-    review_opportunity: "Revisão sugerida",
-    permanent_note_candidate: "Nota sugerida",
-    emerging_context: "Contexto emergente",
-    isolated_note: "Nota isolada",
-    isolated_concept: "Conceito isolado",
-    weak_note: "Nota a fortalecer",
-    duplicate_content: "Duplicidade",
+    context: "Central theme",
+    conclusion: "Confirmed relationship",
+    hypothesis: "Possible connection",
+    premise: "Recurring pattern",
+    assertion: "Strong evidence",
+    knowledge_gap: "Gap to explore",
+    new_connection: "New connection",
+    study_path: "Study path",
+    possible_contradiction: "Possible conflict",
+    deepening_opportunity: "Deepening opportunity",
+    recurring_concept: "Recurring concept",
+    review_opportunity: "Suggested review",
+    permanent_note_candidate: "Suggested note",
+    emerging_context: "Emerging context",
+    isolated_note: "Isolated note",
+    isolated_concept: "Isolated concept",
+    weak_note: "Weak note",
+    duplicate_content: "Duplicate content",
   }[type] || type.replace(/_/g, " ");
 }
 

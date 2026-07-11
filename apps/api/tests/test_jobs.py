@@ -159,6 +159,31 @@ class JobServiceTest(unittest.TestCase):
         self.assertIn("GENERATE_NOTE_TITLE", [job.type for job in draft_jobs])
         self.assertNotIn("GENERATE_NOTE_TITLE", [job.type for job in normal_jobs])
 
+    def test_enqueue_note_changed_jobs_is_idempotent_by_type_path_and_hash(self) -> None:
+        first = enqueue_note_changed_jobs(
+            self.session,
+            note_path="inbox/reprocess.md",
+            event_type="NOTE_UPDATED",
+            content_hash="hash-a",
+        )
+        second = enqueue_note_changed_jobs(
+            self.session,
+            note_path="inbox/reprocess.md",
+            event_type="NOTE_UPDATED",
+            content_hash="hash-a",
+        )
+        third = enqueue_note_changed_jobs(
+            self.session,
+            note_path="inbox/reprocess.md",
+            event_type="NOTE_UPDATED",
+            content_hash="hash-b",
+        )
+
+        self.assertEqual(len(first), 14)
+        self.assertEqual(second, [])
+        self.assertEqual(len(third), 14)
+        self.assertTrue(all('"content_hash":"hash-b"' in job.payload for job in third))
+
     def test_claim_respects_note_pipeline_order(self) -> None:
         jobs = enqueue_note_changed_jobs(
             self.session,

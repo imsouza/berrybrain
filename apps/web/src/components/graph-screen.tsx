@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
+import { t, tf } from "@/i18n";
 
 const EDGE_COLORS: Record<string, string> = {
   semantic: "#D98A00",
@@ -32,6 +33,14 @@ type GraphNode = {
   confidence?: number;
   createdBy?: string;
   createdByModel?: string;
+  aiContext?: string;
+  aiSummary?: string;
+  sourceEvidence?: string;
+  learningValue?: string;
+  sourceQuality?: string;
+  validationStatus?: string;
+  provider?: string;
+  model?: string;
 };
 
 type GraphEdge = {
@@ -49,12 +58,12 @@ type GraphEdge = {
 };
 
 type InferenceResult = {
-  status: "answered" | "insufficient_evidence" | string;
+  status: "answered" | "success" | "sufficient_evidence" | "insufficient_evidence" | string;
   question: string;
   answer: string;
-  relatedNodes?: string[];
+  relatedNodes?: Array<string | { id?: number | string; title?: string; label?: string; type?: string; path?: string }>;
   connections?: { id?: number; type: string; reason: string; confidence?: number }[];
-  evidence?: string[];
+  evidence?: Array<string | { source?: string; title?: string; text?: string; reference?: string; data?: unknown; metadata?: Record<string, unknown> }>;
   actions?: string[];
   provider?: string;
   model?: string;
@@ -74,6 +83,16 @@ type NodeSummary = {
   status: string;
   aiNotes?: string;
   userNotes?: string;
+  aiContext?: string;
+  aiSummary?: string;
+  sourceEvidence?: string;
+  learningValue?: string;
+  sourceQuality?: string;
+  validationStatus?: string;
+  provider?: string;
+  model?: string;
+  promptVersion?: string;
+  generatedAt?: string | null;
   notes: { id: number; title: string; path: string }[];
   connections: {
     id: number;
@@ -90,6 +109,137 @@ type NodeSummary = {
   }[];
   whyThisExists: string;
 };
+
+type GraphActionId =
+  | "confirm-node"
+  | "ignore-node"
+  | "reprocess-node"
+  | "enrich-node-ai"
+  | "validate-node-web";
+
+type GraphAction = {
+  id: GraphActionId;
+  label: string;
+  variant: "primary" | "secondary" | "danger";
+  visible: boolean;
+  disabled: boolean;
+  requiresConfirmation: boolean;
+  reasonDisabled?: string;
+};
+
+function getAvailableGraphActions(
+  item: GraphNode | null,
+  options: { researchModeEnabled: boolean },
+): GraphAction[] {
+  if (!item) return [];
+  const status = item.status || "suggested";
+  return [
+    {
+      id: "confirm-node",
+      label: item.type === "insight" ? "Apply Insight" : "Confirm Node",
+      variant: "primary",
+      visible: status === "suggested",
+      disabled: false,
+      requiresConfirmation: false,
+    },
+    {
+      id: "ignore-node",
+      label: item.type === "insight" ? "Ignore Insight" : "Ignore Node",
+      variant: "secondary",
+      visible: status === "suggested",
+      disabled: false,
+      requiresConfirmation: false,
+    },
+    {
+      id: "reprocess-node",
+      label: "Reprocess node",
+      variant: "secondary",
+      visible: true,
+      disabled: false,
+      requiresConfirmation: false,
+    },
+    {
+      id: "enrich-node-ai",
+      label: "Enrich with AI",
+      variant: "secondary",
+      visible: true,
+      disabled: false,
+      requiresConfirmation: false,
+    },
+    {
+      id: "validate-node-web",
+      label: "Validate with web",
+      variant: "secondary",
+      visible: options.researchModeEnabled,
+      disabled: !options.researchModeEnabled,
+      requiresConfirmation: true,
+      reasonDisabled: "Research Mode is disabled in Settings.",
+    },
+  ];
+}
+
+function relatedNodeLabel(item: NonNullable<InferenceResult["relatedNodes"]>[number]): string {
+  if (typeof item === "string") return item;
+  return item.title || item.label || String(item.id || "Related node");
+}
+
+function resolveRelatedInferenceNodes(
+  inference: InferenceResult | null,
+  graphData: { nodes: GraphNode[]; edges: GraphEdge[]; stats?: any } | null,
+): Array<{ id: string; label: string }> {
+  if (!inference?.relatedNodes?.length || !graphData) return [];
+  const resolved = new Map<string, { id: string; label: string }>();
+  for (const item of inference.relatedNodes) {
+    const label = relatedNodeLabel(item);
+    const objectId = typeof item === "object" ? item.id : undefined;
+    const objectType = typeof item === "object" ? item.type : undefined;
+    const objectPath = typeof item === "object" ? item.path : undefined;
+    const found = graphData.nodes.find((node) => {
+      if (objectId && node.recordId === Number(objectId)) return true;
+      if (objectId && node.sourceId === Number(objectId)) return true;
+      if (objectId && objectType && node.id === `${objectType}_${objectId}`) return true;
+      if (objectPath && node.path === objectPath) return true;
+      return node.label === label || node.title === label;
+    });
+    if (found) resolved.set(found.id, { id: found.id, label: found.label });
+  }
+  return [...resolved.values()];
+}
+
+function formatInferenceEvidence(
+  item: NonNullable<InferenceResult["evidence"]>[number],
+): string {
+  return formatEvidenceLabel(item);
+}
+
+function parseMaybeJson(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function formatEvidenceLabel(item: unknown): string {
+  const parsed = typeof item === "string" ? parseMaybeJson(item) : item;
+  if (typeof parsed === "string") {
+    return parsed
+      .replace(/\bexplainedConnections\b/g, "explained connections")
+      .replace(/\bgraphNotes\b/g, "graph notes")
+      .replace(/\bjobsByType\.[A-Z0-9_]+\b/g, "system activity")
+      .replace(/\bGENERATE_NOTE_TITLE\b/g, "automatic title generation");
+  }
+  if (!parsed || typeof parsed !== "object") return "";
+  const record = parsed as Record<string, unknown>;
+  const parts = [
+    record.title || record.label || record.source || "",
+    record.text || record.reference || record.path || record.reason || "",
+    record.whyRelevant || record.quoteOrSummary || "",
+  ].filter(Boolean);
+  return parts.join(": ") || "Evidence available in technical details.";
+}
 
 export function GraphScreen({
   apiUrl,
@@ -111,7 +261,11 @@ export function GraphScreen({
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProvider, setFilterProvider] = useState("all");
   const [filterConfidence, setFilterConfidence] = useState(0);
-  const [showCognitivos, setShowCognitivos] = useState(false);
+  const [showInsightNodes, setShowInsightNodes] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("bb_graph_show_insight_nodes") !== "0";
+  });
+  const showCognitivos = true;
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>(() => {
     if (typeof window === "undefined") return "brain";
     const saved = localStorage.getItem("bb_graph_layout");
@@ -120,11 +274,18 @@ export function GraphScreen({
   });
   const [inference, setInference] = useState<InferenceResult | null>(null);
   const [inferLoading, setInferLoading] = useState(false);
+  const [inferenceSaveStatus, setInferenceSaveStatus] = useState("");
+  const [inferenceSaving, setInferenceSaving] = useState(false);
   const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [manualNotes, setManualNotes] = useState("");
+  const [nodeActionStatus, setNodeActionStatus] = useState("");
+  const [actionLoading, setActionLoading] = useState("");
+  const [researchModeEnabled, setResearchModeEnabled] = useState(false);
 
   const graphData = data as { nodes: GraphNode[]; edges: GraphEdge[]; stats?: any } | null;
+  const relatedInferenceNodes = useMemo(() => resolveRelatedInferenceNodes(inference, graphData), [inference, graphData]);
+  const highlightedIds = useMemo(() => relatedInferenceNodes.map((node) => node.id), [relatedInferenceNodes]);
 
   const filtered = useMemo(() => {
     const orphanFilter = typeof window !== "undefined" ? localStorage.getItem("bb_graph_filter_orphans") : null;
@@ -147,6 +308,9 @@ export function GraphScreen({
     }
     if (filterStatus !== "all") nodes = nodes.filter((n) => (n.status || "suggested") === filterStatus);
     else nodes = nodes.filter((n) => (n.status || "suggested") !== "ignored");
+    if (!showInsightNodes && filterType !== "insight") {
+      nodes = nodes.filter((n) => n.type !== "insight");
+    }
     if (filterProvider !== "all") nodes = nodes.filter((n) => {
       const p = (n.createdBy || "system").toLowerCase();
       if (filterProvider === "ai") return p === "ai" || p.startsWith("subagent");
@@ -166,20 +330,38 @@ export function GraphScreen({
     const nids = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => nids.has(e.source) && nids.has(e.target));
     return { nodes, edges };
-  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitivos]);
+  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitivos, showInsightNodes]);
 
   const selectedNode = selectedId
     ? graphData?.nodes.find((n) => n.id === selectedId) ?? null
     : null;
   const selectedEdges = selectedId
     ? graphData?.edges.filter((e) => e.source === selectedId || e.target === selectedId) ?? []
-    : [];
+      : [];
+  const actionNode = selectedNode
+    ? { ...selectedNode, status: nodeSummary?.status || selectedNode.status }
+    : null;
+  const nodeActions = getAvailableGraphActions(actionNode, { researchModeEnabled });
 
   function changeLayout(mode: GraphLayoutMode) {
     setLayoutMode(mode);
     if (typeof window !== "undefined") localStorage.setItem("bb_graph_layout", mode);
     setPan({ x: 0, y: 0 });
     setZoom(1);
+  }
+
+  function toggleInsightNodes() {
+    if (showInsightNodes && selectedNode?.type === "insight") {
+      setSelectedId(null);
+      setShowDetail(false);
+    }
+    setShowInsightNodes((value) => {
+      const next = !value;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("bb_graph_show_insight_nodes", next ? "1" : "0");
+      }
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -219,6 +401,16 @@ export function GraphScreen({
     };
   }, [apiUrl, selectedNode?.recordId, showDetail]);
 
+  useEffect(() => {
+    fetch(`${apiUrl}/api/v1/settings`)
+      .then((r) => r.json())
+      .then((payload) => {
+        const item = (payload.settings || []).find((setting: { key: string; value: string }) => setting.key === "research_mode_enabled");
+        setResearchModeEnabled(item?.value === "true");
+      })
+      .catch(() => setResearchModeEnabled(false));
+  }, [apiUrl]);
+
   function centerNode(id: string) {
     setSelectedId(id);
     setShowDetail(true);
@@ -232,15 +424,9 @@ export function GraphScreen({
   async function runInference() {
     const text = query.trim();
     if (!text) return;
-    const found = graphData?.nodes.find((n) =>
-      n.label.toLowerCase().includes(text.toLowerCase()),
-    );
-    if (found && text.split(/\s+/).length <= 3) {
-      centerNode(found.id);
-      return;
-    }
     setInferLoading(true);
     setInference(null);
+    setInferenceSaveStatus("");
     try {
       const response = await fetch(`${apiUrl}/api/v1/graph/infer`, {
         method: "POST",
@@ -252,7 +438,7 @@ export function GraphScreen({
       setInference({
         status: "error",
         question: text,
-        answer: "Nao foi possivel consultar o grafo agora.",
+        answer: "Could not query the graph right now.",
       });
     } finally {
       setInferLoading(false);
@@ -261,15 +447,35 @@ export function GraphScreen({
 
   async function saveInferenceAsInsight() {
     const text = query.trim();
-    if (!text) return;
-    const response = await fetch(`${apiUrl}/api/v1/insights/from-inference`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: text }),
-    });
-    const payload = await response.json();
-    if (payload.status === "created") {
-      setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
+    if (!text || !inference) return;
+    setInferenceSaving(true);
+    setInferenceSaveStatus("Saving inference as insight...");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/insights/from-inference`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: text, inference }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setInferenceSaveStatus(payload.detail || "Could not save this inference.");
+        return;
+      }
+      if (payload.status === "created") {
+        setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
+        setInferenceSaveStatus(`Saved as insight: ${payload.insight?.title || text}`);
+        reload();
+        return;
+      }
+      if (payload.status === "insufficient_evidence") {
+        setInferenceSaveStatus("Not saved: this answer does not have enough evidence.");
+        return;
+      }
+      setInferenceSaveStatus(payload.status ? `Save result: ${payload.status}` : "Could not save this inference.");
+    } catch {
+      setInferenceSaveStatus("Could not save this inference.");
+    } finally {
+      setInferenceSaving(false);
     }
   }
 
@@ -293,154 +499,326 @@ export function GraphScreen({
     setNodeSummary((current) => current ? { ...current, userNotes: manualNotes } : current);
   }
 
+  async function validateSelectedNodeWithWeb() {
+    if (!selectedNode?.recordId) return;
+    if (!researchModeEnabled) {
+      setNodeActionStatus("Research Mode is disabled in Settings.");
+      return;
+    }
+    if (!window.confirm("This action may query external sources. Continue?")) return;
+    setActionLoading("validate-node-web");
+    setNodeActionStatus("Validating with web...");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.error) {
+        setNodeActionStatus(payload.detail || payload.error || "Web validation failed.");
+        return;
+      }
+      setNodeActionStatus(
+        payload.status === "no_results"
+          ? "No web evidence found."
+          : `Web validation: ${payload.validation_status || payload.status}. ${payload.web_results || 0} sources checked.`,
+      );
+      reload();
+      if (selectedNode.recordId) {
+        const summaryResponse = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
+        if (summaryResponse.ok) setNodeSummary(await summaryResponse.json());
+      }
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function enrichSelectedNodeWithAI() {
+    if (!selectedNode?.recordId) return;
+    setActionLoading("enrich-node-ai");
+    setNodeActionStatus("Enriching node with configured AI...");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setNodeActionStatus(payload.detail || "AI enrichment failed.");
+        return;
+      }
+      setNodeSummary(payload);
+      setNodeActionStatus("Node enriched with AI context and source evidence.");
+      reload();
+    } finally {
+      setActionLoading("");
+    }
+  }
+
   async function updateNodeStatus(status: "confirmed" | "ignored") {
     if (!selectedNode?.recordId) return;
-    const action = status === "confirmed" ? "confirm" : "ignore";
-    const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
-    if (!response.ok) return;
-    setNodeSummary((current) => current ? { ...current, status } : current);
-    if (status === "ignored") {
-      setSelectedId(null);
-      setShowDetail(false);
+    if (selectedNode.type === "insight" && selectedNode.sourceId) {
+      await updateInsightStatus(status);
+      return;
     }
-    reload();
+    setActionLoading(status === "confirmed" ? "confirm-node" : "ignore-node");
+    const action = status === "confirmed" ? "confirm" : "ignore";
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
+      if (!response.ok) {
+        setNodeActionStatus(`${status === "confirmed" ? "Confirm Node" : "Ignore Node"} failed.`);
+        return;
+      }
+      setNodeSummary((current) => current ? { ...current, status } : current);
+      setNodeActionStatus(status === "confirmed" ? "Node confirmed." : "Node ignored.");
+      if (status === "ignored") {
+        setSelectedId(null);
+        setShowDetail(false);
+      }
+      reload();
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function updateInsightStatus(status: "confirmed" | "ignored") {
+    if (!selectedNode?.recordId || !selectedNode.sourceId) return;
+    const isApply = status === "confirmed";
+    setActionLoading(isApply ? "confirm-node" : "ignore-node");
+    try {
+      const insightAction = isApply ? "apply" : "ignore";
+      const insightResponse = await fetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
+      if (!insightResponse.ok) {
+        setNodeActionStatus(isApply ? "Apply Insight failed." : "Ignore Insight failed.");
+        return;
+      }
+      const nodeAction = isApply ? "confirm" : "ignore";
+      await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
+      setNodeSummary((current) => current ? { ...current, status } : current);
+      setNodeActionStatus(isApply ? "Insight applied." : "Insight ignored.");
+      if (!isApply) {
+        setSelectedId(null);
+        setShowDetail(false);
+      }
+      reload();
+    } finally {
+      setActionLoading("");
+    }
   }
 
   async function updateEdgeStatus(edgeId: number, status: "confirmed" | "ignored") {
     const action = status === "confirmed" ? "confirm" : "ignore";
-    const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
-    if (!response.ok) return;
-    setNodeSummary((current) => current ? {
-      ...current,
-      connections: status === "ignored"
-        ? current.connections.filter((connection) => connection.id !== edgeId)
-        : current.connections.map((connection) => connection.id === edgeId ? { ...connection, status } : connection),
-    } : current);
-    reload();
+    setActionLoading(`${action}-connection-${edgeId}`);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
+      if (!response.ok) {
+        setNodeActionStatus(`${status === "confirmed" ? "Confirm Connection" : "Ignore Connection"} failed.`);
+        return;
+      }
+      setNodeSummary((current) => current ? {
+        ...current,
+        connections: status === "ignored"
+          ? current.connections.filter((connection) => connection.id !== edgeId)
+          : current.connections.map((connection) => connection.id === edgeId ? { ...connection, status } : connection),
+      } : current);
+      setNodeActionStatus(status === "confirmed" ? "Connection confirmed." : "Connection ignored.");
+      reload();
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function generateConnectionInsight(edgeId: number) {
+    setActionLoading(`save-insight-${edgeId}`);
+    setNodeActionStatus("Generating connection insight with configured AI...");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setNodeActionStatus(payload.detail || "Connection insight generation failed.");
+        return;
+      }
+      const insight = payload.insight;
+      setNodeActionStatus(
+        insight?.title
+          ? `Insight ${payload.status === "exists" ? "already exists" : "created"}: ${insight.title}`
+          : "Connection insight created.",
+      );
+      reload();
+    } finally {
+      setActionLoading("");
+    }
+  }
+
+  async function reprocessSelectedNode() {
+    if (!selectedNode?.recordId) return;
+    setActionLoading("reprocess-node");
+    setNodeActionStatus("Node reprocess queued.");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/reprocess`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setNodeActionStatus(payload.detail || "Reprocess node failed.");
+        return;
+      }
+      setNodeActionStatus(`Node reprocess queued. Job ${payload.job_id || ""}`.trim());
+    } finally {
+      setActionLoading("");
+    }
   }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 bg-panel shrink-0 text-xs">
+      <div className="relative z-40 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border/50 bg-panel shrink-0 text-xs">
         <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={onClose}>
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
         <div className="min-w-0">
-          <h2 className="text-sm font-medium text-foreground">Grafo de conhecimento</h2>
+          <h2 className="text-sm font-medium text-foreground">{t("graphTitle")}</h2>
           {graphData && (
             <div className="text-[10px] text-muted/60">
-              {graphData.nodes.length} nos · {graphData.edges.length} conexoes · {graphData.stats?.orphan_count ?? 0} orfas
+              {graphData.nodes.length} {t("nodes")} · {graphData.edges.length} {t("edges")} · {graphData.stats?.orphan_count ?? 0} {t("orphans")}
             </div>
           )}
         </div>
         <div className="flex-1" />
-        <div className="flex min-w-[280px] max-w-[520px] flex-1 items-center gap-1">
+        <form
+          className="relative z-50 flex min-w-[240px] flex-1 basis-[320px] items-center gap-1 sm:min-w-[280px] lg:max-w-[520px]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            runInference();
+          }}
+        >
           <input
             type="text"
             className="h-8 min-w-0 flex-1 rounded-lg border border-border/50 bg-surface px-3 text-[11px] outline-none focus:border-accent"
-            placeholder="Busque ou pergunte ao seu grafo..."
+            placeholder={t("graphSearchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") runInference();
-            }}
           />
-          <button className="h-8 rounded-lg bg-accent px-3 text-[11px] text-white disabled:opacity-50" disabled={inferLoading} onClick={runInference}>
-            {inferLoading ? "..." : "Perguntar"}
+          <button
+            type="submit"
+            className="h-8 shrink-0 rounded-lg bg-accent px-3 text-[11px] text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={inferLoading || !query.trim()}
+          >
+            {inferLoading ? "..." : t("ask")}
           </button>
-        </div>
+        </form>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="brain_view">Brain View (tudo)</option>
-          <option value="topicos">Topicos</option>
-          <option value="note">Notas</option>
-          <option value="concept">Conceitos</option>
-          <option value="entidade">Entidades</option>
-          <option value="contexto">Contextos</option>
-          <option value="insight">Insights</option>
-          <option value="lacuna">Lacunas</option>
-          <option value="anexo">Anexos</option>
-          <option value="trilha">Trilhas</option>
-          <option value="cluster">Clusters</option>
-          <option value="fonte">Fontes</option>
+          <option value="brain_view">{t("filterBrainView")}</option>
+          <option value="topicos">{t("filterTopicos")}</option>
+          <option value="note">{t("filterNote")}</option>
+          <option value="concept">{t("filterConcept")}</option>
+          <option value="entidade">{t("filterEntidade")}</option>
+          <option value="contexto">{t("filterContexto")}</option>
+          <option value="insight">{t("filterInsight")}</option>
+          <option value="lacuna">{t("filterLacuna")}</option>
+          <option value="anexo">{t("filterAnexo")}</option>
+          <option value="trilha">{t("filterTrilha")}</option>
+          <option value="cluster">{t("filterCluster")}</option>
+          <option value="fonte">{t("filterFonte")}</option>
         </select>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="all">Status</option>
-          <option value="suggested">Sugerido</option>
-          <option value="confirmed">Confirmado</option>
-          <option value="ignored">Ignorado</option>
+          <option value="all">{t("status")}</option>
+          <option value="suggested">{t("suggested")}</option>
+          <option value="confirmed">{t("confirmed")}</option>
+          <option value="ignored">{t("ignored")}</option>
         </select>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterProvider} onChange={(e) => setFilterProvider(e.target.value)}>
-          <option value="all">Origem</option>
-          <option value="ai">IA</option>
-          <option value="deterministic">Sistema</option>
-          <option value="backlink">Backlink</option>
+          <option value="all">{t("origin")}</option>
+          <option value="ai">{t("ai")}</option>
+          <option value="deterministic">{t("system")}</option>
+          <option value="backlink">{t("backlink")}</option>
         </select>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterConfidence.toString()} onChange={(e) => setFilterConfidence(Number(e.target.value))}>
-          <option value="0">Confianca</option>
+          <option value="0">{t("confidence")}</option>
           <option value="90">90%+</option>
           <option value="70">70%+</option>
           <option value="50">50%+</option>
         </select>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={layoutMode} onChange={(e) => changeLayout(e.target.value as GraphLayoutMode)}>
-          <option value="brain">Brain View padrão</option>
-          <option value="radial">Radial</option>
-          <option value="type">Por tipo</option>
-          <option value="connections">Centralidade</option>
+          <option value="brain">{t("layoutBrain")}</option>
+          <option value="radial">{t("layoutRadial")}</option>
+          <option value="type">{t("layoutType")}</option>
+          <option value="connections">{t("layoutConnections")}</option>
         </select>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>Centralizar</button>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={expandGraph}>Expandir</button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showLegend ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`} onClick={() => setShowLegend(!showLegend)}>Legenda</button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showCognitivos ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`} onClick={() => setShowCognitivos(!showCognitivos)}>Nós cognitivos</button>
+        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
+        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={expandGraph}>{t("expand")}</button>
+        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showInsightNodes ? "bg-surface text-muted hover:text-foreground" : "bg-accent text-white"}`} onClick={toggleInsightNodes}>
+          {showInsightNodes ? t("hideInsightNodes") : t("showInsightNodes")}
+        </button>
+        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showLegend ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
       </div>
 
       {inference && (
         <div className="border-b border-border/40 bg-panel/80 px-4 py-3">
           <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-surface/70 p-3">
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">Inferencia do grafo</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">{t("graphInference")}</span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
             <p className="text-sm text-foreground">{inference.answer}</p>
             {!!inference.relatedNodes?.length && (
               <div className="mt-2 flex flex-wrap gap-1">
-                {inference.relatedNodes.map((node) => (
+                {relatedInferenceNodes.map((node) => (
                   <button
-                    key={node}
+                    key={node.id}
                     className="rounded-full bg-panel px-2 py-1 text-[10px] text-muted hover:text-foreground"
                     onClick={() => {
-                      const found = graphData?.nodes.find((n) => n.label === node);
-                      if (found) centerNode(found.id);
+                      centerNode(node.id);
                     }}
                   >
-                    {node}
+                    {node.label}
                   </button>
                 ))}
               </div>
             )}
             {!!inference.evidence?.length && (
-              <div className="mt-2 text-[11px] text-muted">
-                Evidencias: {inference.evidence.slice(0, 3).join(" · ")}
+              <div className="mt-2 space-y-1 text-[11px] text-muted">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted/70">{t("evidence")}</div>
+                {inference.evidence.slice(0, 4).map((item, index) => (
+                  <div key={index} className="rounded-lg bg-panel/70 px-2 py-1">
+                    {formatInferenceEvidence(item)}
+                  </div>
+                ))}
               </div>
             )}
             {(inference.provider || inference.model) && (
               <div className="mt-1 text-[10px] text-muted/60">
-                IA: {inference.provider || "provider"} {inference.model ? `· ${inference.model}` : ""}
+                {t("ai")}: {inference.provider || "provider"} {inference.model ? `· ${inference.model}` : ""}
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
-              {inference.status === "answered" && (
-                <button className="rounded-lg bg-accent px-3 py-1 text-[10px] text-white" onClick={saveInferenceAsInsight}>Salvar como insight</button>
+              {((inference.status === "answered" || inference.status === "success" || inference.status === "sufficient_evidence" || inference.status === "saved_as_insight")) && (
+                <button
+                  className="rounded-lg bg-accent px-3 py-1 text-[10px] text-white disabled:opacity-50"
+                  disabled={inferenceSaving || inference.status === "saved_as_insight"}
+                  onClick={saveInferenceAsInsight}
+                >
+                  {inferenceSaving ? "Saving..." : inference.status === "saved_as_insight" ? "Saved" : t("saveAsInsight")}
+                </button>
               )}
-              <button className="rounded-lg bg-panel px-3 py-1 text-[10px] text-muted hover:text-foreground" onClick={() => setInference(null)}>Fechar</button>
+              <button className="rounded-lg bg-panel px-3 py-1 text-[10px] text-muted hover:text-foreground" onClick={() => setInference(null)}>{t("close")}</button>
             </div>
+            {inferenceSaveStatus && (
+              <div className="mt-2 rounded-lg bg-panel/70 px-2 py-1 text-[10px] text-muted">
+                {inferenceSaveStatus}
+              </div>
+            )}
           </div>
         </div>
       )}
 
       <div className="relative flex-1 overflow-hidden bg-[#FBF4EC]">
-        {error ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted">Erro ao carregar grafo.</div>
-        ) : graphData ? (
+      {error ? (
+        <div className="flex h-full items-center justify-center text-sm text-danger">{t("graphLoadError")}</div>
+      ) : graphData ? (
+          filtered.nodes.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+              <div className="text-sm font-medium text-muted/60">{t("graphEmpty")}</div>
+              <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
+              {apiUrl === "__demo__" && (
+                <div className="mt-2 flex gap-2">
+                  <a href="/login" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">Login</a>
+                  <a href="/signup" className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Create account</a>
+                </div>
+              )}
+            </div>
+          ) : (
           <GraphCanvas
             data={filtered}
             onNavigate={(path) => {
@@ -452,14 +830,16 @@ export function GraphScreen({
               setShowDetail(Boolean(id));
             }}
             selectedId={selectedId}
+            highlightedIds={highlightedIds}
             zoom={zoom}
             setZoom={setZoom}
             pan={pan}
             setPan={setPan}
             layoutMode={layoutMode}
           />
+          )
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted">Carregando grafo...</div>
+          <div className="flex h-full items-center justify-center text-sm text-muted">{t("loadingGraph")}</div>
         )}
 
         <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
@@ -470,7 +850,7 @@ export function GraphScreen({
         {showLegend && (
           <div className="absolute top-3 right-4 z-20 w-56 rounded-xl bg-panel/95 backdrop-blur shadow-lg ring-1 ring-border/30 p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-medium text-foreground">Legenda</span>
+              <span className="text-[11px] font-medium text-foreground">{t("legend")}</span>
               <button className="text-[10px] text-muted hover:text-foreground" onClick={() => setShowLegend(false)}>X</button>
             </div>
             <div className="space-y-1 text-[10px]">
@@ -479,7 +859,8 @@ export function GraphScreen({
                 ["concept", "#D98A00"],
                 ["topico", "#96B55C"],
                 ["entidade", "#2E9D68"],
-                ["contexto/insight", "#8B6F9F"],
+                ["contexto", "#8B6F9F"],
+                ["AI insight", "#4F7CCB"],
                 ["lacuna", "#B85C4A"],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center gap-2">
@@ -500,7 +881,7 @@ export function GraphScreen({
       </div>
 
       {selectedNode && showDetail && (
-        <div className="absolute right-0 top-[49px] bottom-0 z-30 w-[360px] border-l border-border/50 bg-panel/98 backdrop-blur overflow-y-auto p-4 shadow-lg">
+        <div className="absolute inset-x-0 bottom-0 top-[49px] z-30 overflow-y-auto border-l border-border/50 bg-panel/98 p-4 shadow-lg backdrop-blur sm:left-auto sm:w-[360px]">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-wide text-accent">{selectedNode.type}</div>
@@ -509,73 +890,104 @@ export function GraphScreen({
             <button className="text-[10px] text-muted hover:text-foreground" onClick={() => setShowDetail(false)}>X</button>
           </div>
 
-          {summaryLoading ? (
-            <div className="text-xs text-muted">Carregando resumo do no...</div>
-          ) : (
-            <div className="space-y-3 text-[11px] text-muted/75">
-              <p className="rounded-lg bg-surface p-3 text-foreground/80">
-                {nodeSummary?.summary || selectedNode.summary || "Resumo ainda nao gerado para este no."}
-              </p>
-              <div>{nodeSummary?.whyThisExists || "Este no vem dos dados reais do grafo."}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <Meta label="Status" value={nodeSummary?.status || selectedNode.status || "-"} />
-                <Meta label="Confianca" value={formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)} />
-                <Meta label="Origem" value={nodeSummary?.createdBy || selectedNode.createdBy || "-"} />
-                <Meta label="Modelo" value={nodeSummary?.createdByModel || selectedNode.createdByModel || "-"} />
-              </div>
+            {summaryLoading ? (
+              <div className="text-xs text-muted">{t("loadingNodeSummary")}</div>
+            ) : (
+              <div className="space-y-3 text-[11px] text-muted/75">
+                <p className="rounded-lg bg-surface p-3 text-foreground/80">
+                  {nodeSummary?.aiSummary || nodeSummary?.summary || selectedNode.aiSummary || selectedNode.summary || t("summaryNotGenerated")}
+                </p>
+                <div>{nodeSummary?.whyThisExists || t("nodeFromRealData")}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Meta label={t("status")} value={nodeSummary?.status || selectedNode.status || "-"} />
+                  <Meta label={t("confidence")} value={formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)} />
+                  <Meta label={t("origin")} value={nodeSummary?.createdBy || selectedNode.createdBy || "-"} />
+                  <Meta label={t("model")} value={nodeSummary?.createdByModel || selectedNode.createdByModel || "-"} />
+                  <Meta label="Validation" value={nodeSummary?.validationStatus || selectedNode.validationStatus || "unvalidated"} />
+                  <Meta label="Quality" value={nodeSummary?.sourceQuality || selectedNode.sourceQuality || "note_only"} />
+                </div>
 
-              <section className="border-t border-border/30 pt-3">
-                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Notas do grafo</div>
-                {nodeSummary?.aiNotes && (
-                  <p className="mb-2 rounded-lg bg-surface p-2 text-[10px] text-muted/70">IA/subagent: {nodeSummary.aiNotes}</p>
+                {(nodeSummary?.aiContext || selectedNode.aiContext || nodeSummary?.learningValue || selectedNode.learningValue || nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
+                  <section className="border-t border-border/30 pt-3">
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">AI understanding</div>
+                    {(nodeSummary?.aiContext || selectedNode.aiContext) && (
+                      <p className="rounded-lg bg-surface p-2 text-[11px] text-foreground/80">{nodeSummary?.aiContext || selectedNode.aiContext}</p>
+                    )}
+                    {(nodeSummary?.learningValue || selectedNode.learningValue) && (
+                      <p className="mt-2 text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Learning value:</span> {nodeSummary?.learningValue || selectedNode.learningValue}</p>
+                    )}
+                    {(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
+                      <p className="mt-2 break-words text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Source evidence:</span> {formatEvidenceLabel(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence)}</p>
+                    )}
+                  </section>
                 )}
-                <textarea
-                  className="min-h-20 w-full resize-none rounded-lg border border-border bg-surface p-2 text-[11px] text-foreground outline-none focus:border-accent"
-                  placeholder="Adicione uma nota manual para complementar a IA..."
-                  value={manualNotes}
-                  onChange={(event) => setManualNotes(event.target.value)}
-                />
-                <button className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={saveManualNodeNotes}>Salvar nota manual</button>
-              </section>
 
-              {!!nodeSummary?.notes?.length && (
                 <section className="border-t border-border/30 pt-3">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Notas de origem</div>
-                  <div className="space-y-1">
-                    {nodeSummary.notes.slice(0, 5).map((note) => (
-                      <button key={note.id} className="block w-full truncate rounded-lg bg-surface px-2 py-1.5 text-left text-[11px] text-muted hover:text-foreground" onClick={() => onNavigate(note.path)}>
-                        {note.title}
-                      </button>
-                    ))}
-                  </div>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Graph notes</div>
+                  {nodeSummary?.aiNotes && (
+                    <p className="mb-2 rounded-lg bg-surface p-2 text-[10px] text-muted/70">{t("aiSubagent")} {nodeSummary.aiNotes}</p>
+                  )}
+                  <textarea
+                    className="min-h-20 w-full resize-none rounded-lg border border-border bg-surface p-2 text-[11px] text-foreground outline-none focus:border-accent"
+                    placeholder={t("manualNotePlaceholder")}
+                    value={manualNotes}
+                    onChange={(event) => setManualNotes(event.target.value)}
+                  />
+                  <button className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
                 </section>
-              )}
 
-              <section className="border-t border-border/30 pt-3">
-                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Conexoes explicadas</div>
+                {!!nodeSummary?.notes?.length && (
+                  <section className="border-t border-border/30 pt-3">
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">{t("sourceNotes")}</div>
+                    <div className="space-y-1">
+                      {nodeSummary.notes.slice(0, 5).map((note) => (
+                        <button key={note.id} className="block w-full truncate rounded-lg bg-surface px-2 py-1.5 text-left text-[11px] text-muted hover:text-foreground" onClick={() => onNavigate(note.path)}>
+                          {note.title}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <section className="border-t border-border/30 pt-3">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Explained connections</div>
                 <div className="space-y-2">
                   {(nodeSummary?.connections?.length ? nodeSummary.connections : selectedEdges).slice(0, 6).map((edge, index) => {
                     const simpleEdge = edge as GraphEdge;
                     const detailedEdge = edge as NodeSummary["connections"][number];
                     const other = simpleEdge.source === selectedId ? simpleEdge.target : simpleEdge.source;
                     const otherNode = graphData?.nodes.find((n) => n.id === other);
+                    const isInsightEdge = (detailedEdge.type || simpleEdge.type) === "insight_suggested";
                     return (
                       <div key={`${detailedEdge.id || simpleEdge.id || index}`} className="rounded-lg bg-surface p-2">
                         <div className="mb-1 flex items-center gap-2">
                           <span className="inline-block h-0.5 w-4 rounded" style={{ background: EDGE_COLORS[detailedEdge.type || simpleEdge.type] || EDGE_COLORS.default }} />
                           <span className="truncate text-[11px] font-medium text-foreground">{otherNode?.label || detailedEdge.label || simpleEdge.type}</span>
                         </div>
-                        {(detailedEdge.reason || simpleEdge.reason) && <p>{detailedEdge.reason || simpleEdge.reason}</p>}
+                        {(detailedEdge.reason || simpleEdge.reason) && (
+                          <div>
+                            <div className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">{isInsightEdge ? "Evidence citation" : "Connection reason"}</div>
+                            <p>{detailedEdge.reason || simpleEdge.reason}</p>
+                          </div>
+                        )}
                         {!!(detailedEdge.evidence || simpleEdge.evidence)?.length && (
-                          <div className="mt-1 text-[10px] text-muted/60">Evidencia: {(detailedEdge.evidence || simpleEdge.evidence || []).slice(0, 2).join(" · ")}</div>
+                          <div className="mt-1 text-[10px] text-muted/60">{t("evidence")}: {(detailedEdge.evidence || simpleEdge.evidence || []).slice(0, 2).map(formatEvidenceLabel).join(" · ")}</div>
+                        )}
+                        {(detailedEdge.provider || simpleEdge.provider || detailedEdge.model || simpleEdge.model) && (
+                          <div className="mt-1 text-[9px] text-muted/50">
+                            {detailedEdge.provider || simpleEdge.provider || "system"} {detailedEdge.model || simpleEdge.model ? `· ${detailedEdge.model || simpleEdge.model}` : ""}
+                          </div>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-1">
-                          <span className="rounded-full bg-panel px-2 py-0.5 text-[9px] text-muted/60">{detailedEdge.status || simpleEdge.status || "suggested"}</span>
-                          {!!detailedEdge.id && detailedEdge.status !== "confirmed" && (
-                            <button className="rounded-md bg-accent px-2 py-0.5 text-[9px] text-white" onClick={() => updateEdgeStatus(detailedEdge.id, "confirmed")}>Confirmar</button>
+                          <span className="rounded-full bg-panel px-2 py-0.5 text-[9px] text-muted/60">{isInsightEdge ? "citation" : detailedEdge.status || simpleEdge.status || "suggested"}</span>
+                          {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
+                            <button disabled={actionLoading === `confirm-connection-${detailedEdge.id}`} className="rounded-md bg-accent px-2 py-0.5 text-[9px] text-white disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "confirmed")}>Confirm Connection</button>
                           )}
-                          {!!detailedEdge.id && detailedEdge.status !== "ignored" && (
-                            <button className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground" onClick={() => updateEdgeStatus(detailedEdge.id, "ignored")}>Ignorar</button>
+                          {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
+                            <button disabled={actionLoading === `ignore-connection-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "ignored")}>Ignore Connection</button>
+                          )}
+                          {!!detailedEdge.id && (detailedEdge.type || simpleEdge.type) !== "insight_suggested" && (
+                            <button disabled={actionLoading === `save-insight-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => generateConnectionInsight(detailedEdge.id)}>Save as insight</button>
                           )}
                         </div>
                       </div>
@@ -586,19 +998,27 @@ export function GraphScreen({
 
               <div className="flex flex-wrap gap-1 pt-1">
                 {selectedNode.path && (
-                  <button className="rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={() => onNavigate(selectedNode.path!)}>Abrir nota</button>
+                  <button className="rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
                 )}
-                {selectedNode.status !== "confirmed" && (
-                  <button className="rounded-lg bg-surface px-3 py-1.5 text-[10px] text-muted" onClick={() => updateNodeStatus("confirmed")}>Confirmar no</button>
-                )}
-                {selectedNode.status !== "ignored" && (
-                  <button className="rounded-lg bg-surface px-3 py-1.5 text-[10px] text-muted" onClick={() => updateNodeStatus("ignored")}>Ignorar no</button>
-                )}
-                <button className="rounded-lg bg-surface px-3 py-1.5 text-[10px] text-muted" onClick={expandGraph}>Reprocessar grafo</button>
+                {nodeActions.filter((action) => action.visible && action.variant !== "danger").map((action) => (
+                  <GraphActionButton
+                    key={action.id}
+                    action={action}
+                    loading={actionLoading === action.id}
+                    onClick={() => {
+                      if (action.id === "confirm-node") updateNodeStatus("confirmed");
+                      if (action.id === "ignore-node") updateNodeStatus("ignored");
+                      if (action.id === "reprocess-node") reprocessSelectedNode();
+                      if (action.id === "enrich-node-ai") enrichSelectedNodeWithAI();
+                      if (action.id === "validate-node-web") validateSelectedNodeWithWeb();
+                    }}
+                  />
+                ))}
                 {selectedNode.type === "concept" && selectedNode.sourceId && (
-                  <button className="rounded-lg bg-surface px-3 py-1.5 text-[10px] text-muted" onClick={createPermanentConceptNote}>Criar nota permanente</button>
+                  <button className="rounded-lg border border-amber-500/45 bg-amber-500/15 px-3 py-1.5 text-[10px] font-medium text-amber-300 hover:bg-amber-500/25" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
                 )}
               </div>
+              {nodeActionStatus && <div className="rounded-lg bg-surface p-2 text-[10px] text-muted/70">{nodeActionStatus}</div>}
             </div>
           )}
         </div>
@@ -614,6 +1034,43 @@ function Meta({ label, value }: { label: string; value: string }) {
       <div className="truncate text-[11px] text-foreground/80">{value}</div>
     </div>
   );
+}
+
+function GraphActionButton({ action, loading, onClick }: { action: GraphAction; loading: boolean; onClick: () => void }) {
+  const className = graphActionClass(action);
+  return (
+    <button
+      className={className}
+      disabled={action.disabled || loading}
+      title={action.disabled ? action.reasonDisabled : undefined}
+      onClick={onClick}
+    >
+      {loading ? "Working..." : action.label}
+    </button>
+  );
+}
+
+function graphActionClass(action: GraphAction) {
+  const base = "rounded-lg px-3 py-1.5 text-[10px] font-medium transition disabled:opacity-50";
+  if (action.id === "confirm-node") {
+    return `${base} bg-emerald-600 text-white hover:bg-emerald-500`;
+  }
+  if (action.id === "ignore-node") {
+    return `${base} border border-red-500/45 bg-red-500/12 text-red-300 hover:bg-red-500/20`;
+  }
+  if (action.id === "reprocess-node") {
+    return `${base} border border-sky-500/45 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25`;
+  }
+  if (action.id === "enrich-node-ai") {
+    return `${base} border border-violet-500/45 bg-violet-500/15 text-violet-300 hover:bg-violet-500/25`;
+  }
+  if (action.id === "validate-node-web") {
+    return `${base} border border-cyan-500/45 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25`;
+  }
+  if (action.variant === "danger") {
+    return `${base} bg-danger text-white`;
+  }
+  return `${base} border border-accent/45 bg-accent/15 text-accent hover:bg-accent/25`;
 }
 
 function formatConfidence(value?: number) {

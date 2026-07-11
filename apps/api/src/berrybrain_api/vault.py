@@ -153,6 +153,8 @@ def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
 
     notes: list[dict[str, str]] = []
     for path in sorted(vault_path.rglob("*.md")):
+        if not path.is_file() or ".attachments" in path.parts:
+            continue
         relative_path = path.relative_to(vault_path).as_posix()
         notes.append(
             {

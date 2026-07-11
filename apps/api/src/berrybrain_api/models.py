@@ -29,6 +29,37 @@ class NoteRecord(Base):
     last_processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class NoteAttachmentRecord(Base):
+    __tablename__ = "note_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_path: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(40), nullable=False, default="other")
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AttachmentExtractionRecord(Base):
+    __tablename__ = "attachment_extractions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    attachment_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    extracted_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="deterministic")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="attachment-text.v1")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class JobRecord(Base):
     __tablename__ = "jobs"
 
@@ -53,6 +84,83 @@ class WorkerStatus(Base):
     jobs_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ollama_healthy: Mapped[bool] = mapped_column(default=False)
+
+
+class UserRecord(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    force_password_reset: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class UserSessionRecord(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    session_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    csrf_token_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    ip_address: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AuthOtpRecord(Base):
+    __tablename__ = "auth_otps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    challenge_token_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class LoginAttemptRecord(Base):
+    __tablename__ = "login_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
+    ip_address: Mapped[str] = mapped_column(String(80), nullable=False, default="", index=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False, default="login")
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class SecurityAuditRecord(Base):
+    __tablename__ = "security_audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    actor_email: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    action: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    target_id: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    ip_address: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    audit_metadata: Mapped[str] = mapped_column(
+        "metadata", Text, nullable=False, default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class TagRecord(Base):
@@ -210,6 +318,18 @@ class GraphNodeRecord(Base):
         String(160), nullable=False, default=""
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="suggested")
+    source_evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ai_context: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ai_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    learning_value: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    source_quality: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    validation_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unvalidated"
+    )
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     graph_metadata: Mapped[str] = mapped_column(
         "metadata", Text, nullable=False, default="{}"
     )

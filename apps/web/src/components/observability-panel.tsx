@@ -89,7 +89,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
           <button
             className="rounded-lg p-1.5 text-muted transition hover:bg-black/5 hover:text-foreground"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label="Close"
           >
             <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -98,7 +98,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
         <div className="flex gap-1 px-6 pb-1">
           {([
             { key: "jobs", label: "Jobs" },
-            { key: "health", label: "Saude" },
+            { key: "health", label: "Health" },
             { key: "logs", label: "Logs" },
             { key: "stats", label: "Stats" },
           ] as { key: Tab; label: string }[]).map(({ key, label }) => (
@@ -121,11 +121,11 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
             <div>
               <div className="sticky top-0 z-10 -mx-6 flex gap-1 bg-panel px-6 pb-3 pt-2">
                 {[
-                  { key: "", label: "Todos" },
-                  { key: "pending", label: "Pendentes" },
-                  { key: "running", label: "Rodando" },
+                  { key: "", label: "All" },
+                  { key: "pending", label: "Pending" },
+                  { key: "running", label: "Running" },
                   { key: "completed", label: "OK" },
-                  { key: "failed", label: "Falhos" },
+                  { key: "failed", label: "Failed" },
                 ].map(({ key, label }) => (
                   <button
                     key={key}
@@ -149,7 +149,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               <div className="mt-2 space-y-1.5">
                 {filtered.length === 0 ? (
                   <div className="py-12 text-center text-xs text-muted">
-                    Nenhum job.
+                    No jobs.
                   </div>
                 ) : (
                   filtered.map((job: any) => {
@@ -195,15 +195,15 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                       <span className="text-sm font-medium">{worker.status}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs text-muted">
-                      <div>Processados: <span className="tabular-nums text-foreground">{worker.jobs_processed}</span></div>
-                      <div>Erros: <span className="tabular-nums text-foreground">{worker.errors}</span></div>
+                      <div>Processed: <span className="tabular-nums text-foreground">{worker.jobs_processed}</span></div>
+                      <div>Errors: <span className="tabular-nums text-foreground">{worker.errors}</span></div>
                       <div className="col-span-2">
                         Heartbeat: <span className="text-foreground">{new Date(worker.last_heartbeat).toLocaleTimeString()}</span>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-muted">Offline. Nenhum heartbeat recebido.</p>
+                  <p className="mt-3 text-xs text-muted">Offline. No heartbeat received.</p>
                 )}
               </div>
 
@@ -216,13 +216,13 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               </div>
 
               <div className="rounded-2xl bg-black/[0.02] p-5">
-                <div className="mb-3 text-xs font-medium text-muted">Resumo</div>
+                <div className="mb-3 text-xs font-medium text-muted">Summary</div>
                 <div className="grid grid-cols-4 gap-4">
                   {[
-                    { label: "Pend.", value: counts.pending, color: "text-muted" },
-                    { label: "Ativos", value: counts.running, color: "text-blue-500" },
+                    { label: "Pending", value: counts.pending, color: "text-muted" },
+                    { label: "Active", value: counts.running, color: "text-blue-500" },
                     { label: "OK", value: counts.completed, color: "text-emerald-500" },
-                    { label: "Falhos", value: counts.failed, color: "text-red-500" },
+                    { label: "Failed", value: counts.failed, color: "text-red-500" },
                   ].map(({ label, value, color }) => (
                     <div key={label} className="text-center">
                       <div className={`text-2xl font-semibold tabular-nums ${color}`}>{value}</div>
@@ -234,7 +234,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
               {stats?.running_jobs && stats.running_jobs.length > 0 && (
                 <div className="rounded-2xl bg-black/[0.02] p-5">
-                  <div className="mb-3 text-xs font-medium text-muted">Sub-agentes em execucao</div>
+                  <div className="mb-3 text-xs font-medium text-muted">Running sub-agents</div>
                   <div className="space-y-2">
                     {stats.running_jobs.map((rj: any) => (
                       <div key={rj.id} className="flex items-center justify-between rounded-lg bg-black/[0.03] px-3 py-2">
@@ -259,7 +259,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
           {tab === "logs" && (
             <div className="space-y-1.5 pt-2">
               {logs.length === 0 ? (
-                <div className="py-12 text-center text-xs text-muted">Nenhum log de IA.</div>
+                <div className="py-12 text-center text-xs text-muted">No AI logs.</div>
               ) : (
                 logs.map((log) => (
                   <div key={log.id} className="rounded-xl bg-black/[0.02] px-4 py-3 transition hover:bg-black/[0.04]">
@@ -286,10 +286,10 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               <div className="rounded-2xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Vault</div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
-                  <StatBlock label="Notas" value={stats.notes} />
-                  <StatBlock label="Conexoes" value={stats.connections} />
+                  <StatBlock label="Notes" value={stats.notes} />
+                  <StatBlock label="Connections" value={stats.connections} />
                   <StatBlock label="Insights" value={stats.insights} />
-                  <StatBlock label="Metadados AI" value={stats.metadata} />
+                  <StatBlock label="AI metadata" value={stats.metadata} />
                   <StatBlock label="Embeddings" value={stats.embeddings ?? 0} />
                 </div>
               </div>
@@ -298,14 +298,14 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 <div className="text-xs font-medium text-muted">Jobs</div>
                 <div className="mt-3 grid grid-cols-3 gap-3">
                   <StatBlock label="Total" value={stats.jobs?.total ?? 0} />
-                  <StatBlock label="Concluidos" value={stats.jobs?.completed ?? 0} />
-                  <StatBlock label="Falhos" value={stats.jobs?.failed ?? 0} />
-                  <StatBlock label="Pendentes" value={stats.jobs?.pending ?? 0} />
-                  <StatBlock label="Por hora" value={stats.jobs?.per_hour ?? 0} />
+                  <StatBlock label="Completed" value={stats.jobs?.completed ?? 0} />
+                  <StatBlock label="Failed" value={stats.jobs?.failed ?? 0} />
+                  <StatBlock label="Pending" value={stats.jobs?.pending ?? 0} />
+                  <StatBlock label="Per hour" value={stats.jobs?.per_hour ?? 0} />
                 </div>
                 {stats.job_types && Object.keys(stats.job_types).length > 0 && (
                   <div className="mt-4">
-                    <div className="text-[11px] text-muted/60 mb-2">Por tipo</div>
+                    <div className="text-[11px] text-muted/60 mb-2">By type</div>
                     <div className="space-y-2">
                       {Object.entries(stats.job_types as Record<string, number>).map(([type, count]) => (
                         <div key={type} className="flex items-center justify-between">
@@ -323,7 +323,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 )}
                 {stats.recent_completions && stats.recent_completions.length > 0 && (
                   <div className="mt-4">
-                    <div className="text-[11px] text-muted/60 mb-2">Recentes ({stats.recent_completions.length})</div>
+                    <div className="text-[11px] text-muted/60 mb-2">Recent ({stats.recent_completions.length})</div>
                     <div className="space-y-1">
                       {stats.recent_completions.slice(0, 8).map((c: any, i: number) => (
                         <div key={i} className="flex items-center justify-between text-[11px] text-muted">
@@ -338,7 +338,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
             </div>
           )}
           {tab === "stats" && !stats && (
-            <div className="py-12 text-center text-xs text-muted">Carregando...</div>
+            <div className="py-12 text-center text-xs text-muted">Loading...</div>
           )}
         </div>
       </div>

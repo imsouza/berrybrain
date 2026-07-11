@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
+import { t, locale } from "@/i18n";
 
 type Alert = {
   kind: string;
@@ -20,15 +21,15 @@ type JobBrief = {
 
 function humanizeJobType(type: string): string {
   const labels: Record<string, string> = {
-    GENERATE_GRAPH_INSIGHTS: "Insights do grafo",
+    GENERATE_GRAPH_INSIGHTS: "Graph insights",
     GENERATE_INSIGHTS: "Insights",
-    UPDATE_GRAPH_STATS: "Estatísticas do grafo",
-    EXPAND_KNOWLEDGE_GRAPH: "Expansão do grafo",
-    ASSIMILATE_NOTE: "Assimilação de nota",
+    UPDATE_GRAPH_STATS: "Graph stats",
+    EXPAND_KNOWLEDGE_GRAPH: "Graph expansion",
+    ASSIMILATE_NOTE: "Note assimilation",
     GENERATE_EMBEDDING: "Embedding",
-    FIND_CONNECTIONS: "Conexões",
-    GENERATE_NOTE_TITLE: "Título automático",
-    EXTRACT_CONTEXT: "Extração de contexto",
+    FIND_CONNECTIONS: "Connections",
+    GENERATE_NOTE_TITLE: "Automatic title",
+    EXTRACT_CONTEXT: "Context extraction",
   };
   return labels[type] || type.replace(/_/g, " ").toLowerCase();
 }
@@ -63,7 +64,7 @@ export default function NotificationsPage() {
   if (loading) {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8 text-center text-sm text-muted/40 animate-pulse-soft">Carregando...</div>
+        <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8 text-center text-sm text-muted/40 animate-pulse-soft">{t("loadingAlerts")}</div>
       </div>
     );
   }
@@ -72,20 +73,20 @@ export default function NotificationsPage() {
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
         <header className="mb-6">
-          <h1 className="text-xl font-semibold">Alertas e Status</h1>
-          <p className="mt-1 text-sm text-muted/60">Estado do sistema e ações pendentes.</p>
+          <h1 className="text-xl font-semibold">{t("alertsAndStatus")}</h1>
+          <p className="mt-1 text-sm text-muted/60">{t("alertsAndStatusDesc")}</p>
         </header>
 
         {alerts.length === 0 && failedJobs.length === 0 ? (
           <div className="rounded-xl bg-surface p-6 text-center text-xs text-muted/60 ring-1 ring-border/35">
-            <p className="font-medium">Tudo em dia.</p>
-            <p className="mt-1">Nenhum alerta ou erro no sistema.</p>
+            <p className="font-medium">{t("allGoodState")}</p>
+            <p className="mt-1">{t("noAlertsSystem")}</p>
           </div>
         ) : (
           <div className="space-y-6">
             {alerts.length > 0 && (
               <section>
-                <h2 className="mb-3 text-sm font-semibold">Precisa de atenção</h2>
+                <h2 className="mb-3 text-sm font-semibold">{t("needsAttentionSection")}</h2>
                 <div className="space-y-2">
                   {alerts.map((a, i) => (
                     <div key={a.kind + i} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
@@ -93,7 +94,7 @@ export default function NotificationsPage() {
                       <h3 className="mt-0.5 text-sm font-medium">{a.title}</h3>
                       <p className="mt-0.5 text-xs text-muted/60">{a.description}</p>
                       <a
-                        href={a.kind === "failed_jobs" || a.kind === "ollama_offline" ? "/?monitor=open" : "/activity"}
+                        href={a.kind === "failed_jobs" || a.kind === "ollama_offline" ? "/brain?monitor=open" : "/activity"}
                         className="mt-2 inline-block rounded-lg bg-accent px-3 py-1 text-[11px] font-medium text-white"
                       >
                         {a.action}
@@ -106,7 +107,7 @@ export default function NotificationsPage() {
 
             {failedJobs.length > 0 && (
               <section>
-                <h2 className="mb-3 text-sm font-semibold">Jobs com erro</h2>
+                <h2 className="mb-3 text-sm font-semibold">{t("failedJobsSection")}</h2>
                 <div className="space-y-1">
                   {failedJobs.map((j) => (
                     <div key={j.id} className="rounded-lg bg-red-500/5 px-3 py-2 text-xs ring-1 ring-red-500/15">
@@ -115,7 +116,7 @@ export default function NotificationsPage() {
                           <span className="font-medium text-red-500">{humanizeJobType(j.type)}</span>
                           <span className="text-muted/50 ml-1">· job #{j.id}</span>
                         </div>
-                        <span className="text-muted/50">{new Date(j.created_at).toLocaleTimeString()}</span>
+                         <span className="text-muted/50">{new Date(j.created_at).toLocaleTimeString(locale())}</span>
                       </div>
                       {j.error_message && (
                         <div className="mt-0.5 text-red-500/70">{j.error_message}</div>

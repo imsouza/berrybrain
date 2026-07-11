@@ -1,6 +1,6 @@
 # BerryBrain Maturation Plan
 
-Status date: 2026-07-10
+Status date: 2026-07-11
 
 Goal: mature BerryBrain from a functional second-brain foundation into a reliable, evidence-based cognitive system.
 
@@ -31,10 +31,10 @@ Goal: mature BerryBrain from a functional second-brain foundation into a reliabl
 - [x] Persist graph nodes and graph edges in SQLite.
 - [x] Keep node/connection actions scoped and auditable.
 - [x] Add graph validation maintenance endpoint.
-- [ ] Deduplicate all legacy concept/topic nodes.
-- [ ] Ensure every visible edge has reason, evidence, confidence, status, provider/model.
-- [ ] Ensure concepts are contextualized by AI, not only extracted headings/tags.
-- [ ] Ensure Brain View shows useful edges after rebuild.
+- [x] Deduplicate all legacy concept/topic nodes.
+- [x] Ensure every visible edge has reason, evidence, confidence, status, provider/model.
+- [x] Ensure concepts are contextualized by the cognitive layer, not only extracted headings/tags.
+- [x] Ensure Brain View shows useful edges after rebuild.
 
 ## Phase 4 — Knowledge Base
 
@@ -45,10 +45,10 @@ Goal: mature BerryBrain from a functional second-brain foundation into a reliabl
 - [x] Add Qdrant/Chroma real read integration for graph/cognitive inference.
 - [x] Keep SQLite/local lexical retrieval as fallback when an external vector store is missing or unavailable.
 - [x] Add automated tests for Qdrant write, Qdrant read, Chroma read, and external fallback.
-- [ ] Assimilate attachment text into the Knowledge Base.
-- [ ] Add PDF/document text extraction.
+- [x] Assimilate attachment text into the Knowledge Base.
+- [ ] Add production-grade PDF/document text extraction.
 - [ ] Add image OCR/vision metadata.
-- [ ] Add audio/video transcription status and future processing hooks.
+- [x] Add audio/video transcription status and future processing hooks.
 
 ## Phase 5 — Worker And Autopilot
 
@@ -142,3 +142,13 @@ Expected behavior:
 - Rebuilt active graph: 38 nodes, 128 edges, 0 orphans, content concepts, shared-concept connections, and knowledge insights now visible.
 - Current useful insights include shared patterns around Hulk, Bruce Banner, strength, and Rio de Janeiro.
 - Validation passed: API unittest discovery ran 74 tests successfully after graph assimilation changes.
+- Added graph maturation sweep during expansion: visible nodes now receive ai summary, ai context, source evidence, provider, model, prompt version, and generated timestamp when legacy data is incomplete.
+- Added edge traceability sweep during expansion: visible edges now receive reason, evidence, confidence, status, provider, model, and prompt version when legacy data is incomplete.
+- Added attachment processing records, PROCESS_ATTACHMENT jobs, worker dispatch, extraction status endpoints, and attachment graph nodes/edges.
+- Added text/DOCX attachment extraction into the Knowledge Base and retrieval fallback; PDF extraction is available only when the optional `pypdf` package is installed.
+- Added explicit future statuses for image OCR and audio/video transcription instead of silently ignoring unsupported media.
+- Validation passed: focused API regression suite ran 24 tests successfully for schema, graph maturation, attachments, second-brain phase 1, Home summary, vector store, and insight filters.
+- Fixed Graph API default visibility so ignored nodes stay hidden unless the hidden view is explicitly requested.
+- Fixed Home processing state so historical failed jobs stay visible in diagnostics without turning an idle system into a failed processing state.
+- Runtime validation after applying changes: Graph reports 46 visible nodes, 149 visible edges, 0 visible nodes missing cognitive context, and 0 visible edges missing traceability.
+- Validation passed: full API test discovery ran 77 tests successfully; worker test discovery ran 13 tests successfully.

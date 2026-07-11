@@ -1,3 +1,6 @@
+import json
+import re
+
 import httpx
 
 
@@ -62,34 +65,64 @@ async def cloud_generate_json(
     raw = await cloud_generate(
         api_url, api_key, model, prompt, system, timeout, json_mode=True
     )
-    import json
-
     if not raw or not raw.strip():
         raise CloudError("Cloud returned empty response")
     try:
-        return json.loads(raw)
+        return json.loads(_clean_json_text(raw))
     except json.JSONDecodeError:
-        trimmed = raw.strip()
-        # Fix truncated arrays
-        open_braces = trimmed.count("{") - trimmed.count("}")
-        open_brackets = trimmed.count("[") - trimmed.count("]")
-        if open_brackets > 0:
-            trimmed += "]" * open_brackets
-        if open_braces > 0:
-            trimmed += "}" * open_braces
-        # Fix truncated strings
-        in_string = False
-        for i, c in enumerate(trimmed):
-            if c == '"' and (i == 0 or trimmed[i - 1] != "\\"):
-                in_string = not in_string
-        if in_string:
-            trimmed += '"'
+        candidate = _extract_balanced_json_object(raw)
+        if not candidate:
+            raise CloudError(
+                f"Cloud returned invalid JSON (len={len(raw)}): {raw[:200]}"
+            )
         try:
-            return json.loads(trimmed)
+            parsed = json.loads(candidate)
         except json.JSONDecodeError:
             raise CloudError(
                 f"Cloud returned invalid JSON (len={len(raw)}): {raw[:200]}"
             )
+        if not isinstance(parsed, dict):
+            raise CloudError("Cloud JSON response is not an object")
+        return parsed
+
+
+def _clean_json_text(raw: str) -> str:
+    text = str(raw or "").strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text)
+    text = "".join(ch for ch in text if ch >= " " or ch in "\n\r\t")
+    return re.sub(r",(\s*[}\]])", r"\1", text).strip()
+
+
+def _extract_balanced_json_object(raw: str) -> str:
+    text = _clean_json_text(raw)
+    start = text.find("{")
+    if start < 0:
+        return ""
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if escape:
+            escape = False
+            continue
+        if char == "\\" and in_string:
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return re.sub(r",(\s*[}\]])", r"\1", text[start : index + 1])
+    return ""
 
 
 async def cloud_generate_embedding(

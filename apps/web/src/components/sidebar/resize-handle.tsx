@@ -22,7 +22,7 @@ export function ResizeHandle() {
 
   return (
     <div
-      className="w-1 cursor-col-resize bg-transparent hover:bg-accent/20 transition-colors flex-shrink-0"
+      className="hidden w-1 flex-shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-accent/20 lg:block"
       onMouseDown={e => { e.preventDefault(); dragging.current = true; document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none"; }}
       onDoubleClick={() => { w.setSidebarWidth(280); localStorage.setItem("bb_sidebar_w", "280"); }}
     />

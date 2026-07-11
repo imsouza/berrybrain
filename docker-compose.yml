@@ -57,6 +57,19 @@ services:
     volumes:
       - .:/app
 
+  searxng:
+    image: searxng/searxng:latest
+    profiles:
+      - web-validation
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8888/
+      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
+    ports:
+      - "${BERRYBRAIN_SEARXNG_PORT:-8888}:8080"
+    volumes:
+      - searxng_config:/etc/searxng
+
 volumes:
+  searxng_config:
   web_node_modules:
   web_next_cache:

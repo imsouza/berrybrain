@@ -1,5 +1,5 @@
-import { NoteWorkspace } from "@/components/note-workspace";
+import { LandingPage } from "@/components/public-site/public-pages";
 
 export default function Home() {
-  return <NoteWorkspace />;
+  return <LandingPage />;
 }

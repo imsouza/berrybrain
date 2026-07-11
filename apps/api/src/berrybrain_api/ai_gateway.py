@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 from typing import Any
 
@@ -69,6 +70,8 @@ def _cloud_json(
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},
+                "temperature": 0,
+                "max_tokens": 4096,
             }
         ).encode("utf-8"),
         headers={
@@ -117,14 +120,54 @@ async def _to_thread(func, *args):
 
 
 def _loads_json_object(raw: str) -> dict[str, Any]:
+    raw = _clean_json_text(raw)
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start < 0 or end <= start:
+        candidate = _extract_balanced_json_object(raw)
+        if not candidate:
             raise
-        parsed = json.loads(raw[start : end + 1])
+        parsed = json.loads(candidate)
     if not isinstance(parsed, dict):
         raise ValueError("AI response is not a JSON object")
     return parsed
+
+
+def _clean_json_text(raw: str) -> str:
+    text = str(raw or "").strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text)
+    text = "".join(ch for ch in text if ch >= " " or ch in "\n\r\t")
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    return text.strip()
+
+
+def _extract_balanced_json_object(text: str) -> str:
+    start = text.find("{")
+    if start < 0:
+        return ""
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if escape:
+            escape = False
+            continue
+        if char == "\\" and in_string:
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start : index + 1]
+                return re.sub(r",(\s*[}\]])", r"\1", candidate)
+    return ""

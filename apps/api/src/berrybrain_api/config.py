@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -17,8 +18,30 @@ class Settings(BaseSettings):
     vault_watcher_enabled: bool = True
     vault_watcher_interval_seconds: int = 10
     api_token: str = ""
-    cors_origins: str = "*"
+    trust_x_forwarded_for: bool = False
+    cors_origins: str = "http://localhost:3000"
     backup_path: Path = Path("/app/data/backups")
+    searxng_url: str = "http://localhost:8888"
+    public_app_url: str = "http://localhost:3000"
+    backend_url: str = "http://localhost:8000"
+    session_secret: str = "dev-change-me"
+    session_cookie_name: str = "bb_session"
+    session_secure_cookie: bool = False
+    csrf_cookie_name: str = "bb_csrf"
+    auth_rate_limit_window_seconds: int = 900
+    auth_rate_limit_max_attempts: int = 8
+    auth_lockout_minutes: int = 15
+    auth_otp_ttl_minutes: int = 10
+    auth_otp_resend_cooldown_seconds: int = 60
+    admin_email: str = "contato@optlabs.com.br"
+
+    smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")
+    smtp_user: str = Field(default="", validation_alias="SMTP_USER")
+    smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
+    smtp_from: str = Field(
+        default="contato@optlabs.com.br", validation_alias="SMTP_FROM"
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="BERRYBRAIN_",

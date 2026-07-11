@@ -1,0 +1,42 @@
+{
+  "name": "BerryBrain",
+  "short_name": "BerryBrain",
+  "description": "Local-first second brain for notes, graph reasoning, and accountable AI assistance.",
+  "id": "/brain",
+  "start_url": "/brain",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#F7F6F3",
+  "theme_color": "#9EBF61",
+  "categories": ["productivity", "education", "utilities"],
+  "icons": [
+    {
+      "src": "/berrylogo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/berrylogo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open Brain",
+      "short_name": "Brain",
+      "url": "/brain",
+      "icons": [{ "src": "/berrylogo.png", "sizes": "1254x1254", "type": "image/png" }]
+    },
+    {
+      "name": "Insights",
+      "short_name": "Insights",
+      "url": "/insights",
+      "icons": [{ "src": "/berrylogo.png", "sizes": "1254x1254", "type": "image/png" }]
+    }
+  ]
+}

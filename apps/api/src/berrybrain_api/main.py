@@ -1,6 +1,7 @@
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
+from berrybrain_api.security import get_session_user, require_admin
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import utc_now
@@ -18,12 +20,16 @@ from berrybrain_api.vault_watcher import VaultWatcher
 
 from berrybrain_api.routers import (
     automation,
+    auth,
     backup,
     connections,
     concepts,
+    cognitive,
+    folders,
     graph,
     insights,
     jobs,
+    maintenance,
     monitor,
     notes,
     notifications,
@@ -37,6 +43,11 @@ from berrybrain_api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = get_settings()
+    if cfg.session_secret == "dev-change-me":
+        logging.getLogger("berrybrain").warning(
+            "INSECURE: BERRYBRAIN_SESSION_SECRET is the default value. "
+            "Set a strong random secret before exposing this service."
+        )
     init_database()
     watcher: VaultWatcher | None = None
     if cfg.vault_watcher_enabled:
@@ -61,41 +72,84 @@ settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
 app.add_middleware(
-    CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 TOKEN_EXEMPT = {
     "/health",
-    "/api/v1/jobs/claim",
-    "/api/v1/jobs/",
-    "/api/v1/worker/heartbeat",
+    "/api/v1/auth",
+    "/api/v1/admin",
+}
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'self'",
 }
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Fail closed: every non-exempt route requires a valid shared token
+        # or a valid browser session. An empty api_token no longer disables auth.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
+        if is_exempt:
+            return await call_next(request)
         token = settings.api_token
-        if token and request.method != "OPTIONS":
-            # ponytail: /health and worker mutation endpoints stay open; everything else—including all GETs—needs the token.
-            is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
-            if not is_exempt:
-                auth = request.headers.get("Authorization", "")
-                if auth != f"Bearer {token}":
-                    return JSONResponse(
-                        status_code=401, content={"detail": "Unauthorized"}
-                    )
+        authorized = (
+            bool(token)
+            and request.headers.get("Authorization", "") == f"Bearer {token}"
+        )
+        if not authorized and request.cookies.get(settings.session_cookie_name):
+            with SessionLocal() as session:
+                authorized = get_session_user(session, settings, request) is not None
+        if not authorized:
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
         return await call_next(request)
 
 
 app.add_middleware(AuthMiddleware)
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            if origin and "*" not in origins and origin not in origins:
+                return JSONResponse(
+                    status_code=403, content={"detail": "Origin not allowed"}
+                )
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        if request.url.scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # --- Routers ---
 
 app.include_router(notes.router)
+app.include_router(auth.router)
 app.include_router(jobs.router)
+app.include_router(maintenance.router)
 app.include_router(insights.router)
 app.include_router(connections.router)
 app.include_router(concepts.router)
+app.include_router(cognitive.router)
+app.include_router(folders.router)
 app.include_router(graph.router)
 app.include_router(monitor.router)
 app.include_router(notifications.router)
@@ -252,7 +306,7 @@ def list_metadata_endpoint(note_path: str | None = None, limit: int = 20):
         return {"metadata": [serialize_generated_metadata(m) for m in metadata]}
 
 
-@app.post("/api/v1/system/reset")
+@app.post("/api/v1/system/reset", dependencies=[Depends(require_admin)])
 def reset_system(payload: ResetRequest):
     import shutil
     from pathlib import Path
@@ -391,7 +445,7 @@ def list_activity(limit: int = 50) -> dict:
                     {
                         "id": job.id,
                         "action": job.type,
-                        "description": f"{job.type} concluído",
+                        "description": f"{job.type} completed",
                         "technicalDescription": job.type,
                         "when": serialize_datetime(job.completed_at or job.created_at),
                         "type": "completed",

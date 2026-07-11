@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
+import { t, tf, locale } from "@/i18n";
 
 type ActivityKind = "log" | "completed" | "failed" | "running" | "pending";
 
@@ -17,23 +18,22 @@ type ActivityItem = {
 };
 
 const JOB_LABELS: Record<string, string> = {
-  PARSE_NOTE: "Análise de nota",
-  CLASSIFY_NOTE: "Classificação",
-  ASSIMILATE_NOTE: "Assimilação",
-  GENERATE_EMBEDDING: "Geração de embedding",
-  FIND_CONNECTIONS: "Busca de conexões",
-  GENERATE_INSIGHTS: "Geração de insights",
-  EXPAND_KNOWLEDGE_GRAPH: "Expansão do grafo",
-  GENERATE_NOTE_TITLE: "Título automático",
-  GENERATE_GRAPH_INSIGHTS: "Insights do grafo",
-  UPDATE_GRAPH_STATS: "Estatísticas do grafo",
-  EXTRACT_CONTEXT: "Extração de contexto",
-  CONSOLIDATE_CONCEPTS: "Consolidação de conceitos",
-  GENERATE_AGENDA: "Geração de agenda",
-  GENERATE_FLASHCARDS: "Geração de flashcards",
-  AGGREGATE_CONCEPTS: "Agregação de conceitos",
-  CREATE_NOTE_FROM_INSIGHT: "Nota criada de insight",
-  CREATE_REVIEW_FROM_INSIGHT: "Revisão criada de insight",
+  PARSE_NOTE: "Note analysis",
+  CLASSIFY_NOTE: "Classification",
+  ASSIMILATE_NOTE: "Assimilation",
+  GENERATE_EMBEDDING: "Embedding generation",
+  FIND_CONNECTIONS: "Connection search",
+  GENERATE_INSIGHTS: "Insight generation",
+  EXPAND_KNOWLEDGE_GRAPH: "Graph expansion",
+  GENERATE_NOTE_TITLE: "Automatic title",
+  GENERATE_GRAPH_INSIGHTS: "Graph insights",
+  UPDATE_GRAPH_STATS: "Graph stats",
+  EXTRACT_CONTEXT: "Context extraction",
+  CONSOLIDATE_CONCEPTS: "Concept consolidation",
+  GENERATE_AGENDA: "Agenda generation",
+  AGGREGATE_CONCEPTS: "Concept aggregation",
+  CREATE_NOTE_FROM_INSIGHT: "Note created from insight",
+  CREATE_REVIEW_FROM_INSIGHT: "Review created from insight",
 };
 
 type Job = { id: number; type: string; status: string; payload: any; attempts: number; max_attempts: number; error_message?: string; created_at?: string; completed_at?: string; started_at?: string };
@@ -44,39 +44,40 @@ function parseJobPayload(payload: any): { note_path?: string } {
   return payload || {};
 }
 
-function humanizeJob(job: Job): { human: string; noteRef?: string } {
+function humanizeJob(job: Job): { human: string; noteRef?: string; detail?: string } {
   const { note_path } = parseJobPayload(job.payload);
   const noteName = (note_path || "").split("/").pop()?.replace(/\.md$/, "") || "";
   const type = job.type;
   const label = JOB_LABELS[type] || type.replace(/_/g, " ").toLowerCase();
 
+  const forNote = noteName ? tf("act_forNote", { name: noteName }) : "";
+
   if (job.status === "completed") {
-    if (type === "ASSIMILATE_NOTE") return { human: noteName ? `Nota assimilada: "${noteName}"` : "Nota assimilada", noteRef: note_path };
-    if (type === "GENERATE_NOTE_TITLE") return { human: noteName ? `Título automático gerado para "${noteName}"` : "Título automático gerado", noteRef: note_path };
-    if (type === "GENERATE_EMBEDDING") return { human: noteName ? `Embedding criado para "${noteName}"` : "Embedding criado", noteRef: note_path };
-    if (type === "FIND_CONNECTIONS") return { human: noteName ? `Conexões analisadas para "${noteName}"` : "Conexões analisadas" };
-    if (type === "GENERATE_INSIGHTS") return { human: "Insights gerados" };
-    if (type === "GENERATE_GRAPH_INSIGHTS") return { human: "Insights do grafo gerados" };
-    if (type === "EXPAND_KNOWLEDGE_GRAPH") return { human: "Grafo expandido" };
-    if (type === "UPDATE_GRAPH_STATS") return { human: "Estatísticas do grafo atualizadas" };
-    if (type === "EXTRACT_CONTEXT") return { human: noteName ? `Contexto extraído de "${noteName}"` : "Contexto extraído", noteRef: note_path };
-    if (type === "CONSOLIDATE_CONCEPTS") return { human: noteName ? `Conceitos consolidados em "${noteName}"` : "Conceitos consolidados" };
-    if (type === "GENERATE_FLASHCARDS") return { human: noteName ? `Flashcards gerados de "${noteName}"` : "Flashcards gerados", noteRef: note_path };
-    if (type === "CLASSIFY_NOTE") return { human: noteName ? `Nota classificada: "${noteName}"` : "Nota classificada", noteRef: note_path };
-    if (type === "PARSE_NOTE") return { human: noteName ? `Nota analisada: "${noteName}"` : "Nota analisada", noteRef: note_path };
-    if (type === "AGGREGATE_CONCEPTS") return { human: "Conceitos agregados" };
-    return { human: `${label} concluído${noteName ? ` para "${noteName}"` : ""}` };
+    if (type === "ASSIMILATE_NOTE") return { human: t("act_assimilated") + forNote, noteRef: note_path };
+    if (type === "GENERATE_NOTE_TITLE") return { human: t("act_titleGenerated") + forNote, noteRef: note_path };
+    if (type === "GENERATE_EMBEDDING") return { human: t("act_embeddingCreated") + forNote, noteRef: note_path };
+    if (type === "FIND_CONNECTIONS") return { human: t("act_connectionsAnalyzed") + forNote };
+    if (type === "GENERATE_INSIGHTS") return { human: t("act_insightsGenerated") };
+    if (type === "GENERATE_GRAPH_INSIGHTS") return { human: t("act_graphInsightsGenerated") };
+    if (type === "EXPAND_KNOWLEDGE_GRAPH") return { human: t("act_graphExpanded") };
+    if (type === "UPDATE_GRAPH_STATS") return { human: t("act_graphStatsUpdated") };
+    if (type === "EXTRACT_CONTEXT") return { human: t("act_contextExtracted") + forNote, noteRef: note_path };
+    if (type === "CONSOLIDATE_CONCEPTS") return { human: t("act_conceptsConsolidated") + forNote };
+    if (type === "CLASSIFY_NOTE") return { human: t("act_noteClassified") + forNote, noteRef: note_path };
+    if (type === "PARSE_NOTE") return { human: t("act_noteParsed") + forNote, noteRef: note_path };
+    if (type === "AGGREGATE_CONCEPTS") return { human: t("act_conceptsAggregated") };
+    return { human: t("act_completedFor") + " " + label + forNote };
   }
 
   if (job.status === "failed") {
-    return { human: `Falha em ${label}${noteName ? `: "${noteName}"` : ""}`, detail: job.error_message };
+    return { human: t("act_failedAt") + label + forNote, detail: job.error_message };
   }
 
   if (job.status === "running") {
-    return { human: `${label} em andamento${noteName ? `: "${noteName}"` : ""}` };
+    return { human: label + t("act_runningAt") + forNote };
   }
 
-  return { human: `${label} na fila` };
+  return { human: label + t("act_queued") };
 }
 
 function humanizeLog(log: Log): { human: string; noteRef?: string } {
@@ -120,7 +121,7 @@ export default function ActivityPage() {
             when: job.completed_at || job.created_at || null,
             whenTs: ts,
             human: h.human,
-            technical: `${job.type} · job #${job.id} · ${job.attempts || 1}/${job.max_attempts || 3} tentativas`,
+            technical: `${job.type} · job #${job.id} · ${job.attempts || 1}/${job.max_attempts || 3} attempts`,
             kind: "completed",
             noteRef: h.noteRef,
           });
@@ -131,7 +132,7 @@ export default function ActivityPage() {
             when: job.created_at || null,
             whenTs: ts,
             human: h.human,
-            technical: `${job.type} · job #${job.id} · ${(job.error_message || "erro desconhecido").slice(0, 150)}`,
+            technical: `${job.type} · job #${job.id} · ${(job.error_message || "unknown error").slice(0, 150)}`,
             kind: "failed",
             detail: job.error_message,
           });
@@ -142,7 +143,7 @@ export default function ActivityPage() {
             when: job.started_at || job.created_at || null,
             whenTs: ts,
             human: h.human,
-            technical: `${job.type} · job #${job.id} · tentativa ${job.attempts || 1}/${job.max_attempts || 3}`,
+            technical: `${job.type} · job #${job.id} · attempt ${job.attempts || 1}/${job.max_attempts || 3}`,
             kind: "running",
           });
         } else {
@@ -152,7 +153,7 @@ export default function ActivityPage() {
             when: job.created_at || null,
             whenTs: ts,
             human: h.human,
-            technical: `${job.type} · job #${job.id} · aguardando`,
+            technical: `${job.type} · job #${job.id} · waiting`,
             kind: "pending",
           });
         }
@@ -186,7 +187,7 @@ export default function ActivityPage() {
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
-          <div className="text-center text-sm text-muted/40 animate-pulse-soft">Carregando atividade...</div>
+           <div className="text-center text-sm text-muted/40 animate-pulse-soft">{t("loadingActivity")}</div>
         </div>
       </div>
     );
@@ -196,15 +197,15 @@ export default function ActivityPage() {
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
         <header className="mb-6">
-          <h1 className="text-xl font-semibold">Atividade Automática</h1>
-          <p className="mt-1 text-sm text-muted/60">Timeline do que o BerryBrain fez recentemente.</p>
+          <h1 className="text-xl font-semibold">{t("activityTitle")}</h1>
+          <p className="mt-1 text-sm text-muted/60">{t("activityDesc")}</p>
         </header>
 
         <div className="mb-6 grid grid-cols-4 gap-3">
-          <StatCard label="Concluídos" value={summary.completed} color="emerald" />
-          <StatCard label="Em andamento" value={summary.running} color="blue" />
-          <StatCard label="Pendentes" value={summary.pending} color="amber" />
-          <StatCard label="Erros" value={summary.failed} color="red" />
+          <StatCard label={t("completedLabel")} value={summary.completed} color="emerald" />
+          <StatCard label={t("runningLabel")} value={summary.running} color="blue" />
+          <StatCard label={t("pendingLabel")} value={summary.pending} color="amber" />
+          <StatCard label={t("failedLabel")} value={summary.failed} color="red" />
         </div>
 
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -217,24 +218,24 @@ export default function ActivityPage() {
                 }`}
                 onClick={() => setFilter(f)}
               >
-                {f === "all" ? "Todos" : f === "completed" ? "Concluídos" : f === "running" ? "Em andamento" : f === "pending" ? "Pendentes" : "Falhos"}
-              </button>
-            ))}
-          </div>
-          <button
-            className={`rounded-lg px-3 py-1 text-xs transition ${
-              technicalMode ? "bg-surface text-accent font-medium" : "text-muted hover:bg-surface hover:text-foreground"
-            }`}
-            onClick={() => setTechnicalMode(!technicalMode)}
-          >
-            {technicalMode ? "Visão normal" : "Visão técnica"}
-          </button>
+                 {f === "all" ? t("allFilter") : f === "completed" ? t("completedLabel") : f === "running" ? t("runningLabel") : f === "pending" ? t("pendingLabel") : t("failedLabel")}
+               </button>
+             ))}
+           </div>
+           <button
+             className={`rounded-lg px-3 py-1 text-xs transition ${
+               technicalMode ? "bg-surface text-accent font-medium" : "text-muted hover:bg-surface hover:text-foreground"
+             }`}
+             onClick={() => setTechnicalMode(!technicalMode)}
+           >
+             {technicalMode ? t("normalView") : t("technicalView")}
+           </button>
         </div>
 
         {filtered.length === 0 ? (
           <div className="rounded-xl bg-surface p-6 text-center text-xs text-muted/60 ring-1 ring-border/35">
-            <p className="font-medium">Nenhuma atividade recente.</p>
-            <p className="mt-1">Escreva notas e o BerryBrain começará a processar.</p>
+             <p className="font-medium">{t("noActivity")}</p>
+             <p className="mt-1">{t("writeNotesActivity")}</p>
           </div>
         ) : (
           <div className="space-y-1">
@@ -260,7 +261,7 @@ export default function ActivityPage() {
                       {item.human}
                     </span>
                     <span className="shrink-0 text-xs tabular-nums text-muted/55">
-                      {item.when ? new Date(item.when).toLocaleTimeString() : ""}
+                       {item.when ? new Date(item.when).toLocaleTimeString(locale()) : ""}
                     </span>
                   </div>
                   {technicalMode && (

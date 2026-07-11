@@ -1,7 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   devIndicators: false,
-  typedRoutes: true
+  typedRoutes: true,
+  async rewrites() {
+    return [
+      { source: "/api/:path*", destination: "http://api:8000/api/:path*" },
+    ];
+  },
 };
 
 export default nextConfig;

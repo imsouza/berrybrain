@@ -1,12 +1,28 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { PwaRegister } from "@/components/pwa-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "BerryBrain",
-  description: "Segundo cerebro local para estudos com IA local.",
+  description: "Local second brain for AI-assisted study.",
+  applicationName: "BerryBrain",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: "/berrylogo.png",
+    apple: "/berrylogo.png",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "BerryBrain",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#9EBF61",
 };
 
 export default function RootLayout({
@@ -15,15 +31,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("bb_theme")||"light";var p={light:{bg:"#F7F1E8",fg:"#3E3024",mu:"#7A6A5C",pn:"#FFF9EF",bd:"#E6D8C6"},dark:{bg:"#1a1816",fg:"#e8e4df",mu:"#8b8580",pn:"#252320",bd:"#35312c"},oled:{bg:"#000000",fg:"#d4d4d4",mu:"#555555",pn:"#0a0a0a",bd:"#1a1a1a"},sepia:{bg:"#f8f1e4",fg:"#4a3b2c",mu:"#8b7765",pn:"#fef9f0",bd:"#d6c8b8"},rose:{bg:"#fdf2f3",fg:"#3d2123",mu:"#a07a7d",pn:"#fff8f9",bd:"#eed5d8"},sky:{bg:"#f0f5fb",fg:"#1e3349",mu:"#6a8aa3",pn:"#f8fbfe",bd:"#d4e2f2"},mint:{bg:"#f0f9f3",fg:"#1a3d28",mu:"#5c8a6a",pn:"#f6fcf8",bd:"#c8e6d3"},graphite:{bg:"#f4f4f5",fg:"#1f1f21",mu:"#6b6b6e",pn:"#fafafa",bd:"#e4e4e7"}}[t]||p.light;var a=localStorage.getItem("bb_accent")||"#D98A00";var fs=localStorage.getItem("bb_font_size")||"15";var ef=localStorage.getItem("bb_editor_font_size")||"15";var uf=localStorage.getItem("bb_ui_font")||"inter";var edf=localStorage.getItem("bb_editor_font")||"mono";var ufm={inter:'"Inter",ui-sans-serif,system-ui,sans-serif',system:'ui-sans-serif,system-ui,-apple-system,sans-serif',serif:'"Georgia","Times New Roman",serif',roboto:'"Roboto",ui-sans-serif,system-ui,sans-serif'};var efm={mono:'"JetBrains Mono","Fira Code",ui-monospace,monospace',sans:'ui-sans-serif,system-ui,sans-serif',serif:'"Georgia","Times New Roman",serif'};var r=document.documentElement.style;r.setProperty("--color-background",p.bg);r.setProperty("--color-foreground",p.fg);r.setProperty("--color-muted",p.mu);r.setProperty("--color-panel",p.pn);r.setProperty("--color-border",p.bd);r.setProperty("--color-accent",a);r.setProperty("--font-ui",ufm[uf]||ufm.inter);r.setProperty("--font-editor",efm[edf]||efm.mono);document.body.style.fontSize=fs+"px";document.body.style.fontFamily="var(--font-ui)";}catch(e){}})();`,
+            __html: `(function(){try{function c(n){var m=document.cookie.match(new RegExp("(?:^|;\\\\s*)"+n+"=([^;]+)"));return m?decodeURIComponent(m[1]):""}var of=window.fetch;window.fetch=function(i,init){init=init||{};if(init.credentials===undefined)init.credentials="include";var method=(init.method||"GET").toUpperCase();if(method!=="GET"&&method!=="HEAD"&&method!=="OPTIONS"){var token=c("bb_csrf");if(token){var h=new Headers(init.headers||{});if(!h.has("X-CSRF-Token"))h.set("X-CSRF-Token",token);init.headers=h;}}return of(i,init);};}catch(e){}})();`,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("bb_theme")||"light";var p={light:{bg:"#F7F6F3",fg:"#1A1A1A",mu:"#6B6B6B",pn:"#FFFFFF",bd:"#E0E0E0"},dark:{bg:"#121212",fg:"#E8E8E8",mu:"#9A9A9A",pn:"#1E1E1E",bd:"#333333"}}[t]||p.light;var fs=localStorage.getItem("bb_font_size")||"15";var uf=localStorage.getItem("bb_ui_font")||"inter";var edf=localStorage.getItem("bb_editor_font")||"mono";var ufm={inter:'"Inter",ui-sans-serif,system-ui,sans-serif',system:'ui-sans-serif,system-ui,-apple-system,sans-serif'};var efm={mono:'"JetBrains Mono","Fira Code",ui-monospace,monospace',sans:'ui-sans-serif,system-ui,sans-serif'};var root=document.documentElement;var r=root.style;root.setAttribute("data-theme",t);root.lang="en";r.setProperty("--color-background",p.bg);r.setProperty("--color-foreground",p.fg);r.setProperty("--color-muted",p.mu);r.setProperty("--color-panel",p.pn);r.setProperty("--color-border",p.bd);r.setProperty("--color-accent","#9EBF61");r.setProperty("--color-danger","#CC4168");r.setProperty("--font-ui",ufm[uf]||ufm.inter);r.setProperty("--font-editor",efm[edf]||efm.mono);if(document.body){document.body.style.fontSize=fs+"px";document.body.style.fontFamily="var(--font-ui)";}}catch(e){}})();`,
           }}
         />
       </head>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <PwaRegister />
+        {children}
+      </body>
     </html>
   );
 }

@@ -33,6 +33,14 @@ GENERATE_GRAPH_INSIGHTS = "GENERATE_GRAPH_INSIGHTS"
 UPDATE_GRAPH_CLUSTERS = "UPDATE_GRAPH_CLUSTERS"
 UPDATE_GRAPH_STATS = "UPDATE_GRAPH_STATS"
 EXPAND_CONCEPT_TO_NOTE = "EXPAND_CONCEPT_TO_NOTE"
+ENRICH_GRAPH_NODE = "ENRICH_GRAPH_NODE"
+VALIDATE_GRAPH_NODE_WITH_WEB = "VALIDATE_GRAPH_NODE_WITH_WEB"
+REASON_GRAPH_CONNECTION = "REASON_GRAPH_CONNECTION"
+GENERATE_GRAPH_GAPS = "GENERATE_GRAPH_GAPS"
+PRUNE_LOW_VALUE_GRAPH_NODES = "PRUNE_LOW_VALUE_GRAPH_NODES"
+MERGE_DUPLICATE_GRAPH_NODES = "MERGE_DUPLICATE_GRAPH_NODES"
+UPDATE_GRAPH_QUALITY = "UPDATE_GRAPH_QUALITY"
+PROCESS_ATTACHMENT = "PROCESS_ATTACHMENT"
 NOTE_PIPELINE_ORDER = [
     PARSE_NOTE,
     CLASSIFY_NOTE,
@@ -44,6 +52,7 @@ NOTE_PIPELINE_ORDER = [
     GENERATE_EMBEDDING,
     FIND_CONNECTIONS,
     EXPAND_KNOWLEDGE_GRAPH,
+    ENRICH_GRAPH_NODE,
     GENERATE_INFERRED_CONNECTIONS,
     EXPAND_CONCEPT_TO_NOTE,
     GENERATE_GRAPH_INSIGHTS,
@@ -55,10 +64,17 @@ NOTE_PIPELINE_RANK = {
 }
 GRAPH_MUTATION_JOB_TYPES = {
     EXPAND_KNOWLEDGE_GRAPH,
+    ENRICH_GRAPH_NODE,
     GENERATE_INFERRED_CONNECTIONS,
     EXPAND_CONCEPT_TO_NOTE,
     GENERATE_GRAPH_INSIGHTS,
     UPDATE_GRAPH_STATS,
+    REASON_GRAPH_CONNECTION,
+    GENERATE_GRAPH_GAPS,
+    PRUNE_LOW_VALUE_GRAPH_NODES,
+    MERGE_DUPLICATE_GRAPH_NODES,
+    UPDATE_GRAPH_QUALITY,
+    PROCESS_ATTACHMENT,
 }
 
 
@@ -116,8 +132,9 @@ def enqueue_note_changed_jobs(
                 JobRecord.type == job_type,
                 JobRecord.status.in_([PENDING, RUNNING]),
                 JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
+                JobRecord.payload.like(f'%"content_hash":"{content_hash}"%'),
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         if existing is not None:
             continue
@@ -250,7 +267,7 @@ def _job_dependencies_satisfied(session: Session, job: JobRecord) -> bool:
     query = select(JobRecord).where(
         JobRecord.id != job.id,
         JobRecord.type.in_(blocking_types),
-        JobRecord.status.in_([PENDING, RUNNING, FAILED]),
+        JobRecord.status.in_([PENDING, RUNNING]),
         JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
     )
     if content_hash:

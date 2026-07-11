@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { t } from "@/i18n";
 
 type CommandResult = {
   type: "note" | "command";
@@ -35,8 +36,8 @@ export function CommandPalette({
   const defaultOnCreate = onCreateNote || (() => {});
 
   const commands: CommandResult[] = [
-    { type: "command", label: "Nova nota", detail: "Comecar rascunho", action: () => { (onCreateDraft || defaultOnCreate)(); onClose(); } },
-    { type: "command", label: "Scan vault", detail: "Sincronizar vault", action: () => { onScanVault(); onClose(); } },
+    { type: "command", label: t("newNote"), detail: t("startDraft"), action: () => { (onCreateDraft || defaultOnCreate)(); onClose(); } },
+    { type: "command", label: t("scanVault"), detail: t("syncVault"), action: () => { onScanVault(); onClose(); } },
   ];
 
   useEffect(() => {
@@ -131,10 +132,10 @@ export function CommandPalette({
           <input
             ref={inputRef}
             className="flex-1 bg-transparent py-4 text-sm outline-none placeholder:text-muted/40"
-            placeholder="Buscar notas ou comandos..."
+            placeholder={t("searchPlaceholder")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            aria-label="Buscar"
+            aria-label={t("search")}
             autoComplete="off"
             spellCheck={false}
           />
@@ -173,7 +174,7 @@ export function CommandPalette({
               ))}
             </ul>
           ) : (
-            <div className="p-4 text-center text-xs text-muted">Nenhum resultado.</div>
+            <div className="p-4 text-center text-xs text-muted">{t("noResults")}</div>
           )}
         </div>
       </div>

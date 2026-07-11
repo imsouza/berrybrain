@@ -589,7 +589,7 @@ Planned work includes:
 - CSRF;
 - CORS hardening;
 - security headers;
-- admin panel with GitHub SSO restricted to `imsouza`;
+- admin panel restricted to the configured administrator account;
 - user/account management;
 - LGPD/GDPR pages and data export/delete workflows.
 
@@ -634,7 +634,7 @@ Planned capabilities:
 - 2FA;
 - password reset;
 - admin panel;
-- GitHub SSO for admin;
+- administrator account controls;
 - rate limiting and abuse protection;
 - privacy, security, LGPD/GDPR pages.
 

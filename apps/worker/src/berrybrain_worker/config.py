@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 class WorkerSettings(BaseSettings):
     api_url: str = "http://localhost:8000"
+    api_token: str = ""
     ollama_base_url: str = "http://localhost:11434"
     main_model: str = "qwen3:8b"
     fast_model: str = "gemma3:4b"

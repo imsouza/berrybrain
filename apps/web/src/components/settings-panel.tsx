@@ -1,57 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { LangKind, getLang, t, tf } from "../i18n";
 
-type ThemeKind = "light" | "dark" | "oled" | "sepia" | "rose" | "sky" | "mint" | "graphite";
+type ThemeKind = "light" | "dark";
 
 const THEME_PRESETS: Record<ThemeKind, { bg: string; fg: string; mu: string; pn: string; bd: string }> = {
-  light:    { bg: "#F7F1E8", fg: "#3E3024", mu: "#7A6A5C", pn: "#FFF9EF", bd: "#E6D8C6" },
-  dark:     { bg: "#1a1816", fg: "#e8e4df", mu: "#8b8580", pn: "#252320", bd: "#35312c" },
-  oled:     { bg: "#000000", fg: "#d4d4d4", mu: "#555555", pn: "#0a0a0a", bd: "#1a1a1a" },
-  sepia:    { bg: "#f8f1e4", fg: "#4a3b2c", mu: "#8b7765", pn: "#fef9f0", bd: "#d6c8b8" },
-  rose:     { bg: "#fdf2f3", fg: "#3d2123", mu: "#a07a7d", pn: "#fff8f9", bd: "#eed5d8" },
-  sky:      { bg: "#f0f5fb", fg: "#1e3349", mu: "#6a8aa3", pn: "#f8fbfe", bd: "#d4e2f2" },
-  mint:     { bg: "#f0f9f3", fg: "#1a3d28", mu: "#5c8a6a", pn: "#f6fcf8", bd: "#c8e6d3" },
-  graphite: { bg: "#f4f4f5", fg: "#1f1f21", mu: "#6b6b6e", pn: "#fafafa", bd: "#e4e4e7" },
+  light: { bg: "#F7F6F3", fg: "#1A1A1A", mu: "#6B6B6B", pn: "#FFFFFF", bd: "#E0E0E0" },
+  dark: { bg: "#121212", fg: "#E8E8E8", mu: "#9A9A9A", pn: "#1E1E1E", bd: "#333333" },
 };
 
-const ACCENT_PRESETS = [
-  "#D98A00", "#C51A4A", "#e05d44", "#db2777",
-  "#a855f7", "#6366f1", "#3b82f6", "#0ea5e9",
-  "#14b8a6", "#10b981", "#22c55e", "#65a30d",
-  "#eab308",
-];
-
 const UI_FONTS: Record<string, string> = {
-  inter:  '"Inter", ui-sans-serif, system-ui, sans-serif',
-  system: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
-  serif:  '"Georgia", "Times New Roman", serif',
-  roboto: '"Roboto", ui-sans-serif, system-ui, sans-serif',
+  inter: '"Inter", ui-sans-serif, system-ui, sans-serif',
+  system: "ui-sans-serif, system-ui, -apple-system, sans-serif",
 };
 
 const EDITOR_FONTS: Record<string, string> = {
-  mono:   '"JetBrains Mono", "Fira Code", ui-monospace, monospace',
-  sans:   'ui-sans-serif, system-ui, sans-serif',
-  serif:  '"Georgia", "Times New Roman", serif',
+  mono: '"JetBrains Mono", "Fira Code", ui-monospace, monospace',
+  sans: "ui-sans-serif, system-ui, sans-serif",
 };
 
+const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
+
 const CLOUD_PROVIDERS: Record<string, string> = {
-  "": "Custom (cole a URL)",
+  [NVIDIA_NIM_URL]: "NVIDIA NIM",
   "https://api.openai.com/v1": "OpenAI",
   "https://api.deepseek.com/v1": "DeepSeek",
-  "https://integrate.api.nvidia.com/v1": "NVIDIA NIM",
-  "https://api.z.ai/v1": "Z.AI",
   "https://api.groq.com/openai/v1": "Groq",
-  "https://api.mistral.ai/v1": "Mistral",
-  "https://api.together.xyz/v1": "Together AI",
-  "https://api.fireworks.ai/inference/v1": "Fireworks",
   "https://openrouter.ai/api/v1": "OpenRouter",
-  "https://api.anthropic.com/v1": "Anthropic (OpenAI compat)",
+  "": "Custom provider URL",
 };
 
 type Settings = {
   theme: ThemeKind;
-  accent: string;
+  lang: LangKind;
   font_size: string;
   editor_font_size: string;
   ui_font: string;
@@ -69,276 +51,740 @@ type Settings = {
   graph_ollama_model: string;
   graph_auto_confirm_confidence: string;
   graph_default_layout: "brain" | "radial" | "type" | "connections";
+  kb_vector_store: "sqlite" | "qdrant" | "chroma";
+  kb_embedding_provider: "local" | "cloud";
+  kb_embedding_model: string;
+  kb_chunk_size: string;
+  kb_chunk_overlap: string;
+  qdrant_url: string;
+  qdrant_collection: string;
+  chroma_url: string;
+  chroma_collection: string;
+  cognitive_retrieval_mode: "hybrid" | "kb_first" | "graph_first";
+  semantic_data_enabled: "true" | "false";
+  cognitive_enrich_on_save: "true" | "false";
+  cognitive_insights_on_save: "true" | "false";
+  research_mode_enabled: "true" | "false";
+  attachment_image_limit_mb: string;
+  attachment_video_limit_mb: string;
+  attachment_audio_limit_mb: string;
+  attachment_other_limit_mb: string;
 };
 
 function defaults(): Settings {
-  return { theme: "light", accent: "#D98A00", font_size: "15", editor_font_size: "15", ui_font: "inter", editor_font: "mono", nome: "Mateus", ai_provider: "local", ai_api_url: "", ai_custom_url: "", ai_api_key: "", ai_model: "", graph_ai_provider: "local", graph_ai_api_url: "", graph_ai_api_key: "", graph_ai_model: "", graph_ollama_model: "qwen3:8b", graph_auto_confirm_confidence: "0.9", graph_default_layout: "brain" };
+  return {
+    theme: "light",
+    lang: "en",
+    font_size: "15",
+    editor_font_size: "15",
+    ui_font: "inter",
+    editor_font: "mono",
+    nome: "Mateus",
+    ai_provider: "cloud",
+    ai_api_url: NVIDIA_NIM_URL,
+    ai_custom_url: "",
+    ai_api_key: "",
+    ai_model: "",
+    graph_ai_provider: "cloud",
+    graph_ai_api_url: NVIDIA_NIM_URL,
+    graph_ai_api_key: "",
+    graph_ai_model: "",
+    graph_ollama_model: "qwen3:8b",
+    graph_auto_confirm_confidence: "0.9",
+    graph_default_layout: "brain",
+    kb_vector_store: "sqlite",
+    kb_embedding_provider: "cloud",
+    kb_embedding_model: "",
+    kb_chunk_size: "900",
+    kb_chunk_overlap: "120",
+    qdrant_url: "",
+    qdrant_collection: "berrybrain",
+    chroma_url: "",
+    chroma_collection: "berrybrain",
+    cognitive_retrieval_mode: "hybrid",
+    semantic_data_enabled: "true",
+    cognitive_enrich_on_save: "true",
+    cognitive_insights_on_save: "true",
+    research_mode_enabled: "false",
+    attachment_image_limit_mb: "10",
+    attachment_video_limit_mb: "200",
+    attachment_audio_limit_mb: "50",
+    attachment_other_limit_mb: "25",
+  };
 }
 
 function loadSettings(): Settings {
   if (typeof window === "undefined") return defaults();
+  const d = defaults();
   return {
-    theme: (localStorage.getItem("bb_theme") as ThemeKind) || "light",
-    accent: localStorage.getItem("bb_accent") || "#D98A00",
-    font_size: localStorage.getItem("bb_font_size") || "15",
-    editor_font_size: localStorage.getItem("bb_editor_font_size") || "15",
-    ui_font: localStorage.getItem("bb_ui_font") || "inter",
-    editor_font: localStorage.getItem("bb_editor_font") || "mono",
-    nome: localStorage.getItem("bb_nome") || "Mateus",
-    ai_provider: (localStorage.getItem("bb_ai_provider") as "local" | "cloud") || "local",
-    ai_api_url: localStorage.getItem("bb_ai_api_url") || "",
-    ai_custom_url: localStorage.getItem("bb_ai_custom_url") || "",
-    ai_api_key: localStorage.getItem("bb_ai_api_key") || "",
-    ai_model: localStorage.getItem("bb_ai_model") || "",
-    graph_ai_provider: (localStorage.getItem("bb_graph_ai_provider") as "local" | "cloud") || "local",
-    graph_ai_api_url: localStorage.getItem("bb_graph_ai_api_url") || "",
-    graph_ai_api_key: localStorage.getItem("bb_graph_ai_api_key") || "",
-    graph_ai_model: localStorage.getItem("bb_graph_ai_model") || "",
-    graph_ollama_model: localStorage.getItem("bb_graph_ollama_model") || "qwen3:8b",
-    graph_auto_confirm_confidence: localStorage.getItem("bb_graph_auto_confirm_confidence") || "0.9",
-    graph_default_layout: (localStorage.getItem("bb_graph_default_layout") as Settings["graph_default_layout"]) || "brain",
+    theme: (localStorage.getItem("bb_theme") as ThemeKind) || d.theme,
+    lang: "en",
+    font_size: localStorage.getItem("bb_font_size") || d.font_size,
+    editor_font_size: localStorage.getItem("bb_editor_font_size") || d.editor_font_size,
+    ui_font: localStorage.getItem("bb_ui_font") || d.ui_font,
+    editor_font: localStorage.getItem("bb_editor_font") || d.editor_font,
+    nome: localStorage.getItem("bb_nome") || d.nome,
+    ai_provider: (localStorage.getItem("bb_ai_provider") as Settings["ai_provider"]) || d.ai_provider,
+    ai_api_url: localStorage.getItem("bb_ai_api_url") || d.ai_api_url,
+    ai_custom_url: localStorage.getItem("bb_ai_custom_url") || d.ai_custom_url,
+    ai_api_key: localStorage.getItem("bb_ai_api_key") || d.ai_api_key,
+    ai_model: localStorage.getItem("bb_ai_model") || d.ai_model,
+    graph_ai_provider: (localStorage.getItem("bb_graph_ai_provider") as Settings["graph_ai_provider"]) || d.graph_ai_provider,
+    graph_ai_api_url: localStorage.getItem("bb_graph_ai_api_url") || d.graph_ai_api_url,
+    graph_ai_api_key: localStorage.getItem("bb_graph_ai_api_key") || d.graph_ai_api_key,
+    graph_ai_model: localStorage.getItem("bb_graph_ai_model") || d.graph_ai_model,
+    graph_ollama_model: localStorage.getItem("bb_graph_ollama_model") || d.graph_ollama_model,
+    graph_auto_confirm_confidence: localStorage.getItem("bb_graph_auto_confirm_confidence") || d.graph_auto_confirm_confidence,
+    graph_default_layout: (localStorage.getItem("bb_graph_default_layout") as Settings["graph_default_layout"]) || d.graph_default_layout,
+    kb_vector_store: (localStorage.getItem("bb_kb_vector_store") as Settings["kb_vector_store"]) || d.kb_vector_store,
+    kb_embedding_provider: (localStorage.getItem("bb_kb_embedding_provider") as Settings["kb_embedding_provider"]) || d.kb_embedding_provider,
+    kb_embedding_model: localStorage.getItem("bb_kb_embedding_model") || d.kb_embedding_model,
+    kb_chunk_size: localStorage.getItem("bb_kb_chunk_size") || d.kb_chunk_size,
+    kb_chunk_overlap: localStorage.getItem("bb_kb_chunk_overlap") || d.kb_chunk_overlap,
+    qdrant_url: localStorage.getItem("bb_qdrant_url") || d.qdrant_url,
+    qdrant_collection: localStorage.getItem("bb_qdrant_collection") || d.qdrant_collection,
+    chroma_url: localStorage.getItem("bb_chroma_url") || d.chroma_url,
+    chroma_collection: localStorage.getItem("bb_chroma_collection") || d.chroma_collection,
+    cognitive_retrieval_mode: (localStorage.getItem("bb_cognitive_retrieval_mode") as Settings["cognitive_retrieval_mode"]) || d.cognitive_retrieval_mode,
+    semantic_data_enabled: (localStorage.getItem("bb_semantic_data_enabled") as Settings["semantic_data_enabled"]) || d.semantic_data_enabled,
+    cognitive_enrich_on_save: (localStorage.getItem("bb_cognitive_enrich_on_save") as Settings["cognitive_enrich_on_save"]) || d.cognitive_enrich_on_save,
+    cognitive_insights_on_save: (localStorage.getItem("bb_cognitive_insights_on_save") as Settings["cognitive_insights_on_save"]) || d.cognitive_insights_on_save,
+    research_mode_enabled: (localStorage.getItem("bb_research_mode_enabled") as Settings["research_mode_enabled"]) || d.research_mode_enabled,
+    attachment_image_limit_mb: localStorage.getItem("bb_attachment_image_limit_mb") || d.attachment_image_limit_mb,
+    attachment_video_limit_mb: localStorage.getItem("bb_attachment_video_limit_mb") || d.attachment_video_limit_mb,
+    attachment_audio_limit_mb: localStorage.getItem("bb_attachment_audio_limit_mb") || d.attachment_audio_limit_mb,
+    attachment_other_limit_mb: localStorage.getItem("bb_attachment_other_limit_mb") || d.attachment_other_limit_mb,
   };
 }
 
 function applyTheme(s: Settings) {
   const r = document.documentElement;
   const p = THEME_PRESETS[s.theme] || THEME_PRESETS.light;
+  r.setAttribute("data-theme", s.theme);
   r.style.setProperty("--color-background", p.bg);
   r.style.setProperty("--color-foreground", p.fg);
   r.style.setProperty("--color-muted", p.mu);
   r.style.setProperty("--color-panel", p.pn);
   r.style.setProperty("--color-border", p.bd);
-  r.style.setProperty("--color-accent", s.accent);
-  document.body.style.fontSize = `${s.font_size}px`;
+  r.style.setProperty("--color-accent", "#9EBF61");
+  r.style.setProperty("--color-danger", "#CC4168");
   r.style.setProperty("--font-ui", UI_FONTS[s.ui_font] || UI_FONTS.inter);
   r.style.setProperty("--font-editor", EDITOR_FONTS[s.editor_font] || EDITOR_FONTS.mono);
-  document.body.style.fontFamily = `var(--font-ui)`;
+  document.body.style.fontSize = `${s.font_size}px`;
+  document.body.style.fontFamily = "var(--font-ui)";
+  document.documentElement.lang = "en";
 }
 
-export function initTheme() { applyTheme(loadSettings()); }
+export function initTheme() {
+  applyTheme(loadSettings());
+}
+export { getLang, t };
+
+const SETTING_KEYS: (keyof Settings)[] = [
+  "theme",
+  "lang",
+  "font_size",
+  "editor_font_size",
+  "ui_font",
+  "editor_font",
+  "nome",
+  "ai_provider",
+  "ai_api_url",
+  "ai_custom_url",
+  "ai_api_key",
+  "ai_model",
+  "graph_ai_provider",
+  "graph_ai_api_url",
+  "graph_ai_api_key",
+  "graph_ai_model",
+  "graph_ollama_model",
+  "graph_auto_confirm_confidence",
+  "graph_default_layout",
+  "kb_vector_store",
+  "kb_embedding_provider",
+  "kb_embedding_model",
+  "kb_chunk_size",
+  "kb_chunk_overlap",
+  "qdrant_url",
+  "qdrant_collection",
+  "chroma_url",
+  "chroma_collection",
+  "cognitive_retrieval_mode",
+  "semantic_data_enabled",
+  "cognitive_enrich_on_save",
+  "cognitive_insights_on_save",
+  "research_mode_enabled",
+  "attachment_image_limit_mb",
+  "attachment_video_limit_mb",
+  "attachment_audio_limit_mb",
+  "attachment_other_limit_mb",
+];
 
 export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClose: () => void; apiUrl: string }) {
   const [s, setS] = useState<Settings>(loadSettings);
   const [saving, setSaving] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [cloudModels, setCloudModels] = useState<{ id: string }[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("");
+  const [maintenanceStatus, setMaintenanceStatus] = useState("");
+  const [diagnostics, setDiagnostics] = useState<{ staleRunning: any[]; failedByType: Record<string, number>; status: string } | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagClearing, setDiagClearing] = useState(false);
+  const [diagClearResult, setDiagClearResult] = useState("");
 
-  const [cloudError, setCloudError] = useState("");
-
-  async function fetchModels() {
-    const baseUrl = s.ai_api_url || s.ai_custom_url;
-    setLoadingModels(true);
-    setCloudError("");
-    try {
-      const r = await fetch(`${apiUrl}/api/v1/settings/ai/models?url=${encodeURIComponent(baseUrl)}&key=${encodeURIComponent(s.ai_api_key)}`);
-      const d = await r.json();
-      if (d.error) { setCloudError(d.error); setCloudModels([]); }
-      else { setCloudModels(d.models || []); }
-      if (!d.error && !d.models?.length) setCloudError("Nenhum modelo encontrado.");
-    } catch (e: any) { setCloudError(`Falha: ${e.message}`); }
-    finally { setLoadingModels(false); }
-  }
+  const selectedProviderLabel = useMemo(() => CLOUD_PROVIDERS[s.ai_api_url] || "Custom provider", [s.ai_api_url]);
+  const nimApiKey = s.ai_api_key;
 
   useEffect(() => {
     if (!open) return;
-    fetch(`${apiUrl}/api/v1/settings`).then(r => r.json()).then(d => {
-      const map: Record<string, keyof Settings> = { theme: "theme", accent: "accent", font_size: "font_size", editor_font_size: "editor_font_size", ui_font: "ui_font", editor_font: "editor_font", nome: "nome", ai_provider: "ai_provider", ai_api_url: "ai_api_url", ai_custom_url: "ai_custom_url", ai_api_key: "ai_api_key", ai_model: "ai_model", graph_ai_provider: "graph_ai_provider", graph_ai_api_url: "graph_ai_api_url", graph_ai_api_key: "graph_ai_api_key", graph_ai_model: "graph_ai_model", graph_ollama_model: "graph_ollama_model", graph_auto_confirm_confidence: "graph_auto_confirm_confidence", graph_default_layout: "graph_default_layout" };
-      for (const item of d.settings || []) {
-        const k = map[item.key] as keyof Settings;
-        if (k) setS(prev => ({ ...prev, [k]: item.value }));
-      }
-    }).catch(() => {});
+    let cancelled = false;
+    fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => {
+        const admin = Boolean(me?.isAdmin);
+        if (cancelled) return;
+        setIsAdmin(admin);
+        if (!admin) return;
+        return fetch(`${apiUrl}/api/v1/settings`)
+          .then((r) => r.json())
+          .then((d) => {
+            const loaded: Partial<Settings> = {};
+            for (const item of d.settings || []) {
+              const key = String(item.key) as keyof Settings;
+              if (SETTING_KEYS.includes(key)) (loaded as Record<string, string>)[key] = item.value;
+            }
+            if (!cancelled) setS((prev) => ({ ...prev, ...loaded, lang: "en" }));
+          });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, apiUrl]);
+
+  useEffect(() => {
+    if (!open) return;
+    setDiagLoading(true);
+    fetch(`${apiUrl}/api/v1/jobs/health`)
+      .then((r) => r.json())
+      .then((d) => setDiagnostics({ staleRunning: d.staleRunning || [], failedByType: d.failedByType || {}, status: d.status || "unknown" }))
+      .catch(() => setDiagnostics(null))
+      .finally(() => setDiagLoading(false));
   }, [open, apiUrl]);
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
-    const n = { ...s, [key]: value };
-    setS(n); applyTheme(n);
-    localStorage.setItem(`bb_${key}`, String(value));
+    const next: Settings = { ...s, [key]: value, lang: "en" };
+    if (key === "ai_api_key" && !next.graph_ai_api_key) next.graph_ai_api_key = String(value);
+    if (key === "ai_model" && !next.graph_ai_model) next.graph_ai_model = String(value);
+    if (key === "ai_api_url" && !next.graph_ai_api_url) next.graph_ai_api_url = String(value);
+    setS(next);
+    if (["theme", "font_size", "ui_font", "editor_font"].includes(String(key))) applyTheme(next);
+  }
+
+  async function persist(next = s) {
+    await Promise.all(
+      SETTING_KEYS.map((key) => {
+        localStorage.setItem(`bb_${key}`, String(next[key]));
+        if (!isAdmin) return Promise.resolve();
+        return fetch(`${apiUrl}/api/v1/settings/${key}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ value: String(next[key]) }),
+        });
+      }),
+    );
   }
 
   async function save() {
     setSaving(true);
     try {
-      const keys: (keyof Settings)[] = ["theme", "accent", "font_size", "editor_font_size", "ui_font", "editor_font", "nome", "ai_provider", "ai_api_url", "ai_custom_url", "ai_api_key", "ai_model", "graph_ai_provider", "graph_ai_api_url", "graph_ai_api_key", "graph_ai_model", "graph_ollama_model", "graph_auto_confirm_confidence", "graph_default_layout"];
-      await Promise.all(keys.map(k => fetch(`${apiUrl}/api/v1/settings/${k}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: String(s[k]) }) })));
-    } catch {}
-    setSaving(false); onClose();
+      await persist(s);
+      applyTheme(s);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function fetchModels() {
+    const baseUrl = s.ai_api_url || s.ai_custom_url;
+    setLoadingModels(true);
+    setConnectionStatus("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/settings/ai/models?url=${encodeURIComponent(baseUrl)}&key=${encodeURIComponent(s.ai_api_key)}`);
+      const payload = await response.json();
+      if (payload.error) {
+        setCloudModels([]);
+        setConnectionStatus(`Connection failed: ${payload.error}`);
+      } else {
+        setCloudModels(payload.models || []);
+        setConnectionStatus((payload.models || []).length ? "Connection OK. Select a model below." : "Connection OK, but no models were returned.");
+      }
+    } catch (error: any) {
+      setCloudModels([]);
+      setConnectionStatus(`Connection failed: ${error.message}`);
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
+  function preserveLocalSettings() {
+    const preserved = new Map<string, string>();
+    for (const key of SETTING_KEYS) {
+      const storageKey = `bb_${key}`;
+      const value = localStorage.getItem(storageKey);
+      if (value !== null) preserved.set(storageKey, value);
+    }
+    localStorage.clear();
+    for (const [key, value] of preserved) localStorage.setItem(key, value);
+    sessionStorage.clear();
+  }
+
+  function resetLocalSettings() {
+    localStorage.clear();
+    sessionStorage.clear();
+    const next = defaults();
+    setS(next);
+    applyTheme(next);
+  }
+
+  async function wipeAll(resetSettings: boolean) {
+    const label = resetSettings
+      ? "DELETE EVERYTHING and reset Settings to defaults"
+      : "DELETE EVERYTHING but keep current Settings";
+    const confirmed = window.confirm(
+      `${label}?\n\nThis deletes notes, graph, embeddings, insights, jobs, notifications and vault files. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setConnectionStatus("Wiping BerryBrain data...");
+    const response = await fetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reset_settings: resetSettings }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      setConnectionStatus(payload.detail || "Wipe failed.");
+      return;
+    }
+    if (resetSettings) resetLocalSettings();
+    else preserveLocalSettings();
+    setConnectionStatus(resetSettings ? "Everything wiped. Settings reset. Reloading..." : "Everything wiped. Settings preserved. Reloading...");
+    window.setTimeout(() => window.location.reload(), 700);
+  }
+
+  async function runMaintenance(action: "rebuild-brain" | "cleanup-legacy-insights" | "validate-graph" | "reindex-knowledge-base") {
+    const labels: Record<typeof action, string> = {
+      "rebuild-brain": "Rebuild second brain",
+      "cleanup-legacy-insights": "Cleanup legacy technical insights",
+      "validate-graph": "Validate graph consistency",
+      "reindex-knowledge-base": "Reindex knowledge base",
+    };
+    const confirmed = window.confirm(`${labels[action]}?\n\nThis does not delete note files. It may queue processing jobs and update graph/insight metadata.`);
+    if (!confirmed) return;
+    setMaintenanceStatus(`${labels[action]} running...`);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/maintenance/${action}`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setMaintenanceStatus(payload.detail || `${labels[action]} failed.`);
+        return;
+      }
+      const counts = Object.entries(payload)
+        .filter(([, value]) => typeof value === "number")
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(" · ");
+      setMaintenanceStatus(`${labels[action]} completed.${counts ? ` ${counts}` : ""}`);
+    } catch (error: any) {
+      setMaintenanceStatus(error.message || `${labels[action]} failed.`);
+    }
+  }
+
+  async function clearStuckJobs() {
+    setDiagClearing(true);
+    setDiagClearResult("");
+    try {
+      const r = await fetch(`${apiUrl}/api/v1/jobs/recover-stale`, { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setDiagClearResult(t("clearedFail")); return; }
+      setDiagClearResult(tf("clearedOk", { count: d.recovered ?? 0 }));
+      setDiagnostics((prev) => prev ? { ...prev, staleRunning: [] } : prev);
+    } catch { setDiagClearResult(t("clearedFail")); }
+    finally { setDiagClearing(false); }
   }
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={e => { e.stopPropagation(); onClose(); }} />
-      <div className="relative z-50 w-[440px] overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5" role="dialog" aria-label="Configuracoes">
-        <div className="flex items-center justify-between px-6 py-4">
-          <h2 className="text-base font-semibold tracking-tight">Aparencia</h2>
-          <button className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground" onClick={onClose} aria-label="Fechar">
-            <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative z-50 w-[560px] overflow-hidden rounded-2xl bg-panel text-foreground shadow-2xl ring-1 ring-border/70" role="dialog" aria-label="Settings">
+        <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">Settings</h2>
+            <p className="mt-0.5 text-xs text-muted/70">Configure appearance, editor, AI providers, and saving behavior.</p>
+          </div>
+          <button className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground" onClick={onClose} aria-label="Close settings">x</button>
         </div>
 
-        <div className="max-h-[62vh] space-y-5 overflow-y-auto px-6 pb-6">
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Nome</legend>
-            <input
-              type="text"
-              className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
-              value={s.nome}
-              onChange={e => update("nome", e.target.value)}
-              placeholder="Seu nome"
-              maxLength={40}
-            />
-          </fieldset>
+        <div className="max-h-[72vh] space-y-5 overflow-y-auto px-6 py-5">
+          <Section title="Appearance" description="Interface identity and theme.">
+            <Field label="Display name" description="Used in the Home greeting.">
+              <TextInput value={s.nome} onChange={(value) => update("nome", value)} placeholder="Your name" />
+            </Field>
+            <Field label="Theme" description="Current visual mode.">
+              <Select value={s.theme} onChange={(value) => update("theme", value as ThemeKind)}>
+                <option value="">Select a theme</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </Select>
+            </Field>
+            <Field label="Language" description="The application UI is English-only. User notes keep their original language.">
+              <ReadOnlyValue value="English" />
+            </Field>
+          </Section>
 
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Tema</legend>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(Object.keys(THEME_PRESETS) as ThemeKind[]).map(t => {
-                const p = THEME_PRESETS[t];
-                return (
-                  <button key={t} className={`rounded-xl border p-2 text-center text-[11px] transition ${s.theme === t ? "border-foreground/30 bg-surface" : "border-transparent hover:bg-surface/50"}`} onClick={() => update("theme", t)}>
-                    <div className="mx-auto mb-1 size-5 rounded-md ring-1 ring-black/10" style={{ background: p.bg }} />
-                    <span className="capitalize text-[10px]">{t}</span>
-                  </button>
-                );
-              })}
+          <Section title="Font" description="Readable text across the application.">
+            <Field label="UI font" description="Used by menus, cards, and navigation.">
+              <Select value={s.ui_font} onChange={(value) => update("ui_font", value)}>
+                <option value="">Select a font</option>
+                {Object.keys(UI_FONTS).map((font) => <option key={font} value={font}>{labelize(font)}</option>)}
+              </Select>
+            </Field>
+            <Field label={`UI font size: ${s.font_size}px`} description="Controls the base interface size.">
+              <Range value={s.font_size} min="12" max="20" onChange={(value) => update("font_size", value)} />
+            </Field>
+          </Section>
+
+          <Section title="Editor" description="Writing surface and markdown editing.">
+            <Field label="Editor font" description="Used inside the markdown editor.">
+              <Select value={s.editor_font} onChange={(value) => update("editor_font", value)}>
+                <option value="">Select an editor font</option>
+                {Object.keys(EDITOR_FONTS).map((font) => <option key={font} value={font}>{labelize(font)}</option>)}
+              </Select>
+            </Field>
+            <Field label={`Editor font size: ${s.editor_font_size}px`} description="Controls markdown editor text size.">
+              <Range value={s.editor_font_size} min="13" max="22" onChange={(value) => update("editor_font_size", value)} />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Image attachment limit (MB)" description="Maximum size for images attached to notes.">
+                <TextInput value={s.attachment_image_limit_mb} onChange={(value) => update("attachment_image_limit_mb", value)} placeholder="10" />
+              </Field>
+              <Field label="Video attachment limit (MB)" description="Maximum size for videos attached to notes.">
+                <TextInput value={s.attachment_video_limit_mb} onChange={(value) => update("attachment_video_limit_mb", value)} placeholder="200" />
+              </Field>
+              <Field label="Audio attachment limit (MB)" description="Maximum size for audio files attached to notes.">
+                <TextInput value={s.attachment_audio_limit_mb} onChange={(value) => update("attachment_audio_limit_mb", value)} placeholder="50" />
+              </Field>
+              <Field label="Other attachment limit (MB)" description="Maximum size for PDFs, archives, documents, and any other file type.">
+                <TextInput value={s.attachment_other_limit_mb} onChange={(value) => update("attachment_other_limit_mb", value)} placeholder="25" />
+              </Field>
             </div>
-          </fieldset>
+            <ReadOnlyValue value="Markdown toolbar and split preview are enabled." />
+          </Section>
 
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Cor de destaque</legend>
-            <div className="flex flex-wrap gap-1.5">
-              {ACCENT_PRESETS.map(c => (
-                <button key={c} className={`size-7 rounded-full transition ${s.accent === c ? "ring-2 ring-offset-1 ring-offset-panel ring-foreground" : ""}`} style={{ background: c }} onClick={() => update("accent", c)} aria-label={c} />
-              ))}
-            </div>
-          </fieldset>
+          <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
+            <Field label="AI provider" description="Cloud uses NVIDIA NIM or another compatible API. Local uses Ollama.">
+              <Select value={s.ai_provider} onChange={(value) => update("ai_provider", value as Settings["ai_provider"])}>
+                <option value="">Select a provider</option>
+                <option value="cloud">Cloud provider</option>
+                <option value="local">Local Ollama</option>
+              </Select>
+            </Field>
+            <Field label="Graph inference provider" description="Controls AI answers in the graph screen.">
+              <Select value={s.graph_ai_provider} onChange={(value) => update("graph_ai_provider", value as Settings["graph_ai_provider"])}>
+                <option value="">Select a graph provider</option>
+                <option value="cloud">Cloud provider</option>
+                <option value="local">Local Ollama</option>
+              </Select>
+            </Field>
+          </Section>
 
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Fonte da interface</legend>
-            <div className="grid grid-cols-2 gap-1.5">
-              {Object.entries(UI_FONTS).map(([k, v]) => (
-                <button key={k} className={`rounded-lg px-3 py-2 text-xs text-left truncate transition ${s.ui_font === k ? "bg-surface font-medium text-foreground" : "text-muted hover:bg-surface/50"}`} onClick={() => update("ui_font", k)}>
-                  <span className="block" style={{ fontFamily: v }}>{k.charAt(0).toUpperCase() + k.slice(1)}</span>
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Fonte do editor</legend>
-            <div className="grid grid-cols-3 gap-1.5">
-              {Object.entries(EDITOR_FONTS).map(([k, v]) => (
-                <button key={k} className={`rounded-lg px-3 py-2 text-xs text-center transition ${s.editor_font === k ? "bg-surface font-medium text-foreground" : "text-muted hover:bg-surface/50"}`} style={{ fontFamily: v }} onClick={() => update("editor_font", k)}>
-                  {k}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Tamanho da interface &mdash; <span className="tabular-nums">{s.font_size}px</span></legend>
-            <input type="range" min="12" max="20" value={s.font_size} onChange={e => update("font_size", e.target.value)} className="h-1 w-full cursor-pointer appearance-none rounded-full bg-border accent-accent" />
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-2 text-xs font-medium text-muted">Tamanho do editor &mdash; <span className="tabular-nums">{s.editor_font_size}px</span></legend>
-            <input type="range" min="13" max="22" value={s.editor_font_size} onChange={e => update("editor_font_size", e.target.value)} className="h-1 w-full cursor-pointer appearance-none rounded-full bg-border accent-accent" />
-          </fieldset>
-
-          <div className="border-t border-border/30 pt-4">
-            <h3 className="mb-3 text-xs font-medium text-muted">Provedor de IA</h3>
-            <div className="grid grid-cols-2 gap-1.5 mb-3">
-              {(["local", "cloud"] as const).map(p => (
-                <button key={p} className={`rounded-lg px-3 py-2 text-xs transition ${s.ai_provider === p ? "bg-accent-soft text-accent font-medium ring-1 ring-accent/20" : "text-muted hover:bg-surface/50 bg-surface"}`}
-                  onClick={() => update("ai_provider", p)}>
-                  {p === "local" ? "Local (Ollama)" : "Cloud (API)"}
-                </button>
-              ))}
-            </div>
-            {s.ai_provider === "cloud" && (
-              <div className="space-y-2">
-                <div className="flex gap-1.5">
-                  <select className="h-9 flex-1 rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
-                    value={s.ai_api_url}
-                    onChange={e => { update("ai_api_url", e.target.value); setCloudModels([]); }}>
-                    {Object.entries(CLOUD_PROVIDERS).map(([url, label]) => <option key={url} value={url}>{label}</option>)}
-                  </select>
-                </div>
-                {s.ai_api_url === "" && (
-                  <input type="url" className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.ai_custom_url || ""} onChange={e => update("ai_custom_url", e.target.value)} placeholder="https://api.exemplo.com/v1" />
-                )}
-                <input type="password" className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.ai_api_key} onChange={e => update("ai_api_key", e.target.value)} placeholder="API Key" />
-                <div className="flex gap-1.5">
-                  <select className="h-9 flex-1 rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.ai_model} onChange={e => update("ai_model", e.target.value)}>
-                    <option value="">{loadingModels ? "Carregando..." : cloudModels.length ? "Selecionar modelo..." : "Carregue os modelos"}</option>
-                    {cloudModels.map(m => <option key={m.id} value={m.id}>{m.id}</option>)}
-                  </select>
-                  <button className="h-9 shrink-0 rounded-xl bg-surface px-3 text-xs text-muted hover:text-foreground disabled:opacity-30"
-                    disabled={!s.ai_api_key || loadingModels}
-                    onClick={fetchModels}>
-                    {loadingModels ? "..." : "Carregar"}
-                  </button>
-                </div>
-                {cloudError && <p className="text-[11px] text-red-400">{cloudError}</p>}
-              </div>
+          <Section title="NVIDIA NIM" description="Cloud model used for graph inference, insights, and knowledge expansion.">
+            <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
+              <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
+                <option value="">Select a provider</option>
+                {Object.entries(CLOUD_PROVIDERS).map(([url, label]) => <option key={url || "custom"} value={url}>{label}</option>)}
+              </Select>
+            </Field>
+            {s.ai_api_url === "" && (
+              <Field label="Custom API base URL" description="OpenAI-compatible endpoint.">
+                <TextInput value={s.ai_custom_url} onChange={(value) => update("ai_custom_url", value)} placeholder="https://example.com/v1" />
+              </Field>
             )}
-          </div>
-
-          <div className="border-t border-border/30 pt-4">
-            <h3 className="mb-3 text-xs font-medium text-muted">IA do grafo</h3>
-            <p className="mb-3 text-[11px] text-muted/60">Usada para inferencia, conexoes explicadas e expansao do segundo cerebro.</p>
-            <div className="grid grid-cols-2 gap-1.5 mb-3">
-              {(["local", "cloud"] as const).map(p => (
-                <button key={p} className={`rounded-lg px-3 py-2 text-xs transition ${s.graph_ai_provider === p ? "bg-accent-soft text-accent font-medium ring-1 ring-accent/20" : "text-muted hover:bg-surface/50 bg-surface"}`}
-                  onClick={() => update("graph_ai_provider", p)}>
-                  {p === "local" ? "Local" : "Cloud"}
+            <Field label="NVIDIA NIM API Key" description="Stored locally and in BerryBrain settings.">
+              <div className="flex gap-2">
+                <TextInput
+                  type={showKey ? "text" : "password"}
+                  value={nimApiKey}
+                  onChange={(value) => update("ai_api_key", value)}
+                  placeholder="Paste your NVIDIA NIM API key"
+                />
+                <button className="h-9 rounded-xl bg-surface px-3 text-xs text-muted ring-1 ring-border/50 hover:text-foreground" onClick={() => setShowKey((value) => !value)}>
+                  {showKey ? "Hide" : "Show"}
                 </button>
-              ))}
+                <button className="h-9 rounded-xl bg-accent px-3 text-xs font-medium text-white disabled:opacity-40" disabled={!s.ai_api_key || loadingModels} onClick={fetchModels}>
+                  {loadingModels ? "Testing..." : "Test connection"}
+                </button>
+              </div>
+            </Field>
+            <Field label="Cloud model" description="Model used by the main AI pipeline.">
+              <Select value={s.ai_model} onChange={(value) => update("ai_model", value)}>
+                <option value="">Select a model</option>
+                {cloudModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
+                {s.ai_model && !cloudModels.some((model) => model.id === s.ai_model) && <option value={s.ai_model}>{s.ai_model}</option>}
+              </Select>
+            </Field>
+            <Field label="Graph cloud model" description="Model used by graph questions and graph insight generation.">
+              <TextInput value={s.graph_ai_model} onChange={(value) => update("graph_ai_model", value)} placeholder="Select or type a graph model" />
+            </Field>
+            {connectionStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{connectionStatus}</p>}
+          </Section>
+
+          <Section title="Cognitive Layer" description="Configure the BerryBrain Knowledge System: Knowledge Base, Knowledge Graph, semantic state, and retrieval orchestration.">
+            <Field label="Knowledge Base vector store" description="SQLite is local fallback. Qdrant and Chroma are supported as configurable external stores.">
+              <Select value={s.kb_vector_store} onChange={(value) => update("kb_vector_store", value as Settings["kb_vector_store"])}>
+                <option value="">Select a vector store</option>
+                <option value="sqlite">SQLite local fallback</option>
+                <option value="qdrant">Qdrant</option>
+                <option value="chroma">Chroma</option>
+              </Select>
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Qdrant URL" description="Used when the vector store is Qdrant.">
+                <TextInput value={s.qdrant_url} onChange={(value) => update("qdrant_url", value)} placeholder="http://localhost:6333" />
+              </Field>
+              <Field label="Qdrant collection" description="Collection for BerryBrain chunks.">
+                <TextInput value={s.qdrant_collection} onChange={(value) => update("qdrant_collection", value)} placeholder="berrybrain" />
+              </Field>
+              <Field label="Chroma URL" description="Used when the vector store is Chroma.">
+                <TextInput value={s.chroma_url} onChange={(value) => update("chroma_url", value)} placeholder="http://localhost:8001" />
+              </Field>
+              <Field label="Chroma collection" description="Collection for BerryBrain chunks.">
+                <TextInput value={s.chroma_collection} onChange={(value) => update("chroma_collection", value)} placeholder="berrybrain" />
+              </Field>
             </div>
-            {s.graph_ai_provider === "cloud" ? (
-              <div className="space-y-2">
-                <input type="url" className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_ai_api_url || ""} onChange={e => update("graph_ai_api_url", e.target.value)} placeholder="URL OpenAI-compatible para o grafo" />
-                <input type="password" className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_ai_api_key || ""} onChange={e => update("graph_ai_api_key", e.target.value)} placeholder="API Key do grafo" />
-                <input className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_ai_model || ""} onChange={e => update("graph_ai_model", e.target.value)} placeholder="Modelo para inferencia do grafo" />
+            <Field label="Embedding provider" description="Cloud uses the configured compatible API. Local uses Ollama.">
+              <Select value={s.kb_embedding_provider} onChange={(value) => update("kb_embedding_provider", value as Settings["kb_embedding_provider"])}>
+                <option value="">Select an embedding provider</option>
+                <option value="cloud">Cloud provider</option>
+                <option value="local">Local Ollama</option>
+              </Select>
+            </Field>
+            <Field label="Embedding model" description="Model used for semantic search chunks. Required to move embeddings above zero.">
+              <TextInput value={s.kb_embedding_model} onChange={(value) => update("kb_embedding_model", value)} placeholder="Example: nvidia/llama-3.2-nv-embedqa-1b-v2 or bge-m3" />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Chunk size" description="Maximum characters per markdown chunk.">
+                <TextInput value={s.kb_chunk_size} onChange={(value) => update("kb_chunk_size", value)} placeholder="900" />
+              </Field>
+              <Field label="Chunk overlap" description="Reserved for vector stores that support overlapping chunks.">
+                <TextInput value={s.kb_chunk_overlap} onChange={(value) => update("kb_chunk_overlap", value)} placeholder="120" />
+              </Field>
+            </div>
+            <Field label="Retrieval mode" description="Hybrid uses Knowledge Base, Knowledge Graph, and Semantic Data together.">
+              <Select value={s.cognitive_retrieval_mode} onChange={(value) => update("cognitive_retrieval_mode", value as Settings["cognitive_retrieval_mode"])}>
+                <option value="">Select retrieval mode</option>
+                <option value="hybrid">Hybrid: KB + Graph + Semantic</option>
+                <option value="kb_first">Knowledge Base first</option>
+                <option value="graph_first">Knowledge Graph first</option>
+              </Select>
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Semantic Data Layer" description="Allow questions about jobs, errors, queues, and status.">
+                <Select value={s.semantic_data_enabled} onChange={(value) => update("semantic_data_enabled", value as Settings["semantic_data_enabled"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+              <Field label="Enrich graph on save" description="Queue node enrichment when notes are processed.">
+                <Select value={s.cognitive_enrich_on_save} onChange={(value) => update("cognitive_enrich_on_save", value as Settings["cognitive_enrich_on_save"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+              <Field label="Generate insights on save" description="Queue evidence-based insights after graph expansion.">
+                <Select value={s.cognitive_insights_on_save} onChange={(value) => update("cognitive_insights_on_save", value as Settings["cognitive_insights_on_save"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+              <Field label="Research Mode" description="Allow graph validation to query external web sources.">
+                <Select value={s.research_mode_enabled} onChange={(value) => update("research_mode_enabled", value as Settings["research_mode_enabled"])}>
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
+                </Select>
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="Local" description="Local Ollama settings for offline processing.">
+            <Field label="Ollama graph model" description="Used when graph provider is Local Ollama.">
+              <TextInput value={s.graph_ollama_model} onChange={(value) => update("graph_ollama_model", value)} placeholder="qwen3:8b" />
+            </Field>
+            <Field label="Auto-confirm confidence" description="Suggested graph connections above this confidence can be confirmed automatically.">
+              <TextInput value={s.graph_auto_confirm_confidence} onChange={(value) => update("graph_auto_confirm_confidence", value)} placeholder="0.9" />
+            </Field>
+            <Field label="Default graph layout" description="Initial visual layout used by the graph screen.">
+              <Select value={s.graph_default_layout} onChange={(value) => update("graph_default_layout", value as Settings["graph_default_layout"])}>
+                <option value="">Select a default layout</option>
+                <option value="brain">Brain View</option>
+                <option value="radial">Radial</option>
+                <option value="type">By type</option>
+                <option value="connections">Centrality</option>
+              </Select>
+            </Field>
+          </Section>
+
+          <Section title="Saving" description="Settings are persisted only after clicking Save.">
+            <ReadOnlyValue value="Click Save to write these values to local storage and the BerryBrain API." />
+          </Section>
+
+          <Section title="Maintenance" description="Repair and rebuild BerryBrain without deleting note files.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <MaintenanceButton onClick={() => runMaintenance("rebuild-brain")}>Rebuild second brain</MaintenanceButton>
+              <MaintenanceButton onClick={() => runMaintenance("cleanup-legacy-insights")}>Cleanup legacy insights</MaintenanceButton>
+              <MaintenanceButton onClick={() => runMaintenance("validate-graph")}>Validate graph consistency</MaintenanceButton>
+              <MaintenanceButton onClick={() => runMaintenance("reindex-knowledge-base")}>Reindex knowledge base</MaintenanceButton>
+            </div>
+            {maintenanceStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{maintenanceStatus}</p>}
+          </Section>
+
+          <Section title={t("diagnostics")} description={t("diagnosticsDesc")}>
+            {diagLoading ? (
+              <p className="text-xs text-muted">{t("loadingDiagnostics")}</p>
+            ) : diagnostics ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{t("healthStatus")}:</span>
+                  <span className={`rounded-lg px-2 py-0.5 text-[11px] font-medium ring-1 ${diagnostics.status === "ok" ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20" : diagnostics.status === "degraded" ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-danger/10 text-danger ring-danger/20"}`}>{diagnostics.status}</span>
+                </div>
+                {diagnostics.staleRunning.length > 0 ? (
+                  <div>
+                    <p className="text-xs font-medium text-foreground">{t("stuckJobs")} ({diagnostics.staleRunning.length})</p>
+                    <ul className="mt-1 space-y-1">
+                      {diagnostics.staleRunning.slice(0, 10).map((j: any) => (
+                        <li key={j.id} className="rounded-lg bg-surface px-2 py-1 text-[11px] text-muted ring-1 ring-border/30">
+                          {j.type} — {j.id.slice(0, 8)}… {j.started_at ? `since ${new Date(j.started_at).toLocaleTimeString()}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">{t("noStuckJobs")}</p>
+                )}
+                {Object.keys(diagnostics.failedByType).length > 0 ? (
+                  <p className="text-xs text-muted">{tf("failedJobCount", { count: Object.values(diagnostics.failedByType).reduce((a: number, b: number) => a + b, 0) })}</p>
+                ) : (
+                  <p className="text-xs text-muted">{t("noFailedJobs")}</p>
+                )}
+                <MaintenanceButton onClick={clearStuckJobs} >{diagClearing ? t("clearing") : t("clearStuckJobs")}</MaintenanceButton>
+                {diagClearResult && <p className="text-xs text-muted">{diagClearResult}</p>}
               </div>
             ) : (
-              <input className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_ollama_model || ""} onChange={e => update("graph_ollama_model", e.target.value)} placeholder="Modelo Ollama para o grafo" />
+              <p className="text-xs text-muted">{t("loadingDiagnostics")}</p>
             )}
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <label className="text-[11px] text-muted">
-                Auto-confirmar acima de
-                <input className="mt-1 h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_auto_confirm_confidence} onChange={e => update("graph_auto_confirm_confidence", e.target.value)} placeholder="0.9" />
-              </label>
-              <label className="text-[11px] text-muted">
-                Layout padrao
-                <select className="mt-1 h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm outline-none focus:border-accent" value={s.graph_default_layout} onChange={e => update("graph_default_layout", e.target.value as Settings["graph_default_layout"])}>
-                  <option value="brain">Brain View</option>
-                  <option value="radial">Radial</option>
-                  <option value="type">Por tipo</option>
-                  <option value="connections">Centralidade</option>
-                </select>
-              </label>
-            </div>
-          </div>
+          </Section>
 
-          <div className="border-t border-border/30 pt-4">
-            <h3 className="mb-2 text-xs font-medium text-red-500">Zona de perigo</h3>
-            <p className="text-[11px] text-muted/60 mb-2">Apaga todos os dados. Irreversivel.</p>
-            <button className="h-9 w-full rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-600 hover:bg-red-100" onClick={() => {
-              const c = window.prompt('Digite "berrybrain-reset-all":');
-              if (c !== "berrybrain-reset-all") return;
-              fetch(`${apiUrl}/api/v1/system/reset`, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("bb_token") || ""}` }, body: JSON.stringify({ confirm: "berrybrain-reset-all" }) }).then(async r => { if (!r.ok) { const e = await r.json().catch(() => ({})); alert(`Erro ${r.status}: ${e.detail || "falha ao resetar"}`); return; } onClose(); location.reload(); }).catch(e => alert(`Erro: ${e.message}`));
-            }}>Apagar todos os dados</button>
-          </div>
+          <Section title="Danger zone" description="Permanent destructive actions. Confirmations are required.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <DangerButton onClick={() => wipeAll(false)}>Wipe all, keep Settings</DangerButton>
+              <DangerButton onClick={() => wipeAll(true)}>Wipe all and reset Settings</DangerButton>
+            </div>
+          </Section>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border/50 px-6 py-3">
-          <button className="h-9 rounded-lg px-4 text-xs font-medium text-muted hover:text-foreground" onClick={onClose}>Cancelar</button>
-          <button className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-40" onClick={save} disabled={saving}>{saving ? "Salvando..." : "Salvar"}</button>
+          <button className="h-9 rounded-lg px-4 text-xs font-medium text-muted hover:text-foreground" onClick={onClose}>Cancel</button>
+          <button className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-40" onClick={save} disabled={saving}>
+            {saving ? "Saving..." : "Save"}
+          </button>
         </div>
       </div>
     </div>
   );
+}
+
+function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl bg-surface/70 p-4 ring-1 ring-border/45">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <p className="mt-1 text-xs text-muted/75">{description}</p>
+      <div className="mt-4 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-medium text-foreground">{label}</span>
+      {description && <span className="mb-1.5 mt-0.5 block text-[11px] leading-4 text-muted/70">{description}</span>}
+      {children}
+    </label>
+  );
+}
+
+function TextInput({ value, onChange, placeholder, type = "text" }: { value: string; onChange: (value: string) => void; placeholder: string; type?: string }) {
+  return (
+    <input
+      type={type}
+      className="h-9 w-full rounded-xl border border-border bg-panel px-3 text-sm text-foreground outline-none placeholder:text-muted/55 focus:border-accent"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function Select({ value, onChange, children }: { value: string; onChange: (value: string) => void; children: React.ReactNode }) {
+  return (
+    <select
+      className="h-9 w-full rounded-xl border border-border bg-panel px-3 text-sm text-foreground outline-none focus:border-accent"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {children}
+    </select>
+  );
+}
+
+function Range({ value, min, max, onChange }: { value: string; min: string; max: string; onChange: (value: string) => void }) {
+  return (
+    <input
+      type="range"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-1 w-full cursor-pointer appearance-none rounded-full bg-border accent-accent"
+    />
+  );
+}
+
+function ReadOnlyValue({ value }: { value: string }) {
+  return <div className="rounded-xl bg-panel px-3 py-2 text-sm text-foreground ring-1 ring-border/45">{value}</div>;
+}
+
+function MaintenanceButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button className="h-9 rounded-xl border border-accent/30 bg-accent/10 px-3 text-xs font-medium text-accent hover:bg-accent/15" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+function DangerButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button className="h-9 rounded-xl border border-danger/25 bg-danger/5 px-3 text-xs font-medium text-danger hover:bg-danger/10" onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+function labelize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

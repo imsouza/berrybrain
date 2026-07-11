@@ -233,10 +233,30 @@ class SecondBrainPhase1Test(unittest.TestCase):
         self.session.add(
             InsightRecord(
                 type="hypothesis",
-                title="Hipotese sobre machine learning",
-                description="As duas notas podem formar uma trilha de estudo.",
+                title="Machine learning notes can become a study path",
+                description=(
+                    "ML A and ML B both discuss machine learning and can be "
+                    "organized as a connected study path instead of isolated notes."
+                ),
+                why_it_matters=(
+                    "This helps the learner consolidate repeated concepts and decide "
+                    "which note should become the central entry point."
+                ),
+                suggested_action=(
+                    "Create a permanent machine learning overview note that links ML A "
+                    "and ML B."
+                ),
+                graph_impact=(
+                    "Adds an insight node connected to both source notes and clarifies "
+                    "their shared learning context."
+                ),
                 related_notes=json.dumps([note_a.id, note_b.id]),
-                evidence=json.dumps(["ML A", "ML B"]),
+                evidence=json.dumps(
+                    [
+                        "ML A mentions machine learning.",
+                        "ML B mentions machine learning.",
+                    ]
+                ),
                 confidence=0.8,
                 status="suggested",
                 provider="nvidia-nim",

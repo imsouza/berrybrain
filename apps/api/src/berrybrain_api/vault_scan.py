@@ -29,6 +29,8 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
     seen_paths: set[str] = set()
 
     for path in sorted(vault_path.rglob("*.md")):
+        if not path.is_file() or ".attachments" in path.parts:
+            continue
         relative_path = _relative_note_path(path, vault_path)
         seen_paths.add(relative_path)
         current_hash = content_hash(path.read_text(encoding="utf-8"))

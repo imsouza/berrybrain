@@ -17,6 +17,7 @@ from berrybrain_api.jobs import (
     serialize_datetime,
     utc_now,
 )
+from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.models import (
     AutomationLogRecord,
     ConceptRecord,
@@ -35,25 +36,37 @@ from berrybrain_api.services import _is_visible_insight
 
 
 JOB_LABELS = {
-    "PARSE_NOTE": "Analisando nota",
-    "CLASSIFY_NOTE": "Classificando nota",
-    "ASSIMILATE_NOTE": "Assimilando conceitos",
-    "GENERATE_EMBEDDING": "Gerando embeddings",
-    "FIND_CONNECTIONS": "Buscando conexões",
-    "GENERATE_INSIGHTS": "Gerando insights",
-    "EXPAND_KNOWLEDGE_GRAPH": "Expandindo grafo",
-    "GENERATE_NOTE_TITLE": "Aplicando título automático",
+    "PARSE_NOTE": "Analyzing note",
+    "CLASSIFY_NOTE": "Classifying note",
+    "ASSIMILATE_NOTE": "Assimilating concepts",
+    "EXTRACT_CONCEPTS": "Extracting concepts",
+    "EXTRACT_ENTITIES": "Extracting entities",
+    "DETECT_TOPICS": "Detecting topics",
+    "EXTRACT_CONTEXT": "Detecting context",
+    "GENERATE_EMBEDDING": "Generating embeddings",
+    "FIND_CONNECTIONS": "Finding connections",
+    "GENERATE_INSIGHTS": "Generating insights",
+    "EXPAND_KNOWLEDGE_GRAPH": "Expanding graph",
+    "GENERATE_INFERRED_CONNECTIONS": "Inferring connections",
+    "EXPAND_CONCEPT_TO_NOTE": "Expanding concepts",
+    "GENERATE_GRAPH_INSIGHTS": "Generating graph insights",
+    "UPDATE_GRAPH_STATS": "Updating graph stats",
+    "GENERATE_NOTE_TITLE": "Applying automatic title",
 }
 
 ACTIVITY_LABELS = {
-    "PARSE_NOTE": "Nota enviada para análise",
-    "CLASSIFY_NOTE": "Classificação agendada",
-    "ASSIMILATE_NOTE": "Nota enviada para assimilação",
-    "GENERATE_EMBEDDING": "Embedding entrou na fila",
-    "FIND_CONNECTIONS": "Conexões serão analisadas",
-    "GENERATE_INSIGHTS": "Insights agendados",
-    "EXPAND_KNOWLEDGE_GRAPH": "Grafo entrou na fila de expansão",
-    "GENERATE_NOTE_TITLE": "Título automático agendado",
+    "PARSE_NOTE": "Note queued for analysis",
+    "CLASSIFY_NOTE": "Classification queued",
+    "ASSIMILATE_NOTE": "Note queued for assimilation",
+    "EXTRACT_CONCEPTS": "Concept extraction queued",
+    "EXTRACT_ENTITIES": "Entity extraction queued",
+    "DETECT_TOPICS": "Topic detection queued",
+    "EXTRACT_CONTEXT": "Context detection queued",
+    "GENERATE_EMBEDDING": "Embedding queued",
+    "FIND_CONNECTIONS": "Connections queued for analysis",
+    "GENERATE_INSIGHTS": "Insights queued",
+    "EXPAND_KNOWLEDGE_GRAPH": "Graph expansion queued",
+    "GENERATE_NOTE_TITLE": "Automatic title queued",
 }
 
 
@@ -126,11 +139,9 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     recent_connections = list_recent_connections(session, limit=5)
 
     graph_summary = _graph_summary(session, notes, connections)
+    assimilation = note_assimilation_map(session, notes, jobs)
     unassimilated = [
-        note
-        for note in notes
-        if note.status not in {"synced", "processed", "assimilated"}
-        or note.last_processed_at is None
+        note for note in notes if not assimilation.get(note.id, {}).get("assimilated")
     ]
     needs_attention = _needs_attention(
         worker=worker,
@@ -231,7 +242,10 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         "recentConnections": recent_connections,
         "graphSummary": graph_summary,
         "needsAttention": needs_attention,
-        "jobsByType": dict(Counter(job.type for job in pending_jobs + running_jobs)),
+        "jobsByType": {
+            JOB_LABELS.get(job_type, job_type.replace("_", " ").title()): count
+            for job_type, count in Counter(job.type for job in pending_jobs + running_jobs).items()
+        },
     }
 
     # Compatibility with the current web client while it migrates to the richer contract.
@@ -321,12 +335,12 @@ def _progress_state(
         running_jobs or pending_jobs
     ):
         return "offline"
-    if failed_jobs:
-        return "failed"
     if running_jobs:
         return "running"
     if pending_jobs:
         return "queued"
+    if failed_jobs:
+        return "completed"
     return "completed"
 
 
@@ -339,7 +353,7 @@ def _current_step(running_jobs: list[JobRecord], pending_jobs: list[JobRecord]) 
     if job is None and pending_jobs:
         job = sorted(pending_jobs, key=lambda item: item.created_at)[0]
     if job is None:
-        return "Tudo pronto"
+        return "All set"
     return JOB_LABELS.get(job.type, job.type.replace("_", " ").title())
 
 
@@ -395,18 +409,18 @@ def _serialize_completion(
 
 
 def _completion_label(job_type: str, note_title: str) -> str:
-    subject = f' para "{note_title}"' if note_title else ""
+    subject = f' for "{note_title}"' if note_title else ""
     if job_type == "FIND_CONNECTIONS":
-        return f"Conexões analisadas{subject}"
+        return f"Connections analyzed{subject}"
     if job_type == "EXPAND_KNOWLEDGE_GRAPH":
-        return f"Grafo expandido{subject}"
+        return f"Graph expanded{subject}"
     if job_type == "GENERATE_EMBEDDING":
-        return f"Embedding criado{subject}"
+        return f"Embedding created{subject}"
     if job_type == "GENERATE_INSIGHTS":
-        return "Insights gerados"
+        return "Insights generated"
     if job_type == "GENERATE_NOTE_TITLE":
-        return f"Título automático aplicado{subject}"
-    return f"{JOB_LABELS.get(job_type, job_type)} concluído{subject}"
+        return f"Automatic title applied{subject}"
+    return f"{JOB_LABELS.get(job_type, job_type)} completed{subject}"
 
 
 def _recent_logs(session: Session, limit: int) -> list[AutomationLogRecord]:
@@ -474,13 +488,13 @@ def _serialize_insight(insight: InsightRecord) -> dict[str, Any]:
 
 def _suggested_action(insight_type: str) -> str:
     return {
-        "knowledge_gap": "Criar nota permanente",
-        "weak_note": "Fortalecer nota",
-        "isolated_concept": "Conectar conceito",
-        "duplicate_content": "Revisar duplicidade",
-        "study_path": "Abrir trilha sugerida",
-        "review_opportunity": "Revisar agora",
-    }.get(insight_type, "Abrir insight")
+        "knowledge_gap": "Create permanent note",
+        "weak_note": "Strengthen note",
+        "isolated_concept": "Connect concept",
+        "duplicate_content": "Review duplicate",
+        "study_path": "Open suggested path",
+        "review_opportunity": "Review now",
+    }.get(insight_type, "Open insight")
 
 
 def _detected_concepts(
@@ -681,26 +695,17 @@ def _needs_attention(
             {
                 "kind": "worker_offline",
                 "title": "Worker offline",
-                "description": "Jobs pausados até o Worker voltar.",
-                "action": "Abrir monitor",
-            }
-        )
-    if worker and not worker.ollama_healthy:
-        items.append(
-            {
-                "kind": "ollama_offline",
-                "title": "Ollama offline",
-                "description": "Processamento local indisponível.",
-                "action": "Ver status",
+                "description": "Jobs are paused until the Worker comes back.",
+                "action": "Open monitor",
             }
         )
     if failed_jobs:
         items.append(
             {
                 "kind": "failed_jobs",
-                "title": f"{len(failed_jobs)} jobs falharam",
-                "description": "Revise erros recentes no Monitor.",
-                "action": "Ver erros",
+                "title": f"{len(failed_jobs)} jobs failed",
+                "description": "Review recent errors in Monitor.",
+                "action": "View errors",
             }
         )
     return items[:5]
@@ -722,10 +727,10 @@ def _last_result(
     if recently_completed:
         return recently_completed[0]["label"]
     if recent_connections:
-        return f"{len(recent_connections)} conexões encontradas"
+        return f"{len(recent_connections)} connections found"
     if insights:
-        return f"{len(insights)} insights disponíveis"
-    return "Nenhum resultado recente"
+        return f"{len(insights)} insights available"
+    return "No recent results"
 
 
 def _average_confidence(connections: list[ConnectionRecord]) -> float:

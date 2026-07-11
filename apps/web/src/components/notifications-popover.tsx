@@ -49,7 +49,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
       case "ollama_offline":
       case "failed_jobs":
       case "provider_issue":
-        window.location.href = "?monitor=open";
+        window.location.href = "/brain?monitor=open";
         break;
       case "pending_jobs":
         window.location.href = "/activity";
@@ -89,9 +89,9 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-4 text-center text-xs text-muted/55">Carregando...</div>
+            <div className="p-4 text-center text-xs text-muted/55">Loading...</div>
           ) : alerts.length === 0 ? (
-            <div className="p-4 text-center text-xs text-muted/55">Tudo em dia.</div>
+            <div className="p-4 text-center text-xs text-muted/55">All clear.</div>
           ) : (
             <div className="space-y-1 p-2">
               {alerts.map((a, i) => (

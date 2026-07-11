@@ -1,10 +1,23 @@
+import base64
+import re
+from pathlib import Path
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
+from berrybrain_api.attachment_processing import process_attachment, serialize_extraction
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
-from berrybrain_api.jobs import enqueue_note_changed_jobs
+from berrybrain_api.jobs import PROCESS_ATTACHMENT, create_job, enqueue_note_changed_jobs
+from berrybrain_api.models import (
+    AttachmentExtractionRecord,
+    NoteAttachmentRecord,
+    NoteRecord,
+    SettingRecord,
+)
 from berrybrain_api.sync import remove_note_record, sync_note_record
 from berrybrain_api.vault import (
     create_note,
@@ -38,6 +51,79 @@ class UpdateNoteRequest(BaseModel):
 
 class RenameNoteRequest(BaseModel):
     title: str = Field(min_length=1, max_length=160)
+
+
+class AttachmentUploadRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: str = ""
+    size_bytes: int = Field(ge=0)
+    content_base64: str = Field(min_length=1)
+
+
+ATTACHMENT_DEFAULT_LIMITS_MB = {
+    "image": 10,
+    "video": 200,
+    "audio": 50,
+    "other": 25,
+}
+
+
+def _attachment_category(mime_type: str, filename: str) -> str:
+    lowered = (mime_type or "").lower()
+    if lowered.startswith("image/"):
+        return "image"
+    if lowered.startswith("video/"):
+        return "video"
+    if lowered.startswith("audio/"):
+        return "audio"
+    suffix = Path(filename).suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tiff"}:
+        return "image"
+    if suffix in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
+        return "video"
+    if suffix in {".mp3", ".wav", ".ogg", ".m4a", ".flac"}:
+        return "audio"
+    return "other"
+
+
+def _safe_filename(filename: str) -> str:
+    name = Path(filename).name.strip() or "attachment"
+    name = re.sub(r"[^A-Za-z0-9._ -]+", "-", name)
+    return name[:180] or "attachment"
+
+
+def _setting_int(session, key: str, default: int) -> int:
+    value = session.execute(select(SettingRecord.value).where(SettingRecord.key == key)).scalar_one_or_none()
+    try:
+        parsed = int(str(value or default))
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, parsed)
+
+
+def _attachment_limit_mb(session, category: str) -> int:
+    return _setting_int(
+        session,
+        f"attachment_{category}_limit_mb",
+        ATTACHMENT_DEFAULT_LIMITS_MB.get(category, ATTACHMENT_DEFAULT_LIMITS_MB["other"]),
+    )
+
+
+def _serialize_attachment(
+    record: NoteAttachmentRecord, extraction: AttachmentExtractionRecord | None = None
+) -> dict:
+    return {
+        "id": record.id,
+        "noteId": record.note_id,
+        "notePath": record.note_path,
+        "filename": record.filename,
+        "mimeType": record.mime_type,
+        "category": record.category,
+        "sizeBytes": record.size_bytes,
+        "downloadUrl": f"/api/v1/notes/attachments/{record.id}/download",
+        "extraction": serialize_extraction(extraction),
+        "createdAt": record.created_at.isoformat() if record.created_at else None,
+    }
 
 
 @router.get("")
@@ -85,14 +171,14 @@ def get_note_processing_status(note_path: str) -> dict:
         GENERATE_NOTE_TITLE,
     ]
     pipeline_labels = {
-        PARSE_NOTE: "Analisar",
-        CLASSIFY_NOTE: "Classificar",
-        ASSIMILATE_NOTE: "Assimilar",
+        PARSE_NOTE: "Parse",
+        CLASSIFY_NOTE: "Classify",
+        ASSIMILATE_NOTE: "Assimilate",
         GENERATE_EMBEDDING: "Embedding",
-        FIND_CONNECTIONS: "Conexoes",
-        EXPAND_KNOWLEDGE_GRAPH: "Expandir grafo",
+        FIND_CONNECTIONS: "Connections",
+        EXPAND_KNOWLEDGE_GRAPH: "Expand graph",
         GENERATE_INSIGHTS: "Insights",
-        GENERATE_NOTE_TITLE: "Titulo",
+        GENERATE_NOTE_TITLE: "Title",
     }
 
     with SessionLocal() as session:
@@ -149,11 +235,181 @@ def get_note_processing_status(note_path: str) -> dict:
     }
 
 
+@router.get("/attachments/{attachment_id}/download")
+def download_attachment(attachment_id: int):
+    settings = get_settings()
+    with SessionLocal() as session:
+        record = session.get(NoteAttachmentRecord, attachment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        path = (Path(settings.vault_path) / record.stored_path).resolve()
+        vault_root = Path(settings.vault_path).resolve()
+        if vault_root not in path.parents and path != vault_root:
+            raise HTTPException(status_code=400, detail="Invalid attachment path")
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Attachment file not found")
+        return FileResponse(
+            path,
+            media_type=record.mime_type or "application/octet-stream",
+            filename=record.filename,
+        )
+
+
+@router.get("/attachments/{attachment_id}/extraction")
+def get_attachment_extraction(attachment_id: int) -> dict:
+    with SessionLocal() as session:
+        record = session.get(NoteAttachmentRecord, attachment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        extraction = session.execute(
+            select(AttachmentExtractionRecord).where(
+                AttachmentExtractionRecord.attachment_id == attachment_id
+            )
+        ).scalar_one_or_none()
+        return {"extraction": serialize_extraction(extraction)}
+
+
+@router.post("/attachments/{attachment_id}/process")
+def process_attachment_endpoint(attachment_id: int) -> dict:
+    settings = get_settings()
+    with SessionLocal() as session:
+        try:
+            result = process_attachment(session, settings.vault_path, attachment_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"extraction": result}
+
+
+@router.post("/attachments/{attachment_id}/reprocess")
+def reprocess_attachment(attachment_id: int) -> dict:
+    with SessionLocal() as session:
+        record = session.get(NoteAttachmentRecord, attachment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        job = create_job(
+            session,
+            PROCESS_ATTACHMENT,
+            {
+                "attachment_id": record.id,
+                "note_path": record.note_path,
+                "filename": record.filename,
+            },
+            max_attempts=2,
+        )
+        return {"status": "queued", "jobId": job.id, "attachmentId": record.id}
+
+
+@router.delete("/attachments/{attachment_id}")
+def delete_attachment(attachment_id: int) -> dict:
+    settings = get_settings()
+    with SessionLocal() as session:
+        record = session.get(NoteAttachmentRecord, attachment_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        path = (Path(settings.vault_path) / record.stored_path).resolve()
+        vault_root = Path(settings.vault_path).resolve()
+        if vault_root in path.parents and path.exists():
+            path.unlink()
+        session.delete(record)
+        session.commit()
+    return {"status": "deleted", "id": attachment_id}
+
+
+@router.get("/{note_path:path}/attachments")
+def list_note_attachments(note_path: str) -> dict:
+    settings = get_settings()
+    with SessionLocal() as session:
+        record = sync_note_record(session, settings.vault_path, note_path)
+        attachments = list(
+            session.execute(
+                select(NoteAttachmentRecord)
+                .where(NoteAttachmentRecord.note_id == record.id)
+                .order_by(NoteAttachmentRecord.created_at.desc())
+            ).scalars()
+        )
+        extraction_by_attachment_id = {
+            item.attachment_id: item
+            for item in session.execute(
+                select(AttachmentExtractionRecord).where(
+                    AttachmentExtractionRecord.attachment_id.in_(
+                        [attachment.id for attachment in attachments] or [-1]
+                    )
+                )
+            ).scalars()
+        }
+        return {
+            "attachments": [
+                _serialize_attachment(item, extraction_by_attachment_id.get(item.id))
+                for item in attachments
+            ]
+        }
+
+
+@router.post("/{note_path:path}/attachments", status_code=201)
+def upload_note_attachment(note_path: str, payload: AttachmentUploadRequest) -> dict:
+    settings = get_settings()
+    vault_root = Path(settings.vault_path).resolve()
+    filename = _safe_filename(payload.filename)
+    category = _attachment_category(payload.mime_type, filename)
+    with SessionLocal() as session:
+        limit_mb = _attachment_limit_mb(session, category)
+        limit_bytes = limit_mb * 1024 * 1024
+        if payload.size_bytes > limit_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{category.capitalize()} attachments are limited to {limit_mb} MB.",
+            )
+        try:
+            content = base64.b64decode(payload.content_base64, validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid attachment data") from exc
+        if len(content) != payload.size_bytes:
+            raise HTTPException(status_code=400, detail="Attachment size mismatch")
+        if len(content) > limit_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{category.capitalize()} attachments are limited to {limit_mb} MB.",
+            )
+
+        note = sync_note_record(session, settings.vault_path, note_path)
+        note_dir = re.sub(r"[^A-Za-z0-9._-]+", "-", note.path.replace("/", "-"))[:120]
+        attachment_dir = vault_root / ".attachments" / note_dir
+        attachment_dir.mkdir(parents=True, exist_ok=True)
+        stored_name = f"{uuid4().hex}-{filename}"
+        file_path = (attachment_dir / stored_name).resolve()
+        if vault_root not in file_path.parents:
+            raise HTTPException(status_code=400, detail="Invalid attachment path")
+        file_path.write_bytes(content)
+        attachment = NoteAttachmentRecord(
+            note_id=note.id,
+            note_path=note.path,
+            filename=filename,
+            stored_path=str(file_path.relative_to(vault_root)),
+            mime_type=payload.mime_type or "application/octet-stream",
+            category=category,
+            size_bytes=len(content),
+        )
+        session.add(attachment)
+        session.commit()
+        session.refresh(attachment)
+        job = create_job(
+            session,
+            PROCESS_ATTACHMENT,
+            {
+                "attachment_id": attachment.id,
+                "note_path": attachment.note_path,
+                "filename": attachment.filename,
+            },
+            max_attempts=2,
+        )
+        return {
+            "attachment": _serialize_attachment(attachment),
+            "processingJobId": job.id,
+        }
+
+
 @router.get("/{note_path:path}")
 def read_note_endpoint(note_path: str) -> dict:
-    from sqlalchemy import select
-    from berrybrain_api.models import NoteRecord
-
     settings = get_settings()
     note = read_note(settings.vault_path, note_path)
     with SessionLocal() as session:

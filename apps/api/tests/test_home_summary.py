@@ -37,6 +37,7 @@ class HomeSummaryTest(unittest.TestCase):
             title="Observabilidade",
             slug="observabilidade",
             path="estudos/observabilidade.md",
+            content="Notas sobre logs, métricas e traces.",
             content_hash="a",
             status="synced",
             created_at=now,

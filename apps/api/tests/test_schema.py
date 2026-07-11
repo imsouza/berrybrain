@@ -18,9 +18,16 @@ class SchemaTest(unittest.TestCase):
             "connections",
             "insights",
             "jobs",
+            "note_attachments",
+            "attachment_extractions",
             "notes",
             "settings",
+            "security_audit_events",
             "tags",
+            "users",
+            "user_sessions",
+            "auth_otps",
+            "login_attempts",
         }
 
         self.assertTrue(expected_tables.issubset(set(inspector.get_table_names())))
@@ -35,6 +42,11 @@ class SchemaTest(unittest.TestCase):
             "insights": {"type", "title", "description", "related_notes", "priority", "dismissed_at"},
             "automation_logs": {"action_type", "target_type", "target_id", "before_state", "after_state", "reversible"},
             "settings": {"key", "value", "updated_at"},
+            "attachment_extractions": {"attachment_id", "status", "extracted_text", "summary", "provider", "model", "confidence", "error"},
+            "users": {"email", "password_hash", "email_verified", "two_factor_enabled", "locked_until", "force_password_reset"},
+            "user_sessions": {"user_id", "session_hash", "csrf_token_hash", "expires_at", "revoked_at"},
+            "auth_otps": {"email", "purpose", "code_hash", "challenge_token_hash", "attempts", "expires_at", "used_at"},
+            "security_audit_events": {"actor_email", "action", "target_type", "target_id", "metadata"},
         }
 
         for table_name, columns in required_columns.items():

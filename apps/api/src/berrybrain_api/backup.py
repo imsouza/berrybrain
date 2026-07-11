@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import time
 from datetime import UTC, datetime
@@ -6,10 +7,27 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
+
+
+def _resolve_backup_path(backup_id: str) -> Path:
+    # ponytail: backups live directly under backup_dir; reject traversal/separators.
+    if (
+        not backup_id
+        or "/" in backup_id
+        or "\\" in backup_id
+        or not backup_id.startswith("backup-")
+    ):
+        raise HTTPException(status_code=400, detail="Invalid backup id")
+    root = _backup_dir().resolve()
+    dest = (root / backup_id).resolve()
+    if dest != root and not str(dest).startswith(str(root) + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid backup id")
+    return dest
 
 
 def _backup_dir() -> Path:
@@ -79,7 +97,7 @@ def create_backup() -> dict[str, object]:
 
 
 def restore_backup(backup_id: str) -> dict[str, object]:
-    src = _backup_dir() / backup_id
+    src = _resolve_backup_path(backup_id)
     if not src.is_dir():
         raise FileNotFoundError(f"Backup {backup_id} not found")
 
@@ -102,7 +120,7 @@ def restore_backup(backup_id: str) -> dict[str, object]:
 
 
 def delete_backup(backup_id: str) -> dict[str, object]:
-    dest = _backup_dir() / backup_id
+    dest = _resolve_backup_path(backup_id)
     if not dest.is_dir():
         raise FileNotFoundError(f"Backup {backup_id} not found")
     shutil.rmtree(dest)

@@ -3,7 +3,10 @@ from pydantic import BaseModel
 
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.jobs import (
+    COMPLETED,
     FAILED,
+    NOTE_PIPELINE_ORDER,
+    NOTE_PIPELINE_RANK,
     PENDING,
     RUNNING,
     claim_next_job,
@@ -12,6 +15,7 @@ from berrybrain_api.jobs import (
     fail_job,
     list_jobs,
     normalize_utc,
+    parse_json,
     recover_stale_running_jobs,
     serialize_job,
     utc_now,
@@ -80,7 +84,9 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
             ).all()
         )
         running = list(
-            session.execute(select(JobRecord).where(JobRecord.status == RUNNING)).scalars()
+            session.execute(
+                select(JobRecord).where(JobRecord.status == RUNNING)
+            ).scalars()
         )
         stale = [
             job
@@ -89,17 +95,71 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
             and (cutoff - normalize_utc(job.started_at)).total_seconds()
             > max(1, stale_after_minutes) * 60
         ]
+        has_active_work = bool(
+            stale or status_counts.get(PENDING, 0) or status_counts.get(RUNNING, 0)
+        )
+        has_failed_history = bool(status_counts.get(FAILED, 0))
         return {
-            "status": "degraded" if stale or status_counts.get(FAILED, 0) else "ok",
+            "status": "degraded"
+            if stale
+            else (
+                "processing"
+                if has_active_work
+                else ("ok_with_history" if has_failed_history else "ok")
+            ),
             "counts": {
                 "pending": status_counts.get(PENDING, 0),
                 "running": status_counts.get(RUNNING, 0),
                 "failed": status_counts.get(FAILED, 0),
                 "completed": status_counts.get("completed", 0),
             },
+            "hasFailedHistory": has_failed_history,
             "staleRunning": [serialize_job(job) for job in stale[:20]],
             "failedByType": type_failures,
         }
+
+
+@router.get("/pipeline-progress")
+def pipeline_progress_endpoint() -> dict:
+    """Per-note pipeline progress for active/recent jobs."""
+    total_steps = len(NOTE_PIPELINE_ORDER)
+    with SessionLocal() as session:
+        jobs = list(
+            session.execute(
+                select(JobRecord)
+                .where(JobRecord.status.in_([PENDING, RUNNING, COMPLETED]))
+                .order_by(JobRecord.created_at.desc())
+                .limit(500)
+            ).scalars()
+        )
+    by_note: dict[str, dict[str, str]] = {}
+    for job in jobs:
+        note_path = parse_json(job.payload).get("note_path", "")
+        if not note_path or job.type not in NOTE_PIPELINE_RANK:
+            continue
+        if note_path not in by_note:
+            by_note[note_path] = {}
+        prev = by_note[note_path].get(job.type)
+        if prev == COMPLETED:
+            continue
+        by_note[note_path][job.type] = job.status
+    result = []
+    for note_path, statuses in by_note.items():
+        completed = sum(1 for s in statuses.values() if s == COMPLETED)
+        running_type = next((t for t, s in statuses.items() if s == RUNNING), None)
+        result.append(
+            {
+                "notePath": note_path,
+                "completed": completed,
+                "total": total_steps,
+                "percent": round(completed / total_steps * 100),
+                "currentStep": running_type.replace("_", " ").title()
+                if running_type
+                else None,
+            }
+        )
+    result.sort(key=lambda x: x["completed"], reverse=True)
+    return {"notes": result}
 
 
 @router.post("/{job_id}/complete")

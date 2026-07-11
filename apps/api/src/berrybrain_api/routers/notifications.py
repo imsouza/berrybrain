@@ -9,17 +9,15 @@ from berrybrain_api.models import InsightRecord, NotificationRecord
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
 NOTIFICATION_TYPES = {
-    "insight_ready": "Insight pronto",
-    "job_failed": "Job falhou",
-    "graph_updated": "Grafo atualizado",
-    "note_assimilated": "Nota assimilada",
-    "title_generated": "Título gerado",
-    "flashcards_ready": "Flashcards prontos",
-    "review_due": "Revisão pendente",
-    "provider_slow": "Provider lento",
+    "insight_ready": "Insight ready",
+    "job_failed": "Job failed",
+    "graph_updated": "Graph updated",
+    "note_assimilated": "Note assimilated",
+    "title_generated": "Title generated",
+    "provider_slow": "Provider slow",
     "provider_offline": "Provider offline",
-    "connection_suggested": "Conexão sugerida",
-    "attention_required": "Atenção necessária",
+    "connection_suggested": "Connection suggested",
+    "attention_required": "Attention required",
 }
 
 

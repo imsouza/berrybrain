@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from berrybrain_api.backup import (
     create_backup,
@@ -7,8 +7,13 @@ from berrybrain_api.backup import (
     list_backups,
     restore_backup,
 )
+from berrybrain_api.security import require_admin
 
-router = APIRouter(prefix="/api/v1/backups", tags=["backups"])
+router = APIRouter(
+    prefix="/api/v1/backups",
+    tags=["backups"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.get("")

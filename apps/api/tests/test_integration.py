@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from importlib import import_module
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,25 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 os.environ["BERRYBRAIN_VAULT_WATCHER_ENABLED"] = "false"
+
+
+SESSIONLOCAL_MODULES = (
+    "berrybrain_api.main",
+    "berrybrain_api.backup",
+    "berrybrain_api.routers.automation",
+    "berrybrain_api.routers.cognitive",
+    "berrybrain_api.routers.concepts",
+    "berrybrain_api.routers.connections",
+    "berrybrain_api.routers.graph",
+    "berrybrain_api.routers.insights",
+    "berrybrain_api.routers.jobs",
+    "berrybrain_api.routers.maintenance",
+    "berrybrain_api.routers.monitor",
+    "berrybrain_api.routers.notes",
+    "berrybrain_api.routers.notifications",
+    "berrybrain_api.routers.settings",
+    "berrybrain_api.routers.vault",
+)
 
 
 class IntegrationTest(unittest.TestCase):
@@ -27,21 +47,40 @@ class IntegrationTest(unittest.TestCase):
         import berrybrain_api.models  # noqa: F401 — register all ORM models
 
         cls.settings = get_settings()
+        cls.original_database_url = cls.settings.database_url
+        cls.original_vault_path = cls.settings.vault_path
+        cls.original_backup_path = cls.settings.backup_path
+        cls.original_vault_watcher_enabled = cls.settings.vault_watcher_enabled
+        cls.original_api_token = cls.settings.api_token
         cls.settings.database_url = cls.db_url
         cls.settings.vault_path = vault_path
         cls.settings.backup_path = backup_path
         cls.settings.vault_watcher_enabled = False
         cls.settings.api_token = ""
 
+        cls.original_engine = engine
+        cls.original_session_local = SessionLocal
         new_engine = create_engine(
             cls.db_url, connect_args={"check_same_thread": False}
         )
         import berrybrain_api.database as db_mod
 
         db_mod.engine = new_engine
-        db_mod.SessionLocal = sessionmaker(
+        new_session_local = sessionmaker(
             bind=new_engine, autoflush=False, autocommit=False
         )
+        db_mod.SessionLocal = new_session_local
+        cls.patched_sessionlocal_modules = []
+        for module_name in SESSIONLOCAL_MODULES:
+            try:
+                module = import_module(module_name)
+            except ImportError:
+                continue
+            if hasattr(module, "SessionLocal"):
+                cls.patched_sessionlocal_modules.append(
+                    (module, getattr(module, "SessionLocal"))
+                )
+                setattr(module, "SessionLocal", new_session_local)
         Base.metadata.create_all(bind=new_engine)
         from berrybrain_api.search import init_fts
 
@@ -54,6 +93,17 @@ class IntegrationTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        import berrybrain_api.database as db_mod
+
+        db_mod.engine = cls.original_engine
+        db_mod.SessionLocal = cls.original_session_local
+        for module, original in reversed(cls.patched_sessionlocal_modules):
+            setattr(module, "SessionLocal", original)
+        cls.settings.database_url = cls.original_database_url
+        cls.settings.vault_path = cls.original_vault_path
+        cls.settings.backup_path = cls.original_backup_path
+        cls.settings.vault_watcher_enabled = cls.original_vault_watcher_enabled
+        cls.settings.api_token = cls.original_api_token
         cls.tmp_dir.cleanup()
 
     def test_01_health(self):
@@ -173,6 +223,32 @@ class IntegrationTest(unittest.TestCase):
         resp = self.client.get("/api/v1/insights")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("insights", resp.json())
+
+    def test_10b_save_graph_inference_as_insight(self):
+        resp = self.client.post(
+            "/api/v1/insights/from-inference",
+            json={
+                "question": "How do Docker and shell connect?",
+                "inference": {
+                    "status": "answered",
+                    "answer": "Docker and shell connect through local automation workflows.",
+                    "evidence": [
+                        "Docker Essentials mentions containers.",
+                        "Linux Shell Scripting mentions automation.",
+                    ],
+                    "relatedNodes": [],
+                    "confidence": 0.82,
+                    "provider": "test-provider",
+                    "model": "test-model",
+                    "routes": ["knowledge_graph"],
+                },
+            },
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "created")
+        self.assertEqual(data["insight"]["title"], "Inference: How do Docker and shell connect?")
 
     def test_11_graph(self):
         resp = self.client.get("/api/v1/graph")
@@ -317,6 +393,29 @@ class IntegrationTest(unittest.TestCase):
         recovered = self.client.post("/api/v1/jobs/recover-stale")
         self.assertEqual(recovered.status_code, 200)
         self.assertIn("recovered", recovered.json())
+
+    def test_21_maintenance_contracts(self):
+        cleanup = self.client.post("/api/v1/maintenance/cleanup-legacy-insights")
+        self.assertEqual(cleanup.status_code, 200)
+        self.assertEqual(cleanup.json()["status"], "ok")
+        self.assertIn("archivedInsights", cleanup.json())
+
+        validation = self.client.post("/api/v1/maintenance/validate-graph")
+        self.assertEqual(validation.status_code, 200)
+        self.assertEqual(validation.json()["status"], "ok")
+        self.assertIn("deletedOrphanEdges", validation.json())
+        self.assertIn("duplicateJobsMarkedFailed", validation.json())
+
+        reindex = self.client.post("/api/v1/maintenance/reindex-knowledge-base")
+        self.assertEqual(reindex.status_code, 200)
+        self.assertEqual(reindex.json()["status"], "indexed")
+        self.assertIn("externalVectorStore", reindex.json())
+
+        rebuild = self.client.post("/api/v1/maintenance/rebuild-brain")
+        self.assertEqual(rebuild.status_code, 200)
+        self.assertEqual(rebuild.json()["status"], "queued")
+        self.assertIn("knowledgeBase", rebuild.json())
+        self.assertIn("validation", rebuild.json())
 
 
 if __name__ == "__main__":

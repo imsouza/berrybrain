@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
+import { getLang, t, tf } from "@/i18n";
 
 type InsightItem = {
   id: number;
@@ -27,34 +28,34 @@ type InsightItem = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  knowledge_gap: "Falta explorar",
-  new_connection: "Nova conexão",
-  recurring_concept: "Conceito recorrente",
-  weak_concept: "Conceito fraco",
-  isolated_note: "Nota isolada",
-  duplicate_content: "Duplicidade",
-  permanent_note_candidate: "Nota sugerida",
-  study_path: "Trilha de estudo",
-  review_opportunity: "Revisão sugerida",
-  possible_contradiction: "Possível conflito",
-  emerging_context: "Contexto emergente",
-  context: "Tema central",
-  conclusion: "Relação confirmada",
-  hypothesis: "Possível conexão",
-  premise: "Padrão recorrente",
-  assertion: "Evidência forte",
-  weak_note: "Nota a fortalecer",
+  knowledge_gap: "ins_knowledge_gap",
+  new_connection: "ins_new_connection",
+  recurring_concept: "ins_recurring_concept",
+  weak_concept: "ins_weak_concept",
+  isolated_note: "ins_isolated_note",
+  duplicate_content: "ins_duplicate_content",
+  permanent_note_candidate: "ins_permanent_note_candidate",
+  study_path: "ins_study_path",
+  review_opportunity: "ins_review_opportunity",
+  possible_contradiction: "ins_possible_contradiction",
+  emerging_context: "ins_emerging_context",
+  context: "ins_context",
+  conclusion: "ins_conclusion",
+  hypothesis: "ins_hypothesis",
+  premise: "ins_premise",
+  assertion: "ins_assertion",
+  weak_note: "ins_weak_note",
 };
 
 const FILTERS = [
-  { key: "all", label: "Todos" },
-  { key: "knowledge_gap", label: "Lacunas" },
-  { key: "new_connection", label: "Conexões" },
-  { key: "review_opportunity", label: "Revisão" },
-  { key: "context", label: "Contexto" },
-  { key: "high", label: "Alta prior" },
-  { key: "applied", label: "Aplicados" },
-  { key: "ignored", label: "Ignorados" },
+  { key: "all", label: "filterAll" },
+  { key: "knowledge_gap", label: "filterLacunas" },
+  { key: "new_connection", label: "filterConexoes" },
+  { key: "review_opportunity", label: "filterRevisao" },
+  { key: "context", label: "filterContexto" },
+  { key: "high", label: "filterAltaPrioridade" },
+  { key: "applied", label: "filterAplicados" },
+  { key: "ignored", label: "filterIgnorados" },
 ];
 
 export default function InsightsPage() {
@@ -87,12 +88,12 @@ export default function InsightsPage() {
       const r = await fetch(`${api}/api/v1/insights/generate`, { method: "POST" });
       if (r.ok) {
         const data = await r.json();
-        setFeedback(`Job #${data.job_id} criado. O worker processará e os insights aparecerão aqui em instantes.`);
+        setFeedback(`${t("jobCreated")} #${data.job_id} ${t("jobCreatedTail")}`);
       } else {
-        setFeedback("Erro ao criar job de insights.");
+        setFeedback(t("errorCreateJob"));
       }
     } catch {
-      setFeedback("Erro de conexão ao gerar insights.");
+      setFeedback(t("connectionErrorInsights"));
     }
     setGenerating(false);
     setTimeout(() => loadInsights(), 3000);
@@ -103,7 +104,7 @@ export default function InsightsPage() {
   const dismissInsight = async (id: number, action: "apply" | "ignore") => {
     try {
       const r = await fetch(`${api}/api/v1/insights/${id}/${action}`, { method: "POST" });
-      if (r.ok) setFeedback(action === "apply" ? "Insight aplicado." : "Insight ignorado.");
+      if (r.ok) setFeedback(action === "apply" ? t("insightApplied") : t("insightIgnored"));
       setTimeout(() => setFeedback(null), 3000);
       await loadInsights();
     } catch {}
@@ -112,7 +113,7 @@ export default function InsightsPage() {
   const createNote = async (insight: InsightItem) => {
     try {
       await fetch(`${api}/api/v1/insights/${insight.id}/create-note`, { method: "POST" });
-      setFeedback("Job de criação de nota enviado.");
+      setFeedback(t("createNoteJobSent"));
       setTimeout(() => setFeedback(null), 3000);
     } catch {}
   };
@@ -120,13 +121,13 @@ export default function InsightsPage() {
   const createReview = async (insight: InsightItem) => {
     try {
       await fetch(`${api}/api/v1/insights/${insight.id}/create-review`, { method: "POST" });
-      setFeedback("Job de criação de revisão enviado.");
+      setFeedback(t("createReviewJobSent"));
       setTimeout(() => setFeedback(null), 3000);
     } catch {}
   };
 
   const openNote = (path: string) => {
-    window.location.href = `/?note=${encodeURIComponent(path)}`;
+    window.location.href = `/brain?note=${encodeURIComponent(path)}`;
   };
 
   const filtered = insights.filter((i) => {
@@ -140,7 +141,7 @@ export default function InsightsPage() {
   if (loading) {
     return (
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8 text-center text-sm text-muted/40 animate-pulse-soft">Carregando insights...</div>
+        <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8 text-center text-sm text-muted/40 animate-pulse-soft">{t("loadingInsights")}</div>
       </div>
     );
   }
@@ -149,20 +150,20 @@ export default function InsightsPage() {
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
         <header className="mb-6">
-          <h1 className="text-xl font-semibold">Insights da IA</h1>
+          <h1 className="text-xl font-semibold">{t("insightsTitle")}</h1>
           <p className="mt-1 text-sm text-muted/60">
-            Descobertas, lacunas, críticas e sugestões geradas automaticamente pela IA.
+            {t("insightsDesc")}
           </p>
           <div className="mt-3 flex items-center gap-3">
-            <span className="text-xs text-muted/60">{filtered.length} de {insights.length} insights</span>
+            <span className="text-xs text-muted/60">{tf("insightsCount", { filtered: filtered.length, total: insights.length })}</span>
             <button
               className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               onClick={generateNow}
               disabled={generating}
             >
-              {generating ? "Enviando..." : "Forçar geração agora"}
+              {generating ? t("sending") : t("forceGenerate")}
             </button>
-            <span className="text-[11px] text-muted/40">(os insights já são gerados automaticamente)</span>
+            <span className="text-[11px] text-muted/40">{t("autoGeneratedNote")}</span>
           </div>
           {feedback && (
             <div className="mt-3 rounded-lg bg-accent/10 px-3 py-2 text-xs text-accent">{feedback}</div>
@@ -185,17 +186,16 @@ export default function InsightsPage() {
 
         {filtered.length === 0 ? (
           <div className="rounded-xl bg-surface p-8 text-center ring-1 ring-border/35">
-            <p className="text-sm font-medium text-muted/60">Nenhum insight disponível.</p>
+            <p className="text-sm font-medium text-muted/60">{t("noInsights")}</p>
             <p className="mt-2 text-xs text-muted/40">
-              O BerryBrain gera insights automaticamente ao encontrar padrões entre suas notas.
-              Escreva mais notas, execute a assimilação e os insights surgirão.
+              {t("noInsightsDesc")}
             </p>
             <button
               className="mt-4 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               onClick={generateNow}
               disabled={generating}
             >
-              {generating ? "Enviando..." : "Gerar primeiro insight"}
+              {generating ? t("sending") : t("generateFirstInsight")}
             </button>
           </div>
         ) : (
@@ -246,6 +246,43 @@ function safeParse(v: string): any[] {
   try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
 }
 
+function parseMaybeJson(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function formatEvidenceLabel(item: unknown): string {
+  const parsed = typeof item === "string" ? parseMaybeJson(item) : item;
+  if (typeof parsed === "string") {
+    return parsed
+      .replace(/\bexplainedConnections\b/g, "explained connections")
+      .replace(/\bgraphNotes\b/g, "graph notes")
+      .replace(/\bjobsByType\.[A-Z0-9_]+\b/g, "system activity")
+      .replace(/\bGENERATE_NOTE_TITLE\b/g, "automatic title generation");
+  }
+  if (!parsed || typeof parsed !== "object") return "";
+  const record = parsed as Record<string, unknown>;
+  const parts = [
+    record.title || record.label || record.source || "",
+    record.text || record.reference || record.path || record.reason || "",
+    record.whyRelevant || record.quoteOrSummary || "",
+  ].filter(Boolean);
+  return parts.join(": ") || "Evidence available in technical details.";
+}
+
+function hasTechnicalEvidence(items?: unknown[]): boolean {
+  return !!items?.some((item) => {
+    if (typeof item !== "string") return true;
+    const trimmed = item.trim();
+    return trimmed.startsWith("{") || trimmed.startsWith("[");
+  });
+}
+
 function InsightCard({
   insight,
   onDismiss,
@@ -267,15 +304,15 @@ function InsightCard({
   return (
     <article className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-[10px] font-semibold uppercase text-accent">{typeLabel}</span>
+        <span className="text-[10px] font-semibold uppercase text-accent">{t(typeLabel)}</span>
         <span className={`text-[10px] ${priorityColor}`}>
-          {insight.priority === "high" ? "Alta" : insight.priority === "medium" ? "Média" : "Baixa"} prioridade
+          {insight.priority === "high" ? t("highPriority") : insight.priority === "medium" ? t("mediumPriority") : t("lowPriority")}
         </span>
         {confidencePct > 0 && (
-          <span className="text-[10px] text-muted/50">{confidencePct}% confiança</span>
+          <span className="text-[10px] text-muted/50">{confidencePct}% {t("confidence")}</span>
         )}
         {insight.status !== "new" && (
-          <span className="text-[10px] text-muted/40 ml-auto">{insight.status === "applied" ? "Aplicado" : "Ignorado"}</span>
+          <span className="text-[10px] text-muted/40 ml-auto">{insight.status === "applied" ? t("appliedLabel") : t("ignoredLabel")}</span>
         )}
       </div>
 
@@ -284,24 +321,24 @@ function InsightCard({
 
       {insight.reasoning && (
         <div className="mt-2 rounded-lg bg-black/[0.03] px-3 py-2">
-          <div className="text-[10px] font-medium uppercase text-muted/50 mb-0.5">Raciocínio</div>
+          <div className="text-[10px] font-medium uppercase text-muted/50 mb-0.5">{t("reasoning")}</div>
           <p className="text-xs text-muted/60">{insight.reasoning}</p>
         </div>
       )}
 
       {insight.whyItMatters && (
         <div className="mt-2 rounded-lg bg-accent/[0.04] px-3 py-2">
-          <div className="text-[10px] font-medium uppercase text-accent/60 mb-0.5">Por que importa</div>
+          <div className="text-[10px] font-medium uppercase text-accent/60 mb-0.5">{t("whyItMatters")}</div>
           <p className="text-xs text-accent/70">{insight.whyItMatters}</p>
         </div>
       )}
 
       {insight.evidence && insight.evidence.length > 0 && (
         <div className="mt-2">
-          <div className="text-[10px] font-medium uppercase text-muted/50 mb-1">Evidências</div>
+          <div className="text-[10px] font-medium uppercase text-muted/50 mb-1">{t("evidences")}</div>
           <div className="flex flex-wrap gap-1.5">
             {insight.evidence.map((e, i) => {
-              const text = typeof e === "string" ? e : e?.quoteOrSummary || e?.whyRelevant || JSON.stringify(e).slice(0, 80);
+              const text = formatEvidenceLabel(e);
               return (
                 <span key={i} className="rounded-lg bg-black/[0.04] px-2 py-0.5 text-[11px] text-muted/55">
                   {text.length > 100 ? text.slice(0, 100) + "…" : text}
@@ -309,18 +346,26 @@ function InsightCard({
               );
             })}
           </div>
+          {hasTechnicalEvidence(insight.evidence) && (
+            <details className="mt-2 rounded-lg bg-black/[0.03] px-3 py-2 text-[10px] text-muted/50">
+              <summary className="cursor-pointer text-muted/60">Technical details</summary>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words">
+                {JSON.stringify(insight.evidence, null, 2)}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 
       {insight.suggestedAction && (
         <div className="mt-2 text-xs text-accent">
-          Ação sugerida: {insight.suggestedAction}
+          {t("suggestedActionLabel")} {insight.suggestedAction}
         </div>
       )}
 
       {insight.relatedNotes && insight.relatedNotes.length > 0 && (
         <div className="mt-2">
-          <div className="text-[10px] font-medium uppercase text-muted/50 mb-1">Notas relacionadas</div>
+          <div className="text-[10px] font-medium uppercase text-muted/50 mb-1">{t("relatedNotes")}</div>
           <div className="flex flex-wrap gap-1">
             {insight.relatedNotes.map((n, i) => {
               const path = typeof n === "string" ? n : n.path;
@@ -345,27 +390,27 @@ function InsightCard({
         {insight.model && <span>· {insight.model}</span>}
         {insight.promptVersion && <span>· {insight.promptVersion}</span>}
         {insight.createdAt && (
-          <span className="ml-auto">{new Date(insight.createdAt).toLocaleString("pt-BR")}</span>
+          <span className="ml-auto">{new Date(insight.createdAt).toLocaleString(getLang() === "en" ? "en-US" : "pt-BR")}</span>
         )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
         <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={onCreateNote}>
-          Criar nota permanente
+          {t("createPermanentNote")}
         </button>
         <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={onCreateReview}>
-          Gerar revisão
+          {t("generateReview")}
         </button>
-        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/?graph=open"}>
-          Ver no grafo
+        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/brain?graph=open"}>
+          {t("viewInGraph")}
         </button>
         {insight.status === "new" && (
           <>
             <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => onDismiss(insight.id, "apply")}>
-              Aplicar
+              {t("applyBtn")}
             </button>
             <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => onDismiss(insight.id, "ignore")}>
-              Ignorar
+              {t("ignoreBtn")}
             </button>
           </>
         )}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote_plus
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -169,6 +170,9 @@ def create_insight(
     status: str = "suggested",
     provider: str = "",
     model: str = "",
+    prompt_version: str = "v1",
+    reasoning: str = "",
+    source_context: str = "",
 ) -> InsightRecord:
     insight = InsightRecord(
         type=insight_type,
@@ -184,6 +188,9 @@ def create_insight(
         status=status,
         provider=provider,
         model=model,
+        prompt_version=prompt_version,
+        reasoning=reasoning,
+        source_context=source_context,
     )
     session.add(insight)
     session.commit()
@@ -208,8 +215,47 @@ def get_active_insights(
 
 def _is_visible_insight(insight: InsightRecord) -> bool:
     title = insight.title or ""
+    description = getattr(insight, "description", "") or ""
     provider = (getattr(insight, "provider", "") or "").lower()
     model = (getattr(insight, "model", "") or "").lower()
+    insight_type = (getattr(insight, "type", "") or "").lower()
+    if insight_type in {
+        "system_diagnostic",
+        "pipeline_bottleneck",
+        "provider_issue",
+        "job_backlog",
+        "worker_status",
+    }:
+        return False
+    evidence = _parse_json_list(getattr(insight, "evidence", "[]"))
+    combined = " ".join(
+        [
+            title,
+            description,
+            getattr(insight, "why_it_matters", "") or "",
+            getattr(insight, "suggested_action", "") or "",
+            getattr(insight, "graph_impact", "") or "",
+            " ".join(str(item) for item in evidence),
+        ]
+    ).lower()
+    if any(
+        term in combined
+        for term in (
+            "explainedconnections",
+            "graphnotes",
+            "jobsbytype",
+            "generate_note_title",
+            "enrich_graph_node",
+            "semanticstate",
+            "raw json",
+            "pipeline bottleneck",
+            "jobrecord",
+            "pendingjobs",
+            "activejobs",
+            "failedjobs",
+        )
+    ):
+        return False
     legacy_prefixes = (
         "Nó central no grafo:",
         "No central no grafo:",
@@ -224,6 +270,18 @@ def _is_visible_insight(insight: InsightRecord) -> bool:
         return False
     if model == "graph-insight.v1" and provider in {"", "system", "deterministic"}:
         return False
+    has_cognitive_fields = all(
+        [
+            (getattr(insight, "why_it_matters", "") or "").strip(),
+            (getattr(insight, "suggested_action", "") or "").strip(),
+            (getattr(insight, "graph_impact", "") or "").strip(),
+        ]
+    )
+    if provider in {"nvidia-nim", "cloud", "ai"}:
+        if len(evidence) < 2 or not has_cognitive_fields:
+            return False
+        if title.strip() == description.strip():
+            return False
     return True
 
 
@@ -297,9 +355,43 @@ def resolve_note_id(session: Session, note_path: str) -> int:
     return note.id
 
 
+def _is_system_diagnostic_graph_node(node: GraphNodeRecord) -> bool:
+    if (getattr(node, "type", "") or "").lower() != "insight":
+        return False
+    combined = " ".join(
+        [
+            getattr(node, "label", "") or "",
+            getattr(node, "title", "") or "",
+            getattr(node, "summary", "") or "",
+            getattr(node, "ai_summary", "") or "",
+            getattr(node, "ai_context", "") or "",
+            getattr(node, "source_evidence", "") or "",
+            getattr(node, "graph_metadata", "") or "",
+        ]
+    ).lower()
+    return any(
+        term in combined
+        for term in (
+            "pipeline bottleneck",
+            "jobsbytype",
+            "generate_note_title",
+            "enrich_graph_node",
+            "semantic_data",
+            "semanticstate",
+            "graphsummary",
+            "raw json",
+            "worker",
+            "provider",
+            "backlog",
+            "queue",
+        )
+    )
+
+
 def build_graph(
     session: Session,
     max_depth: int = 2,
+    view: str = "",
 ) -> dict[str, list[dict]]:
     from berrybrain_api.second_brain import _merge_duplicate_nodes
 
@@ -312,6 +404,15 @@ def build_graph(
                 select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
             ).scalars()
         )
+        graph_nodes = [
+            node for node in graph_nodes if not _is_system_diagnostic_graph_node(node)
+        ]
+        if view.lower() != "hidden":
+            graph_nodes = [
+                node
+                for node in graph_nodes
+                if getattr(node, "status", "suggested") != "ignored"
+            ]
         node_ids = {node.id: f"{node.type}_{node.id}" for node in graph_nodes}
         nodes = []
         for node in graph_nodes:
@@ -335,18 +436,38 @@ def build_graph(
                     "confidence": getattr(node, "confidence", 0.5),
                     "createdBy": getattr(node, "created_by", "system"),
                     "createdByModel": getattr(node, "created_by_model", ""),
+                    "aiSummary": getattr(node, "ai_summary", ""),
+                    "aiContext": getattr(node, "ai_context", ""),
+                    "sourceEvidence": getattr(node, "source_evidence", ""),
+                    "learningValue": getattr(node, "learning_value", ""),
+                    "sourceQuality": getattr(node, "source_quality", ""),
+                    "validationStatus": getattr(
+                        node, "validation_status", "unvalidated"
+                    ),
+                    "provider": getattr(node, "provider", ""),
+                    "model": getattr(node, "model", ""),
+                    "promptVersion": getattr(node, "prompt_version", ""),
+                    "generatedAt": getattr(node, "generated_at", None).isoformat()
+                    if getattr(node, "generated_at", None)
+                    else None,
                     "path": metadata.get("path", ""),
                     "folder": metadata.get("folder", ""),
                     "metadata": metadata,
                 }
             )
 
+        if view:
+            nodes = _filter_nodes_by_view(nodes, view)
+
+        visible_node_ids = {node["id"] for node in nodes}
         edges = []
         degrees: dict[str, int] = {node["id"]: 0 for node in nodes}
         for edge in graph_edges:
             source = node_ids.get(edge.source_node_id)
             target = node_ids.get(edge.target_node_id)
             if source is None or target is None:
+                continue
+            if source not in visible_node_ids or target not in visible_node_ids:
                 continue
             edges.append(
                 {
@@ -640,4 +761,390 @@ def find_similar_notes(
             "similarity": round(sim, 4),
         }
         for nid, sim in results[:limit]
+    ]
+
+
+# ---------------------------------------------------------------------------
+# SearxNG web search client
+# ---------------------------------------------------------------------------
+
+
+def searxng_search(query: str, searxng_url: str, max_results: int = 5) -> list[dict]:
+    """Search via SearxNG instance. Returns list of {title, url, content}."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            f"{searxng_url}/search",
+            params={"q": query, "format": "json", "categories": "general"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", [])[:max_results]
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+            }
+            for r in results
+        ]
+    except Exception:
+        return []
+
+
+def validate_node_with_web(
+    session: Session,
+    node_id: int,
+    searxng_url: str,
+) -> dict:
+    """Validate a graph node against web sources via SearxNG.
+
+    Creates web source nodes and edges (source_supports, source_contradicts, source_expands).
+    Never overwrites local data without recording origin.
+    """
+    from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
+
+    node = session.get(GraphNodeRecord, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    query = node.label or node.title or ""
+    if not query:
+        return {"node_id": node_id, "status": "no_query", "results": []}
+
+    results = searxng_search(query, searxng_url)
+    if not results:
+        node.validation_status = "unvalidated"
+        node.updated_at = datetime.now(UTC)
+        session.commit()
+        return {"node_id": node_id, "status": "no_results", "web_results": 0}
+
+    web_node_ids = []
+    edge_types_created = []
+
+    for r in results:
+        url = r.get("url", "")
+        if not url:
+            continue
+        web_node = (
+            session.execute(
+                select(GraphNodeRecord).where(
+                    GraphNodeRecord.type == "web_source",
+                    GraphNodeRecord.source_evidence == url,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if web_node is None:
+            web_node = GraphNodeRecord(
+                type="web_source",
+                label=r["title"][:255] or url[:255],
+                title=r["title"][:255],
+                summary=r.get("content", "")[:2000],
+                source="web",
+                source_id=0,
+                status="suggested",
+                confidence=0.6,
+                created_by="system",
+                created_by_model="searxng",
+                provider="searxng",
+                source_evidence=url,
+                source_quality="web_validated",
+                graph_metadata=json.dumps({"url": url}, ensure_ascii=False),
+            )
+            session.add(web_node)
+            session.flush()
+
+        # Determine edge type based on content overlap
+        web_content = (r.get("content", "") + " " + r.get("title", "")).lower()
+        node_text = (node.label + " " + node.title + " " + node.summary).lower()
+        words = set(node_text.split())
+        web_words = set(web_content.split())
+        overlap = len(words & web_words) / max(len(words), 1)
+
+        if overlap > 0.3:
+            edge_type = "source_supports"
+        elif any(
+            kw in web_content for kw in ["contradicts", "refutes", "incorrect", "false"]
+        ):
+            edge_type = "source_contradicts"
+        else:
+            edge_type = "source_expands"
+
+        edge = (
+            session.execute(
+                select(GraphEdgeRecord).where(
+                    GraphEdgeRecord.source_node_id == node.id,
+                    GraphEdgeRecord.target_node_id == web_node.id,
+                    GraphEdgeRecord.type == edge_type,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if edge is None:
+            edge = GraphEdgeRecord(
+                source_node_id=node.id,
+                target_node_id=web_node.id,
+                type=edge_type,
+            )
+            session.add(edge)
+            session.flush()
+        edge.label = f"Web: {r['title'][:100]}"
+        edge.reason = (
+            f'Web source "{r["title"][:120] or url}" was found for "{query}" '
+            f"and classified as {edge_type.replace('_', ' ')}."
+        )
+        edge.evidence = json.dumps([url], ensure_ascii=False)
+        edge.confidence = min(0.95, 0.5 + overlap * 0.4)
+        edge.status = "suggested"
+        edge.created_by = "system"
+        edge.created_by_model = "searxng"
+        edge.provider = "searxng"
+        web_node_ids.append(web_node.id)
+        edge_types_created.append(edge_type)
+
+    # Determine validation status
+    has_supports = "source_supports" in edge_types_created
+    has_contradicts = "source_contradicts" in edge_types_created
+
+    if has_contradicts:
+        node.validation_status = "conflict_found"
+    elif has_supports:
+        node.validation_status = "validated"
+    else:
+        node.validation_status = "needs_review"
+
+    node.updated_at = datetime.now(UTC)
+    session.commit()
+
+    return {
+        "node_id": node_id,
+        "validation_status": node.validation_status,
+        "web_results": len(results),
+        "web_nodes_created": len(web_node_ids),
+        "edge_types": edge_types_created,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Graph quality report
+# ---------------------------------------------------------------------------
+
+
+def graph_quality_report(session: Session) -> dict:
+    """Generate a quality report for the knowledge graph."""
+    from sqlalchemy import func
+
+    total_nodes = session.query(func.count(GraphNodeRecord.id)).scalar() or 0
+    total_edges = session.query(func.count(GraphEdgeRecord.id)).scalar() or 0
+
+    nodes_with_summary = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(GraphNodeRecord.summary.isnot(None), GraphNodeRecord.summary != "")
+        .scalar()
+        or 0
+    )
+
+    nodes_with_evidence = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(
+            GraphNodeRecord.source_evidence.isnot(None),
+            GraphNodeRecord.source_evidence != "",
+        )
+        .scalar()
+        or 0
+    )
+
+    nodes_with_ai_context = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(
+            GraphNodeRecord.ai_context.isnot(None), GraphNodeRecord.ai_context != ""
+        )
+        .scalar()
+        or 0
+    )
+    visible_nodes = total_nodes - (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(GraphNodeRecord.status == "ignored")
+        .scalar()
+        or 0
+    )
+    visible_nodes_with_summary = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(
+            GraphNodeRecord.status != "ignored",
+            GraphNodeRecord.summary.isnot(None),
+            GraphNodeRecord.summary != "",
+        )
+        .scalar()
+        or 0
+    )
+    visible_nodes_with_evidence = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(
+            GraphNodeRecord.status != "ignored",
+            GraphNodeRecord.source_evidence.isnot(None),
+            GraphNodeRecord.source_evidence != "",
+        )
+        .scalar()
+        or 0
+    )
+    visible_nodes_with_ai_context = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(
+            GraphNodeRecord.status != "ignored",
+            GraphNodeRecord.ai_context.isnot(None),
+            GraphNodeRecord.ai_context != "",
+        )
+        .scalar()
+        or 0
+    )
+
+    confirmed_nodes = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(GraphNodeRecord.status == "confirmed")
+        .scalar()
+        or 0
+    )
+
+    ignored_nodes = (
+        session.query(func.count(GraphNodeRecord.id))
+        .filter(GraphNodeRecord.status == "ignored")
+        .scalar()
+        or 0
+    )
+
+    confirmed_edges = (
+        session.query(func.count(GraphEdgeRecord.id))
+        .filter(GraphEdgeRecord.status == "confirmed")
+        .scalar()
+        or 0
+    )
+
+    ignored_edges = (
+        session.query(func.count(GraphEdgeRecord.id))
+        .filter(GraphEdgeRecord.status == "ignored")
+        .scalar()
+        or 0
+    )
+
+    nodes_with_reason = (
+        session.query(func.count(GraphEdgeRecord.id))
+        .filter(GraphEdgeRecord.reason.isnot(None), GraphEdgeRecord.reason != "")
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total_nodes": total_nodes,
+        "total_edges": total_edges,
+        "coverage": {
+            "nodes_with_summary": nodes_with_summary,
+            "nodes_with_evidence": nodes_with_evidence,
+            "nodes_with_ai_context": nodes_with_ai_context,
+            "pct_with_summary": round(nodes_with_summary / total_nodes * 100, 1)
+            if total_nodes
+            else 0,
+            "pct_with_evidence": round(nodes_with_evidence / total_nodes * 100, 1)
+            if total_nodes
+            else 0,
+            "pct_with_ai_context": round(nodes_with_ai_context / total_nodes * 100, 1)
+            if total_nodes
+            else 0,
+        },
+        "visibleCoverage": {
+            "visible_nodes": visible_nodes,
+            "nodes_with_summary": visible_nodes_with_summary,
+            "nodes_with_evidence": visible_nodes_with_evidence,
+            "nodes_with_ai_context": visible_nodes_with_ai_context,
+            "pct_with_summary": round(
+                visible_nodes_with_summary / visible_nodes * 100, 1
+            )
+            if visible_nodes
+            else 0,
+            "pct_with_evidence": round(
+                visible_nodes_with_evidence / visible_nodes * 100, 1
+            )
+            if visible_nodes
+            else 0,
+            "pct_with_ai_context": round(
+                visible_nodes_with_ai_context / visible_nodes * 100, 1
+            )
+            if visible_nodes
+            else 0,
+        },
+        "status": {
+            "confirmed_nodes": confirmed_nodes,
+            "ignored_nodes": ignored_nodes,
+            "pending_nodes": total_nodes - confirmed_nodes - ignored_nodes,
+            "confirmed_edges": confirmed_edges,
+            "ignored_edges": ignored_edges,
+            "pending_edges": total_edges - confirmed_edges - ignored_edges,
+        },
+        "edges_with_reason": nodes_with_reason,
+        "pct_edges_with_reason": round(nodes_with_reason / total_edges * 100, 1)
+        if total_edges
+        else 0,
+    }
+
+
+def _filter_nodes_by_view(nodes: list[dict], view: str) -> list[dict]:
+    """Filter nodes based on view parameter.
+
+    Default (empty view): hide headings, topics without context, system nodes without enrichment.
+    Views:
+    - enriched: nodes with aiContext or aiSummary
+    - raw: nodes without aiContext (system/content-based)
+    - validated: nodes with validationStatus=validated
+    - needs_review: nodes with validationStatus=needs_review or conflict_found
+    - hidden: nodes with status=ignored or type=heading
+    """
+    view_lower = view.lower()
+
+    if view_lower == "enriched":
+        return [n for n in nodes if n.get("aiContext") or n.get("aiSummary")]
+
+    if view_lower == "raw":
+        return [n for n in nodes if not n.get("aiContext") and not n.get("aiSummary")]
+
+    if view_lower == "validated":
+        return [n for n in nodes if n.get("validationStatus") == "validated"]
+
+    if view_lower == "needs_review":
+        return [
+            n
+            for n in nodes
+            if n.get("validationStatus") in ("needs_review", "conflict_found")
+        ]
+
+    if view_lower == "hidden":
+        return [
+            n
+            for n in nodes
+            if n.get("status") == "ignored" or n.get("type") == "heading"
+        ]
+
+    # Default Brain View: hide low-quality nodes
+    return [
+        n
+        for n in nodes
+        if not (
+            n.get("type") == "heading"
+            or n.get("status") == "ignored"
+            or (
+                n.get("type") in ("topico", "topic")
+                and not n.get("aiContext")
+                and not n.get("aiSummary")
+            )
+            or (
+                n.get("source") in ("content", "system")
+                and not n.get("aiContext")
+                and not n.get("aiSummary")
+                and not n.get("sourceEvidence")
+            )
+        )
     ]
