@@ -327,11 +327,10 @@ function LandingContent() {
             Most tools store text or generate text. BerryBrain connects them and keeps the source attached to every claim, so your second brain reasons instead of guessing.
           </p>
         </div>
-        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           {[
             ["Obsidian", "Great for local Markdown, but linking is manual and AI is bolted on. BerryBrain builds the graph and traces evidence automatically."],
             ["Notion", "Flexible, but cloud-only by default and AI answers without showing its work. BerryBrain is local-first and evidence-first."],
-            ["ChatGPT / Claude", "Conversational, but forgetful and source-less. BerryBrain persists insights as connected, auditable records."],
             ["Plain folders", "Cheap, but no retrieval, no graph, no reasoning layer. BerryBrain turns files into a queryable second brain."],
           ].map(([tool, body], index) => (
             <article key={tool} className="rounded-lg border border-border bg-panel p-5">
@@ -340,6 +339,44 @@ function LandingContent() {
               <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
             </article>
           ))}
+        </div>
+        <div className="mt-14">
+          <h3 className="text-center text-lg font-semibold">How BerryBrain compares</h3>
+          <p className="mt-2 text-center text-sm text-muted">Illustrative scores (0–100) across what matters in a knowledge tool. BerryBrain is highlighted.</p>
+          <div className="mt-8 overflow-x-auto">
+            <table className="w-full min-w-[680px] border-separate border-spacing-y-3 text-sm">
+              <thead>
+                <tr className="text-left text-muted">
+                  <th className="pb-2 pr-4 font-medium">Capability</th>
+                  {["BerryBrain", "Obsidian", "Notion", "Plain folders"].map((t) => (
+                    <th key={t} className="pb-2 pr-4 font-medium">{t}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["Local-first privacy", [100, 95, 30, 100]],
+                  ["AI evidence tracing", [100, 20, 40, 0]],
+                  ["Automatic knowledge graph", [95, 70, 30, 0]],
+                  ["Semantic search", [95, 50, 60, 10]],
+                  ["Works fully offline", [100, 100, 40, 100]],
+                  ["Cost-efficiency", [90, 85, 50, 100]],
+                ].map(([label, scores]) => (
+                  <tr key={label}>
+                    <td className="pr-4 align-middle font-medium">{label}</td>
+                    {scores.map((s, i) => (
+                      <td key={i} className="pr-4 align-middle">
+                        <div className="h-2.5 w-full rounded-full bg-surface">
+                          <div className={`h-2.5 rounded-full ${i === 0 ? "bg-accent" : "bg-border"}`} style={{ width: `${s}%` }} />
+                        </div>
+                        <span className="mt-1 block text-xs text-muted">{s}</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
       <section className="border-t border-border/70 bg-accent/10">
