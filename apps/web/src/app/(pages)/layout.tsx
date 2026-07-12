@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { WorkspaceProvider, useWorkspace } from "@/contexts/workspace-context";
+import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-context";
 import { WorkspaceSidebar } from "@/components/sidebar/workspace-sidebar";
 import { ResizeHandle } from "@/components/sidebar/resize-handle";
 import { CommandPalette } from "@/components/command-palette";
@@ -17,6 +17,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const prevActive = useRef(w.active);
   const [authState, setAuthState] = useState<"checking" | "allowed">("checking");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // ponytail: basePath-aware return-to-login link (strip basePath so safeNext can re-apply it)
+  const loginHref = () =>
+    `${appPath("/login")}?next=${encodeURIComponent(window.location.pathname.replace(new RegExp("^" + (process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL || "")), "") || "/")}`;
 
   useEffect(() => {
     let alive = true;
@@ -24,10 +27,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       .then((response) => {
         if (!alive) return;
         if (response.ok) setAuthState("allowed");
-        else window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        else window.location.href = loginHref();
       })
       .catch(() => {
-        if (alive) window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        if (alive) window.location.href = loginHref();
       });
     return () => {
       alive = false;
@@ -37,7 +40,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (authState !== "allowed") return;
     if (w.active && w.active !== prevActive.current) {
-      window.location.href = `/brain?note=${encodeURIComponent(w.active.path)}`;
+      window.location.href = appPath(`/brain?note=${encodeURIComponent(w.active.path)}`);
     }
     prevActive.current = w.active;
   }, [authState, w.active]);
@@ -71,7 +74,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-border/50 px-4 py-2 flex items-center gap-2">
               <button
                 className="rounded-lg px-2 py-1 text-xs text-muted hover:bg-surface hover:text-foreground"
-                onClick={() => (window.location.href = "/brain")}
+                onClick={() => (window.location.href = appPath("/brain"))}
               >
                 Back to Brain
               </button>

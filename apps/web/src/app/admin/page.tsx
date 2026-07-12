@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PublicShell } from "@/components/public-site/public-pages";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 type AdminUser = {
   id: number;
@@ -110,7 +110,7 @@ export default function Admin() {
     try {
       const response = await fetch(`${apiUrl}/api/v1/admin/users`, { credentials: "include" });
       if (response.status === 401) {
-        window.location.href = "/login?next=/admin";
+        window.location.href = appPath("/login?next=/admin");
         return;
       }
       if (response.status === 403) {
@@ -182,7 +182,7 @@ export default function Admin() {
             <>
               <h1 className="text-lg font-semibold tracking-tight">Admin access</h1>
               <p className="mt-2 text-sm leading-6 text-muted">{message || "Sign in with the administrator account to continue."}</p>
-              <a href="/login?next=/admin" className="mt-5 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-black">Sign in</a>
+              <a href={appPath("/login?next=/admin")} className="mt-5 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-black">Sign in</a>
             </>
           )}
         </div>

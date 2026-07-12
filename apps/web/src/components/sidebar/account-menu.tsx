@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 import {
   AccountSettingsDialog,
   readCsrf,
@@ -50,7 +50,7 @@ export function AccountMenu() {
       } catch {
         // Navigation still moves the user to the expected account boundary.
       } finally {
-        window.location.href = dest;
+        window.location.href = appPath(dest);
       }
     },
     [apiUrl],
@@ -60,7 +60,7 @@ export function AccountMenu() {
     return (
       <button
         className="rounded-lg p-1 text-muted hover:bg-surface"
-        onClick={() => (window.location.href = "/login")}
+        onClick={() => (window.location.href = appPath("/login"))}
         aria-label="Login"
       >
         {personIcon}

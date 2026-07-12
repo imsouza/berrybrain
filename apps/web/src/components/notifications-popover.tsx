@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { appPath } from "@/contexts/workspace-context";
 
 type Alert = {
   kind: string;
@@ -49,15 +50,15 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
       case "ollama_offline":
       case "failed_jobs":
       case "provider_issue":
-        window.location.href = "/brain?monitor=open";
+        window.location.href = appPath("/brain?monitor=open");
         break;
       case "pending_jobs":
-        window.location.href = "/activity";
+        window.location.href = appPath("/activity");
         break;
       case "no_notes":
         break;
       default:
-        window.location.href = "/activity";
+        window.location.href = appPath("/activity");
     }
     onClose();
   };
@@ -113,7 +114,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
           <button
             className="w-full rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground"
             onClick={() => {
-              window.location.href = "/activity";
+              window.location.href = appPath("/activity");
               onClose();
             }}
           >

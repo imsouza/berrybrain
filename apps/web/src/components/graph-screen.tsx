@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { t, tf } from "@/i18n";
+import { appPath } from "@/contexts/workspace-context";
 
 const EDGE_COLORS: Record<string, string> = {
   semantic: "#D98A00",
@@ -813,8 +814,8 @@ export function GraphScreen({
               <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
               {apiUrl === "__demo__" && (
                 <div className="mt-2 flex gap-2">
-                  <a href="/login" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">Login</a>
-                  <a href="/signup" className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Create account</a>
+                  <a href={appPath("/login")} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">Login</a>
+                  <a href={appPath("/signup")} className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Create account</a>
                 </div>
               )}
             </div>

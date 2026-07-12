@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { ThemedProgressBar } from "./themed-progress-bar";
 
@@ -283,8 +283,8 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
         {summary.status.lastProcessingAt && <span>{t("lastProcessing")} {formatTime(summary.status.lastProcessingAt)}</span>}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <HeaderLink onClick={() => (window.location.href = "/activity")}>{t("viewActivity")}</HeaderLink>
-        <HeaderLink onClick={() => (window.location.href = "/insights")}>{t("viewInsights")}</HeaderLink>
+        <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
+        <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
         <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
       </div>
     </header>
@@ -346,7 +346,7 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
               <p className="mt-1 text-xs font-medium">{insight.title}</p>
               {insight.description && <p className="mt-1 text-[11px] leading-5 text-muted/65 line-clamp-2">{insight.description}</p>}
               <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/insights"}>{t("viewDetails")}</button>
+                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = appPath("/insights")}>{t("viewDetails")}</button>
                 <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => dismissInsight(insight.id, "dismiss")}>{t("apply")}</button>
                 <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => dismissInsight(insight.id, "ignore")}>{t("ignore")}</button>
               </div>

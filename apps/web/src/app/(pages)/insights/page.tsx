@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 import { getLang, t, tf } from "@/i18n";
 
 type InsightItem = {
@@ -127,7 +127,7 @@ export default function InsightsPage() {
   };
 
   const openNote = (path: string) => {
-    window.location.href = `/brain?note=${encodeURIComponent(path)}`;
+    window.location.href = appPath(`/brain?note=${encodeURIComponent(path)}`);
   };
 
   const filtered = insights.filter((i) => {
@@ -401,7 +401,7 @@ function InsightCard({
         <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={onCreateReview}>
           {t("generateReview")}
         </button>
-        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = "/brain?graph=open"}>
+        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = appPath("/brain?graph=open")}>
           {t("viewInGraph")}
         </button>
         {insight.status === "new" && (

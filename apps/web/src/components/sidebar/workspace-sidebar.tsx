@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 
@@ -160,7 +160,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <img src={berrylogo.src} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = "/brain"; }} />
+        <img src={berrylogo.src} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} />
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v1.0.0</div>
 
@@ -225,10 +225,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           {isDemo ? (
             <>
               <span className="text-[9px] text-muted/50 select-none px-1">Demo</span>
-              <button className="rounded-lg bg-accent px-2 py-1 text-[10px] font-medium text-white transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = "/login"; }} aria-label="Login">
+              <button className="rounded-lg bg-accent px-2 py-1 text-[10px] font-medium text-white transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = appPath("/login"); }} aria-label="Login">
                 Login
               </button>
-              <button className="rounded-lg bg-foreground px-2 py-1 text-[10px] font-medium text-background transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = "/signup"; }} aria-label="Create account">
+              <button className="rounded-lg bg-foreground px-2 py-1 text-[10px] font-medium text-background transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = appPath("/signup"); }} aria-label="Create account">
                 Create account
               </button>
             </>

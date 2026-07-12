@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 export type MeUser = {
   id: number;
@@ -56,7 +56,7 @@ export function UserMenu() {
     } catch {
       // The page navigation below is still the correct fallback.
     } finally {
-      window.location.href = "/";
+      window.location.href = appPath("/");
     }
   }, [apiUrl]);
 
@@ -276,7 +276,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
             onClick={() =>
               guard(async () => {
                 await call("/logout-all", "POST", {});
-                window.location.href = "/login";
+                window.location.href = appPath("/login");
               }, "Sessions closed.")
             }
             className="rounded-md border border-border px-3 py-2 hover:text-foreground disabled:opacity-50"
@@ -311,7 +311,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 onClick={() =>
                   guard(async () => {
                     await call("/delete-account/confirm", "POST", { code: deleteCode });
-                    window.location.href = "/";
+                    window.location.href = appPath("/");
                   }, "Account deleted.")
                 }
                 className="rounded-md bg-red-500 px-3 py-2 font-medium text-white disabled:opacity-50"

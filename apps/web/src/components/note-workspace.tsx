@@ -1,6 +1,6 @@
 "use client";
 
-import { WorkspaceProvider, useWorkspace } from "@/contexts/workspace-context";
+import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-context";
 import { CommandPalette } from "./command-palette";
 import { ObservabilityPanel } from "./observability-panel";
 import { SettingsPanel } from "./settings-panel";
@@ -91,7 +91,7 @@ export function NoteWorkspace() {
 }
 
 function DemoNotice() {
-  const go = (path: string) => { window.location.href = path; };
+  const go = (path: string) => { window.location.href = appPath(path); };
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-accent-soft/40 px-4 py-2.5 text-sm">
       <span className="text-muted">Demo is read-only. Create an account to use all features.</span>

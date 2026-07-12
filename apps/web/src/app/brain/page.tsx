@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { NoteWorkspace } from "@/components/note-workspace";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 export default function Brain() {
   const apiUrl = getApiUrl();
@@ -14,10 +14,10 @@ export default function Brain() {
       .then((response) => {
         if (!alive) return;
         if (response.ok) setState("allowed");
-        else window.location.href = "/login?next=/brain";
+        else window.location.href = appPath("/login?next=/brain");
       })
       .catch(() => {
-        if (alive) window.location.href = "/login?next=/brain";
+        if (alive) window.location.href = appPath("/login?next=/brain");
       });
     return () => {
       alive = false;

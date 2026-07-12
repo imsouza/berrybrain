@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import berryPrint from "../../../public/berrybrain-print1.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl, appPath } from "@/contexts/workspace-context";
 import { UserMenu } from "@/components/public-site/user-menu";
 
 const legalContent: Record<string, { title: string; body: string[] }> = {
@@ -395,7 +395,7 @@ function LandingContent() {
 
 function safeNext(): string {
   const n = new URLSearchParams(window.location.search).get("next");
-  return n && n.startsWith("/") && !n.startsWith("//") ? n : "/brain";
+  return appPath(n && n.startsWith("/") && !n.startsWith("//") ? n : "/brain");
 }
 
 export function AuthPage({ mode }: { mode: "login" | "signup" }) {

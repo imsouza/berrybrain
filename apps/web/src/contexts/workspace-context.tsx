@@ -10,6 +10,10 @@ export function getApiUrl() {
   // ponytail: same-origin, Next proxies /api to the api service (avoids host:8000 reachability issues)
   return "";
 }
+// ponytail: basePath-aware in-app navigation (Next <Link> auto-prefixes, window.location.href does not)
+export function appPath(p: string) {
+  return (process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL || "") + p;
+}
 function encode(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 let _tid = 0;
 
