@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
 import { UserMenu } from "@/components/public-site/user-menu";
@@ -148,6 +149,7 @@ export function PublicShell({
   const [modal, setModal] = useState<string | null>(null);
   const openModal = useCallback((key: string) => setModal(key), []);
   const closeModal = useCallback(() => setModal(null), []);
+  const router = useRouter();
 
   return (
     <LegalModalContext.Provider value={openModal}>
@@ -155,7 +157,7 @@ export function PublicShell({
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-4 md:px-6">
           <Link href="/" aria-label="BerryBrain" className="flex items-center">
-            <Image src="/berrylogo.png" alt="BerryBrain" width={64} height={64} className="rounded-md" />
+            <Image src={`${router.basePath}/berrylogo.png`} alt="BerryBrain" width={64} height={64} className="rounded-md" unoptimized />
           </Link>
           <nav className="hidden items-center gap-6 text-xs font-medium text-muted lg:flex">
             {nav.map(([label, href]) =>
@@ -494,11 +496,12 @@ export function AccountSettingsPage() {
 }
 
 function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
+  const router = useRouter();
   return (
     <footer className="border-t border-border bg-panel/60">
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-10 md:grid-cols-[1.1fr_2fr] md:px-6">
         <div>
-          <Image src="/berrylogo.png" alt="BerryBrain" width={160} height={160} className="rounded-md grayscale" />
+          <Image src={`${router.basePath}/berrylogo.png`} alt="BerryBrain" width={160} height={160} className="rounded-md grayscale" unoptimized />
           <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
             A private, evidence-first second brain for notes, concepts, graph reasoning, and accountable AI assistance.
           </p>
