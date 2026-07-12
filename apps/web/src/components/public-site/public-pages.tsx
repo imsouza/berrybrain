@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
+import berryPrint from "../../../public/berrybrain-print1.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
 import { UserMenu } from "@/components/public-site/user-menu";
@@ -158,7 +159,7 @@ export function PublicShell({
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-4 md:px-6">
           <Link href="/" aria-label="BerryBrain" className="flex items-center">
-            <Image src={berrylogo} alt="BerryBrain" width={64} height={64} className="rounded-md" unoptimized />
+            <Image src={berrylogo} alt="BerryBrain" width={72} height={72} className="rounded-md" unoptimized />
           </Link>
           <nav className="hidden items-center gap-6 text-xs font-medium text-muted lg:flex">
             {nav.map(([label, href]) =>
@@ -243,11 +244,12 @@ function LandingContent() {
                 <span>Evidence-first</span>
               </div>
               <Image
-                src="/berrybrain-print1.png"
+                src={berryPrint}
                 alt="BerryBrain home"
                 width={900}
                 height={560}
                 priority
+                unoptimized
                 className="h-auto w-full"
               />
             </div>
@@ -314,6 +316,39 @@ function LandingContent() {
                 <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-14 md:px-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Why BerryBrain</p>
+          <h2 className="mt-3 text-3xl font-semibold">Not another notes app. Not a chatbot.</h2>
+          <p className="mt-4 text-sm leading-6 text-muted">
+            Most tools store text or generate text. BerryBrain connects them and keeps the source attached to every claim, so your second brain reasons instead of guessing.
+          </p>
+        </div>
+        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Obsidian", "Great for local Markdown, but linking is manual and AI is bolted on. BerryBrain builds the graph and traces evidence automatically."],
+            ["Notion", "Flexible, but cloud-only by default and AI answers without showing its work. BerryBrain is local-first and evidence-first."],
+            ["ChatGPT / Claude", "Conversational, but forgetful and source-less. BerryBrain persists insights as connected, auditable records."],
+            ["Plain folders", "Cheap, but no retrieval, no graph, no reasoning layer. BerryBrain turns files into a queryable second brain."],
+          ].map(([tool, body], index) => (
+            <article key={tool} className="rounded-lg border border-border bg-panel p-5">
+              <span className="text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
+              <h3 className="mt-2 text-sm font-semibold">{tool}</h3>
+              <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="border-t border-border/70 bg-accent/10">
+        <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-5 px-5 py-14 text-center md:px-6">
+          <h2 className="max-w-2xl text-3xl font-semibold">Start building your evidence-first second brain.</h2>
+          <p className="max-w-xl text-sm leading-6 text-muted">Free to self-host. Private by default. Secure by design.</p>
+          <div className="mt-2 flex flex-wrap justify-center gap-3">
+            <Link href="/signup" className="rounded-md bg-accent px-5 py-3 text-sm font-medium text-black">Create account</Link>
+            <Link href="/demo" className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">Try the demo</Link>
           </div>
         </div>
       </section>
@@ -507,6 +542,17 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
             A private, evidence-first second brain for notes, concepts, graph reasoning, and accountable AI assistance.
           </p>
           <p className="mt-4 text-xs text-muted">Support: contato@optlabs.com.br</p>
+          <a
+            href="https://github.com/imsouza/berrybrain"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="GitHub repository"
+            className="mt-4 inline-flex size-9 items-center justify-center rounded-md border border-border text-muted transition-colors hover:bg-surface hover:text-foreground"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="size-5" aria-hidden="true">
+              <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />
+            </svg>
+          </a>
         </div>
         <div className="grid gap-6 sm:grid-cols-3">
           {footerGroups.map((group) => (
