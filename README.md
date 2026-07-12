@@ -2,9 +2,11 @@
 
 <img src="apps/web/public/berrylogo.png" alt="BerryBrain" width="96" align="right">
 
-**A local-first second brain for Markdown notes, knowledge graphs, and explainable AI-assisted learning.**
+**A free, open source, local-first second brain for Markdown notes, knowledge graphs, and explainable AI-assisted learning.**
 
 BerryBrain turns notes into connected knowledge. It watches a Markdown vault, parses note structure, extracts concepts, expands a knowledge graph, creates explainable connections, and surfaces insights that help the user study, assimilate, and discover gaps.
+
+There is no central BerryBrain account, SaaS tenant, or billing gate. You self-host the stack, create a local administrator, and manage local profiles/workspaces from the instance admin panel.
 
 ---
 
@@ -14,6 +16,7 @@ BerryBrain turns notes into connected knowledge. It watches a Markdown vault, pa
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker)
 ![Local-first](https://img.shields.io/badge/local--first-yes-3C8F5A)
+![Open Source](https://img.shields.io/badge/open--source-yes-3C8F5A)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -32,6 +35,7 @@ BerryBrain turns notes into connected knowledge. It watches a Markdown vault, pa
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Self-Hosting](#self-hosting)
+- [Deploying at /berrybrain](#deploying-at-berrybrain)
 - [Engineering Practices](#engineering-practices)
 - [Security and Privacy](#security-and-privacy)
 - [Roadmap](#roadmap)
@@ -466,6 +470,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
+Then open `http://localhost:3000/setup` and create the local administrator. Public signup is intentionally disabled.
+
 | Service | URL |
 | --- | --- |
 | Web | `http://localhost:3000` |
@@ -490,8 +496,8 @@ docker logs berrybrain-worker-1 --tail 120
 # Run API tests locally
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/api/src python -m unittest discover apps/api/tests
 
-# Frontend typecheck
-npm --prefix apps/web run typecheck
+# Frontend typecheck without writing tsbuildinfo
+cd apps/web && ./node_modules/.bin/tsc --noEmit --incremental false
 ```
 
 ---
@@ -545,9 +551,10 @@ Edit `.env` and set at minimum:
 | `BERRYBRAIN_SESSION_SECRET` | HMAC pepper for sessions **and** password hashing. Use a long random value. Changing it later invalidates existing password hashes (re-seed the admin). |
 | `BERRYBRAIN_API_TOKEN` | Bearer token for service-to-service and admin API calls. Generate a random value. |
 | `BERRYBRAIN_ADMIN_EMAIL` | Only this account gets administrator privileges. |
+| `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
-| `SMTP_*` | Required for email verification and 2FA OTP. |
+| `SMTP_*` | Optional legacy email delivery settings. Not required for default self-hosted setup. |
 
 Generate secrets, for example:
 
@@ -563,9 +570,11 @@ docker compose up -d
 
 Web serves on `http://localhost:3000`, API on `http://localhost:8000`.
 
-### 3. Create the administrator account
+### 3. Create the local administrator
 
-The admin is created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
+Open `http://localhost:3000/setup` and create the local admin password. This creates an administrator only for this self-hosted instance.
+
+For headless recovery, the admin can still be created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
 
 ```bash
 docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api \
@@ -585,7 +594,35 @@ BERRYBRAIN_PUBLIC_APP_URL=https://your.domain
 BERRYBRAIN_CORS_ORIGINS=https://your.domain
 ```
 
-If you serve the app under a path prefix (for example `https://your.domain/berrybrain`), set `basePath` in `apps/web/next.config.mjs` and `NEXT_PUBLIC_BERRYBRAIN_API_URL` to that prefix in `docker-compose.yml`. The API is reached through the Next.js `rewrites()` and needs no prefix.
+If you serve the app under a path prefix, set the public web env values before building the web app. The API should remain behind the same reverse proxy origin.
+
+---
+
+## Deploying at /berrybrain
+
+The landing page and app can be served at:
+
+```text
+https://optlabs.com.br/berrybrain
+```
+
+Use these web environment values:
+
+```ini
+NEXT_PUBLIC_BERRYBRAIN_API_URL=/berrybrain
+NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain
+NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain
+BERRYBRAIN_PUBLIC_APP_URL=https://optlabs.com.br/berrybrain
+BERRYBRAIN_CORS_ORIGINS=https://optlabs.com.br
+BERRYBRAIN_ALLOWED_HOSTS=localhost,127.0.0.1,testserver,optlabs.com.br
+```
+
+Recommended reverse-proxy behavior:
+
+- route `/berrybrain` and `/berrybrain/*` to the Next.js web service;
+- route `/berrybrain/api/*` to the API or through the web rewrite, depending on the proxy topology;
+- do not expose `:8000` publicly;
+- enable secure cookies in production with `BERRYBRAIN_SESSION_SECURE_COOKIE=true`.
 
 ### 5. Cloudflare Tunnel example
 
@@ -655,7 +692,7 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 
 - Argon2id password hashing (PBKDF2 fallback) with the session secret as pepper.
 - Session and CSRF cookies signed with HMAC; `SameSite=Lax`.
-- Email verification and email OTP 2FA.
+- First-run local admin setup, session login/logout, and local admin provisioning.
 - Progressive rate limiting and account lockout on repeated failures.
 - `require_admin` gate on `/api/v1/admin/*`, maintenance, settings danger, backups, and system reset.
 - Fail-closed auth middleware: missing/invalid credentials are denied, not allowed.
@@ -668,7 +705,7 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 - Treat any token pasted into chat/logs as compromised and rotate it.
 - Generate a unique `BERRYBRAIN_SESSION_SECRET` and `BERRYBRAIN_API_TOKEN` per deployment.
 - Serve only over HTTPS; enable `BERRYBRAIN_SESSION_SECURE_COOKIE`.
-- Re-seed the admin after changing `BERRYBRAIN_SESSION_SECRET`.
+- Re-run setup/admin seed after changing `BERRYBRAIN_SESSION_SECRET`.
 
 The formal security/auth/admin plan is tracked in [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md).
 
@@ -683,8 +720,8 @@ The formal security/auth/admin plan is tracked in [Security, Auth, Admin, and Pu
 | `1.0.x` | Current | Local vault, editor, jobs, graph, insights, activity, settings |
 | `1.1.x` | In progress/planned | Cognitive quality, graph action cleanup, stronger inference, better Home observability |
 | `1.2.x` | Planned | Attachment OCR/transcription and attachment graph nodes |
-| `1.3.x` | Planned | Public SaaS auth/security/admin foundation |
-| `2.0.x` | Future | Multi-user collaboration, optional Postgres/Neo4j, advanced sync |
+| `1.3.x` | Planned | Self-hosting hardening, local profiles/workspaces, backup/export polish |
+| `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
 ### OCR and Attachment Roadmap
 
@@ -702,16 +739,17 @@ Planned capabilities:
 - `attachment` graph nodes;
 - attachment-backed insights and graph answers.
 
-### Security and SaaS Roadmap
+### Security and Self-Hosting Roadmap
 
-Tracked in [docs/planning/sec.md](docs/planning/sec.md). These capabilities are now implemented:
+BerryBrain is free and open source. The default deployment is self-hosted: no central BerryBrain account, no SaaS billing, and no required cloud service. Donations may be linked by the operator, but payment processing is not part of the core app.
+
+Implemented security capabilities:
 
 - public marketing site;
-- login/signup;
-- 2FA;
-- password reset;
-- admin panel;
-- administrator account controls;
+- first-run local admin setup;
+- session login/logout;
+- local profiles/workspaces managed by admin;
+- admin panel and administrator controls;
 - rate limiting and abuse protection;
 - privacy, security, LGPD/GDPR pages.
 
@@ -782,7 +820,7 @@ npm --prefix apps/web run typecheck
 | Document | Purpose |
 | --- | --- |
 | [OCR and Attachment Processing Plan](docs/planning/ocr.md) | Future multimodal attachment processing |
-| [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md) | Future SaaS security/auth/admin work |
+| [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md) | Self-hosted security/auth/admin work |
 | [Graph Planning](docs/planning/planing-grafos.md) | Graph maturity and improvement planning |
 | [Second Brain Plan](docs/planning/planing-100-segundo-cerebro.md) | 100% second brain maturation plan |
 | [Maturation Plan](docs/planning/maturacao.md) | Broader system maturity work |

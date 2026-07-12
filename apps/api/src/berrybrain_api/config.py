@@ -30,12 +30,14 @@ class Settings(BaseSettings):
     session_cookie_name: str = "bb_session"
     session_secure_cookie: bool = False
     csrf_cookie_name: str = "bb_csrf"
+    require_auth: bool = True
+    donation_url: str = ""
     auth_rate_limit_window_seconds: int = 900
     auth_rate_limit_max_attempts: int = 8
     auth_lockout_minutes: int = 15
     auth_otp_ttl_minutes: int = 10
     auth_otp_resend_cooldown_seconds: int = 60
-    admin_email: str = "contato@optlabs.com.br"
+    admin_email: str = "admin@local.berrybrain"
 
     smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
     smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")

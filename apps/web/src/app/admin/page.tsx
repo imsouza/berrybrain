@@ -16,6 +16,17 @@ type AdminUser = {
   lastLoginAt: string | null;
 };
 
+type AdminProfile = {
+  id: number;
+  name: string;
+  slug: string;
+  vaultSubpath: string;
+  source: string;
+  status: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 type AuditEvent = {
   id: number;
   actorEmail: string;
@@ -31,6 +42,12 @@ type UserFormState = {
   password: string;
   emailVerified: boolean;
   twoFactorEnabled: boolean;
+};
+
+type ProfileFormState = {
+  name: string;
+  slug: string;
+  vaultSubpath: string;
 };
 
 function readCsrf(): string {
@@ -86,6 +103,8 @@ export default function Admin() {
   const [busy, setBusy] = useState("");
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [profiles, setProfiles] = useState<AdminProfile[]>([]);
+  const [profileForm, setProfileForm] = useState<ProfileFormState>({ name: "", slug: "", vaultSubpath: "" });
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<AdminUser | null>(null);
@@ -122,6 +141,11 @@ export default function Admin() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || "Could not load admin data");
       setUsers(payload.users || []);
+      const profileResponse = await fetch(`${apiUrl}/api/v1/admin/profiles`, { credentials: "include" });
+      if (profileResponse.ok) {
+        const profilePayload = await profileResponse.json();
+        setProfiles(profilePayload.profiles || []);
+      }
       const meResponse = await fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" });
       if (meResponse.ok) setMe(await meResponse.json().catch(() => null));
       const auditResponse = await fetch(`${apiUrl}/api/v1/admin/audit-events`, { credentials: "include" });
@@ -180,6 +204,30 @@ export default function Admin() {
     });
   }
 
+  function createProfile() {
+    const name = profileForm.name.trim();
+    const slug = profileForm.slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!name || !slug) {
+      setError("Profile name and slug are required.");
+      return;
+    }
+    return run("create-profile", async () => {
+      await api("/admin/profiles", "POST", {
+        name,
+        slug,
+        vault_subpath: profileForm.vaultSubpath.trim(),
+      });
+      setProfileForm({ name: "", slug: "", vaultSubpath: "" });
+    });
+  }
+
+  function archiveProfile(profile: AdminProfile) {
+    if (!window.confirm(`Archive profile ${profile.name}?`)) return;
+    return run(`archive-profile-${profile.id}`, async () => {
+      await api(`/admin/profiles/${profile.id}/archive`, "POST", { reason: "Admin panel action" });
+    });
+  }
+
   if (status !== "ready") {
     return (
       <main className="grid min-h-[100dvh] place-items-center bg-background px-6">
@@ -204,11 +252,10 @@ export default function Admin() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Admin</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight">User management</h1>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">Instance admin</h1>
           </div>
           <div className="flex gap-2">
             <button onClick={loadAdmin} className={ghostBtn}>Refresh</button>
-            <button onClick={() => setCreating(true)} className={primaryBtn}>New user</button>
           </div>
         </div>
 
@@ -219,7 +266,7 @@ export default function Admin() {
                 ["Users", stats.total],
                 ["Verified", stats.verified],
                 ["Locked", stats.locked],
-                ["With 2FA", stats.twoFactor],
+                ["Profiles", profiles.filter((profile) => profile.status === "active").length],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-border bg-panel px-4 py-3">
                   <div className="text-2xl font-semibold">{value}</div>
@@ -230,10 +277,40 @@ export default function Admin() {
 
             {error && <div className="mt-4 rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</div>}
 
+            <div className="mt-6 rounded-lg border border-border bg-panel">
+              <div className="flex flex-col gap-4 border-b border-border px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">Local profiles</h2>
+                  <p className="mt-1 text-xs text-muted">Profiles are local workspaces for this self-hosted instance.</p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-[1fr_0.8fr_0.8fr_auto]">
+                  <input value={profileForm.name} onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value }))} placeholder="Name" className="rounded-md border border-border bg-surface px-3 py-2 text-xs outline-none focus:border-accent" />
+                  <input value={profileForm.slug} onChange={(event) => setProfileForm((current) => ({ ...current, slug: event.target.value }))} placeholder="Slug" className="rounded-md border border-border bg-surface px-3 py-2 text-xs outline-none focus:border-accent" />
+                  <input value={profileForm.vaultSubpath} onChange={(event) => setProfileForm((current) => ({ ...current, vaultSubpath: event.target.value }))} placeholder="Vault path" className="rounded-md border border-border bg-surface px-3 py-2 text-xs outline-none focus:border-accent" />
+                  <button disabled={busy === "create-profile"} onClick={createProfile} className={primaryBtn}>Create</button>
+                </div>
+              </div>
+              <div className="divide-y divide-border">
+                {profiles.map((profile) => (
+                  <div key={profile.id} className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{profile.name}</div>
+                      <div className="mt-1 text-xs text-muted">{profile.slug} | {profile.vaultSubpath || "vault root"} | {profile.source}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={profile.status === "active" ? "ok" : "muted"}>{profile.status}</Badge>
+                      <button disabled={profile.slug === "default" || profile.status === "archived" || busy === `archive-profile-${profile.id}`} onClick={() => archiveProfile(profile)} className={ghostBtn}>Archive</button>
+                    </div>
+                  </div>
+                ))}
+                {profiles.length === 0 && <p className="p-5 text-sm text-muted">No profiles found.</p>}
+              </div>
+            </div>
+
             <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.62fr]">
               <div className="rounded-lg border border-border bg-panel">
                 <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-                  <h2 className="text-sm font-semibold">Users</h2>
+                  <h2 className="text-sm font-semibold">Access users (advanced)</h2>
                   <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search email or name..." className="w-56 max-w-[55%] rounded-md border border-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-accent" />
                 </div>
                 <div className="divide-y divide-border">

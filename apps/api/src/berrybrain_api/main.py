@@ -94,6 +94,7 @@ app.add_middleware(
 
 TOKEN_EXEMPT = {
     "/health",
+    "/api/v1/setup",
     "/api/v1/auth",
     "/api/v1/admin",
 }

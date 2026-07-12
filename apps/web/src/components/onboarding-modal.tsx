@@ -46,8 +46,8 @@ const baseSteps: TourStep[] = [
   {
     eyebrow: "Account",
     title: "Keep identity and sessions under control.",
-    body: "Account settings let you update profile data, change password, change email, manage 2FA, and revoke sessions.",
-    bullets: ["Use the account button in the sidebar.", "Logout and sensitive updates require CSRF-protected requests.", "Admins get a dedicated user-management area."],
+    body: "Account settings let the local admin update profile data, change password, and revoke sessions.",
+    bullets: ["Use the account button in the sidebar.", "Logout and sensitive updates require CSRF-protected requests.", "Admins get dedicated instance-management tools."],
   },
 ];
 

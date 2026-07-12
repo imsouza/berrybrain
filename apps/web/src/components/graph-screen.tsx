@@ -831,8 +831,8 @@ export function GraphScreen({
               <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
               {apiUrl === "__demo__" && (
                 <div className="mt-2 flex gap-2">
-                  <a href={appPath("/login")} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">Login</a>
-                  <a href={appPath("/signup")} className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Create account</a>
+                  <a href="https://github.com/imsouza/berrybrain" target="_blank" rel="noreferrer" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-black hover:opacity-90">GitHub</a>
+                  <a href={appPath("/docs")} className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Docs</a>
                 </div>
               )}
             </div>

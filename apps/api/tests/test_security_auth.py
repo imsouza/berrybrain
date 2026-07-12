@@ -80,7 +80,7 @@ class SecurityAuthTest(unittest.TestCase):
         self.assertEqual(response.headers["x-content-type-options"], "nosniff")
         self.assertEqual(response.headers["x-frame-options"], "DENY")
 
-    def test_signup_creates_unverified_user_and_skips_email_without_smtp(self) -> None:
+    def test_signup_is_disabled_for_self_hosted_instances(self) -> None:
         response = self.client.post(
             "/api/v1/auth/signup",
             json={
@@ -89,9 +89,37 @@ class SecurityAuthTest(unittest.TestCase):
                 "display_name": "New User",
             },
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["status"], "verification_required")
-        self.assertEqual(response.json()["delivery"], "skipped")
+        self.assertEqual(response.status_code, 410)
+
+    def test_setup_creates_admin_once_and_logs_in(self) -> None:
+        previous = self.settings.admin_email
+        self.settings.admin_email = "setup-admin@example.com"
+        try:
+            status = self.client.get("/api/v1/setup/status")
+            self.assertEqual(status.status_code, 200)
+            self.assertTrue(status.json()["needsSetup"])
+
+            created = self.client.post(
+                "/api/v1/setup/admin",
+                json={
+                    "password": "StrongPass123",
+                    "display_name": "Setup Admin",
+                },
+            )
+            self.assertEqual(created.status_code, 201)
+            self.assertEqual(created.json()["status"], "configured")
+            self.assertIn("bb_session", created.cookies)
+
+            duplicate = self.client.post(
+                "/api/v1/setup/admin",
+                json={
+                    "password": "StrongPass123",
+                    "display_name": "Setup Admin",
+                },
+            )
+            self.assertEqual(duplicate.status_code, 409)
+        finally:
+            self.settings.admin_email = previous
 
     def test_login_uses_generic_error_for_missing_user(self) -> None:
         response = self.client.post(
@@ -185,6 +213,51 @@ class SecurityAuthTest(unittest.TestCase):
             headers={"X-CSRF-Token": csrf},
         )
         self.assertEqual(allowed.status_code, 200)
+
+    def test_admin_profile_crud_requires_admin_and_csrf(self) -> None:
+        app = import_module("berrybrain_api.main").app
+        self._create_user("admin@example.com")
+
+        unauthenticated = TestClient(app)
+        denied = unauthenticated.get("/api/v1/admin/profiles")
+        self.assertEqual(denied.status_code, 401)
+
+        admin_client = TestClient(app)
+        login = admin_client.post(
+            "/api/v1/auth/login",
+            json={"email": "admin@example.com", "password": "StrongPass123"},
+        )
+        self.assertEqual(login.status_code, 200)
+        csrf = login.json()["csrfToken"]
+
+        missing_csrf = admin_client.post(
+            "/api/v1/admin/profiles",
+            json={"name": "Research", "slug": "research", "vault_subpath": "research"},
+        )
+        self.assertEqual(missing_csrf.status_code, 403)
+
+        created = admin_client.post(
+            "/api/v1/admin/profiles",
+            json={"name": "Research", "slug": "research", "vault_subpath": "research"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(created.status_code, 201)
+        profile_id = created.json()["profile"]["id"]
+
+        duplicate = admin_client.post(
+            "/api/v1/admin/profiles",
+            json={"name": "Research 2", "slug": "research", "vault_subpath": ""},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+        archived = admin_client.post(
+            f"/api/v1/admin/profiles/{profile_id}/archive",
+            json={"reason": "test"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(archived.status_code, 200)
+        self.assertEqual(archived.json()["profile"]["status"], "archived")
 
 
 if __name__ == "__main__":

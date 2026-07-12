@@ -10,9 +10,18 @@ export default function Brain() {
 
   useEffect(() => {
     let alive = true;
-    fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" })
+    fetch(`${apiUrl}/api/v1/setup/status`, { credentials: "include" })
+      .then((response) => response.json())
+      .then((setup) => {
+        if (!alive) return null;
+        if (setup.needsSetup) {
+          window.location.href = appPath("/setup");
+          return null;
+        }
+        return fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" });
+      })
       .then((response) => {
-        if (!alive) return;
+        if (!alive || !response) return;
         if (response.ok) setState("allowed");
         else window.location.href = appPath("/login?next=/brain");
       })

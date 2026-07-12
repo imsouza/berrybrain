@@ -94,10 +94,10 @@ function DemoNotice() {
   const go = (path: string) => { window.location.href = appPath(path); };
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-accent-soft/40 px-4 py-2.5 text-sm">
-      <span className="text-muted">Demo is read-only. Create an account to use all features.</span>
+      <span className="text-muted">Demo is read-only. Set up a local instance to use all features.</span>
       <div className="ml-auto flex gap-2">
         <button className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white transition hover:opacity-90" onClick={() => go("/login")}>Login</button>
-        <button className="rounded-lg bg-foreground px-3 py-1 text-xs font-medium text-background transition hover:opacity-90" onClick={() => go("/signup")}>Create account</button>
+        <button className="rounded-lg bg-foreground px-3 py-1 text-xs font-medium text-background transition hover:opacity-90" onClick={() => go("/setup")}>Setup</button>
       </div>
     </div>
   );

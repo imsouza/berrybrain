@@ -12,6 +12,7 @@ from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import (
     AuthOtpRecord,
     LoginAttemptRecord,
+    ProfileRecord,
     SecurityAuditRecord,
     UserRecord,
     UserSessionRecord,
@@ -41,6 +42,11 @@ class SignupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=12, max_length=256)
     display_name: str = Field(default="", max_length=160)
+
+
+class SetupAdminRequest(BaseModel):
+    password: str = Field(min_length=12, max_length=256)
+    display_name: str = Field(default="Local Administrator", max_length=160)
 
 
 class LoginRequest(BaseModel):
@@ -94,6 +100,19 @@ class AdminSetPassword(BaseModel):
     password: str = Field(min_length=12, max_length=256)
 
 
+class AdminProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    slug: str = Field(min_length=1, max_length=120)
+    vault_subpath: str = Field(default="", max_length=500)
+
+
+class AdminProfileUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    slug: str | None = Field(default=None, min_length=1, max_length=120)
+    vault_subpath: str | None = Field(default=None, max_length=500)
+    status: str | None = Field(default=None, max_length=40)
+
+
 class UpdateProfileRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=160)
 
@@ -129,6 +148,43 @@ def _serialize_user(user: UserRecord) -> dict:
         "createdAt": user.created_at.isoformat() if user.created_at else None,
         "lastLoginAt": user.last_login_at.isoformat() if user.last_login_at else None,
     }
+
+
+def _serialize_profile(profile: ProfileRecord) -> dict:
+    return {
+        "id": profile.id,
+        "name": profile.name,
+        "slug": profile.slug,
+        "vaultSubpath": profile.vault_subpath,
+        "source": profile.source,
+        "status": profile.status,
+        "createdAt": profile.created_at.isoformat() if profile.created_at else None,
+        "updatedAt": profile.updated_at.isoformat() if profile.updated_at else None,
+    }
+
+
+def _normalize_slug(value: str) -> str:
+    slug = (value or "").strip().lower()
+    allowed = []
+    previous_dash = False
+    for char in slug:
+        if char.isalnum():
+            allowed.append(char)
+            previous_dash = False
+        elif char in {"-", "_", " ", "."} and not previous_dash:
+            allowed.append("-")
+            previous_dash = True
+    normalized = "".join(allowed).strip("-")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Invalid profile slug")
+    return normalized[:120]
+
+
+def _validate_profile_status(value: str) -> str:
+    status = (value or "").strip().lower()
+    if status not in {"active", "archived"}:
+        raise HTTPException(status_code=400, detail="Invalid profile status")
+    return status
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -170,52 +226,71 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(settings.csrf_cookie_name, path="/")
 
 
-@router.post("/auth/signup", status_code=201)
-def signup(payload: SignupRequest, request: Request) -> dict:
+@router.get("/setup/status")
+def setup_status() -> dict:
     settings = get_settings()
-    email = validate_email(payload.email)
+    admin_email = normalize_email(settings.admin_email)
+    with SessionLocal() as session:
+        admin = session.execute(
+            select(UserRecord).where(UserRecord.email == admin_email)
+        ).scalar_one_or_none()
+        user_count = session.execute(select(UserRecord.id)).first() is not None
+        return {
+            "needsSetup": admin is None,
+            "adminEmail": admin_email,
+            "hasUsers": user_count,
+        }
+
+
+@router.post("/setup/admin", status_code=201)
+def setup_admin(
+    payload: SetupAdminRequest, request: Request, response: Response
+) -> dict:
+    settings = get_settings()
+    admin_email = validate_email(settings.admin_email)
     validate_password(payload.password)
     with SessionLocal() as session:
-        assert_rate_limit(session, request, settings, "signup", email)
         existing = session.execute(
-            select(UserRecord).where(UserRecord.email == email)
+            select(UserRecord).where(UserRecord.email == admin_email)
         ).scalar_one_or_none()
         if existing is not None:
-            record_attempt(session, request, "signup", email, False, "existing")
-            code, _challenge = create_otp(
-                session, settings, existing, email, "email_verification"
-            )
-            delivery = send_otp_email(settings, email, code, "email_verification")
-            session.commit()
-            # Mirror the fresh-signup response exactly (no 409) so
-            # signup cannot enumerate accounts. Re-issues a verification OTP to
-            # the address instead of revealing that it already exists.
-            return {"status": "verification_required", "delivery": delivery["status"]}
+            raise HTTPException(status_code=409, detail="Instance already configured")
         user = UserRecord(
-            email=email,
-            display_name=payload.display_name.strip(),
+            email=admin_email,
+            display_name=payload.display_name.strip() or "Local Administrator",
             password_hash=hash_password(payload.password, settings.session_secret),
-            email_verified=False,
-            two_factor_enabled=True,
+            email_verified=True,
+            two_factor_enabled=False,
         )
         session.add(user)
         session.commit()
         session.refresh(user)
-        code, _challenge = create_otp(
-            session, settings, user, email, "email_verification"
-        )
-        delivery = send_otp_email(settings, email, code, "email_verification")
-        record_attempt(session, request, "signup", email, True)
         audit_event(
             session,
             request,
-            "SIGNUP_CREATED",
+            "SETUP_ADMIN_CREATED",
             user,
             "user",
             str(user.id),
-            {"delivery": delivery["status"]},
+            {"mode": "self_hosted"},
         )
-        return {"status": "verification_required", "delivery": delivery["status"]}
+        session_token, csrf_token, _session = create_user_session(
+            session, settings, request, user, remember_me=True
+        )
+        _set_auth_cookies(response, session_token, csrf_token, remember_me=True)
+        return {
+            "status": "configured",
+            "user": _serialize_user(user),
+            "csrfToken": csrf_token,
+        }
+
+
+@router.post("/auth/signup", status_code=410)
+def signup(_payload: SignupRequest, _request: Request) -> dict:
+    raise HTTPException(
+        status_code=410,
+        detail="Public signup is disabled for self-hosted BerryBrain. Use setup or local admin provisioning.",
+    )
 
 
 @router.post("/auth/verify-email")
@@ -238,8 +313,8 @@ def verify_email(
         session.commit()
         record_attempt(session, request, "verify_email", email, True)
         audit_event(session, request, "EMAIL_VERIFIED", user, "user", str(user.id))
-        # ponytail: email verification already proved possession; auto-login
-        # so signup does not bounce to /login for a second 2FA prompt.
+        # Email verification already proved possession; auto-login so the
+        # legacy verification endpoint does not bounce to a second 2FA prompt.
         session_token, csrf_token, _session = create_user_session(
             session, settings, request, user, remember_me=payload.remember_me
         )
@@ -611,13 +686,16 @@ def request_account_deletion(request: Request) -> dict:
 
 def _purge_user_dependents(session: Session, user_id: int) -> None:
     # ponytail: models define no FK cascade, so delete dependents explicitly
+    user = session.get(UserRecord, user_id)
+    email = user.email if user is not None else None
     session.execute(
         delete(UserSessionRecord).where(UserSessionRecord.user_id == user_id)
     )
     session.execute(delete(AuthOtpRecord).where(AuthOtpRecord.user_id == user_id))
-    session.execute(
-        delete(LoginAttemptRecord).where(LoginAttemptRecord.user_id == user_id)
-    )
+    if email is not None:
+        session.execute(
+            delete(LoginAttemptRecord).where(LoginAttemptRecord.email == email)
+        )
     session.execute(
         delete(SecurityAuditRecord).where(SecurityAuditRecord.actor_user_id == user_id)
     )
@@ -683,6 +761,146 @@ def admin_users(request: Request) -> dict:
         )
         session.commit()
         return {"users": [_serialize_user(user) for user in users]}
+
+
+@router.get("/admin/profiles")
+def admin_profiles(request: Request) -> dict:
+    with SessionLocal() as session:
+        _admin, _session_record = _require_admin(session, request)
+        profiles = list(
+            session.execute(
+                select(ProfileRecord).order_by(ProfileRecord.created_at.asc())
+            ).scalars()
+        )
+        return {"profiles": [_serialize_profile(profile) for profile in profiles]}
+
+
+@router.post("/admin/profiles", status_code=201)
+def admin_create_profile(payload: AdminProfileCreate, request: Request) -> dict:
+    with SessionLocal() as session:
+        admin, session_record = _require_admin(session, request)
+        settings = get_settings()
+        assert_csrf(settings, request, session_record)
+        slug = _normalize_slug(payload.slug)
+        existing = session.execute(
+            select(ProfileRecord).where(ProfileRecord.slug == slug)
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Profile slug already exists")
+        profile = ProfileRecord(
+            name=payload.name.strip(),
+            slug=slug,
+            vault_subpath=payload.vault_subpath.strip().strip("/"),
+            source="manual",
+            status="active",
+        )
+        session.add(profile)
+        session.commit()
+        session.refresh(profile)
+        session.add(
+            SecurityAuditRecord(
+                actor_user_id=admin.id,
+                actor_email=admin.email,
+                action="ADMIN_PROFILE_CREATED",
+                target_type="profile",
+                target_id=profile.slug,
+                audit_metadata=json.dumps(
+                    {"name": profile.name, "source": profile.source},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        session.commit()
+        return {"profile": _serialize_profile(profile)}
+
+
+@router.patch("/admin/profiles/{profile_id}")
+def admin_update_profile(
+    profile_id: int, payload: AdminProfileUpdate, request: Request
+) -> dict:
+    with SessionLocal() as session:
+        admin, session_record = _require_admin(session, request)
+        settings = get_settings()
+        assert_csrf(settings, request, session_record)
+        profile = session.get(ProfileRecord, profile_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        changes: dict = {}
+        if payload.name is not None:
+            profile.name = payload.name.strip()
+            changes["name"] = profile.name
+        if payload.slug is not None:
+            slug = _normalize_slug(payload.slug)
+            if profile.slug == "default" and slug != "default":
+                raise HTTPException(
+                    status_code=400, detail="Cannot rename the default profile"
+                )
+            if slug != profile.slug:
+                clash = session.execute(
+                    select(ProfileRecord).where(ProfileRecord.slug == slug)
+                ).scalar_one_or_none()
+                if clash is not None:
+                    raise HTTPException(
+                        status_code=409, detail="Profile slug already exists"
+                    )
+                profile.slug = slug
+                changes["slug"] = slug
+        if payload.vault_subpath is not None:
+            profile.vault_subpath = payload.vault_subpath.strip().strip("/")
+            changes["vaultSubpath"] = profile.vault_subpath
+        if payload.status is not None:
+            status = _validate_profile_status(payload.status)
+            if profile.slug == "default" and status == "archived":
+                raise HTTPException(
+                    status_code=400, detail="Cannot archive the default profile"
+                )
+            profile.status = status
+            changes["status"] = status
+        profile.updated_at = datetime.now(UTC)
+        session.add(
+            SecurityAuditRecord(
+                actor_user_id=admin.id,
+                actor_email=admin.email,
+                action="ADMIN_PROFILE_UPDATED",
+                target_type="profile",
+                target_id=profile.slug,
+                audit_metadata=json.dumps(changes, ensure_ascii=False),
+            )
+        )
+        session.commit()
+        return {"profile": _serialize_profile(profile)}
+
+
+@router.post("/admin/profiles/{profile_id}/archive")
+def admin_archive_profile(
+    profile_id: int, payload: AdminUserAction, request: Request
+) -> dict:
+    with SessionLocal() as session:
+        admin, session_record = _require_admin(session, request)
+        assert_csrf(get_settings(), request, session_record)
+        profile = session.get(ProfileRecord, profile_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        if profile.slug == "default":
+            raise HTTPException(
+                status_code=400, detail="Cannot archive the default profile"
+            )
+        profile.status = "archived"
+        profile.updated_at = datetime.now(UTC)
+        session.add(
+            SecurityAuditRecord(
+                actor_user_id=admin.id,
+                actor_email=admin.email,
+                action="ADMIN_PROFILE_ARCHIVED",
+                target_type="profile",
+                target_id=profile.slug,
+                audit_metadata=json.dumps(
+                    {"reason": payload.reason}, ensure_ascii=False
+                ),
+            )
+        )
+        session.commit()
+        return {"profile": _serialize_profile(profile)}
 
 
 @router.post("/admin/users", status_code=201)

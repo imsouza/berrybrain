@@ -19,9 +19,32 @@ def init_database() -> None:
 
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_columns()
+    ensure_default_profile()
 
     with SessionLocal() as session:
         init_fts(session)
+
+
+def ensure_default_profile() -> None:
+    from sqlalchemy import select
+
+    from berrybrain_api.models import ProfileRecord
+
+    with SessionLocal() as session:
+        existing = session.execute(
+            select(ProfileRecord).where(ProfileRecord.slug == "default")
+        ).scalar_one_or_none()
+        if existing is None:
+            session.add(
+                ProfileRecord(
+                    name="Default",
+                    slug="default",
+                    vault_subpath="",
+                    source="system",
+                    status="active",
+                )
+            )
+            session.commit()
 
 
 def ensure_sqlite_columns() -> None:

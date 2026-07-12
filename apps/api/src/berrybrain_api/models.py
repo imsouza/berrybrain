@@ -103,6 +103,19 @@ class UserRecord(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class ProfileRecord(Base):
+    __tablename__ = "profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    vault_subpath: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="manual")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class UserSessionRecord(Base):
     __tablename__ = "user_sessions"
 

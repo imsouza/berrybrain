@@ -19,6 +19,20 @@ function getRuntimeBasePath() {
   return pathname === "/berrybrain" || pathname.startsWith("/berrybrain/") ? "/berrybrain" : "";
 }
 function encode(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
+function readCsrf(): string {
+  if (typeof document === "undefined") return "";
+  const match = document.cookie.match(/(?:^|;\s*)bb_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+function apiFetch(input: string, init: RequestInit = {}) {
+  const method = (init.method || "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const csrf = readCsrf();
+    if (csrf) headers.set("X-CSRF-Token", csrf);
+  }
+  return fetch(input, { ...init, credentials: "include", headers });
+}
 let _tid = 0;
 
 const DEMO_NOTE_DETAILS: NoteDetail[] = [
@@ -167,9 +181,9 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     if (demo) return;
     try {
       const [nr, jr, sr, insR] = await Promise.all([
-        fetch(`${api}/api/v1/notes`), fetch(`${api}/api/v1/jobs?limit=8`),
-        fetch(`${api}/api/v1/monitor/stats`),
-        fetch(`${api}/api/v1/insights?limit=5`),
+        apiFetch(`${api}/api/v1/notes`), apiFetch(`${api}/api/v1/jobs?limit=8`),
+        apiFetch(`${api}/api/v1/monitor/stats`),
+        apiFetch(`${api}/api/v1/insights?limit=5`),
       ]);
       if (nr.ok) setNotes((await nr.json()).notes);
       if (jr.ok) setJobs((await jr.json()).jobs);
@@ -186,7 +200,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive(detail); setDraft(detail.content); setRightOpen(false); setAutosave("saved");
       return;
     }
-    const r = await fetch(`${api}/api/v1/notes/${encode(path)}`);
+    const r = await apiFetch(`${api}/api/v1/notes/${encode(path)}`);
     if (!r.ok) { toast("Failed to open note.", "error"); return; }
     const n = await r.json();
     setActive(n); setDraft(n.content); setRightOpen(false); setAutosave("saved");
@@ -201,7 +215,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       return;
     }
     setAutosave("saving");
-    const r = await fetch(`${api}/api/v1/notes/${encode(active.path)}`, {
+    const r = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: draft }),
     });
     if (r.ok) { setActive(await r.json()); setAutosave("saved"); }
@@ -224,7 +238,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         setActive(note); setDraft(note.content); setAutosave("saved");
         return;
       }
-      const r = await fetch(`${api}/api/v1/notes`, {
+      const r = await apiFetch(`${api}/api/v1/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder: "inbox", content }),
       });
@@ -252,7 +266,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive(null); setDraft(""); toast("Demo note deleted.", "success");
       return;
     }
-    await fetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
+    await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
     setActive(null); setDraft(""); toast("Deleted.", "success"); await loadAll();
   }
 
@@ -261,7 +275,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       toast("Demo vault is already loaded.", "info");
       return;
     }
-    const r = await fetch(`${api}/api/v1/vault/scan`, { method: "POST" });
+    const r = await apiFetch(`${api}/api/v1/vault/scan`, { method: "POST" });
     if (r.ok) { await loadAll(); toast("Vault scanned."); }
   }
 
@@ -296,7 +310,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       return;
     }
     try {
-      const r = await fetch(`${api}/api/v1/notes/${encode(active.path)}/rename`, {
+      const r = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}/rename`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: newTitle }),
       });
@@ -325,7 +339,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   async function aiRename(path: string) {
     if (demo) return;
     try {
-      await fetch(`${api}/api/v1/jobs`, {
+      await apiFetch(`${api}/api/v1/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "GENERATE_NOTE_TITLE", payload: { note_path: path } }),
@@ -336,7 +350,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   useEffect(() => { loadAll(); }, []);
   useEffect(() => {
     if (demo) return;
-    const iv = setInterval(() => { fetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);
+    const iv = setInterval(() => { apiFetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);
     return () => clearInterval(iv);
   }, [api, demo]);
   useEffect(() => {

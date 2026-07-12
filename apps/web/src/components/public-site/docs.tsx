@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { PublicShell } from "@/components/public-site/public-pages";
 
 type DocSection = { id: string; title: string; md: string };
+const GITHUB_URL = "https://github.com/imsouza/berrybrain";
 
 const DOC_SECTIONS: DocSection[] = [
   {
@@ -17,10 +18,71 @@ Welcome to the **BerryBrain** documentation. BerryBrain is a local-first, eviden
 **second brain**: it turns the notes you already write into a connected knowledge system
 with a graph, AI-assisted insights, and a full audit trail of every automated decision.
 
-This guide is step-by-step and covers everything from a first demo click to a production
-self-hosted deployment. Use the table of contents on the left to jump to any topic.
+BerryBrain is **free and open source**. There is no central BerryBrain account, SaaS tenant,
+or paid feature gate. This public page is only a visual/informational project page; the
+source code and installation path live on GitHub.
 
-> Tip: open the **demo** (no account needed) to see the product in action while you read.`,
+This guide covers the project idea, architecture, self-hosting model, AI providers, vault
+workflow, and operational notes. Use the table of contents on the left to jump to any topic.`,
+  },
+  {
+    id: "quickstart",
+    title: "Quickstart",
+    md: `## Quickstart
+
+### Fast local run
+\`\`\`bash
+git clone https://github.com/imsouza/berrybrain
+cd berrybrain
+cp .env.example .env
+docker compose up -d
+\`\`\`
+
+Open:
+
+- Web: \`http://localhost:3000\`
+- API health: \`http://localhost:8000/health\`
+
+### Public page behavior
+\`optlabs.com.br/berrybrain\` is informational only. It should explain the project and send
+people to GitHub. It should not ask visitors to create accounts or configure an instance.
+
+### Production URL
+The public landing/app can be served at:
+
+\`\`\`txt
+https://optlabs.com.br/berrybrain
+\`\`\`
+
+Set the web env values to:
+
+\`\`\`bash
+NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain
+NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain
+NEXT_PUBLIC_BERRYBRAIN_API_URL=/berrybrain
+\`\`\`
+
+Expose only the web/reverse-proxy entrypoint. Keep the raw API port private.`,
+  },
+  {
+    id: "open-source",
+    title: "Open source model",
+    md: `## Open source model
+
+BerryBrain is an open source, self-hosted product.
+
+- **No hosted account required**: setup creates a local admin only.
+- **No billing system in core**: all features are available in the codebase.
+- **Donations are optional**: operators can link PayPal, card, Pix, or another donation page
+  outside the core app.
+- **Fork-friendly**: Markdown files remain portable and the stack is Docker-friendly.
+- **GitHub-first distribution**: source, issues, and releases live in the repository.
+
+Repository:
+
+\`\`\`txt
+https://github.com/imsouza/berrybrain
+\`\`\``,
   },
   {
     id: "what-is",
@@ -61,6 +123,10 @@ Findings — knowledge gaps, contradictions, study paths, suggested notes — ea
 ### Autopilot
 The background pipeline that keeps your knowledge current automatically.
 
+### Local profiles/workspaces
+Profiles are local workspaces inside one self-hosted instance. They are managed by the local
+admin and can later be provisioned from LAN discovery or automation.
+
 ### Evidence
 The recorded provider, model, prompt version, status, and source notes for every AI-assisted
 result. Evidence is what makes BerryBrain accountable rather than a black box.`,
@@ -74,8 +140,8 @@ BerryBrain is composed of small services:
 
 | Service | Role |
 | --- | --- |
-| **api** | FastAPI backend: auth, notes, jobs, graph, insights, connections. |
-| **web** | Next.js app: landing, auth, and the workspace UI. |
+| **api** | FastAPI backend: local auth, setup, notes, jobs, graph, insights, connections. |
+| **web** | Next.js app: public project pages and self-hosted workspace UI. |
 | **worker** | Runs the autopilot pipeline (parse → classify → assimilate → embed → connect → expand → insights). |
 | **nginx** | Reverse proxy: TLS, static assets, and \`/api\` routing to the API. |
 
@@ -86,7 +152,8 @@ Data flow:
 3. The **worker** processes the job and writes results back to the API/database.
 4. The **web** UI reads summaries and lets you confirm or ignore suggestions.
 
-The API should **never** be publicly exposed — only the web entrypoint is.`,
+The API should **never** be publicly exposed directly. Publish the reverse-proxy/web entrypoint
+and route API calls through the same origin.`,
   },
   {
     id: "installation",
@@ -96,7 +163,7 @@ The API should **never** be publicly exposed — only the web entrypoint is.`,
 ### Prerequisites
 - A Linux host with Docker and Docker Compose.
 - A domain (for TLS) or a local network address for testing.
-- (Optional) SMTP credentials for email verification and 2FA.
+- A strong local admin password for first-run setup.
 
 ### Step 1 — Clone
 \`\`\`bash
@@ -109,23 +176,33 @@ cd berrybrain
 cp .env.example .env
 \`\`\`
 Edit \`.env\` and set at least:
-- \`BERRYBRAIN_DOMAIN\` — your domain.
-- \`BERRYBRAIN_ADMIN_EMAIL\` — the account that receives admin access.
-- \`SESSION_SECRET\` — a long random string.
-- SMTP settings (host, user, password, from) for email flows.
+- \`BERRYBRAIN_SESSION_SECRET\` — long random secret for sessions and password hashing.
+- \`BERRYBRAIN_API_TOKEN\` — random bearer token for service/admin automation.
+- \`BERRYBRAIN_ADMIN_EMAIL\` — the local admin identifier, e.g. \`admin@local.berrybrain\`.
+- \`BERRYBRAIN_CORS_ORIGINS\` — the exact public web origins.
+- \`BERRYBRAIN_ALLOWED_HOSTS\` — hostnames accepted by the API.
+- \`BERRYBRAIN_DONATION_URL\` — optional external donation link.
+
+Generate secrets:
+
+\`\`\`bash
+python -c "import secrets; print(secrets.token_hex(32))"
+\`\`\`
 
 ### Step 3 — Start
 \`\`\`bash
-./deploy.sh up
+docker compose up -d
 \`\`\`
-This builds and starts every service and creates a self-signed certificate placeholder so
-nginx can boot.
+This starts the API and web app. Add the worker profile when you want background AI jobs:
+
+\`\`\`bash
+docker compose --profile worker up -d
+\`\`\`
 
 ### Step 4 — TLS (production)
 \`\`\`bash
-./deploy.sh ssl      # issue Let's Encrypt (DNS challenge)
-./deploy.sh status   # verify services
-./deploy.sh logs     # tail logs
+docker compose ps
+docker compose logs -f api web worker
 \`\`\`
 
 ### Step 5 — Reverse proxy
@@ -136,11 +213,15 @@ Expose **only** the web entrypoint. Do **not** expose the API port publicly.`,
     title: "First run & onboarding",
     md: `## First run & onboarding
 
-### Create an account
-1. Open the app and choose **Create account**.
-2. Enter email + password (at least 12 characters).
-3. Verify your email with the OTP sent to you.
-4. Set up 2FA if prompted.
+### Configure a self-hosted instance
+1. Clone the repository from GitHub.
+2. Configure \`.env\`.
+3. Start the Docker stack.
+4. Create the local administrator inside your own deployment.
+5. Use the instance admin area to create local profiles/workspaces.
+
+The setup endpoint is one-shot. After the configured admin exists, setup returns
+\`Instance already configured\`.
 
 ### AI setup (mandatory until configured)
 On first login the **AI setup** modal opens automatically. Choose:
@@ -153,7 +234,7 @@ non-admin login). This guarantees the system is never silently unconfigured.
 
 ### Guided tour
 A short tour runs **once** on first use, explaining capture, autopilot, graph, insights, and
-account controls. Reopen it anytime from the guide (?) button.`,
+admin/session controls. Reopen it anytime from the guide (?) button.`,
   },
   {
     id: "ai-providers",
@@ -284,19 +365,43 @@ Editor modes: **Edit**, **Preview**, **Split**.`,
   },
   {
     id: "account-security",
-    title: "Account & security",
-    md: `## Account & security
+    title: "Admin & security",
+    md: `## Admin & security
 
-- **First-party accounts** with secure session cookies.
+- **Local admin account** with secure session cookies.
 - **CSRF protection**: sensitive requests require an explicit header token.
-- **Email verification** and **2FA** (email OTP) are enforced.
+- **Self-hosted setup** creates the administrator once; public signup is disabled.
 - **Admin boundary**: admin routes require the configured administrator account
   (\`BERRYBRAIN_ADMIN_EMAIL\`).
-- **Abuse controls**: rate limits, progressive lockout, OTP limits, and audit events.
-- **Sessions**: review active sessions, trusted devices, and logout-all from account settings.
+- **Abuse controls**: rate limits, progressive lockout, and audit events.
+- **Sessions**: session cookies can be revoked by the local admin.
+- **Danger operations**: backup, maintenance, settings danger, and system reset require admin.
 
 Security controls block behavior, not tool names — they resist high-rate and replayed
 requests from any interception tool.`,
+  },
+  {
+    id: "profiles",
+    title: "Profiles & workspaces",
+    md: `## Profiles & workspaces
+
+Profiles are local workspaces managed by the instance admin.
+
+Current behavior:
+
+- A \`default\` profile is created automatically.
+- Admins can create and archive profiles.
+- Each profile has a slug and optional vault subpath.
+- The default profile cannot be archived or renamed.
+
+Planned network automation:
+
+- Discover trusted LAN devices or agents.
+- Provision profiles automatically.
+- Keep profile creation auditable.
+
+Profiles are not SaaS users. They are local workspace boundaries inside one self-hosted
+BerryBrain instance.`,
   },
   {
     id: "privacy",
@@ -304,13 +409,13 @@ requests from any interception tool.`,
     md: `## Privacy & your data
 
 - **Local-first**: notes stay in your vault unless you enable external providers.
-- **Opt-in providers**: cloud AI, email, and external enrichment are visible and traceable.
-- **Separation**: account data is separate from note content.
+- **Opt-in providers**: cloud AI and external enrichment are visible and traceable.
+- **Separation**: admin/session data is separate from note content.
 - **Provider trace**: provider, model, purpose, status, and evidence are recorded.
-- **Data requests**: access, correction, export, or deletion → contato@optlabs.com.br.
+- **Operator control**: self-hosted operators control backup, export, and deletion.
 
-Include your account email and request type; never send passwords, OTP codes, API keys, or
-private notes by email.`,
+Never paste passwords, API keys, tokens, or private notes into support chats, issue trackers,
+or logs.`,
   },
   {
     id: "monitor",
@@ -343,12 +448,13 @@ Settings are per-browser and stored locally; your notes remain in the vault.`,
     title: "Self-hosting operations",
     md: `## Self-hosting operations
 
-- **Logs**: \`./deploy.sh logs\`.
-- **Status**: \`./deploy.sh status\`.
-- **Updates**: pull the latest code, then \`./deploy.sh up\` to rebuild.
+- **Logs**: \`docker compose logs -f api web worker\`.
+- **Status**: \`docker compose ps\`.
+- **Updates**: pull the latest code, then rebuild/restart Docker Compose.
 - **Backups**: copy the vault directory and the database volume.
-- **Secrets**: keep \`SESSION_SECRET\` and SMTP credentials outside git.
-- **TLS**: renew with \`./deploy.sh ssl\`.
+- **Secrets**: keep \`BERRYBRAIN_SESSION_SECRET\`, \`BERRYBRAIN_API_TOKEN\`, and provider keys outside git.
+- **TLS**: terminate HTTPS at your reverse proxy.
+- **Subpath hosting**: set the Next public base path/asset prefix to \`/berrybrain\`.
 
 Expose only the web entrypoint; keep the API internal.`,
   },
@@ -368,11 +474,16 @@ worker container logs.
 Run **Recalculate connections** from the Home graph card, or **Scan vault** after adding
 files.
 
-**Login loop / session errors**
-Clear cookies, ensure \`SESSION_SECRET\` is stable, and verify the proxy forwards cookies.
+**Self-hosted session errors**
+Clear cookies, ensure \`BERRYBRAIN_SESSION_SECRET\` is stable, and verify the proxy forwards cookies.
 
-**Email/OTP not arriving**
-Check SMTP settings in \`.env\` and the API logs.`,
+**Self-hosted setup says the instance is already configured**
+This is expected after the first admin exists. Use the existing admin login or the headless
+admin seed script for recovery.
+
+**Static assets fail under /berrybrain**
+Verify \`NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain\` and
+\`NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain\` before building the web app.`,
   },
   {
     id: "glossary",
@@ -416,8 +527,24 @@ function DocsContent() {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Documentation</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">BerryBrain Docs</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-          A complete, step-by-step guide — from first note to production self-hosting.
+          Project overview, architecture, self-hosting notes, and links to the source.
         </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-black"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
+              <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />
+            </svg>
+            GitHub
+          </a>
+          <a href={`${GITHUB_URL}#readme`} target="_blank" rel="noreferrer" className="rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-surface">
+            README
+          </a>
+        </div>
       </header>
       <div className="lg:grid lg:grid-cols-[220px_1fr] lg:gap-12">
         <aside className="mb-4 lg:mb-0">
@@ -508,11 +635,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Can I self-host?",
-    a: "Yes. Deploy with Docker Compose using `./deploy.sh up` and expose only the web entrypoint.",
+    a: "Yes. Deploy with Docker Compose and expose only the web/reverse-proxy entrypoint.",
   },
   {
     q: "How do I request data access or deletion?",
-    a: "Email contato@optlabs.com.br with your account email and request type. Never include passwords, OTP codes, API keys, or private notes.",
+    a: "Self-hosted operators control their own vault, database, backups, and deletion. Never include passwords, API keys, tokens, or private notes in public issues.",
   },
   {
     q: "Which languages are supported?",
