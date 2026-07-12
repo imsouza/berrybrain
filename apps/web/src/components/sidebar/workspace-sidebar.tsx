@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import berrylogo from "../../../public/berrylogo.png";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
@@ -159,7 +160,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <img src={`${router.basePath}/berrylogo.png`} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = "/brain"; }} />
+        <img src={berrylogo.src} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = "/brain"; }} />
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v1.0.0</div>
 

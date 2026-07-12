@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { PwaRegister } from "@/components/pwa-register";
+import berrylogo from "../../public/berrylogo.png";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,8 +9,8 @@ export const metadata: Metadata = {
   applicationName: "BerryBrain",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/berrylogo.png",
-    apple: "/berrylogo.png",
+    icon: berrylogo.src,
+    apple: berrylogo.src,
   },
   appleWebApp: {
     capable: true,
