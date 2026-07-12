@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: "/berrybrain",
   devIndicators: false,
   typedRoutes: true,
   async rewrites() {

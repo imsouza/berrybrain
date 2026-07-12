@@ -31,6 +31,7 @@ BerryBrain turns notes into connected knowledge. It watches a Markdown vault, pa
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
+- [Self-Hosting](#self-hosting)
 - [Engineering Practices](#engineering-practices)
 - [Security and Privacy](#security-and-privacy)
 - [Roadmap](#roadmap)
@@ -527,6 +528,91 @@ Current state: attachments are stored and linked to notes. Future state: attachm
 
 ---
 
+## Self-Hosting
+
+BerryBrain runs as three Docker services (`web`, `api`, `worker`) defined in `docker-compose.yml`. The same stack works for local dev and production; only the configuration differs.
+
+### 1. Prepare the environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+| Variable | Why it matters |
+| --- | --- |
+| `BERRYBRAIN_SESSION_SECRET` | HMAC pepper for sessions **and** password hashing. Use a long random value. Changing it later invalidates existing password hashes (re-seed the admin). |
+| `BERRYBRAIN_API_TOKEN` | Bearer token for service-to-service and admin API calls. Generate a random value. |
+| `BERRYBRAIN_ADMIN_EMAIL` | Only this account gets administrator privileges. |
+| `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
+| `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
+| `SMTP_*` | Required for email verification and 2FA OTP. |
+
+Generate secrets, for example:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### 2. Start the stack
+
+```bash
+docker compose up -d
+```
+
+Web serves on `http://localhost:3000`, API on `http://localhost:8000`.
+
+### 3. Create the administrator account
+
+The admin is created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
+
+```bash
+docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api \
+  python scripts/seed_admin.py
+```
+
+Because `BERRYBRAIN_SESSION_SECRET` is used as a password-hash pepper, re-run this seed whenever you change the secret.
+
+### 4. HTTPS / reverse proxy (required for any public exposure)
+
+Never expose the plain HTTP ports directly. Terminate TLS with a proxy (Caddy, nginx, or Cloudflare Tunnel) and set:
+
+```ini
+BERRYBRAIN_SESSION_SECURE_COOKIE=true
+BERRYBRAIN_TRUST_X_FORWARDED_FOR=true   # only if your proxy sets X-Forwarded-For
+BERRYBRAIN_PUBLIC_APP_URL=https://your.domain
+BERRYBRAIN_CORS_ORIGINS=https://your.domain
+```
+
+If you serve the app under a path prefix (for example `https://your.domain/berrybrain`), set `basePath` in `apps/web/next.config.mjs` and `NEXT_PUBLIC_BERRYBRAIN_API_URL` to that prefix in `docker-compose.yml`. The API is reached through the Next.js `rewrites()` and needs no prefix.
+
+### 5. Cloudflare Tunnel example
+
+With `cloudflared` installed, point a public hostname at the web container (port 3000). Example ingress:
+
+```yaml
+tunnel: your-tunnel
+ingress:
+  - hostname: your.domain
+    path: /berrybrain*
+    service: http://127.0.0.1:3000
+  - hostname: your.domain
+    service: http://localhost:80
+  - service: http_status:404
+```
+
+### Updating
+
+```bash
+git pull
+docker compose pull
+docker compose up -d --build
+docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api python scripts/seed_admin.py
+```
+
+---
+
 ## Engineering Practices
 
 ### Design Principles
@@ -563,35 +649,28 @@ Provider failures should:
 
 ## Security and Privacy
 
-Current BerryBrain is primarily a local-first app. The security roadmap turns it into a public SaaS-ready app with account isolation, login, 2FA, admin, and legal pages.
+BerryBrain ships with a hardened, fail-closed security model. The API enforces authentication on every route (Bearer token or session cookie), administrators are gated by `require_admin`, backups and system resets require admin, and secrets stay server-side.
 
-### Current Safety Expectations
+### Implemented controls
 
-- Keep API keys out of git.
-- Do not embed GitHub tokens in remote URLs.
-- Treat any token pasted into chat/logs as compromised.
-- Keep `.env` local.
-- Prefer local providers when privacy is required.
-- Use cloud providers only when explicitly configured.
+- Argon2id password hashing (PBKDF2 fallback) with the session secret as pepper.
+- Session and CSRF cookies signed with HMAC; `SameSite=Lax`.
+- Email verification and email OTP 2FA.
+- Progressive rate limiting and account lockout on repeated failures.
+- `require_admin` gate on `/api/v1/admin/*`, maintenance, settings danger, backups, and system reset.
+- Fail-closed auth middleware: missing/invalid credentials are denied, not allowed.
+- Path-traversal protection on backup IDs.
+- Secrets (API keys) are masked to non-admin clients.
 
-### Planned Security Program
+### Operational safety
+
+- Keep API keys and tokens out of git; `.env` is gitignored.
+- Treat any token pasted into chat/logs as compromised and rotate it.
+- Generate a unique `BERRYBRAIN_SESSION_SECRET` and `BERRYBRAIN_API_TOKEN` per deployment.
+- Serve only over HTTPS; enable `BERRYBRAIN_SESSION_SECURE_COOKIE`.
+- Re-seed the admin after changing `BERRYBRAIN_SESSION_SECRET`.
 
 The formal security/auth/admin plan is tracked in [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md).
-
-Planned work includes:
-
-- first-party signup/login;
-- email verification;
-- email 2FA through `contato@optlabs.com.br`;
-- TOTP support;
-- password reset;
-- rate limiting;
-- CSRF;
-- CORS hardening;
-- security headers;
-- admin panel restricted to the configured administrator account;
-- user/account management;
-- LGPD/GDPR pages and data export/delete workflows.
 
 ---
 
@@ -625,9 +704,7 @@ Planned capabilities:
 
 ### Security and SaaS Roadmap
 
-Tracked in [docs/planning/sec.md](docs/planning/sec.md).
-
-Planned capabilities:
+Tracked in [docs/planning/sec.md](docs/planning/sec.md). These capabilities are now implemented:
 
 - public marketing site;
 - login/signup;
