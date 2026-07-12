@@ -37,6 +37,13 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (apiUrl === "__demo__") {
+      setJobs([]);
+      setLogs([]);
+      setWorker(null);
+      setStats(null);
+      return;
+    }
     async function load() {
       try {
         const [jRes, lRes, wRes, sRes] = await Promise.all([
@@ -83,7 +90,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
-      <div className="relative z-50 w-[720px] max-h-[70vh] flex flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5">
+      <div className="relative z-50 w-full max-w-[92vw] max-h-[70vh] flex flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5 sm:w-[720px]">
         <div className="flex items-center justify-between px-6 py-4">
           <h2 className="text-base font-semibold tracking-tight">Monitor</h2>
           <button

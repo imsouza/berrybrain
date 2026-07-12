@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     vault_watcher_enabled: bool = True
     vault_watcher_interval_seconds: int = 10
     api_token: str = ""
+    allowed_hosts: str = "localhost,127.0.0.1,testserver,optlabs.com.br"
+    max_request_body_bytes: int = 25 * 1024 * 1024
     trust_x_forwarded_for: bool = False
     cors_origins: str = "http://localhost:3000"
     backup_path: Path = Path("/app/data/backups")

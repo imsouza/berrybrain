@@ -19,7 +19,7 @@ import { usePathname } from "next/navigation";
 function Shell() {
   const w = useWorkspace();
   const pathname = usePathname();
-  const isDemo = pathname.startsWith("/demo");
+  const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ function Shell() {
 
 export function NoteWorkspace() {
   const pathname = usePathname();
-  const isDemo = pathname.startsWith("/demo");
+  const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   return <WorkspaceProvider demo={isDemo}><Shell /></WorkspaceProvider>;
 }
 

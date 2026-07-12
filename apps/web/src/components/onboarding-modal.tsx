@@ -92,12 +92,25 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         });
     }
 
-    // Demo and non-admin accounts: if AI isn't configured yet (bb_onboarded
-    // not set), reopen straight into the AI phase on every load so it persists
-    // across reloads. Admins never auto-show — they open on demand via
-    // the "bb:open-tour" event. Demo auto-shows the tour on first visit.
+    // Demo: the AI setup is mandatory on every refresh, exactly like a
+    // normal non-admin login. The tour is shown only once (first visit).
+    // Admins never auto-show — they open on demand via "bb:open-tour".
     if (demo) {
-      openTour();
+      const tourSeen = localStorage.getItem("bb_tour_seen") === "1";
+      const startDemo = () => {
+        if (!alive) return;
+        setIsAdmin(false);
+        if (tourSeen) {
+          setPhase("ai");
+        } else {
+          localStorage.setItem("bb_tour_seen", "1");
+          setPhase("tour");
+        }
+        setShow(true);
+      };
+      fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
+        .then(() => startDemo())
+        .catch(() => startDemo());
     } else if (localStorage.getItem("bb_onboarded") !== "1") {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
@@ -178,7 +191,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-panel text-foreground shadow-2xl">
+      <div className="flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-panel text-foreground shadow-2xl sm:max-w-2xl">
         <div className="border-b border-border px-6 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>

@@ -11,3 +11,6 @@ data/
 *.egg-info/
 build/
 dist/
+
+# build artifacts
+*.tsbuildinfo

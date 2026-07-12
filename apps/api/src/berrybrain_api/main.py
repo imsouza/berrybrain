@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
@@ -48,6 +49,16 @@ async def lifespan(app: FastAPI):
             "INSECURE: BERRYBRAIN_SESSION_SECRET is the default value. "
             "Set a strong random secret before exposing this service."
         )
+    if cfg.environment.lower() in {"prod", "production"}:
+        problems = []
+        if cfg.session_secret in {"dev-change-me", "change-me-with-32-plus-random-bytes"}:
+            problems.append("BERRYBRAIN_SESSION_SECRET must be changed")
+        if not cfg.session_secure_cookie:
+            problems.append("BERRYBRAIN_SESSION_SECURE_COOKIE must be true")
+        if "*" in cfg.cors_origins:
+            problems.append("BERRYBRAIN_CORS_ORIGINS must not contain *")
+        if problems:
+            raise RuntimeError("Unsafe production auth config: " + "; ".join(problems))
     init_database()
     watcher: VaultWatcher | None = None
     if cfg.vault_watcher_enabled:
@@ -71,6 +82,8 @@ app = FastAPI(title="BerryBrain API", version="0.1.0", lifespan=lifespan)
 settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
+allowed_hosts = [host.strip() for host in settings.allowed_hosts.split(",") if host.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -121,6 +134,15 @@ app.add_middleware(AuthMiddleware)
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if (
+            content_length
+            and content_length.isdigit()
+            and int(content_length) > settings.max_request_body_bytes
+        ):
+            return JSONResponse(
+                status_code=413, content={"detail": "Request body too large"}
+            )
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             origin = request.headers.get("origin")
             if origin and "*" not in origins and origin not in origins:

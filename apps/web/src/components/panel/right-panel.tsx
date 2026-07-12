@@ -24,7 +24,7 @@ export function RightPanel() {
   const [connections, setConnections] = useState<NoteConnection[]>([]);
 
   useEffect(() => {
-    if (!w.active) { setSteps([]); return; }
+    if (!w.active || w.demo) { setSteps([]); return; }
     const fetchStatus = () => {
       fetch(`${w.api}/api/v1/notes/${w.active!.path.split("/").map(encodeURIComponent).join("/")}/status`)
         .then(r => r.json()).then(d => { setSteps(d.steps || []); setStepInfo(d); }).catch(() => {});
@@ -32,15 +32,15 @@ export function RightPanel() {
     fetchStatus();
     const iv = setInterval(fetchStatus, 4000);
     return () => clearInterval(iv);
-  }, [w.active?.path, w.api]);
+  }, [w.active?.path, w.api, w.demo]);
 
   useEffect(() => {
-    if (!w.active) { setConnections([]); return; }
+    if (!w.active || w.demo) { setConnections([]); return; }
     fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`)
       .then(r => r.json())
       .then(d => setConnections(d.connections || []))
       .catch(() => setConnections([]));
-  }, [w.active?.path, w.api]);
+  }, [w.active?.path, w.api, w.demo]);
 
   const statusIcon = (s: string) => {
     if (s === "completed") return <span className="size-1.5 rounded-full bg-emerald-400 shrink-0" />;
@@ -50,6 +50,7 @@ export function RightPanel() {
   };
 
   const updateConnection = async (id: number, action: "confirm" | "ignore") => {
+    if (w.demo) return;
     await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, { method: "POST" });
     if (!w.active) return;
     const r = await fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`);
@@ -59,17 +60,25 @@ export function RightPanel() {
 
   const reprocessNote = async () => {
     if (!w.active) return;
+    if (w.demo) {
+      w.toast("Reprocessing is disabled in demo mode.", "info");
+      return;
+    }
     const encoded = w.active.path.split("/").map(encodeURIComponent).join("/");
     const response = await fetch(`${w.api}/api/v1/notes/${encoded}/reprocess`, { method: "POST" });
     if (!response.ok) {
       w.toast("Could not reprocess note.", "error");
       return;
     }
-    w.toast("Nota enviada para reprocessamento.", "success");
+    w.toast("Note queued for reprocessing.", "success");
     setTimeout(() => w.active && fetch(`${w.api}/api/v1/notes/${encoded}/status`).then(r => r.json()).then(d => setSteps(d.steps || [])), 1500);
   };
 
   const expandGraph = async () => {
+    if (w.demo) {
+      w.toast("Graph expansion is disabled in demo mode.", "info");
+      return;
+    }
     await fetch(`${w.api}/api/v1/graph/expand`, { method: "POST" });
   };
 
@@ -81,10 +90,10 @@ export function RightPanel() {
     : [];
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(88vw,20rem)] flex-col overflow-y-auto border-l border-border/50 bg-panel shadow-xl lg:static lg:z-auto lg:w-72 lg:flex-shrink-0 lg:shadow-none" aria-label="Painel contextual">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(88vw,20rem)] flex-col overflow-y-auto border-l border-border/50 bg-panel shadow-xl lg:static lg:z-auto lg:w-72 lg:flex-shrink-0 lg:shadow-none" aria-label="Context panel">
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/50">
         <h2 className="text-xs font-semibold tracking-tight">{w.active ? w.active.title.slice(0, 18) : "Activity"}</h2>
-        <button className="rounded-lg p-1 text-muted hover:bg-surface" onClick={() => w.setRightOpen(false)} aria-label="Fechar">
+        <button className="rounded-lg p-1 text-muted hover:bg-surface" onClick={() => w.setRightOpen(false)} aria-label="Close">
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
       </div>

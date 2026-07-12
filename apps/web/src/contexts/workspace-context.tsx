@@ -7,12 +7,19 @@ export function getApiUrl() {
   const env = process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL;
   if (env) return env;
   if (typeof window === "undefined") return "http://192.168.3.36:8000";
-  // ponytail: same-origin, Next proxies /api to the api service (avoids host:8000 reachability issues)
+  const runtimeBasePath = getRuntimeBasePath();
+  if (runtimeBasePath) return runtimeBasePath;
+  // Same-origin: Next proxies /api to the api service.
   return "";
 }
-// ponytail: basePath-aware in-app navigation (Next <Link> auto-prefixes, window.location.href does not)
 export function appPath(p: string) {
-  return (process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL || "") + p;
+  const basePath = process.env.NEXT_PUBLIC_BERRYBRAIN_BASE_PATH || "";
+  return `${basePath}${p}`;
+}
+function getRuntimeBasePath() {
+  if (typeof window === "undefined") return "";
+  const pathname = window.location.pathname;
+  return pathname === "/berrybrain" || pathname.startsWith("/berrybrain/") ? "/berrybrain" : "";
 }
 function encode(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 let _tid = 0;

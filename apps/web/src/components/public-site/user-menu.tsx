@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
@@ -18,6 +17,11 @@ export function readCsrf(): string {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
+function hasSessionCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return /(?:^|;\s*)bb_session=/.test(document.cookie);
+}
+
 export function UserMenu() {
   const apiUrl = getApiUrl();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -25,6 +29,11 @@ export function UserMenu() {
   const [ready, setReady] = useState(false);
 
   const loadMe = useCallback(async () => {
+    if (!hasSessionCookie()) {
+      setUser(null);
+      setReady(true);
+      return;
+    }
     try {
       const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
         credentials: "include",
@@ -65,21 +74,21 @@ export function UserMenu() {
   if (!user) {
     return (
       <div className="flex items-center gap-2">
-        <Link href="/login" className="rounded-md px-3 py-2 text-xs text-muted hover:text-foreground">
+        <a href={appPath("/login")} className="rounded-md px-3 py-2 text-xs text-muted hover:text-foreground">
           Log in
-        </Link>
-        <Link href="/signup" className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
+        </a>
+        <a href={appPath("/signup")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
           Create account
-        </Link>
+        </a>
       </div>
     );
   }
 
   return (
     <div className="flex items-center gap-2">
-      <Link href="/brain" className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
+      <a href={appPath("/brain")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
         Open app
-      </Link>
+      </a>
       <button
         type="button"
         onClick={() => dialogRef.current?.showModal()}

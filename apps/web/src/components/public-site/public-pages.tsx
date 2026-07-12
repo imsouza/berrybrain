@@ -1,8 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import berryPrint from "../../../public/berrybrain-print1.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -62,11 +60,9 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
 };
 
 const nav = [
-  ["Product", "/"],
-  ["Security", "legal:security"],
-  ["Privacy", "legal:privacy"],
-  ["GDPR/LGPD", "legal:gdpr-lgpd"],
-  ["Contact", "legal:contact"],
+  ["Home", "/"],
+  ["Docs", "/docs"],
+  ["FAQ", "/faq"],
 ] as const;
 
 const footerGroups = [
@@ -94,6 +90,15 @@ const footerGroups = [
     ],
   },
 ] as const;
+
+const comparisonRows: Array<[string, number[]]> = [
+  ["Local-first privacy", [100, 95, 30, 100]],
+  ["AI evidence tracing", [100, 20, 40, 0]],
+  ["Automatic knowledge graph", [95, 70, 30, 0]],
+  ["Semantic search", [95, 50, 60, 10]],
+  ["Works fully offline", [100, 100, 40, 100]],
+  ["Cost-efficiency", [90, 85, 50, 100]],
+];
 
 const LegalModalContext = createContext<(key: string) => void>(() => {});
 
@@ -143,41 +148,92 @@ function LegalModal({ open, onClose }: { open: string | null; onClose: () => voi
   );
 }
 
+const mobileNavLinks = [
+  ...nav,
+  ["Security", "legal:security"],
+  ["Privacy", "legal:privacy"],
+  ["GDPR/LGPD", "legal:gdpr-lgpd"],
+  ["Terms", "legal:terms"],
+  ["Contact", "legal:contact"],
+] as const;
+
 export function PublicShell({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const [modal, setModal] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const openModal = useCallback((key: string) => setModal(key), []);
   const closeModal = useCallback(() => setModal(null), []);
-  const router = useRouter();
 
   return (
     <LegalModalContext.Provider value={openModal}>
-      <main className="min-h-screen bg-background text-foreground">
+      <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-4 md:px-6">
-          <Link href="/" aria-label="BerryBrain" className="flex items-center">
-            <Image src={berrylogo} alt="BerryBrain" width={72} height={72} className="rounded-md" unoptimized />
-          </Link>
-          <nav className="hidden items-center gap-6 text-xs font-medium text-muted lg:flex">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-3.5 md:px-6">
+          <a href={appPath("/")} aria-label="BerryBrain" className="flex items-center">
+            <Image src={berrylogo} alt="BerryBrain" width={48} height={48} className="rounded-md" sizes="48px" />
+          </a>
+          <nav className="hidden items-center gap-7 text-sm font-medium text-muted lg:flex">
             {nav.map(([label, href]) =>
               href.startsWith("legal:") ? (
-                <button key={href} onClick={() => openModal(href.slice(6))} className="hover:text-foreground">
+                <button key={href} onClick={() => openModal(href.slice(6))} className="underline-offset-4 transition hover:text-foreground hover:underline">
                   {label}
                 </button>
               ) : (
-                <Link key={href} href={href} className="hover:text-foreground">
+                <a key={href} href={appPath(href)} className="underline-offset-4 transition hover:text-foreground hover:underline">
                   {label}
-                </Link>
+                </a>
               )
             )}
           </nav>
           <div className="flex items-center gap-2">
             <UserMenu />
+            <button
+              className="rounded-md p-2 text-muted hover:bg-surface hover:text-foreground lg:hidden"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-5">
+                  <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="size-5">
+                  <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
           </div>
           </div>
+          {mobileMenuOpen && (
+            <nav className="border-t border-border/50 bg-panel px-5 pb-4 pt-3 lg:hidden">
+              <ul className="space-y-1">
+                {mobileNavLinks.map(([label, href]) => (
+                  <li key={href}>
+                    {href.startsWith("legal:") ? (
+                      <button
+                        onClick={() => { openModal(href.slice(6)); setMobileMenuOpen(false); }}
+                        className="block w-full rounded-md px-3 py-2 text-left text-sm text-muted hover:bg-surface hover:text-foreground"
+                      >
+                        {label}
+                      </button>
+                    ) : (
+                      <a
+                        href={appPath(href)}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="block rounded-md px-3 py-2 text-sm text-muted hover:bg-surface hover:text-foreground"
+                      >
+                        {label}
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
         </header>
         {children}
         <Footer onOpenModal={openModal} />
@@ -199,43 +255,30 @@ function LandingContent() {
   const openModal = useLegalModal();
   return (
     <>
-      <section className="border-b border-border/70">
-        <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-10 md:gap-10 md:px-6 md:py-16 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+      <section className="border-b border-border/70 bg-gradient-to-b from-accent-soft/45 via-background to-background">
+        <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-12 md:gap-10 md:px-6 md:py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
           <div>
-            <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted">Local-first knowledge system</p>
-            <h1 className="max-w-3xl text-3xl font-semibold leading-tight sm:text-4xl md:text-5xl">
+            <span className="inline-flex items-center gap-2 rounded-full bg-panel px-3 py-1 text-xs font-medium text-accent ring-1 ring-border/60">
+              <span className="size-1.5 rounded-full bg-accent" />
+              Local-first · Evidence-first
+            </span>
+            <h1 className="mt-5 max-w-3xl text-3xl font-semibold leading-tight sm:text-4xl md:text-5xl">
               A second brain that keeps evidence attached to every idea.
             </h1>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-muted sm:text-base">
               BerryBrain turns notes, graph connections, insights, and source material into a private cognitive layer for studying, reasoning, and preserving context.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/signup" className="rounded-md bg-accent px-5 py-3 text-sm font-medium text-black">
+              <a href={appPath("/signup")} className="rounded-md bg-accent px-5 py-3 text-sm font-medium text-black">
                 Start securely
-              </Link>
-              <Link href="/demo" className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">
+              </a>
+              <a href={appPath("/demo")} className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">
                 Demo
-              </Link>
-              <button
-                onClick={() => openModal("security")}
-                title="Open a concise summary of authentication, CSRF, session, rate-limit, and admin controls."
-                className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface"
-              >
-                Security controls
-              </button>
+              </a>
+              <a href={appPath("/docs")} className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">
+                Read the docs
+              </a>
             </div>
-            <dl className="mt-10 hidden max-w-xl grid-cols-3 divide-x divide-border/70 border-y border-border/70 py-4 text-sm sm:grid">
-              {[
-                ["Local-first", "storage"],
-                ["Evidence", "on every insight"],
-                ["Graph", "native"],
-              ].map(([value, label]) => (
-                <div key={value} className="px-4 first:pl-0">
-                  <dt className="font-semibold">{value}</dt>
-                  <dd className="mt-1 text-xs text-muted">{label}</dd>
-                </div>
-              ))}
-            </dl>
           </div>
           <div>
             <div className="overflow-hidden rounded-lg border border-border bg-panel shadow-sm">
@@ -249,7 +292,7 @@ function LandingContent() {
                 width={900}
                 height={560}
                 priority
-                unoptimized
+                sizes="(min-width: 1024px) 50vw, 100vw"
                 className="h-auto w-full"
               />
             </div>
@@ -257,42 +300,42 @@ function LandingContent() {
         </div>
       </section>
       <section className="bg-panel/45">
-        <div className="mx-auto grid w-full max-w-6xl gap-0 px-5 py-8 md:grid-cols-3 md:px-6">
+        <div className="mx-auto grid w-full max-w-6xl gap-4 px-5 py-10 md:grid-cols-3 md:px-6">
           {[
             ["Private by design", "Local-first storage, optional cloud models, and visible provider traceability."],
             ["Security-aware", "Session cookies, CSRF checks, rate limits, lockout, and audit events protect account flows."],
             ["Graph-native", "Notes, concepts, attachments, insights, and gaps become connected records."],
-          ].map(([title, body]) => (
-            <article key={title} className="border-border py-5 md:border-l md:px-7 md:first:border-l-0 md:first:pl-0 md:last:pr-0">
-              <h2 className="text-sm font-semibold">{title}</h2>
+          ].map(([title, body], i) => (
+            <article key={title} className="rounded-xl border border-border bg-panel p-5 ring-1 ring-border/30">
+              <span className="text-xs font-semibold text-accent">{String(i + 1).padStart(2, "0")}</span>
+              <h2 className="mt-2 text-sm font-semibold">{title}</h2>
               <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
             </article>
           ))}
         </div>
       </section>
-      <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-14 md:grid-cols-[0.8fr_1fr] md:px-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Cognitive layer</p>
-          <h2 className="mt-3 text-3xl font-semibold">Not a chatbot. A structured thinking system.</h2>
-          <p className="mt-4 text-sm leading-6 text-muted">
-            The product surface is organized around durable knowledge records, not transient prompts.
-          </p>
-        </div>
-        <div className="divide-y divide-border/70 border-y border-border/70">
-          {[
-            ["Knowledge Base", "Chunks notes and attachments for retrieval."],
-            ["Knowledge Graph", "Connects notes, concepts, gaps, insights, and sources."],
-            ["Semantic Data", "Answers questions about jobs, state, settings, and history."],
-            ["Model Router", "Records provider, model, prompt version, status, and evidence."],
-          ].map(([title, body], index) => (
-            <div key={title} className="grid gap-3 py-5 sm:grid-cols-[5rem_1fr]">
-              <span className="text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
-              <div>
+      <section className="border-y border-border/70 bg-surface/55">
+        <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-14 md:grid-cols-[0.9fr_1.1fr] md:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Cognitive layer</p>
+            <h2 className="mt-3 text-3xl font-semibold">Not a chatbot. A structured thinking system.</h2>
+            <p className="mt-4 text-sm leading-6 text-muted">
+              The product surface is organized around durable knowledge records, not transient prompts.
+            </p>
+          </div>
+          <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+            {[
+              ["Knowledge Base", "Chunks notes and attachments for retrieval."],
+              ["Knowledge Graph", "Connects notes, concepts, gaps, insights, and sources."],
+              ["Semantic Data", "Answers questions about jobs, state, settings, and history."],
+              ["Model Router", "Records provider, model, prompt version, status, and evidence."],
+            ].map(([title, body]) => (
+              <div key={title} className="border-t border-border/70 pt-4">
                 <h3 className="text-sm font-semibold">{title}</h3>
                 <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
       <section className="border-y border-border/70 bg-surface/55">
@@ -340,52 +383,65 @@ function LandingContent() {
             </article>
           ))}
         </div>
-        <div className="mt-14">
-          <h3 className="text-center text-lg font-semibold">How BerryBrain compares</h3>
-          <p className="mt-2 text-center text-sm text-muted">Illustrative scores (0–100) across what matters in a knowledge tool. BerryBrain is highlighted.</p>
-          <div className="mt-8 overflow-x-auto">
-            <table className="w-full min-w-[680px] border-separate border-spacing-y-3 text-sm">
-              <thead>
-                <tr className="text-left text-muted">
-                  <th className="pb-2 pr-4 font-medium">Capability</th>
-                  {["BerryBrain", "Obsidian", "Notion", "Plain folders"].map((t) => (
-                    <th key={t} className="pb-2 pr-4 font-medium">{t}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["Local-first privacy", [100, 95, 30, 100]],
-                  ["AI evidence tracing", [100, 20, 40, 0]],
-                  ["Automatic knowledge graph", [95, 70, 30, 0]],
-                  ["Semantic search", [95, 50, 60, 10]],
-                  ["Works fully offline", [100, 100, 40, 100]],
-                  ["Cost-efficiency", [90, 85, 50, 100]],
-                ].map(([label, scores]) => (
-                  <tr key={label}>
-                    <td className="pr-4 align-middle font-medium">{label}</td>
-                    {scores.map((s, i) => (
-                      <td key={i} className="pr-4 align-middle">
-                        <div className="h-2.5 w-full rounded-full bg-surface">
-                          <div className={`h-2.5 rounded-full ${i === 0 ? "bg-accent" : "bg-border"}`} style={{ width: `${s}%` }} />
+          <div className="mt-14">
+            <h3 className="text-center text-lg font-semibold">How BerryBrain compares</h3>
+            <p className="mt-2 text-center text-sm text-muted">Illustrative scores (0–100) across what matters in a knowledge tool. BerryBrain is highlighted.</p>
+            <div className="mt-8 space-y-4 md:hidden">
+              {comparisonRows.map(([label, scores]) => (
+                <div key={label} className="rounded-lg border border-border bg-panel p-4">
+                  <p className="text-sm font-semibold">{label}</p>
+                  <div className="mt-3 space-y-3">
+                    {["BerryBrain", "Obsidian", "Notion", "Plain folders"].map((t, i) => (
+                      <div key={t}>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className={i === 0 ? "font-medium text-accent" : "text-muted"}>{t}</span>
+                          <span className="text-muted">{scores[i]}</span>
                         </div>
-                        <span className="mt-1 block text-xs text-muted">{s}</span>
-                      </td>
+                        <div className="mt-1 h-2 w-full rounded-full bg-surface">
+                          <div className={`h-2 rounded-full ${i === 0 ? "bg-accent" : "bg-border"}`} style={{ width: `${scores[i]}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-8 hidden md:block">
+              <table className="w-full border-separate border-spacing-y-3 text-sm">
+                <thead>
+                  <tr className="text-left text-muted">
+                    <th className="pb-2 pr-4 font-medium">Capability</th>
+                    {["BerryBrain", "Obsidian", "Notion", "Plain folders"].map((t) => (
+                      <th key={t} className="pb-2 pr-4 font-medium">{t}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {comparisonRows.map(([label, scores]) => (
+                    <tr key={label}>
+                      <td className="pr-4 align-middle font-medium">{label}</td>
+                      {scores.map((s, i) => (
+                        <td key={i} className="pr-4 align-middle">
+                          <div className="h-2.5 w-full rounded-full bg-surface">
+                            <div className={`h-2.5 rounded-full ${i === 0 ? "bg-accent" : "bg-border"}`} style={{ width: `${s}%` }} />
+                          </div>
+                          <span className="mt-1 block text-xs text-muted">{s}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
       </section>
       <section className="border-t border-border/70 bg-accent/10">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-5 px-5 py-14 text-center md:px-6">
           <h2 className="max-w-2xl text-3xl font-semibold">Start building your evidence-first second brain.</h2>
           <p className="max-w-xl text-sm leading-6 text-muted">Free to self-host. Private by default. Secure by design.</p>
           <div className="mt-2 flex flex-wrap justify-center gap-3">
-            <Link href="/signup" className="rounded-md bg-accent px-5 py-3 text-sm font-medium text-black">Create account</Link>
-            <Link href="/demo" className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">Try the demo</Link>
+            <a href={appPath("/signup")} className="rounded-md bg-accent px-5 py-3 text-sm font-medium text-black">Create account</a>
+            <a href={appPath("/demo")} className="rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">Try the demo</a>
           </div>
         </div>
       </section>
@@ -398,9 +454,26 @@ function safeNext(): string {
   return appPath(n && n.startsWith("/") && !n.startsWith("//") ? n : "/brain");
 }
 
+function validEmail(value: string): boolean {
+  const e = value.trim().toLowerCase();
+  if (e.length < 3 || e.length > 255) return false;
+  const at = e.lastIndexOf("@");
+  if (at < 1 || at === e.length - 1) return false;
+  return e.slice(at + 1).includes(".");
+}
+
+function passwordErrors(p: string): string[] {
+  const errs: string[] = [];
+  if (p.length < 12) errs.push("Use at least 12 characters.");
+  if (p.toLowerCase() === p || p.toUpperCase() === p) errs.push("Mix uppercase and lowercase letters.");
+  if (!/\d/.test(p)) errs.push("Include at least one number.");
+  return errs;
+}
+
 export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const isSignup = mode === "signup";
   const apiUrl = getApiUrl();
+  const [view, setView] = useState<"auth" | "forgot-request" | "forgot-confirm">("auth");
   const [email, setEmail] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("email") || "";
@@ -411,6 +484,8 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
   const [otp, setOtp] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [awaitingCode, setAwaitingCode] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -423,7 +498,7 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(isSignup ? { email, password, display_name: displayName } : { email, password }),
+        body: JSON.stringify(isSignup ? { email, password, display_name: displayName } : { email, password, remember_me: keepSignedIn }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Authentication failed");
@@ -469,6 +544,62 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
     }
   }
 
+  async function requestReset() {
+    setBusy(true);
+    setStatus("");
+    try {
+      if (!validEmail(email)) throw new Error("Enter a valid email address.");
+      const normalized = email.trim().toLowerCase();
+      const response = await fetch(`${apiUrl}/api/v1/auth/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: normalized }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not start account recovery.");
+      setView("forgot-confirm");
+      setStatus("If the account exists, a recovery code was sent to that email.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not start account recovery.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmReset() {
+    setBusy(true);
+    setStatus("");
+    try {
+      const normalized = email.trim().toLowerCase();
+      if (!validEmail(normalized)) throw new Error("Enter a valid email address.");
+      const perrs = passwordErrors(newPassword);
+      if (perrs.length) throw new Error(perrs[0]);
+      if (newPassword !== confirmPassword) throw new Error("The new passwords do not match.");
+      if (!/^\d{6,12}$/.test(otp)) throw new Error("Enter the 6–12 digit code from your email.");
+      const response = await fetch(`${apiUrl}/api/v1/auth/password-reset/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: normalized, code: otp, password: newPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not reset password.");
+      window.location.href = appPath("/login?reset=1");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not reset password.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const leftTitle =
+    view === "auth"
+      ? isSignup
+        ? "Start with verified email and 2FA."
+        : "Log in with email verification."
+      : "Recover your account";
+
   return (
     <PublicShell>
       <section className="mx-auto grid w-full max-w-5xl gap-8 px-5 py-12 md:grid-cols-[0.9fr_1fr] md:px-6 md:py-16">
@@ -476,43 +607,85 @@ export function AuthPage({ mode }: { mode: "login" | "signup" }) {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
             {isSignup ? "Create account" : "Welcome back"}
           </p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-            {isSignup ? "Start with verified email and 2FA." : "Log in with email verification."}
-          </h1>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">{leftTitle}</h1>
           <p className="mt-4 text-sm leading-6 text-muted">
             BerryBrain uses secure cookies, email OTP, CSRF protection, rate limits, and audit events. Support: contato@optlabs.com.br.
           </p>
         </div>
         <form className="rounded-lg border border-border bg-panel p-6" onSubmit={(event) => event.preventDefault()}>
-          <label className="block text-xs font-medium text-muted">Email</label>
-          <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
-          {isSignup && (
+          {view === "auth" && (
             <>
-              <label className="mt-4 block text-xs font-medium text-muted">Display name</label>
-              <input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Your name" />
+              <label className="block text-xs font-medium text-muted">Email</label>
+              <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
+              {isSignup && (
+                <>
+                  <label className="mt-4 block text-xs font-medium text-muted">Display name</label>
+                  <input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Your name" />
+                </>
+              )}
+              <label className="mt-4 block text-xs font-medium text-muted">Password</label>
+              <input required minLength={12} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="At least 12 characters" type="password" />
+              <p className="mt-2 text-[11px] leading-5 text-muted">Use at least 12 characters with mixed letter case and a number.</p>
+              {!isSignup && (
+                <label className="mt-4 flex items-center gap-2 text-xs text-muted">
+                  <input checked={keepSignedIn} onChange={(event) => setKeepSignedIn(event.target.checked)} type="checkbox" className="size-4 accent-[var(--color-accent)]" />
+                  Keep me signed in on this device
+                </label>
+              )}
+              <button disabled={busy || !email.trim() || !password.trim()} type="button" onClick={submit} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+                {busy ? "Working..." : isSignup ? "Create secure account" : "Continue"}
+              </button>
+              {awaitingCode && (
+                <div className="mt-5 rounded-md border border-border bg-surface p-3">
+                  <label className="block text-xs font-medium text-muted">Email security code</label>
+                  <input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 12))} className="mt-2 w-full rounded-md border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent" placeholder="000000" inputMode="numeric" autoComplete="one-time-code" />
+                  <button disabled={busy || !otp} type="button" onClick={verifyCode} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm disabled:opacity-60">
+                    Verify code
+                  </button>
+                </div>
+              )}
+              {!isSignup && !awaitingCode && (
+                <button type="button" onClick={() => { setStatus(""); setOtp(""); setView("forgot-request"); }} className="mt-4 text-xs text-accent underline-offset-4 hover:underline">
+                  Forgot password?
+                </button>
+              )}
             </>
           )}
-          <label className="mt-4 block text-xs font-medium text-muted">Password</label>
-          <input required minLength={12} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="At least 12 characters" type="password" />
-          <p className="mt-2 text-[11px] leading-5 text-muted">Use at least 12 characters with mixed letter case and a number.</p>
-          {!isSignup && (
-            <label className="mt-4 flex items-center gap-2 text-xs text-muted">
-              <input checked={keepSignedIn} onChange={(event) => setKeepSignedIn(event.target.checked)} type="checkbox" className="size-4 accent-[var(--color-accent)]" />
-              Keep me signed in on this device
-            </label>
-          )}
-          <button disabled={busy || !email.trim() || !password.trim()} type="button" onClick={submit} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
-            {busy ? "Working..." : isSignup ? "Create secure account" : "Continue"}
-          </button>
-          {awaitingCode && (
-            <div className="mt-5 rounded-md border border-border bg-surface p-3">
-              <label className="block text-xs font-medium text-muted">Email security code</label>
-              <input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 12))} className="mt-2 w-full rounded-md border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent" placeholder="000000" inputMode="numeric" autoComplete="one-time-code" />
-              <button disabled={busy || !otp} type="button" onClick={verifyCode} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm disabled:opacity-60">
-                Verify code
+
+          {view === "forgot-request" && (
+            <>
+              <label className="block text-xs font-medium text-muted">Account email</label>
+              <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
+              <p className="mt-2 text-[11px] leading-5 text-muted">We will send a recovery code to this address if it matches an account.</p>
+              <button disabled={busy || !email.trim()} type="button" onClick={requestReset} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+                {busy ? "Working..." : "Send recovery code"}
               </button>
-            </div>
+              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm">
+                Back to login
+              </button>
+            </>
           )}
+
+          {view === "forgot-confirm" && (
+            <>
+              <label className="block text-xs font-medium text-muted">Account email</label>
+              <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
+              <label className="mt-4 block text-xs font-medium text-muted">Recovery code</label>
+              <input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 12))} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="000000" inputMode="numeric" autoComplete="one-time-code" />
+              <label className="mt-4 block text-xs font-medium text-muted">New password</label>
+              <input required minLength={12} autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="At least 12 characters" type="password" />
+              <label className="mt-4 block text-xs font-medium text-muted">Confirm new password</label>
+              <input required minLength={12} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Repeat the password" type="password" />
+              <p className="mt-2 text-[11px] leading-5 text-muted">Use at least 12 characters with mixed letter case and a number.</p>
+              <button disabled={busy || !email.trim() || !otp || !newPassword.trim() || !confirmPassword.trim()} type="button" onClick={confirmReset} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+                {busy ? "Working..." : "Reset password"}
+              </button>
+              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm">
+                Back to login
+              </button>
+            </>
+          )}
+
           {status && <p className="mt-4 rounded-md bg-surface px-3 py-2 text-xs leading-5 text-muted">{status}</p>}
           <p className="mt-4 text-xs leading-5 text-muted">
             This screen is wired for the security API. Email delivery requires SMTP settings on the server.
@@ -569,12 +742,11 @@ export function AccountSettingsPage() {
 }
 
 function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
-  const router = useRouter();
   return (
     <footer className="border-t border-border bg-panel/60">
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-10 md:grid-cols-[1.1fr_2fr] md:px-6">
         <div>
-          <Image src={berrylogo} alt="BerryBrain" width={160} height={160} className="rounded-md grayscale" unoptimized />
+          <Image src={berrylogo} alt="BerryBrain" width={160} height={160} className="rounded-md grayscale" sizes="160px" />
           <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
             A private, evidence-first second brain for notes, concepts, graph reasoning, and accountable AI assistance.
           </p>
@@ -603,9 +775,9 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
                         {label}
                       </button>
                     ) : (
-                      <Link href={href} className="text-sm text-muted hover:text-foreground">
+                      <a href={appPath(href)} className="text-sm text-muted hover:text-foreground">
                         {label}
-                      </Link>
+                      </a>
                     )}
                   </li>
                 ))}

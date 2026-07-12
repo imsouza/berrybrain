@@ -239,6 +239,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
+    if (apiUrl === "__demo__") {
+      setIsAdmin(false);
+      return;
+    }
     let cancelled = false;
     fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
@@ -266,6 +270,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
+    if (apiUrl === "__demo__") {
+      setDiagnostics(null);
+      return;
+    }
     setDiagLoading(true);
     fetch(`${apiUrl}/api/v1/jobs/health`)
       .then((r) => r.json())
@@ -287,7 +295,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     await Promise.all(
       SETTING_KEYS.map((key) => {
         localStorage.setItem(`bb_${key}`, String(next[key]));
-        if (!isAdmin) return Promise.resolve();
+        if (!isAdmin || apiUrl === "__demo__") return Promise.resolve();
         return fetch(`${apiUrl}/api/v1/settings/${key}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -310,6 +318,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }
 
   async function fetchModels() {
+    if (apiUrl === "__demo__") {
+      setConnectionStatus("Provider testing is disabled in demo mode.");
+      return;
+    }
     const baseUrl = s.ai_api_url || s.ai_custom_url;
     setLoadingModels(true);
     setConnectionStatus("");
@@ -352,6 +364,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }
 
   async function wipeAll(resetSettings: boolean) {
+    if (apiUrl === "__demo__") {
+      setConnectionStatus("Danger Zone actions are disabled in demo mode.");
+      return;
+    }
     const label = resetSettings
       ? "DELETE EVERYTHING and reset Settings to defaults"
       : "DELETE EVERYTHING but keep current Settings";
@@ -377,6 +393,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }
 
   async function runMaintenance(action: "rebuild-brain" | "cleanup-legacy-insights" | "validate-graph" | "reindex-knowledge-base") {
+    if (apiUrl === "__demo__") {
+      setMaintenanceStatus("Maintenance actions are disabled in demo mode.");
+      return;
+    }
     const labels: Record<typeof action, string> = {
       "rebuild-brain": "Rebuild second brain",
       "cleanup-legacy-insights": "Cleanup legacy technical insights",
@@ -404,6 +424,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }
 
   async function clearStuckJobs() {
+    if (apiUrl === "__demo__") {
+      setDiagClearResult("Diagnostics are disabled in demo mode.");
+      return;
+    }
     setDiagClearing(true);
     setDiagClearResult("");
     try {
@@ -421,7 +445,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative z-50 w-[560px] overflow-hidden rounded-2xl bg-panel text-foreground shadow-2xl ring-1 ring-border/70" role="dialog" aria-label="Settings">
+      <div className="relative z-50 w-full max-w-[92vw] overflow-hidden rounded-2xl bg-panel text-foreground shadow-2xl ring-1 ring-border/70 sm:w-[560px]" role="dialog" aria-label="Settings">
         <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold tracking-tight">Settings</h2>

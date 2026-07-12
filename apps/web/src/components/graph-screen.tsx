@@ -366,6 +366,7 @@ export function GraphScreen({
   }
 
   useEffect(() => {
+    if (apiUrl === "__demo__") return;
     fetch(`${apiUrl}/api/v1/settings/graph/config`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((config) => {
@@ -377,7 +378,7 @@ export function GraphScreen({
   }, [apiUrl]);
 
   useEffect(() => {
-    if (!selectedNode?.recordId || !showDetail) {
+    if (apiUrl === "__demo__" || !selectedNode?.recordId || !showDetail) {
       setNodeSummary(null);
       return;
     }
@@ -403,6 +404,10 @@ export function GraphScreen({
   }, [apiUrl, selectedNode?.recordId, showDetail]);
 
   useEffect(() => {
+    if (apiUrl === "__demo__") {
+      setResearchModeEnabled(false);
+      return;
+    }
     fetch(`${apiUrl}/api/v1/settings`)
       .then((r) => r.json())
       .then((payload) => {
@@ -418,6 +423,7 @@ export function GraphScreen({
   }
 
   async function expandGraph() {
+    if (apiUrl === "__demo__") return;
     await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
     reload();
   }
@@ -425,6 +431,7 @@ export function GraphScreen({
   async function runInference() {
     const text = query.trim();
     if (!text) return;
+    if (apiUrl === "__demo__") return;
     setInferLoading(true);
     setInference(null);
     setInferenceSaveStatus("");
@@ -449,6 +456,7 @@ export function GraphScreen({
   async function saveInferenceAsInsight() {
     const text = query.trim();
     if (!text || !inference) return;
+    if (apiUrl === "__demo__") return;
     setInferenceSaving(true);
     setInferenceSaveStatus("Saving inference as insight...");
     try {
@@ -482,6 +490,7 @@ export function GraphScreen({
 
   async function createPermanentConceptNote() {
     if (!selectedNode?.sourceId || selectedNode.type !== "concept") return;
+    if (apiUrl === "__demo__") return;
     const response = await fetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
     const payload = await response.json();
     if (payload.note?.path) {
@@ -491,6 +500,7 @@ export function GraphScreen({
 
   async function saveManualNodeNotes() {
     if (!selectedNode?.recordId) return;
+    if (apiUrl === "__demo__") return;
     const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -502,6 +512,7 @@ export function GraphScreen({
 
   async function validateSelectedNodeWithWeb() {
     if (!selectedNode?.recordId) return;
+    if (apiUrl === "__demo__") return;
     if (!researchModeEnabled) {
       setNodeActionStatus("Research Mode is disabled in Settings.");
       return;
@@ -533,6 +544,7 @@ export function GraphScreen({
 
   async function enrichSelectedNodeWithAI() {
     if (!selectedNode?.recordId) return;
+    if (apiUrl === "__demo__") return;
     setActionLoading("enrich-node-ai");
     setNodeActionStatus("Enriching node with configured AI...");
     try {
@@ -552,6 +564,7 @@ export function GraphScreen({
 
   async function updateNodeStatus(status: "confirmed" | "ignored") {
     if (!selectedNode?.recordId) return;
+    if (apiUrl === "__demo__") return;
     if (selectedNode.type === "insight" && selectedNode.sourceId) {
       await updateInsightStatus(status);
       return;
@@ -578,6 +591,7 @@ export function GraphScreen({
 
   async function updateInsightStatus(status: "confirmed" | "ignored") {
     if (!selectedNode?.recordId || !selectedNode.sourceId) return;
+    if (apiUrl === "__demo__") return;
     const isApply = status === "confirmed";
     setActionLoading(isApply ? "confirm-node" : "ignore-node");
     try {
@@ -602,6 +616,7 @@ export function GraphScreen({
   }
 
   async function updateEdgeStatus(edgeId: number, status: "confirmed" | "ignored") {
+    if (apiUrl === "__demo__") return;
     const action = status === "confirmed" ? "confirm" : "ignore";
     setActionLoading(`${action}-connection-${edgeId}`);
     try {
@@ -624,6 +639,7 @@ export function GraphScreen({
   }
 
   async function generateConnectionInsight(edgeId: number) {
+    if (apiUrl === "__demo__") return;
     setActionLoading(`save-insight-${edgeId}`);
     setNodeActionStatus("Generating connection insight with configured AI...");
     try {
@@ -647,6 +663,7 @@ export function GraphScreen({
 
   async function reprocessSelectedNode() {
     if (!selectedNode?.recordId) return;
+    if (apiUrl === "__demo__") return;
     setActionLoading("reprocess-node");
     setNodeActionStatus("Node reprocess queued.");
     try {

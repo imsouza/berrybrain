@@ -22,6 +22,11 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (apiUrl === "__demo__") {
+      setAlerts([]);
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
 

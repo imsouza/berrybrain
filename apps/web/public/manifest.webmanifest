@@ -2,9 +2,9 @@
   "name": "BerryBrain",
   "short_name": "BerryBrain",
   "description": "Local-first second brain for notes, graph reasoning, and accountable AI assistance.",
-  "id": "/brain",
-  "start_url": "/brain",
-  "scope": "/",
+  "id": "/berrybrain/",
+  "start_url": "/berrybrain/",
+  "scope": "/berrybrain/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
@@ -13,29 +13,59 @@
   "categories": ["productivity", "education", "utilities"],
   "icons": [
     {
-      "src": "/berrylogo.png",
+      "src": "/berrybrain/berrylogo.png",
       "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/berrylogo.png",
+      "src": "/berrybrain/berrylogo.png",
       "sizes": "1254x1254",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/berrybrain/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/berrybrain/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/berrybrain/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/berrybrain/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/berrybrain/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
   "shortcuts": [
     {
       "name": "Open Brain",
       "short_name": "Brain",
-      "url": "/brain",
+      "url": "/berrybrain/",
       "icons": [{ "src": "/berrylogo.png", "sizes": "1254x1254", "type": "image/png" }]
     },
     {
       "name": "Insights",
       "short_name": "Insights",
-      "url": "/insights",
+      "url": "/berrybrain/insights",
       "icons": [{ "src": "/berrylogo.png", "sizes": "1254x1254", "type": "image/png" }]
     }
   ]

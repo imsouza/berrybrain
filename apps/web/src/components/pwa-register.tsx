@@ -9,8 +9,11 @@ export function PwaRegister() {
     const localHost = host === "localhost" || host === "127.0.0.1";
     if (!window.isSecureContext && !localHost) return;
 
+    const base = window.location.pathname.startsWith("/berrybrain") ? "/berrybrain" : "";
     const register = () => {
-      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+      navigator.serviceWorker
+        .register(base + "/sw.js", { scope: base + "/" })
+        .catch(() => {});
     };
 
     if (document.readyState === "complete") {

@@ -5,11 +5,17 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
-from berrybrain_api.models import SecurityAuditRecord, UserRecord, UserSessionRecord
+from berrybrain_api.models import (
+    AuthOtpRecord,
+    LoginAttemptRecord,
+    SecurityAuditRecord,
+    UserRecord,
+    UserSessionRecord,
+)
 from berrybrain_api.security import (
     assert_csrf,
     assert_rate_limit,
@@ -40,6 +46,7 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+    remember_me: bool = True
 
 
 class VerifyEmailRequest(BaseModel):
@@ -234,9 +241,11 @@ def verify_email(
         # ponytail: email verification already proved possession; auto-login
         # so signup does not bounce to /login for a second 2FA prompt.
         session_token, csrf_token, _session = create_user_session(
-            session, settings, request, user, remember_me=True
+            session, settings, request, user, remember_me=payload.remember_me
         )
-        _set_auth_cookies(response, session_token, csrf_token, remember_me=True)
+        _set_auth_cookies(
+            response, session_token, csrf_token, remember_me=payload.remember_me
+        )
         return {
             "status": "authenticated",
             "user": _serialize_user(user),
@@ -397,23 +406,26 @@ def request_password_reset(payload: ResetRequest, request: Request) -> dict:
     email = normalize_email(payload.email)
     with SessionLocal() as session:
         assert_rate_limit(session, request, settings, "password_reset", email)
-        user = session.execute(
-            select(UserRecord).where(UserRecord.email == email)
-        ).scalar_one_or_none()
-        if user is not None:
-            code, _challenge = create_otp(
-                session, settings, user, email, "password_reset"
-            )
-            delivery = send_otp_email(settings, email, code, "password_reset")
-            audit_event(
-                session,
-                request,
-                "PASSWORD_RESET_REQUESTED",
-                user,
-                "user",
-                str(user.id),
-                {"delivery": delivery["status"]},
-            )
+        # ponytail: admin resets only through /admin, never self-service OTP.
+        # Treat admin like a missing account so the response stays generic.
+        if normalize_email(email) != normalize_email(settings.admin_email):
+            user = session.execute(
+                select(UserRecord).where(UserRecord.email == email)
+            ).scalar_one_or_none()
+            if user is not None:
+                code, _challenge = create_otp(
+                    session, settings, user, email, "password_reset"
+                )
+                delivery = send_otp_email(settings, email, code, "password_reset")
+                audit_event(
+                    session,
+                    request,
+                    "PASSWORD_RESET_REQUESTED",
+                    user,
+                    "user",
+                    str(user.id),
+                    {"delivery": delivery["status"]},
+                )
         record_attempt(session, request, "password_reset", email, True)
         return {"status": "if_account_exists_email_sent"}
 
@@ -425,6 +437,18 @@ def confirm_password_reset(payload: ResetConfirmRequest, request: Request) -> di
     validate_password(payload.password)
     with SessionLocal() as session:
         assert_rate_limit(session, request, settings, "password_reset_confirm", email)
+        # ponytail: block admin self-service reset; mirror the missing-account
+        # response so the admin email cannot be distinguished from a random one.
+        if normalize_email(email) == normalize_email(settings.admin_email):
+            record_attempt(
+                session,
+                request,
+                "password_reset_confirm",
+                email,
+                False,
+                "admin_blocked",
+            )
+            raise HTTPException(status_code=400, detail="Invalid or expired code")
         user = session.execute(
             select(UserRecord).where(UserRecord.email == email)
         ).scalar_one_or_none()
@@ -585,6 +609,20 @@ def request_account_deletion(request: Request) -> dict:
         return {"status": "verification_required", "delivery": delivery["status"]}
 
 
+def _purge_user_dependents(session: Session, user_id: int) -> None:
+    # ponytail: models define no FK cascade, so delete dependents explicitly
+    session.execute(
+        delete(UserSessionRecord).where(UserSessionRecord.user_id == user_id)
+    )
+    session.execute(delete(AuthOtpRecord).where(AuthOtpRecord.user_id == user_id))
+    session.execute(
+        delete(LoginAttemptRecord).where(LoginAttemptRecord.user_id == user_id)
+    )
+    session.execute(
+        delete(SecurityAuditRecord).where(SecurityAuditRecord.actor_user_id == user_id)
+    )
+
+
 @router.post("/auth/delete-account/confirm")
 def confirm_account_deletion(
     payload: DeleteAccountConfirm, request: Request, response: Response
@@ -601,6 +639,7 @@ def confirm_account_deletion(
         email = user.email
         user_id = user.id
         revoke_sessions(session, user_id)
+        _purge_user_dependents(session, user_id)
         session.delete(user)
         session.commit()
         audit_event(
@@ -790,6 +829,7 @@ def admin_delete_user(user_id: int, request: Request) -> dict:
             )
         email = user.email
         revoke_sessions(session, user.id)
+        _purge_user_dependents(session, user.id)
         session.delete(user)
         session.add(
             SecurityAuditRecord(

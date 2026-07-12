@@ -31,6 +31,7 @@ class SecurityAuthTest(unittest.TestCase):
             "vault_watcher_enabled": cls.settings.vault_watcher_enabled,
             "api_token": cls.settings.api_token,
             "session_secret": cls.settings.session_secret,
+            "session_secure_cookie": cls.settings.session_secure_cookie,
             "smtp_host": cls.settings.smtp_host,
             "admin_email": cls.settings.admin_email,
         }
@@ -39,6 +40,7 @@ class SecurityAuthTest(unittest.TestCase):
         cls.settings.vault_watcher_enabled = False
         cls.settings.api_token = ""
         cls.settings.session_secret = "test-secret"
+        cls.settings.session_secure_cookie = False
         cls.settings.smtp_host = ""
         cls.settings.admin_email = "admin@example.com"
 

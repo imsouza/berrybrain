@@ -214,51 +214,41 @@ export function HomeView() {
     );
   }
 
-  const nome = typeof window !== "undefined" ? localStorage.getItem("bb_nome") || "Mateus" : "Mateus";
+  const nome = w.demo ? "" : (typeof window !== "undefined" ? localStorage.getItem("bb_nome") || "Mateus" : "Mateus");
   const noNotes = summary.stats.notes.total === 0 && w.notes.length === 0;
   const progressStatus = normalizeStatus(summary.progress.status);
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
+      <div className="mx-auto max-w-6xl px-6 py-8 lg:px-8">
         <HomeHeader summary={summary} nome={nome} onGraph={() => w.setGraphOpen(true)} />
 
-        <div className="py-6">
-          <textarea
-            autoFocus
-            className="min-h-40 w-full resize-none rounded-3xl border border-border bg-panel px-5 py-4 text-sm leading-7 shadow-sm outline-none transition placeholder:text-muted/35 focus:border-accent"
-            disabled={creatingDraft}
-            onChange={(event) => startWriting(event.target.value)}
-            placeholder={noNotes ? t("startFirstNote") : t("startNote")}
-            value={starterText}
-          />
-          <div className="mt-2 flex items-center justify-between text-[11px] text-muted/45">
-            <span>{creatingDraft ? t("creatingNote") : t("noTitleNeeded")}</span>
-            <button className="rounded-lg px-2 py-1 hover:bg-surface hover:text-muted" onClick={() => w.createDraft()}>
-              {t("createEmptyDraft")}
-            </button>
-          </div>
-        </div>
-
-        <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
-
-        <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
           <div className="space-y-6">
+            <ComposeCard
+              noNotes={noNotes}
+              value={starterText}
+              disabled={creatingDraft}
+              onChange={(value) => startWriting(value)}
+              onCreateEmpty={() => w.createDraft()}
+              creating={creatingDraft}
+            />
+            <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
+            <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
             <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
+            <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
           </div>
-          <div className="space-y-6">
-            <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
+          <aside className="space-y-6">
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
+            <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
             {summary.needsAttention.length > 0 && (
-            <NeedsAttentionCard items={summary.needsAttention} onOpenMonitor={() => w.setMonitorOpen(true)} />
-          )}
-          </div>
+              <NeedsAttentionCard items={summary.needsAttention} onOpenMonitor={() => w.setMonitorOpen(true)} />
+            )}
+          </aside>
         </div>
 
         <StatsGrid summary={summary} />
         <InfographicsGrid summary={summary} />
-        <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
-        <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
 
         <div className="mt-8 flex flex-wrap gap-2">
           <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
@@ -272,22 +262,60 @@ export function HomeView() {
 
 function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: string; onGraph: () => void }) {
   return (
-    <header className="mb-8">
-      <h1 className="text-lg font-semibold tracking-tight">{t("homeGreeting")}, {nome}.</h1>
-      <p className="mt-1 text-sm text-muted/60">{t("keepWriting")}</p>
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-muted/55">
-        <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" || summary.status.worker === "online" ? "ok" : "bad"} />
-        <StatusBadge label={`Ollama ${summary.status.ollama}`} status={summary.status.ollama === "online" ? "ok" : "bad"} />
-        <StatusBadge label={`Cloud: ${providerLabel(summary.status.cloudProvider)}${summary.status.cloudModel ? ` · ${summary.status.cloudModel}` : ""}`} status={summary.status.cloudProvider === "local" ? "muted" : "ok"} />
-        <span>{tf("activeJobsCount", { count: summary.status.activeJobs })} · {tf("queuedCount", { count: summary.status.pendingJobs })}</span>
-        {summary.status.lastProcessingAt && <span>{t("lastProcessing")} {formatTime(summary.status.lastProcessingAt)}</span>}
+    <header className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-accent-soft/70 via-panel to-panel p-6 lg:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">{t("home")}</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">{nome ? `${t("homeGreeting")}, ${nome}.` : `${t("homeGreeting")}.`}</h1>
+          <p className="mt-1.5 text-sm text-muted/70">{t("keepWriting")}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
+          <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
+          <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
+        </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
-        <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
-        <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
+          <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" || summary.status.worker === "online" ? "ok" : "bad"} />
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
+          <StatusBadge label={`Ollama ${summary.status.ollama}`} status={summary.status.ollama === "online" ? "ok" : "bad"} />
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
+          <StatusBadge label={`Cloud: ${providerLabel(summary.status.cloudProvider)}${summary.status.cloudModel ? ` · ${summary.status.cloudModel}` : ""}`} status={summary.status.cloudProvider === "local" ? "muted" : "ok"} />
+        </span>
+        <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">{tf("activeJobsCount", { count: summary.status.activeJobs })} · {tf("queuedCount", { count: summary.status.pendingJobs })}</span>
+        {summary.status.lastProcessingAt && (
+          <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">{t("lastProcessing")} {formatTime(summary.status.lastProcessingAt)}</span>
+        )}
       </div>
     </header>
+  );
+}
+
+function ComposeCard({ noNotes, value, disabled, onChange, onCreateEmpty, creating }: { noNotes: boolean; value: string; disabled: boolean; onChange: (value: string) => void; onCreateEmpty: () => void; creating: boolean }) {
+  return (
+    <div className="rounded-3xl border border-border/60 bg-panel p-5 shadow-sm ring-1 ring-border/30 transition focus-within:border-accent focus-within:ring-accent/30">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="size-2 rounded-full bg-accent" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted/50">{t("startWriting")}</span>
+      </div>
+      <textarea
+        autoFocus
+        className="min-h-36 w-full resize-none bg-transparent text-sm leading-7 outline-none placeholder:text-muted/40"
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={noNotes ? t("startFirstNote") : t("startNote")}
+        value={value}
+      />
+      <div className="mt-2 flex items-center justify-between text-[11px] text-muted/45">
+        <span>{creating ? t("creatingNote") : t("noTitleNeeded")}</span>
+        <button className="rounded-lg px-2 py-1 hover:bg-surface hover:text-muted" onClick={onCreateEmpty}>
+          {t("createEmptyDraft")}
+        </button>
+      </div>
+    </div>
   );
 }
 

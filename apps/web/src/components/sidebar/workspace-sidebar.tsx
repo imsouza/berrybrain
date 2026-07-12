@@ -26,7 +26,7 @@ type WorkspaceSidebarProps = {
 export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: WorkspaceSidebarProps = {}) {
   const w = useWorkspace();
   const pathname = usePathname();
-  const isDemo = pathname.startsWith("/demo");
+  const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [attentionCount, setAttentionCount] = useState(0);
   const router = useRouter();
   const [dismissedAt, setDismissedAt] = useState<number>(0);
@@ -39,6 +39,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }, []);
 
   useEffect(() => {
+    if (w.demo) {
+      setAttentionCount(0);
+      return;
+    }
     let cancelled = false;
     async function loadAttention() {
       try {
@@ -60,9 +64,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       cancelled = true;
       clearInterval(timer);
     };
-  }, [w.api, dismissedAt]);
+  }, [w.api, dismissedAt, w.demo]);
 
   async function loadFolders() {
+    if (w.demo) {
+      setFolders([]);
+      return;
+    }
     try {
       const response = await fetch(`${w.api}/api/v1/folders`);
       if (!response.ok) return;
@@ -73,7 +81,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   useEffect(() => {
     loadFolders();
-  }, [w.api, w.notes.length]);
+  }, [w.api, w.notes.length, w.demo]);
 
   const notesByFolder = useMemo(() => {
     const map = new Map<string, typeof w.notes>();
@@ -94,6 +102,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }, [folders, notesByFolder]);
 
   async function createFolder(parentPath = "") {
+    if (w.demo) return;
     const name = window.prompt(parentPath ? `New folder inside ${parentPath}:` : "Folder name:");
     if (!name?.trim()) return;
     const response = await fetch(`${w.api}/api/v1/folders`, {
@@ -110,6 +119,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }
 
   async function renameFolder(path: string, currentName: string) {
+    if (w.demo) return;
     const name = window.prompt("New folder name:", currentName);
     if (!name?.trim() || name.trim() === currentName) return;
     const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
@@ -127,6 +137,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }
 
   async function deleteFolder(path: string) {
+    if (w.demo) return;
     if (!window.confirm(`Delete empty folder "${path}"?`)) return;
     const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
     if (!response.ok) {
@@ -223,15 +234,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
         </div>
           <div className="flex items-center gap-1">
           {isDemo ? (
-            <>
-              <span className="text-[9px] text-muted/50 select-none px-1">Demo</span>
-              <button className="rounded-lg bg-accent px-2 py-1 text-[10px] font-medium text-white transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = appPath("/login"); }} aria-label="Login">
-                Login
-              </button>
-              <button className="rounded-lg bg-foreground px-2 py-1 text-[10px] font-medium text-background transition hover:opacity-90" onClick={() => { onMobileClose?.(); window.location.href = appPath("/signup"); }} aria-label="Create account">
-                Create account
-              </button>
-            </>
+            <span className="text-[9px] text-muted/50 select-none px-1">Demo</span>
           ) : (
             <AccountMenu />
           )}

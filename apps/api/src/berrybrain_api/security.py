@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from typing import Any
 
 from fastapi import HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.config import Settings, get_settings
@@ -29,8 +29,8 @@ try:
     from argon2.exceptions import VerifyMismatchError
 
     _ARGON2 = PasswordHasher(
-        time_cost=3,
-        memory_cost=65536,
+        time_cost=2,
+        memory_cost=19456,
         parallelism=2,
         hash_len=32,
         salt_len=16,
@@ -164,22 +164,21 @@ def assert_rate_limit(
         seconds=settings.auth_rate_limit_window_seconds
     )
     ip = client_ip(request)
-    rows = list(
-        session.execute(
-            select(LoginAttemptRecord).where(
-                LoginAttemptRecord.action == action,
-                LoginAttemptRecord.success == False,  # noqa: E712
-                LoginAttemptRecord.created_at >= since,
-            )
-        ).scalars()
-    )
     email_key = normalize_email(email)
-    failures = [
-        row
-        for row in rows
-        if row.ip_address == ip or (email_key and row.email == email_key)
-    ]
-    if len(failures) >= settings.auth_rate_limit_max_attempts:
+    identity_filter = (
+        or_(LoginAttemptRecord.ip_address == ip, LoginAttemptRecord.email == email_key)
+        if email_key
+        else LoginAttemptRecord.ip_address == ip
+    )
+    failures = session.execute(
+        select(func.count(LoginAttemptRecord.id)).where(
+            LoginAttemptRecord.action == action,
+            LoginAttemptRecord.success == False,  # noqa: E712
+            LoginAttemptRecord.created_at >= since,
+            identity_filter,
+        )
+    ).scalar_one()
+    if failures >= settings.auth_rate_limit_max_attempts:
         raise HTTPException(
             status_code=429, detail="Too many attempts. Try again later."
         )

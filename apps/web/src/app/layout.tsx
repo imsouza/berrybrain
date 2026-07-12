@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   icons: {
     icon: berrylogo.src,
-    apple: berrylogo.src,
+    apple: "/berrybrain/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,

@@ -1,10 +1,11 @@
 const CACHE_NAME = "berrybrain-shell-v1";
+const BASE = new URL(self.location.href).pathname.replace(/\/sw\.js$/, "") || "";
 const SHELL_ASSETS = [
-  "/",
-  "/brain",
-  "/manifest.webmanifest",
-  "/favicon.svg",
-  "/berrylogo.png"
+  BASE + "/",
+  BASE + "/brain",
+  BASE + "/manifest.webmanifest",
+  BASE + "/favicon.svg",
+  BASE + "/berrylogo.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -30,7 +31,7 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname.startsWith(BASE + "/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
@@ -40,7 +41,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
+        .catch(() => caches.match(request).then((cached) => cached || caches.match(BASE + "/")))
     );
     return;
   }

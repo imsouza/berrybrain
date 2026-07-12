@@ -54,8 +54,9 @@ def cognitive_status(session: Session) -> dict[str, Any]:
     edges = session.query(func.count(GraphEdgeRecord.id)).scalar() or 0
     insights = session.query(func.count(InsightRecord.id)).scalar() or 0
     jobs = dict(
-        session.execute(select(JobRecord.status, func.count()).group_by(JobRecord.status))
-        .all()
+        session.execute(
+            select(JobRecord.status, func.count()).group_by(JobRecord.status)
+        ).all()
     )
     config = get_ai_config(session)
     cognitive = cognitive_config(session)
@@ -105,8 +106,7 @@ def index_knowledge_base(session: Session) -> dict[str, Any]:
     processable_notes = [note for note in notes if (note.content or "").strip()]
     attachment_chunks = _attachment_chunks(session, chunk_size)
     embeddings = {
-        emb.note_id: emb
-        for emb in session.execute(select(EmbeddingRecord)).scalars()
+        emb.note_id: emb for emb in session.execute(select(EmbeddingRecord)).scalars()
     }
     chunk_records = _knowledge_chunks(processable_notes, chunk_size) + attachment_chunks
     chunk_count = len(chunk_records)
@@ -199,13 +199,19 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
     except Exception as exc:
         return _fallback_answer(question, orchestrated, f"AI failed: {exc}")
 
+    answer_text = str(result.get("answer") or "").strip()
     returned_evidence = result.get("evidence")
     if not isinstance(returned_evidence, list) or not returned_evidence:
-        return _fallback_answer(question, orchestrated, "AI returned no evidence.")
+        # ponytail: model answered but skipped the strict evidence list -> use retrieved evidence
+        if not answer_text:
+            return _fallback_answer(question, orchestrated, "AI returned no answer.")
+        returned_evidence = orchestrated["evidence"][:8]
+    if not answer_text:
+        return _fallback_answer(question, orchestrated, "AI returned no answer.")
     return {
         "status": str(result.get("status") or "answered"),
         "question": question,
-        "answer": str(result.get("answer") or ""),
+        "answer": answer_text,
         "routes": orchestrated["routes"],
         "evidence": returned_evidence,
         "relatedNodes": result.get("relatedNodes")
@@ -223,7 +229,9 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
 def orchestrate_retrieval(session: Session, question: str) -> dict[str, Any]:
     cognitive = cognitive_config(session)
     tokens = _tokens(question)
-    semantic_needed = bool(tokens & {"job", "jobs", "erro", "erros", "fila", "worker", "stats", "status"})
+    semantic_needed = bool(
+        tokens & {"job", "jobs", "erro", "erros", "fila", "worker", "stats", "status"}
+    )
     mode = cognitive["cognitive_retrieval_mode"]
     graph_needed = mode in {"hybrid", "graph_first"}
     kb_needed = mode in {"hybrid", "kb_first"}
@@ -231,7 +239,9 @@ def orchestrate_retrieval(session: Session, question: str) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
     if kb_needed:
         routes.append("knowledge_base")
-        evidence.extend([_evidence_dict(item) for item in retrieve_kb(session, question)])
+        evidence.extend(
+            [_evidence_dict(item) for item in retrieve_kb(session, question)]
+        )
     if graph_needed or len(evidence) < 4:
         routes.append("knowledge_graph")
         graph_items, related_nodes = retrieve_graph(session, question)
@@ -259,7 +269,9 @@ def orchestrate_retrieval(session: Session, question: str) -> dict[str, Any]:
     }
 
 
-def retrieve_kb(session: Session, query: str, limit: int = 8) -> list[RetrievalEvidence]:
+def retrieve_kb(
+    session: Session, query: str, limit: int = 8
+) -> list[RetrievalEvidence]:
     external_results = retrieve_external_kb(session, query, limit=limit)
     if external_results:
         return external_results
@@ -292,7 +304,8 @@ def retrieve_kb(session: Session, query: str, limit: int = 8) -> list[RetrievalE
         chunks = chunk_markdown(extraction.extracted_text)
         for index, chunk in enumerate(chunks):
             score = _token_score(
-                query_tokens, _tokens(chunk + " " + attachment.filename + " " + note.title)
+                query_tokens,
+                _tokens(chunk + " " + attachment.filename + " " + note.title),
             )
             if score <= 0:
                 continue
@@ -340,10 +353,14 @@ def retrieve_graph(
 ) -> tuple[list[RetrievalEvidence], list[str]]:
     query_tokens = _tokens(query)
     nodes = list(
-        session.execute(select(GraphNodeRecord).where(GraphNodeRecord.status != "ignored")).scalars()
+        session.execute(
+            select(GraphNodeRecord).where(GraphNodeRecord.status != "ignored")
+        ).scalars()
     )
     edges = list(
-        session.execute(select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")).scalars()
+        session.execute(
+            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+        ).scalars()
     )
     node_by_id = {node.id: node for node in nodes}
     results: list[RetrievalEvidence] = []
@@ -366,7 +383,9 @@ def retrieve_graph(
             RetrievalEvidence(
                 source="knowledge_graph",
                 title=node.label,
-                text=(node.ai_context or node.ai_summary or node.summary or node.label)[:900],
+                text=(node.ai_context or node.ai_summary or node.summary or node.label)[
+                    :900
+                ],
                 score=score,
                 metadata={
                     "nodeId": node.id,
@@ -421,8 +440,9 @@ def retrieve_graph(
 
 def semantic_data_state(session: Session) -> dict[str, Any]:
     job_counts = dict(
-        session.execute(select(JobRecord.status, func.count()).group_by(JobRecord.status))
-        .all()
+        session.execute(
+            select(JobRecord.status, func.count()).group_by(JobRecord.status)
+        ).all()
     )
     jobs_by_type = {
         row[0]: {
@@ -448,14 +468,11 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
             select(JobRecord.type, func.count())
             .where(JobRecord.status == "failed")
             .group_by(JobRecord.type)
-        )
-        .all()
+        ).all()
     )
     notes = list(session.execute(select(NoteRecord)).scalars())
     processable_notes = [note for note in notes if (note.content or "").strip()]
-    embedding_note_ids = set(
-        session.execute(select(EmbeddingRecord.note_id)).scalars()
-    )
+    embedding_note_ids = set(session.execute(select(EmbeddingRecord.note_id)).scalars())
     assimilation = note_assimilation_map(session, notes)
     unassimilated = [
         note for note in notes if not assimilation.get(note.id, {}).get("assimilated")
@@ -503,7 +520,9 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
         if visible_edges
         else 1.0
     )
-    active_work = (job_counts.get("pending", 0) or 0) + (job_counts.get("running", 0) or 0)
+    active_work = (job_counts.get("pending", 0) or 0) + (
+        job_counts.get("running", 0) or 0
+    )
     return {
         "jobs": job_counts,
         "jobsByType": jobs_by_type,
@@ -533,7 +552,12 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
         "processableNotes": processable_count,
         "emptyNotes": len(notes) - processable_count,
         "unassimilatedNotes": [
-            {"id": note.id, "title": note.title, "path": note.path, "status": note.status}
+            {
+                "id": note.id,
+                "title": note.title,
+                "path": note.path,
+                "status": note.status,
+            }
             for note in unassimilated[:20]
         ],
         "knowledgeBase": {
@@ -621,7 +645,9 @@ def _knowledge_chunks(notes: list[NoteRecord], chunk_size: int) -> list[dict[str
 def _attachment_chunks(session: Session, chunk_size: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for attachment, extraction, note in _extracted_attachments(session):
-        for index, chunk in enumerate(chunk_markdown(extraction.extracted_text, chunk_size)):
+        for index, chunk in enumerate(
+            chunk_markdown(extraction.extracted_text, chunk_size)
+        ):
             records.append(
                 {
                     "id": _stable_attachment_chunk_id(attachment.id, index),
@@ -691,7 +717,9 @@ def _hash_embedding(text: str, dimensions: int = VECTOR_DIMENSIONS) -> list[floa
     return [round(value / norm, 6) for value in vector]
 
 
-def _sync_qdrant(cognitive: dict[str, str], records: list[dict[str, Any]]) -> dict[str, Any]:
+def _sync_qdrant(
+    cognitive: dict[str, str], records: list[dict[str, Any]]
+) -> dict[str, Any]:
     base_url = cognitive["qdrant_url"].rstrip("/")
     collection = cognitive["qdrant_collection"] or "berrybrain"
     collection_url = f"{base_url}/collections/{collection}"
@@ -736,20 +764,22 @@ def _sync_qdrant(cognitive: dict[str, str], records: list[dict[str, Any]]) -> di
     }
 
 
-def _sync_chroma(cognitive: dict[str, str], records: list[dict[str, Any]]) -> dict[str, Any]:
+def _sync_chroma(
+    cognitive: dict[str, str], records: list[dict[str, Any]]
+) -> dict[str, Any]:
     base_url = cognitive["chroma_url"].rstrip("/")
     collection = cognitive["chroma_collection"] or "berrybrain"
     created = _http_json(
         "POST",
         f"{base_url}/api/v1/collections",
-        {"name": collection, "metadata": {"source": "berrybrain"}, "get_or_create": True},
+        {
+            "name": collection,
+            "metadata": {"source": "berrybrain"},
+            "get_or_create": True,
+        },
         ok_statuses={200, 201, 409},
     )
-    collection_id = (
-        created.get("id")
-        or created.get("name")
-        or collection
-    )
+    collection_id = created.get("id") or created.get("name") or collection
     upserted = 0
     for batch in _batches(records, 64):
         _http_json(
@@ -829,7 +859,11 @@ def _retrieve_chroma(
     created = _http_json(
         "POST",
         f"{base_url}/api/v1/collections",
-        {"name": collection, "metadata": {"source": "berrybrain"}, "get_or_create": True},
+        {
+            "name": collection,
+            "metadata": {"source": "berrybrain"},
+            "get_or_create": True,
+        },
         ok_statuses={200, 201, 409},
     )
     collection_id = created.get("id") or created.get("name") or collection
@@ -851,12 +885,20 @@ def _retrieve_chroma(
         text = str(document or "")
         if not text.strip():
             continue
-        metadata = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
-        distance = _float_value(distances[index] if index < len(distances) else None, 1.0)
+        metadata = (
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        distance = _float_value(
+            distances[index] if index < len(distances) else None, 1.0
+        )
         evidence.append(
             RetrievalEvidence(
                 source="knowledge_base",
-                title=str(metadata.get("title") or metadata.get("path") or "Knowledge chunk"),
+                title=str(
+                    metadata.get("title") or metadata.get("path") or "Knowledge chunk"
+                ),
                 text=text[:900],
                 score=round(1 / (1 + max(distance, 0.0)), 6),
                 metadata={
@@ -943,9 +985,13 @@ def _fallback_answer(
     question: str, orchestrated: dict[str, Any], reason: str
 ) -> dict[str, Any]:
     evidence = orchestrated["evidence"]
-    answer = "Evidence found, but the configured model did not return a grounded answer."
+    answer = (
+        "Evidence found, but the configured model did not return a grounded answer."
+    )
     if evidence:
         answer = f"{answer} Strongest evidence: {evidence[0]['title']}."
+    if reason:
+        answer = f"{answer} ({reason})"
     return {
         "status": "waiting_provider",
         "question": question,
@@ -953,7 +999,10 @@ def _fallback_answer(
         "routes": orchestrated["routes"],
         "evidence": evidence[:8],
         "relatedNodes": orchestrated["relatedNodes"],
-        "suggestions": ["Retry after provider recovers.", "Create an insight manually from the evidence."],
+        "suggestions": [
+            "Retry after provider recovers.",
+            "Create an insight manually from the evidence.",
+        ],
         "reason": reason,
     }
 

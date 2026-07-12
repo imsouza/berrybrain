@@ -91,6 +91,7 @@ export default function Admin() {
   const [editing, setEditing] = useState<AdminUser | null>(null);
   const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
   const [deleting, setDeleting] = useState<AdminUser | null>(null);
+  const [me, setMe] = useState<{ id: number } | null>(null);
 
   async function api(path: string, method: string, body?: unknown) {
     const response = await fetch(`${apiUrl}/api/v1${path}`, {
@@ -110,7 +111,7 @@ export default function Admin() {
     try {
       const response = await fetch(`${apiUrl}/api/v1/admin/users`, { credentials: "include" });
       if (response.status === 401) {
-        window.location.href = appPath("/login?next=/admin");
+        window.location.href = appPath("/admin/login");
         return;
       }
       if (response.status === 403) {
@@ -118,9 +119,11 @@ export default function Admin() {
         setMessage("This session is valid, but it is not the configured administrator account.");
         return;
       }
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || "Could not load admin data");
       setUsers(payload.users || []);
+      const meResponse = await fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" });
+      if (meResponse.ok) setMe(await meResponse.json().catch(() => null));
       const auditResponse = await fetch(`${apiUrl}/api/v1/admin/audit-events`, { credentials: "include" });
       if (auditResponse.ok) {
         const auditPayload = await auditResponse.json();
@@ -167,8 +170,13 @@ export default function Admin() {
   );
 
   function action(userId: number, kind: "lock" | "unlock" | "revoke-sessions" | "force-password-reset") {
+    const reason = kind === "lock" || kind === "unlock"
+      ? "Admin panel action"
+      : (window.prompt("Reason for this action (optional):", "Admin panel action") ?? "Admin panel action");
+    const needsConfirm = kind === "force-password-reset" || kind === "revoke-sessions";
+    if (needsConfirm && !window.confirm(`Confirm ${kind.replace(/-/g, " ")} for user ${userId}?`)) return;
     return run(`${kind}-${userId}`, async () => {
-      await api(`/admin/users/${userId}/${kind}`, "POST", { reason: "Admin panel action" });
+      await api(`/admin/users/${userId}/${kind}`, "POST", { reason });
     });
   }
 
@@ -182,7 +190,7 @@ export default function Admin() {
             <>
               <h1 className="text-lg font-semibold tracking-tight">Admin access</h1>
               <p className="mt-2 text-sm leading-6 text-muted">{message || "Sign in with the administrator account to continue."}</p>
-              <a href={appPath("/login?next=/admin")} className="mt-5 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-black">Sign in</a>
+              <a href={appPath("/admin/login")} className="mt-5 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-black">Sign in</a>
             </>
           )}
         </div>
@@ -229,7 +237,9 @@ export default function Admin() {
                   <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search email or name..." className="w-56 max-w-[55%] rounded-md border border-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-accent" />
                 </div>
                 <div className="divide-y divide-border">
-                  {filtered.map((user) => (
+                  {filtered.map((user) => {
+                    const isSelf = me?.id === user.id;
+                    return (
                     <div key={user.id} className="p-5">
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div className="min-w-0">
@@ -244,20 +254,21 @@ export default function Admin() {
                           <div className="mt-2 text-[11px] text-muted">Last login: {fmtDate(user.lastLoginAt)}</div>
                         </div>
                         <div className="flex flex-wrap gap-2 md:justify-end">
-                          <button disabled={!!busy} onClick={() => setEditing(user)} className={ghostBtn}>Edit</button>
-                          <button disabled={!!busy} onClick={() => setPasswordUser(user)} className={ghostBtn}>Password</button>
-                          <button disabled={!!busy} onClick={() => action(user.id, user.lockedUntil ? "unlock" : "lock")} className={ghostBtn}>
+                          <button disabled={busy === "edit" || isSelf} onClick={() => setEditing(user)} className={ghostBtn}>Edit</button>
+                          <button disabled={busy === "set-password"} onClick={() => setPasswordUser(user)} className={ghostBtn}>Password</button>
+                          <button disabled={busy === `${user.lockedUntil ? "unlock" : "lock"}-${user.id}` || isSelf} onClick={() => action(user.id, user.lockedUntil ? "unlock" : "lock")} className={ghostBtn}>
                             {user.lockedUntil ? "Unlock" : "Lock"}
                           </button>
-                          <button disabled={!!busy} onClick={() => action(user.id, "force-password-reset")} className={ghostBtn}>Force reset</button>
-                          <button disabled={!!busy} onClick={() => action(user.id, "revoke-sessions")} className={ghostBtn}>Revoke sessions</button>
-                          <button disabled={!!busy} onClick={() => setDeleting(user)} className="rounded-md border border-red-500/40 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-60">
+                          <button disabled={busy === `force-password-reset-${user.id}` || isSelf} onClick={() => action(user.id, "force-password-reset")} className={ghostBtn}>Force reset</button>
+                          <button disabled={busy === `revoke-sessions-${user.id}` || isSelf} onClick={() => action(user.id, "revoke-sessions")} className={ghostBtn}>Revoke sessions</button>
+                          <button disabled={busy === "delete" || isSelf} onClick={() => setDeleting(user)} className="rounded-md border border-red-500/40 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-60">
                             Delete
                           </button>
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                   })}
                   {filtered.length === 0 && <p className="p-5 text-sm text-muted">No users found.</p>}
                 </div>
               </div>

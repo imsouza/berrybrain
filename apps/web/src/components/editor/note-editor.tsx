@@ -19,12 +19,16 @@ function Backlinks({ notePath }: { notePath: string }) {
   const w = useWorkspace();
   const [links, setLinks] = useState<any[]>([]);
   useEffect(() => {
+    if (w.demo) {
+      setLinks([]);
+      return;
+    }
     const path = notePath.split("/").map(encodeURIComponent).join("/");
     fetch(`${w.api}/api/v1/connections?note_path=${path}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => setLinks(d?.connections || []))
       .catch(() => {});
-  }, [notePath, w.api]);
+  }, [notePath, w.api, w.demo]);
   if (!links.length) return null;
   return (
     <div className="border-t border-border/50 px-6 py-4">
@@ -53,7 +57,7 @@ export function NoteEditor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!w.active) {
+    if (!w.active || w.demo) {
       setAttachments([]);
       return;
     }
@@ -62,7 +66,7 @@ export function NoteEditor() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setAttachments(data?.attachments || []))
       .catch(() => setAttachments([]));
-  }, [w.active?.path, w.api]);
+  }, [w.active?.path, w.api, w.demo]);
 
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;
@@ -90,6 +94,42 @@ export function NoteEditor() {
       start + prefix.length,
       start + prefix.length + selected.length,
     );
+  }
+
+  function toggleBold() {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? w.draft.length;
+    const end = el?.selectionEnd ?? w.draft.length;
+    const marker = "**";
+    const selected = w.draft.slice(start, end);
+
+    if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length >= marker.length * 2) {
+      const unwrapped = selected.slice(marker.length, -marker.length);
+      const next = `${w.draft.slice(0, start)}${unwrapped}${w.draft.slice(end)}`;
+      replaceSelection(next, start, start + unwrapped.length);
+      return;
+    }
+
+    if (
+      start >= marker.length &&
+      w.draft.slice(start - marker.length, start) === marker &&
+      w.draft.slice(end, end + marker.length) === marker
+    ) {
+      const next = `${w.draft.slice(0, start - marker.length)}${w.draft.slice(start, end)}${w.draft.slice(end + marker.length)}`;
+      replaceSelection(next, start - marker.length, end - marker.length);
+      return;
+    }
+
+    const before = w.draft.lastIndexOf(marker, Math.max(0, start - 1));
+    const after = w.draft.indexOf(marker, end);
+    if (start === end && before >= 0 && after > before) {
+      const next = `${w.draft.slice(0, before)}${w.draft.slice(before + marker.length, after)}${w.draft.slice(after + marker.length)}`;
+      const cursor = Math.max(before, start - marker.length);
+      replaceSelection(next, cursor, cursor);
+      return;
+    }
+
+    wrapSelection(marker, marker, "bold text");
   }
 
   function insertBlock(block: string) {
@@ -126,6 +166,10 @@ export function NoteEditor() {
 
   async function uploadFiles(files: FileList | null) {
     if (!files?.length || !w.active) return;
+    if (w.demo) {
+      setAttachmentStatus("Attachments are disabled in demo mode.");
+      return;
+    }
     setAttachmentStatus(`Uploading ${files.length} attachment${files.length > 1 ? "s" : ""}...`);
     const encodedPath = encodeNotePath(w.active.path);
     const uploaded: AttachmentItem[] = [];
@@ -160,6 +204,7 @@ export function NoteEditor() {
   }
 
   async function deleteAttachment(id: number) {
+    if (w.demo) return;
     const response = await fetch(`${w.api}/api/v1/notes/attachments/${id}`, { method: "DELETE" });
     if (response.ok) setAttachments((current) => current.filter((item) => item.id !== id));
   }
@@ -181,7 +226,7 @@ export function NoteEditor() {
     const key = event.key.toLowerCase();
     if (key === "b") {
       event.preventDefault();
-      wrapSelection("**", "**", "bold text");
+      toggleBold();
     } else if (key === "i") {
       event.preventDefault();
       wrapSelection("*", "*", "italic text");
@@ -262,7 +307,7 @@ export function NoteEditor() {
 
       {(w.viewMode === "edit" || w.viewMode === "split") && (
         <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-panel/70 px-3 py-2 lg:px-5">
-          <ToolbarButton label="B" title="Bold" onClick={() => wrapSelection("**", "**", "bold text")} />
+          <ToolbarButton label="B" title="Bold" onClick={toggleBold} />
           <ToolbarButton label="I" title="Italic" onClick={() => wrapSelection("*", "*", "italic text")} />
           <ToolbarButton label="H2" title="Heading" onClick={() => insertBlock("## Heading\n")} />
           <ToolbarButton label=">" title="Quote" onClick={() => prefixLines("> ")} />
