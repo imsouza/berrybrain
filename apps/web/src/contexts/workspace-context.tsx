@@ -6,10 +6,7 @@ import type { AutosaveStatus, Insight, JobSummary, NoteDetail, NoteSummary, Stat
 export function getApiUrl() {
   const env = process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL;
   if (env) return env;
-  if (typeof window === "undefined") return "http://192.168.3.36:8000";
-  const runtimeBasePath = getRuntimeBasePath();
-  if (runtimeBasePath) return runtimeBasePath;
-  // Same-origin: Next proxies /api to the api service.
+  if (typeof window === "undefined") return "";
   return "";
 }
 export function appPath(p: string) {

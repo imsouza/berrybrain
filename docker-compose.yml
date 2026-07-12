@@ -30,7 +30,6 @@ services:
       - .env
     environment:
       BERRYBRAIN_INTERNAL_API_URL: http://api:8000
-      NEXT_PUBLIC_BERRYBRAIN_API_URL: "/berrybrain"
       NEXT_PUBLIC_BERRYBRAIN_BASE_PATH: "/berrybrain"
       NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX: "/berrybrain"
       NEXT_TELEMETRY_DISABLED: "1"
