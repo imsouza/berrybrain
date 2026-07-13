@@ -10,7 +10,9 @@ from berrybrain_api.models import SettingRecord
 
 
 def set_setting(session: Session, key: str, value: str) -> SettingRecord:
-    setting = session.execute(select(SettingRecord).where(SettingRecord.key == key)).scalar_one_or_none()
+    setting = session.execute(
+        select(SettingRecord).where(SettingRecord.key == key)
+    ).scalar_one_or_none()
     if setting is None:
         setting = SettingRecord(key=key, value=value)
         session.add(setting)
@@ -23,14 +25,20 @@ def set_setting(session: Session, key: str, value: str) -> SettingRecord:
 
 
 def get_setting(session: Session, key: str) -> SettingRecord:
-    setting = session.execute(select(SettingRecord).where(SettingRecord.key == key)).scalar_one_or_none()
+    setting = session.execute(
+        select(SettingRecord).where(SettingRecord.key == key)
+    ).scalar_one_or_none()
     if setting is None:
         raise HTTPException(status_code=404, detail="Setting not found")
     return setting
 
 
 def list_settings(session: Session) -> list[SettingRecord]:
-    return list(session.execute(select(SettingRecord).order_by(SettingRecord.key.asc())).scalars())
+    return list(
+        session.execute(
+            select(SettingRecord).order_by(SettingRecord.key.asc())
+        ).scalars()
+    )
 
 
 def serialize_setting(setting: SettingRecord) -> dict[str, Any]:

@@ -66,7 +66,9 @@ class HomeSummaryTest(unittest.TestCase):
                     started_at=now - timedelta(seconds=34),
                 ),
                 JobRecord(type="FIND_CONNECTIONS", status="pending"),
-                JobRecord(type="GENERATE_INSIGHTS", status="failed", error_message="timeout"),
+                JobRecord(
+                    type="GENERATE_INSIGHTS", status="failed", error_message="timeout"
+                ),
                 WorkerStatus(
                     status="running",
                     last_heartbeat=now,

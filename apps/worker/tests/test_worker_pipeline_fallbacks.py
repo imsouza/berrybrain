@@ -124,7 +124,9 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             "qwen/qwen3.5-397b-a17b",
         )
 
-    async def test_graph_insights_use_graph_and_notes_context_with_provider_model(self) -> None:
+    async def test_graph_insights_use_graph_and_notes_context_with_provider_model(
+        self,
+    ) -> None:
         calls = []
 
         class FakeResponse:
@@ -147,8 +149,16 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                     return FakeResponse(
                         {
                             "nodes": [
-                                {"id": "note:1", "type": "note", "label": "Docker Essentials"},
-                                {"id": "topico:2", "type": "topico", "label": "containers"},
+                                {
+                                    "id": "note:1",
+                                    "type": "note",
+                                    "label": "Docker Essentials",
+                                },
+                                {
+                                    "id": "topico:2",
+                                    "type": "topico",
+                                    "label": "containers",
+                                },
                             ],
                             "edges": [
                                 {
@@ -213,7 +223,11 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             {"note_path": "permanentes/docker-essentials.md"},
         )
 
-        sync_call = next(call for call in calls if call[0] == "post" and call[1].endswith("/api/v1/insights/sync"))
+        sync_call = next(
+            call
+            for call in calls
+            if call[0] == "post" and call[1].endswith("/api/v1/insights/sync")
+        )
         synced = sync_call[2]["payload"]["insights"][0]
         prompt = next(call[1] for call in calls if call[0] == "prompt")
 

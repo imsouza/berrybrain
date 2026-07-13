@@ -30,5 +30,7 @@ jobs:
           pip install ruff==0.6.9
       - name: Ruff check
         run: ruff check src tests
+      - name: Ruff format check
+        run: ruff format --check src tests
       - name: Worker tests
         run: PYTHONPATH=src python -m unittest discover tests

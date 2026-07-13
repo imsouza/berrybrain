@@ -402,7 +402,9 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
 
 
 def _ensure_graph_node_context(session: Session) -> int:
-    notes_by_id = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    notes_by_id = {
+        note.id: note for note in session.execute(select(NoteRecord)).scalars()
+    }
     changed = 0
     now = datetime.now(UTC)
     for node in session.execute(select(GraphNodeRecord)).scalars():
@@ -474,90 +476,97 @@ def _build_node_context(
     if node_type == "note":
         summary = node.summary or f'"{label}" is a source note from the vault.'
         context = (
-            f'This note is a primary knowledge source. BerryBrain uses it to extract '
-            f'concepts, backlinks, evidence, and graph connections. Evidence: {evidence_text}.'
+            f"This note is a primary knowledge source. BerryBrain uses it to extract "
+            f"concepts, backlinks, evidence, and graph connections. Evidence: {evidence_text}."
         )
         return summary, context, "source"
 
     if node_type in {"concept", "conceito"}:
         summary = (
-            node.summary
-            or f'"{label}" is a recurring concept grounded in {note_text}.'
+            node.summary or f'"{label}" is a recurring concept grounded in {note_text}.'
         )
         context = (
-            f'This concept helps connect notes that discuss the same idea. It should be '
-            f'reviewed as a possible permanent note when it appears across multiple sources. '
-            f'Evidence: {evidence_text}.'
+            f"This concept helps connect notes that discuss the same idea. It should be "
+            f"reviewed as a possible permanent note when it appears across multiple sources. "
+            f"Evidence: {evidence_text}."
         )
         return summary, context, "concept"
 
     if node_type in {"topico", "topic"}:
         summary = node.summary or f'"{label}" is a topic detected from {note_text}.'
         context = (
-            f'This topic groups nearby ideas from the source material. It is useful when '
-            f'it explains what area of study the related notes belong to. Evidence: {evidence_text}.'
+            f"This topic groups nearby ideas from the source material. It is useful when "
+            f"it explains what area of study the related notes belong to. Evidence: {evidence_text}."
         )
         return summary, context, "topic"
 
     if node_type in {"entidade", "entity"}:
         summary = node.summary or f'"{label}" is an entity mentioned in {note_text}.'
         context = (
-            f'This entity can anchor references to people, tools, systems, projects, or named '
-            f'objects across the graph. Evidence: {evidence_text}.'
+            f"This entity can anchor references to people, tools, systems, projects, or named "
+            f"objects across the graph. Evidence: {evidence_text}."
         )
         return summary, context, "entity"
 
     if node_type in {"contexto", "context"}:
         summary = node.summary or f'"{label}" is a context inferred from {note_text}.'
         context = (
-            f'This context explains the situation or domain where related concepts are being '
-            f'used. It helps BerryBrain answer why notes belong together. Evidence: {evidence_text}.'
+            f"This context explains the situation or domain where related concepts are being "
+            f"used. It helps BerryBrain answer why notes belong together. Evidence: {evidence_text}."
         )
         return summary, context, "context"
 
     if node_type in {"lacuna", "gap"}:
-        summary = node.summary or f'"{label}" is a knowledge gap detected in {note_text}.'
+        summary = (
+            node.summary or f'"{label}" is a knowledge gap detected in {note_text}.'
+        )
         context = (
-            f'This gap marks a missing explanation, bridge, or source that would improve the '
-            f'knowledge graph. Treat it as a candidate for a new note or study path. Evidence: {evidence_text}.'
+            f"This gap marks a missing explanation, bridge, or source that would improve the "
+            f"knowledge graph. Treat it as a candidate for a new note or study path. Evidence: {evidence_text}."
         )
         return summary, context, "gap"
 
     if node_type in {"fonte", "source"}:
         summary = node.summary or f'"{label}" is a referenced source from {note_text}.'
         context = (
-            f'This source node preserves where knowledge came from and can be validated or '
-            f'revisited later. Evidence: {evidence_text}.'
+            f"This source node preserves where knowledge came from and can be validated or "
+            f"revisited later. Evidence: {evidence_text}."
         )
         return summary, context, "source"
 
     if node_type == "attachment":
         summary = node.summary or f'"{label}" is an attachment linked to {note_text}.'
         context = (
-            f'This attachment is treated as supporting material for the related note. Extracted '
-            f'text or future OCR/transcription can feed the Knowledge Base and graph. Evidence: {evidence_text}.'
+            f"This attachment is treated as supporting material for the related note. Extracted "
+            f"text or future OCR/transcription can feed the Knowledge Base and graph. Evidence: {evidence_text}."
         )
         return summary, context, "attachment"
 
     if node_type == "insight":
-        summary = node.summary or f'"{label}" is an insight generated from vault evidence.'
+        summary = (
+            node.summary or f'"{label}" is an insight generated from vault evidence.'
+        )
         context = (
-            f'This insight exists to explain a pattern, gap, hypothesis, or action derived '
-            f'from notes and graph evidence. Evidence: {evidence_text}.'
+            f"This insight exists to explain a pattern, gap, hypothesis, or action derived "
+            f"from notes and graph evidence. Evidence: {evidence_text}."
         )
         return summary, context, "insight"
 
     summary = node.summary or f'"{label}" is a graph node grounded in {note_text}.'
     context = (
-        f'This node exists because BerryBrain found evidence in the knowledge base or graph. '
-        f'Evidence: {evidence_text}.'
+        f"This node exists because BerryBrain found evidence in the knowledge base or graph. "
+        f"Evidence: {evidence_text}."
     )
     return summary, context, "knowledge"
 
 
 def _ensure_graph_edge_traceability(session: Session) -> int:
-    nodes_by_id = {node.id: node for node in session.execute(select(GraphNodeRecord)).scalars()}
-    notes_by_id = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    nodes_by_id = {
+        node.id: node for node in session.execute(select(GraphNodeRecord)).scalars()
+    }
+    notes_by_id = {
+        note.id: note for note in session.execute(select(NoteRecord)).scalars()
+    }
     changed = 0
     now = datetime.now(UTC)
     for edge in session.execute(select(GraphEdgeRecord)).scalars():
@@ -578,9 +587,7 @@ def _ensure_graph_edge_traceability(session: Session) -> int:
             if note_id in notes_by_id
         ]
         evidence = [
-            str(item)
-            for item in _parse_json_list(edge.evidence)
-            if str(item).strip()
+            str(item) for item in _parse_json_list(edge.evidence) if str(item).strip()
         ]
         if not evidence:
             evidence = note_titles or [source.label, target.label]
@@ -1082,9 +1089,9 @@ def _generate_deterministic_insights(session: Session) -> int:
             select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
         ).scalars()
     )
-    connected_ids = {
-        edge.source_node_id for edge in graph_edges
-    } | {edge.target_node_id for edge in graph_edges}
+    connected_ids = {edge.source_node_id for edge in graph_edges} | {
+        edge.target_node_id for edge in graph_edges
+    }
     isolated = [node for node in graph_nodes if node.id not in connected_ids]
     for node in isolated[:3]:
         title = f'Knowledge gap: "{node.label}" is still isolated'
@@ -1203,13 +1210,13 @@ def _upsert_content_insight(
     insight.suggested_action = suggested_action
     insight.graph_impact = graph_impact
     insight.confidence = confidence
-    insight.status = insight.status if insight.status in {"applied", "ignored"} else "suggested"
+    insight.status = (
+        insight.status if insight.status in {"applied", "ignored"} else "suggested"
+    )
     insight.provider = "content-analysis"
     insight.model = "deterministic-knowledge-insights.v1"
     insight.prompt_version = "content-insight.v1"
-    insight.reasoning = (
-        "Generated from shared concepts and graph structure using vault notes as evidence."
-    )
+    insight.reasoning = "Generated from shared concepts and graph structure using vault notes as evidence."
     insight.source_context = _dump_json({"source": "knowledge_graph"})
     insight.updated_at = datetime.now(UTC)
     return insight
@@ -1298,7 +1305,10 @@ def _connect_insight_to_sources(
             source_note_ids,
             "ai" if insight.provider else "system",
             "confirmed"
-            if (insight_node.status == "confirmed" or insight.status in {"confirmed", "applied"})
+            if (
+                insight_node.status == "confirmed"
+                or insight.status in {"confirmed", "applied"}
+            )
             else "suggested",
             provider=insight.provider or "unknown",
             model=insight.model or "insight-generate.v2",
@@ -1342,7 +1352,11 @@ def _resolve_insight_source_nodes(
         for edge in edges:
             for node_id in (edge.source_node_id, edge.target_node_id):
                 node = session.get(GraphNodeRecord, node_id)
-                if node is not None and node.id != insight_node_id and node.status != "ignored":
+                if (
+                    node is not None
+                    and node.id != insight_node_id
+                    and node.status != "ignored"
+                ):
                     targets[node.id] = node
 
     normalized_evidence = normalize_concept_name(evidence_text)
@@ -1474,7 +1488,11 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
                 ],
                 "edges": [],
             },
-            "actions": ["Highlight in graph", "Create insight", "Create permanent note"],
+            "actions": [
+                "Highlight in graph",
+                "Create insight",
+                "Create permanent note",
+            ],
         }
 
     node_by_id = {node.id: node for node in nodes}
@@ -2117,7 +2135,9 @@ def _extract_content_concepts(note: NoteRecord) -> list[str]:
             candidates.append(concept)
 
     # Capture explicit proper names that often act as entities/concepts.
-    for match in re.finditer(r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text):
+    for match in re.finditer(
+        r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text
+    ):
         name = " ".join(match.group(1).split())
         normalized = normalize_concept_name(name)
         if _is_valid_concept_name(name) and normalized not in {"home", "resumo"}:
@@ -2169,8 +2189,7 @@ def _unique_concept_names(values: list[str]) -> list[str]:
             len(normalized.split()) == 1
             and not value.isupper()
             and any(
-                normalized != other
-                and normalized in other.split()
+                normalized != other and normalized in other.split()
                 for other in normalized_all
             )
         )
@@ -2270,7 +2289,9 @@ def _why_node_exists(node: GraphNodeRecord, notes: list[NoteRecord]) -> str:
     if node.type == "concept":
         titles = ", ".join(note.title for note in notes[:3])
         return (
-            f"Extracted from: {titles}." if titles else "Extracted from system metadata."
+            f"Extracted from: {titles}."
+            if titles
+            else "Extracted from system metadata."
         )
     if node.type == "topico":
         titles = ", ".join(note.title for note in notes[:3])
@@ -2632,10 +2653,7 @@ def _extract_context_from_metadata(
                         val = domain
                 ctx_name = str(val).strip()
                 seen_key = (note_id, normalize_concept_name(ctx_name))
-                if (
-                    not _is_valid_context_name(ctx_name)
-                    or seen_key in seen
-                ):
+                if not _is_valid_context_name(ctx_name) or seen_key in seen:
                     continue
                 seen.add(seen_key)
                 node = _upsert_typed_node(

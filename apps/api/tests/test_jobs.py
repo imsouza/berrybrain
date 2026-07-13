@@ -159,7 +159,9 @@ class JobServiceTest(unittest.TestCase):
         self.assertIn("GENERATE_NOTE_TITLE", [job.type for job in draft_jobs])
         self.assertNotIn("GENERATE_NOTE_TITLE", [job.type for job in normal_jobs])
 
-    def test_enqueue_note_changed_jobs_is_idempotent_by_type_path_and_hash(self) -> None:
+    def test_enqueue_note_changed_jobs_is_idempotent_by_type_path_and_hash(
+        self,
+    ) -> None:
         first = enqueue_note_changed_jobs(
             self.session,
             note_path="inbox/reprocess.md",

@@ -8,7 +8,11 @@ from sqlalchemy.orm import sessionmaker
 from berrybrain_api.database import Base
 from berrybrain_api.models import NoteRecord
 from berrybrain_api.sync import sync_note_record
-from berrybrain_api.vault import create_note, extract_internal_links, parse_markdown_note
+from berrybrain_api.vault import (
+    create_note,
+    extract_internal_links,
+    parse_markdown_note,
+)
 
 
 class VaultMetadataTest(unittest.TestCase):
@@ -30,7 +34,9 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
         self.assertEqual(metadata.frontmatter["note_type"], "aula")
         self.assertEqual(metadata.frontmatter["language"], "pt-BR")
         self.assertEqual(metadata.frontmatter["tags"], ["python"])
-        self.assertEqual(metadata.frontmatter["aliases"], ["IA local", "machine learning"])
+        self.assertEqual(
+            metadata.frontmatter["aliases"], ["IA local", "machine learning"]
+        )
         self.assertTrue(metadata.body.startswith("# IA local"))
         self.assertEqual(metadata.links, ["Machine Learning", "estudos/Ollama"])
 
@@ -49,7 +55,9 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
                 encoding="utf-8",
             )
 
-            engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+            engine = create_engine(
+                "sqlite:///:memory:", connect_args={"check_same_thread": False}
+            )
             Base.metadata.create_all(bind=engine)
             session = sessionmaker(bind=engine)()
 
@@ -64,7 +72,9 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
             self.assertEqual(loaded.note_type, "aula")
             self.assertEqual(loaded.language, "pt-BR")
             self.assertTrue(loaded.content_hash)
-            self.assertEqual(loaded.frontmatter, '{"language":"pt-BR","note_type":"aula"}')
+            self.assertEqual(
+                loaded.frontmatter, '{"language":"pt-BR","note_type":"aula"}'
+            )
             self.assertEqual(loaded.links, '["Ollama"]')
 
     def test_create_note_allows_empty_title_with_incremental_draft_slug(self) -> None:

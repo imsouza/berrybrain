@@ -157,13 +157,17 @@ def enrich_missing_graph_nodes(limit: int = 20) -> dict:
         skipped = 0
         for node in candidates:
             marker = f'"node_id":{node.id}'
-            existing = session.execute(
-                select(JobRecord).where(
-                    JobRecord.type == ENRICH_GRAPH_NODE,
-                    JobRecord.status.in_([PENDING, RUNNING]),
-                    JobRecord.payload.like(f"%{marker}%"),
+            existing = (
+                session.execute(
+                    select(JobRecord).where(
+                        JobRecord.type == ENRICH_GRAPH_NODE,
+                        JobRecord.status.in_([PENDING, RUNNING]),
+                        JobRecord.payload.like(f"%{marker}%"),
+                    )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if existing is not None:
                 skipped += 1
                 continue
@@ -238,7 +242,9 @@ def reprocess_graph_node(node_id: int) -> dict:
         node = session.get(GraphNodeRecord, node_id)
         if node is None:
             raise HTTPException(status_code=404, detail="Node not found")
-        job = create_job(session, ENRICH_GRAPH_NODE, {"node_id": node.id}, max_attempts=2)
+        job = create_job(
+            session, ENRICH_GRAPH_NODE, {"node_id": node.id}, max_attempts=2
+        )
         create_automation_log(
             session,
             "GRAPH_NODE_REPROCESS_QUEUED",
@@ -380,15 +386,15 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
             ).scalars()
         )
         connected_ids = {
-            edge.target_node_id if edge.source_node_id == node.id else edge.source_node_id
+            edge.target_node_id
+            if edge.source_node_id == node.id
+            else edge.source_node_id
             for edge in edges
         }
         connected_nodes = (
             list(
                 session.execute(
-                    select(GraphNodeRecord).where(
-                        GraphNodeRecord.id.in_(connected_ids)
-                    )
+                    select(GraphNodeRecord).where(GraphNodeRecord.id.in_(connected_ids))
                 ).scalars()
             )
             if connected_ids
@@ -456,7 +462,9 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"AI enrichment failed: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"AI enrichment failed: {exc}"
+            ) from exc
 
         evidence = result.get("source_evidence")
         if isinstance(evidence, str):
@@ -486,7 +494,10 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
             str(node.id),
             f'Node enriched with AI: "{node.label}"',
             {"provider": node.provider, "model": node.model},
-            {"promptVersion": node.prompt_version, "sourceQuality": node.source_quality},
+            {
+                "promptVersion": node.prompt_version,
+                "sourceQuality": node.source_quality,
+            },
             False,
         )
         return get_node_summary(session, node.id)
@@ -497,7 +508,9 @@ def validate_node_web(node_id: int) -> dict:
     settings = get_settings()
     with SessionLocal() as session:
         if _setting_value(session, "research_mode_enabled", "false") != "true":
-            raise HTTPException(status_code=403, detail="Research Mode is disabled in Settings.")
+            raise HTTPException(
+                status_code=403, detail="Research Mode is disabled in Settings."
+            )
         result = validate_node_with_web(session, node_id, settings.searxng_url)
         create_automation_log(
             session,
@@ -602,7 +615,9 @@ async def generate_connection_insight(edge_id: int) -> dict:
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Connection insight failed: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"Connection insight failed: {exc}"
+            ) from exc
 
         evidence = result.get("evidence")
         if isinstance(evidence, str):
@@ -668,7 +683,11 @@ async def generate_connection_insight(edge_id: int) -> dict:
             str(edge.id),
             f'Connection insight created: "{insight.title}"',
             {"edgeId": edge.id},
-            {"insightId": insight.id, "provider": insight.provider, "model": insight.model},
+            {
+                "insightId": insight.id,
+                "provider": insight.provider,
+                "model": insight.model,
+            },
             False,
         )
         return {"status": "created", "insight": serialize_insight(insight)}

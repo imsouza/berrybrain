@@ -127,14 +127,18 @@ def enqueue_note_changed_jobs(
     jobs: list[JobRecord] = []
 
     for job_type, max_attempts in pipeline:
-        existing = session.execute(
-            select(JobRecord).where(
-                JobRecord.type == job_type,
-                JobRecord.status.in_([PENDING, RUNNING]),
-                JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
-                JobRecord.payload.like(f'%"content_hash":"{content_hash}"%'),
+        existing = (
+            session.execute(
+                select(JobRecord).where(
+                    JobRecord.type == job_type,
+                    JobRecord.status.in_([PENDING, RUNNING]),
+                    JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
+                    JobRecord.payload.like(f'%"content_hash":"{content_hash}"%'),
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
 
         if existing is not None:
             continue

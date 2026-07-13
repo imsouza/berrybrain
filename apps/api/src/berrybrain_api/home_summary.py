@@ -243,7 +243,9 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         "needsAttention": needs_attention,
         "jobsByType": {
             JOB_LABELS.get(job_type, job_type.replace("_", " ").title()): count
-            for job_type, count in Counter(job.type for job in pending_jobs + running_jobs).items()
+            for job_type, count in Counter(
+                job.type for job in pending_jobs + running_jobs
+            ).items()
         },
     }
 

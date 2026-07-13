@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+
 def init_fts(session: Session) -> None:
     session.execute(
         text("CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, content)")

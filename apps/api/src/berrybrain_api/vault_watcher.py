@@ -33,7 +33,9 @@ class VaultWatcher:
             return
 
         self._stop_event.clear()
-        self._thread = Thread(target=self._run_loop, name="berrybrain-vault-watcher", daemon=True)
+        self._thread = Thread(
+            target=self._run_loop, name="berrybrain-vault-watcher", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:

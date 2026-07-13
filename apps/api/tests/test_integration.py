@@ -233,7 +233,9 @@ class IntegrationTest(unittest.TestCase):
         notes = self.client.get("/api/v1/notes").json()["notes"]
         path = notes[0]["path"]
 
-        write_resp = self.client.put(f"/api/v1/flashcards/{path}", json={"flashcards": []})
+        write_resp = self.client.put(
+            f"/api/v1/flashcards/{path}", json={"flashcards": []}
+        )
         self.assertEqual(write_resp.status_code, 404)
 
         resp = self.client.get(f"/api/v1/flashcards/{path}")
@@ -270,7 +272,9 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "created")
-        self.assertEqual(data["insight"]["title"], "Inference: How do Docker and shell connect?")
+        self.assertEqual(
+            data["insight"]["title"], "Inference: How do Docker and shell connect?"
+        )
 
     def test_11_graph(self):
         resp = self.client.get("/api/v1/graph")
@@ -290,7 +294,9 @@ class IntegrationTest(unittest.TestCase):
         body_resp = self.client.get("/api/v1/search", params={"q": "Updated content"})
         self.assertEqual(body_resp.status_code, 200)
         body_results = body_resp.json()["results"]
-        self.assertTrue(any("Updated content" in item.get("snippet", "") for item in body_results))
+        self.assertTrue(
+            any("Updated content" in item.get("snippet", "") for item in body_results)
+        )
 
     def test_13_worker_heartbeat(self):
         resp = self.client.post(

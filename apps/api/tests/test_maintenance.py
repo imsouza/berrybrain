@@ -4,7 +4,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
-from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, InsightRecord, JobRecord
+from berrybrain_api.models import (
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    InsightRecord,
+    JobRecord,
+)
 from berrybrain_api.routers.maintenance import (
     _cleanup_duplicate_jobs,
     _cleanup_legacy_insights,
@@ -75,10 +80,18 @@ class MaintenanceTest(unittest.TestCase):
         self.session.commit()
         self.session.add_all(
             [
-                GraphEdgeRecord(source_node_id=a.id, target_node_id=9999, type="related"),
-                GraphEdgeRecord(source_node_id=a.id, target_node_id=a.id, type="related"),
-                GraphEdgeRecord(source_node_id=a.id, target_node_id=b.id, type="related"),
-                GraphEdgeRecord(source_node_id=b.id, target_node_id=a.id, type="related"),
+                GraphEdgeRecord(
+                    source_node_id=a.id, target_node_id=9999, type="related"
+                ),
+                GraphEdgeRecord(
+                    source_node_id=a.id, target_node_id=a.id, type="related"
+                ),
+                GraphEdgeRecord(
+                    source_node_id=a.id, target_node_id=b.id, type="related"
+                ),
+                GraphEdgeRecord(
+                    source_node_id=b.id, target_node_id=a.id, type="related"
+                ),
             ]
         )
         self.session.commit()

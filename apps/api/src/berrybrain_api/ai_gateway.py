@@ -26,8 +26,7 @@ def get_ai_config(session: Session) -> dict[str, str]:
         or values.get("ai_api_url")
         or values.get("ai_custom_url")
         or "",
-        "cloud_api_key": values.get("graph_ai_api_key")
-        or values.get("ai_api_key", ""),
+        "cloud_api_key": values.get("graph_ai_api_key") or values.get("ai_api_key", ""),
         "cloud_model": values.get("graph_ai_model") or values.get("ai_model", ""),
         "ollama_base_url": values.get("ollama_base_url")
         or os.getenv("BERRYBRAIN_OLLAMA_BASE_URL", "http://localhost:11434"),

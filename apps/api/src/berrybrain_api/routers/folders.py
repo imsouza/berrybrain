@@ -68,11 +68,20 @@ def list_folders() -> dict:
 def create_folder(payload: CreateFolderRequest) -> dict:
     settings = get_settings()
     vault_path = settings.vault_path
-    parent = _resolve_folder(vault_path, payload.parent_path) if payload.parent_path else vault_path
+    parent = (
+        _resolve_folder(vault_path, payload.parent_path)
+        if payload.parent_path
+        else vault_path
+    )
     if not parent.exists() or not parent.is_dir():
         raise HTTPException(status_code=404, detail="Parent folder not found")
     folder_name = payload.name.strip().strip("/")
-    if not folder_name or "/" in folder_name or "\\" in folder_name or folder_name in {".", ".."}:
+    if (
+        not folder_name
+        or "/" in folder_name
+        or "\\" in folder_name
+        or folder_name in {".", ".."}
+    ):
         raise HTTPException(status_code=400, detail="Invalid folder name")
     folder_path = parent / folder_name
 

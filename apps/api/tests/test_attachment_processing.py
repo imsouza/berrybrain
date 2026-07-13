@@ -86,7 +86,9 @@ class AttachmentProcessingTest(unittest.TestCase):
         index_result = index_knowledge_base(self.session)
         self.assertEqual(index_result["attachmentChunks"], 1)
         retrieval = retrieve_kb(self.session, "rollback container rollout")
-        self.assertTrue(any(item.metadata.get("kind") == "attachment_text" for item in retrieval))
+        self.assertTrue(
+            any(item.metadata.get("kind") == "attachment_text" for item in retrieval)
+        )
 
     def test_image_attachment_gets_future_ocr_status(self) -> None:
         note = NoteRecord(

@@ -34,11 +34,15 @@ def create_automation_log(
     return log
 
 
-def list_automation_logs(session: Session, limit: int = 50) -> list[AutomationLogRecord]:
+def list_automation_logs(
+    session: Session, limit: int = 50
+) -> list[AutomationLogRecord]:
     return list(
         session.execute(
             select(AutomationLogRecord)
-            .order_by(AutomationLogRecord.created_at.desc(), AutomationLogRecord.id.desc())
+            .order_by(
+                AutomationLogRecord.created_at.desc(), AutomationLogRecord.id.desc()
+            )
             .limit(limit)
         ).scalars()
     )

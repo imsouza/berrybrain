@@ -46,10 +46,14 @@ class SecurityAuthTest(unittest.TestCase):
 
         cls.original_engine = db_mod.engine
         cls.original_session_local = db_mod.SessionLocal
-        new_engine = create_engine(cls.settings.database_url, connect_args={"check_same_thread": False})
+        new_engine = create_engine(
+            cls.settings.database_url, connect_args={"check_same_thread": False}
+        )
         cls.new_engine = new_engine
         db_mod.engine = new_engine
-        db_mod.SessionLocal = sessionmaker(bind=new_engine, autoflush=False, autocommit=False)
+        db_mod.SessionLocal = sessionmaker(
+            bind=new_engine, autoflush=False, autocommit=False
+        )
         Base.metadata.create_all(bind=new_engine)
 
         cls.patched = []
@@ -199,7 +203,9 @@ class SecurityAuthTest(unittest.TestCase):
         csrf = login.json()["csrfToken"]
 
         users = admin_client.get("/api/v1/admin/users").json()["users"]
-        target_id = next(user["id"] for user in users if user["email"] == "target@example.com")
+        target_id = next(
+            user["id"] for user in users if user["email"] == "target@example.com"
+        )
 
         missing_header = admin_client.post(
             f"/api/v1/admin/users/{target_id}/lock",

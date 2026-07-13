@@ -14,7 +14,9 @@ from berrybrain_api.settings_store import (
 
 class SettingsStoreTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
         Base.metadata.create_all(bind=engine)
         self.session = sessionmaker(bind=engine)()
 
@@ -36,7 +38,9 @@ class SettingsStoreTest(unittest.TestCase):
         settings = list_settings(self.session)
         serialized = serialize_setting(setting)
 
-        self.assertEqual([item.key for item in settings], ["automation.mode", "ui.theme"])
+        self.assertEqual(
+            [item.key for item in settings], ["automation.mode", "ui.theme"]
+        )
         self.assertEqual(serialized["key"], "automation.mode")
         self.assertEqual(serialized["value"], "autopilot")
 

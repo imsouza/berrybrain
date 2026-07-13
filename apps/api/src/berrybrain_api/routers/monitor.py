@@ -142,7 +142,11 @@ class EmbeddingRequest(BaseModel):
 def create_embedding(payload: EmbeddingRequest) -> dict:
     with SessionLocal() as session:
         emb = store_embedding(
-            session, payload.note_id, payload.content_hash, payload.vector, payload.model
+            session,
+            payload.note_id,
+            payload.content_hash,
+            payload.vector,
+            payload.model,
         )
         return {
             "embedding": {

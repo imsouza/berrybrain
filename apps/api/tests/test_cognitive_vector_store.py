@@ -134,7 +134,15 @@ class CognitiveVectorStoreTest(unittest.TestCase):
             return FakeResponse(
                 body={
                     "documents": [["Containers isolate applications and images."]],
-                    "metadatas": [[{"title": "Docker Essentials", "path": "inbox/docker.md", "chunk": 0}]],
+                    "metadatas": [
+                        [
+                            {
+                                "title": "Docker Essentials",
+                                "path": "inbox/docker.md",
+                                "chunk": 0,
+                            }
+                        ]
+                    ],
                     "distances": [[0.25]],
                 }
             )

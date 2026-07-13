@@ -49,7 +49,13 @@ class SecondBrainPhase1Test(unittest.TestCase):
             self.session,
             source.id,
             "concepts",
-            {"concepts": ["observabilidade", "sistemas distribuidos", "logs metricas traces"]},
+            {
+                "concepts": [
+                    "observabilidade",
+                    "sistemas distribuidos",
+                    "logs metricas traces",
+                ]
+            },
             "hash-a",
             model_used="nvidia/nemotron",
         )
@@ -264,7 +270,10 @@ class SecondBrainPhase1Test(unittest.TestCase):
         )
         self.session.commit()
 
-        from berrybrain_api.second_brain import expand_knowledge_graph, set_node_user_notes
+        from berrybrain_api.second_brain import (
+            expand_knowledge_graph,
+            set_node_user_notes,
+        )
 
         result = expand_knowledge_graph(self.session)
         node = self.session.query(GraphNodeRecord).filter_by(type="insight").first()
@@ -349,7 +358,9 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
         note_nodes = self.session.query(GraphNodeRecord).filter_by(type="note").all()
         edges = self.session.query(GraphEdgeRecord).all()
-        edge_keys = [(edge.source_node_id, edge.target_node_id, edge.type) for edge in edges]
+        edge_keys = [
+            (edge.source_node_id, edge.target_node_id, edge.type) for edge in edges
+        ]
 
         self.assertEqual(len(note_nodes), 1)
         self.assertEqual(len(edge_keys), len(set(edge_keys)))

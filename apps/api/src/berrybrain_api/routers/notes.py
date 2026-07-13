@@ -8,10 +8,17 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from berrybrain_api.attachment_processing import process_attachment, serialize_extraction
+from berrybrain_api.attachment_processing import (
+    process_attachment,
+    serialize_extraction,
+)
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
-from berrybrain_api.jobs import PROCESS_ATTACHMENT, create_job, enqueue_note_changed_jobs
+from berrybrain_api.jobs import (
+    PROCESS_ATTACHMENT,
+    create_job,
+    enqueue_note_changed_jobs,
+)
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
     NoteAttachmentRecord,
@@ -93,7 +100,9 @@ def _safe_filename(filename: str) -> str:
 
 
 def _setting_int(session, key: str, default: int) -> int:
-    value = session.execute(select(SettingRecord.value).where(SettingRecord.key == key)).scalar_one_or_none()
+    value = session.execute(
+        select(SettingRecord.value).where(SettingRecord.key == key)
+    ).scalar_one_or_none()
     try:
         parsed = int(str(value or default))
     except (TypeError, ValueError):
@@ -105,7 +114,9 @@ def _attachment_limit_mb(session, category: str) -> int:
     return _setting_int(
         session,
         f"attachment_{category}_limit_mb",
-        ATTACHMENT_DEFAULT_LIMITS_MB.get(category, ATTACHMENT_DEFAULT_LIMITS_MB["other"]),
+        ATTACHMENT_DEFAULT_LIMITS_MB.get(
+            category, ATTACHMENT_DEFAULT_LIMITS_MB["other"]
+        ),
     )
 
 
@@ -362,7 +373,9 @@ def upload_note_attachment(note_path: str, payload: AttachmentUploadRequest) -> 
         try:
             content = base64.b64decode(payload.content_base64, validate=True)
         except Exception as exc:
-            raise HTTPException(status_code=400, detail="Invalid attachment data") from exc
+            raise HTTPException(
+                status_code=400, detail="Invalid attachment data"
+            ) from exc
         if len(content) != payload.size_bytes:
             raise HTTPException(status_code=400, detail="Attachment size mismatch")
         if len(content) > limit_bytes:

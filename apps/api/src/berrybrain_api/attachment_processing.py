@@ -114,7 +114,9 @@ def process_attachment(
     return serialize_extraction(extraction)
 
 
-def serialize_extraction(record: AttachmentExtractionRecord | None) -> dict[str, object]:
+def serialize_extraction(
+    record: AttachmentExtractionRecord | None,
+) -> dict[str, object]:
     if record is None:
         return {
             "status": "pending",
@@ -180,7 +182,11 @@ def _extract_text(path: Path, attachment: NoteAttachmentRecord) -> tuple[str, st
     if attachment.category == "image":
         return "", "waiting_ocr", "OCR/vision extraction is not configured yet."
     if attachment.category in {"audio", "video"}:
-        return "", "waiting_transcription", "Audio/video transcription is not configured yet."
+        return (
+            "",
+            "waiting_transcription",
+            "Audio/video transcription is not configured yet.",
+        )
     if suffix == ".pdf" or mime == "application/pdf":
         return _extract_pdf_text(path)
     if suffix == ".docx":
@@ -194,7 +200,11 @@ def _extract_pdf_text(path: Path) -> tuple[str, str, str]:
     try:
         from pypdf import PdfReader  # type: ignore
     except Exception:
-        return "", "waiting_pdf_extractor", "PDF extraction requires the optional pypdf package."
+        return (
+            "",
+            "waiting_pdf_extractor",
+            "PDF extraction requires the optional pypdf package.",
+        )
     try:
         reader = PdfReader(str(path))
         text = "\n\n".join(page.extract_text() or "" for page in reader.pages).strip()
@@ -217,7 +227,11 @@ def _extract_docx_text(path: Path) -> tuple[str, str, str]:
     except Exception as exc:
         return "", "failed", f"DOCX text parsing failed: {exc}"
     text = "\n".join(item.strip() for item in texts if item.strip())
-    return text[:120000], "completed", "" if text else "DOCX contains no extractable text."
+    return (
+        text[:120000],
+        "completed",
+        "" if text else "DOCX contains no extractable text.",
+    )
 
 
 def _read_text_file(path: Path) -> str:
@@ -251,10 +265,12 @@ def _upsert_attachment_node(
         )
     ).scalar_one_or_none()
     evidence = [attachment.filename, note.title, extraction.status]
-    summary = extraction.summary or f"{attachment.filename} is attached to {note.title}."
+    summary = (
+        extraction.summary or f"{attachment.filename} is attached to {note.title}."
+    )
     ai_context = (
         f'This attachment supports the note "{note.title}". Extraction status is '
-        f'{extraction.status}. Use it as source evidence once text, OCR, or transcription is available.'
+        f"{extraction.status}. Use it as source evidence once text, OCR, or transcription is available."
     )
     if existing is None:
         existing = GraphNodeRecord(
@@ -279,7 +295,9 @@ def _upsert_attachment_node(
     existing.model = "attachment-text.v1"
     existing.prompt_version = "attachment-processing.v1"
     existing.status = "confirmed" if extraction.status == "completed" else "suggested"
-    existing.source_quality = "extracted" if extraction.status == "completed" else "pending"
+    existing.source_quality = (
+        "extracted" if extraction.status == "completed" else "pending"
+    )
     existing.learning_value = "attachment"
     existing.graph_metadata = json.dumps(
         {

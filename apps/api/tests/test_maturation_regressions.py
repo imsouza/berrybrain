@@ -7,7 +7,12 @@ from sqlalchemy.orm import sessionmaker
 from berrybrain_api.database import Base
 from berrybrain_api.generated_metadata import upsert_generated_metadata
 from berrybrain_api.home_summary import build_home_summary
-from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, InsightRecord, NoteRecord
+from berrybrain_api.models import (
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    InsightRecord,
+    NoteRecord,
+)
 from berrybrain_api.second_brain import expand_knowledge_graph
 from berrybrain_api.services import build_graph, get_active_insights
 
@@ -25,16 +30,52 @@ class MaturationRegressionTest(unittest.TestCase):
 
     def test_realistic_vault_builds_explainable_graph_edges(self) -> None:
         notes = [
-            ("Docker Essentials", "permanentes/docker.md", ["docker", "containers", "linux"]),
-            ("Linux Shell Scripting", "permanentes/linux.md", ["linux", "automation", "shell"]),
-            ("Python Async Patterns", "inbox/python-async.md", ["python", "async", "automation"]),
-            ("Kubernetes Basics", "permanentes/kubernetes.md", ["kubernetes", "containers", "orchestration"]),
-            ("Observability Signals", "permanentes/observability.md", ["observability", "metrics", "traces"]),
-            ("Edge Computing", "permanentes/edge.md", ["edge computing", "latency", "distributed systems"]),
-            ("RAG Embeddings", "permanentes/rag.md", ["rag", "embeddings", "retrieval"]),
-            ("Vector Databases", "permanentes/vector-db.md", ["embeddings", "retrieval", "vector database"]),
+            (
+                "Docker Essentials",
+                "permanentes/docker.md",
+                ["docker", "containers", "linux"],
+            ),
+            (
+                "Linux Shell Scripting",
+                "permanentes/linux.md",
+                ["linux", "automation", "shell"],
+            ),
+            (
+                "Python Async Patterns",
+                "inbox/python-async.md",
+                ["python", "async", "automation"],
+            ),
+            (
+                "Kubernetes Basics",
+                "permanentes/kubernetes.md",
+                ["kubernetes", "containers", "orchestration"],
+            ),
+            (
+                "Observability Signals",
+                "permanentes/observability.md",
+                ["observability", "metrics", "traces"],
+            ),
+            (
+                "Edge Computing",
+                "permanentes/edge.md",
+                ["edge computing", "latency", "distributed systems"],
+            ),
+            (
+                "RAG Embeddings",
+                "permanentes/rag.md",
+                ["rag", "embeddings", "retrieval"],
+            ),
+            (
+                "Vector Databases",
+                "permanentes/vector-db.md",
+                ["embeddings", "retrieval", "vector database"],
+            ),
             ("NVIDIA NIM", "permanentes/nim.md", ["nvidia nim", "llm", "inference"]),
-            ("Knowledge Graphs", "permanentes/kg.md", ["knowledge graph", "entities", "connections"]),
+            (
+                "Knowledge Graphs",
+                "permanentes/kg.md",
+                ["knowledge graph", "entities", "connections"],
+            ),
         ]
         for title, path, concepts in notes:
             note = NoteRecord(
@@ -112,7 +153,9 @@ class MaturationRegressionTest(unittest.TestCase):
             source_evidence=json.dumps(["semantic_data", "graphSummary"]),
             status="suggested",
         )
-        note = GraphNodeRecord(type="note", label="Docker Essentials", status="confirmed")
+        note = GraphNodeRecord(
+            type="note", label="Docker Essentials", status="confirmed"
+        )
         self.session.add_all([node, note])
         self.session.commit()
         self.session.add(

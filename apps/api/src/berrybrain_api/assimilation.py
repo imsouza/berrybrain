@@ -65,7 +65,9 @@ def note_assimilation_map(
 
     metadata_note_ids: set[int] = set()
     for row in session.execute(
-        select(GeneratedMetadataRecord).where(GeneratedMetadataRecord.note_id.in_(note_ids))
+        select(GeneratedMetadataRecord).where(
+            GeneratedMetadataRecord.note_id.in_(note_ids)
+        )
     ).scalars():
         if row.content_hash and row.content_hash != note_hash_by_id.get(row.note_id):
             continue

@@ -50,7 +50,10 @@ async def lifespan(app: FastAPI):
         )
     if cfg.environment.lower() in {"prod", "production"}:
         problems = []
-        if cfg.session_secret in {"dev-change-me", "change-me-with-32-plus-random-bytes"}:
+        if cfg.session_secret in {
+            "dev-change-me",
+            "change-me-with-32-plus-random-bytes",
+        }:
             problems.append("BERRYBRAIN_SESSION_SECRET must be changed")
         if not cfg.session_secure_cookie:
             problems.append("BERRYBRAIN_SESSION_SECURE_COOKIE must be true")
@@ -81,7 +84,9 @@ app = FastAPI(title="BerryBrain API", version="0.1.0", lifespan=lifespan)
 settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
-allowed_hosts = [host.strip() for host in settings.allowed_hosts.split(",") if host.strip()]
+allowed_hosts = [
+    host.strip() for host in settings.allowed_hosts.split(",") if host.strip()
+]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 app.add_middleware(
     CORSMiddleware,

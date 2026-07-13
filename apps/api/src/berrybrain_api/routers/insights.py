@@ -253,7 +253,11 @@ def _is_valid_generated_insight(
         return False, "generic_phrase"
     if len(title.strip()) < 12 or len(description.strip()) < 50:
         return False, "too_short"
-    if not why_it_matters.strip() or not suggested_action.strip() or not graph_impact.strip():
+    if (
+        not why_it_matters.strip()
+        or not suggested_action.strip()
+        or not graph_impact.strip()
+    ):
         return False, "missing_cognitive_fields"
     if len(evidence) < 2:
         return False, "not_enough_evidence"
@@ -413,9 +417,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                 or "insight-generate.v2",
                 reasoning=str(item.get("reasoning", "") or ""),
                 source_context=json.dumps(
-                    item.get("sourceContext")
-                    or item.get("source_context")
-                    or {},
+                    item.get("sourceContext") or item.get("source_context") or {},
                     ensure_ascii=False,
                 ),
             )
@@ -435,7 +437,9 @@ def list_insights(limit: int = 10) -> dict:
 @router.post("/from-inference")
 async def create_insight_from_inference(payload: InferenceInsightRequest) -> dict:
     with SessionLocal() as session:
-        result = payload.inference or await answer_cognitive_query(session, payload.question)
+        result = payload.inference or await answer_cognitive_query(
+            session, payload.question
+        )
         if result["status"] not in {"answered", "success", "sufficient_evidence"}:
             return {"status": "insufficient_evidence", "inference": result}
         insight = create_insight(
