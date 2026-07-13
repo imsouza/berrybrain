@@ -7,13 +7,14 @@ from sqlalchemy.orm import sessionmaker
 from berrybrain_api.database import Base
 from berrybrain_api.jobs import (
     PENDING,
-    FAILED,
+    DEAD_LETTER,
     claim_next_job,
     complete_job,
     create_job,
     enqueue_note_changed_jobs,
     fail_job,
     list_jobs,
+    retry_job,
     serialize_job,
     utc_now,
 )
@@ -92,7 +93,7 @@ class JobServiceTest(unittest.TestCase):
 
         self.assertIsNone(claim_next_job(self.session))
         self.session.refresh(job)
-        self.assertEqual(job.status, FAILED)
+        self.assertEqual(job.status, DEAD_LETTER)
         self.assertEqual(job.error_message, "Stale running job exhausted attempts")
 
     def test_claim_skips_jobs_with_exhausted_attempts(self) -> None:
@@ -121,7 +122,7 @@ class JobServiceTest(unittest.TestCase):
 
         self.assertEqual(completed.status, "completed")
         self.assertIsNotNone(completed.completed_at)
-        self.assertEqual(failed.status, FAILED)
+        self.assertEqual(failed.status, DEAD_LETTER)
         self.assertEqual(failed.error_message, "boom")
         self.assertIsNotNone(failed.completed_at)
 
@@ -149,8 +150,23 @@ class JobServiceTest(unittest.TestCase):
 
         failed = fail_job(self.session, job.id, "final error")
 
-        self.assertEqual(failed.status, FAILED)
+        self.assertEqual(failed.status, DEAD_LETTER)
         self.assertEqual(failed.attempts, 2)
+
+    def test_retry_dead_letter_job_resets_for_manual_retry(self) -> None:
+        job = create_job(
+            self.session, "PARSE_NOTE", {"note_path": "retry.md"}, max_attempts=1
+        )
+        job.status = "running"
+        job.attempts = 1
+        self.session.commit()
+        failed = fail_job(self.session, job.id, "final error")
+
+        retried = retry_job(self.session, failed.id)
+
+        self.assertEqual(retried.status, PENDING)
+        self.assertEqual(retried.attempts, 0)
+        self.assertIsNone(retried.error_message)
 
     def test_enqueue_note_changed_job_uses_parse_note_payload(self) -> None:
         jobs = enqueue_note_changed_jobs(

@@ -18,6 +18,7 @@ from berrybrain_api.jobs import (
     parse_json,
     recover_stale_running_jobs,
     renew_job_lease,
+    retry_job,
     serialize_job,
     utc_now,
 )
@@ -72,6 +73,13 @@ def recover_stale_endpoint(stale_after_minutes: int = 30) -> dict:
 def renew_job_lease_endpoint(job_id: int, lease_minutes: int = 30) -> dict:
     with SessionLocal() as session:
         job = renew_job_lease(session, job_id, lease_minutes=max(1, lease_minutes))
+        return {"job": serialize_job(job)}
+
+
+@router.post("/{job_id}/retry")
+def retry_job_endpoint(job_id: int) -> dict:
+    with SessionLocal() as session:
+        job = retry_job(session, job_id)
         return {"job": serialize_job(job)}
 
 

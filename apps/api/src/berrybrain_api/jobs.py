@@ -15,6 +15,7 @@ PENDING = "pending"
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"
+DEAD_LETTER = "dead_letter"
 PARSE_NOTE = "PARSE_NOTE"
 CLASSIFY_NOTE = "CLASSIFY_NOTE"
 ASSIMILATE_NOTE = "ASSIMILATE_NOTE"
@@ -264,7 +265,7 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
         )
         if lease_expired or legacy_started_expired:
             if job.attempts >= job.max_attempts:
-                job.status = FAILED
+                job.status = DEAD_LETTER
                 job.completed_at = utc_now()
                 job.error_message = "Stale running job exhausted attempts"
             else:
@@ -365,7 +366,7 @@ def fail_job(session: Session, job_id: int, error_message: str) -> JobRecord:
     job.completed_at = utc_now()
 
     if job.attempts >= job.max_attempts:
-        job.status = FAILED
+        job.status = DEAD_LETTER
         job.claimed_by = ""
         job.lease_expires_at = None
     else:
@@ -374,6 +375,22 @@ def fail_job(session: Session, job_id: int, error_message: str) -> JobRecord:
         job.claimed_by = ""
         job.lease_expires_at = None
 
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def retry_job(session: Session, job_id: int) -> JobRecord:
+    job = get_job_or_404(session, job_id)
+    if job.status not in {FAILED, DEAD_LETTER}:
+        raise HTTPException(status_code=409, detail="Only failed jobs can be retried")
+    job.status = PENDING
+    job.attempts = 0
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    job.claimed_by = ""
+    job.lease_expires_at = None
     session.commit()
     session.refresh(job)
     return job
