@@ -2,7 +2,7 @@
 
 <img src="apps/web/public/berrylogo.png" alt="BerryBrain" width="96" align="right">
 
-**A free, open source, local-first second brain for Markdown notes, knowledge graphs, and explainable AI-assisted learning.**
+**A free, source-available, local-first second brain for Markdown notes, knowledge graphs, and explainable AI-assisted learning.**
 
 BerryBrain turns notes into connected knowledge. It watches a Markdown vault, parses note structure, extracts concepts, expands a knowledge graph, creates explainable connections, and surfaces insights that help the user study, assimilate, and discover gaps.
 
@@ -16,8 +16,8 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker)
 ![Local-first](https://img.shields.io/badge/local--first-yes-3C8F5A)
-![Open Source](https://img.shields.io/badge/open--source-yes-3C8F5A)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
+![License](https://img.shields.io/badge/license-non--commercial-lightgrey)
 
 ---
 
@@ -175,8 +175,6 @@ Future expansion:
 - audio/video transcription;
 - document parsing;
 - attachment evidence.
-
-See [OCR and Attachment Processing Plan](docs/planning/ocr.md).
 
 ### Knowledge Graph
 
@@ -443,9 +441,6 @@ berrybrain/
     worker/
       src/berrybrain_worker/     Async worker and provider execution
       tests/                     Worker integration tests
-  docs/
-    planning/                    Planning documents and future work specs
-      assets/                    Planning images and screenshots
   prompts/                       Versioned AI prompts
   vault/                         Local Markdown vault
   docker-compose.yml             Local orchestration
@@ -707,10 +702,6 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 - Serve only over HTTPS; enable `BERRYBRAIN_SESSION_SECURE_COOKIE`.
 - Re-run setup/owner seed after changing `BERRYBRAIN_SESSION_SECRET`.
 
-The formal security/auth/public site plan is tracked in [Security, Auth, and Public Site Plan](docs/planning/sec.md).
-
----
-
 ## Roadmap
 
 ### Version Direction
@@ -724,8 +715,6 @@ The formal security/auth/public site plan is tracked in [Security, Auth, and Pub
 | `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
 ### OCR and Attachment Roadmap
-
-Tracked in [docs/planning/ocr.md](docs/planning/ocr.md).
 
 Planned capabilities:
 
@@ -741,7 +730,7 @@ Planned capabilities:
 
 ### Security and Self-Hosting Roadmap
 
-BerryBrain is free and open source. The default deployment is self-hosted: no central BerryBrain account, no SaaS billing, and no required cloud service. Donations may be linked by the operator, but payment processing is not part of the core app.
+BerryBrain is free for personal, educational, research, and internal non-commercial self-hosting. The source is available for inspection and contribution, but commercial use, resale, SaaS hosting, paid distribution, and monetized derivative services require explicit written permission from the owner.
 
 Implemented security capabilities:
 
@@ -815,18 +804,12 @@ npm --prefix apps/web run typecheck
 
 ---
 
-## Documentation Index
-
-| Document | Purpose |
-| --- | --- |
-| [OCR and Attachment Processing Plan](docs/planning/ocr.md) | Future multimodal attachment processing |
-| [Security, Auth, and Public Site Plan](docs/planning/sec.md) | Self-hosted security/auth/public site work |
-| [Graph Planning](docs/planning/planing-grafos.md) | Graph maturity and improvement planning |
-| [Second Brain Plan](docs/planning/planing-100-segundo-cerebro.md) | 100% second brain maturation plan |
-| [Maturation Plan](docs/planning/maturacao.md) | Broader system maturity work |
-
----
-
 ## License
 
-MIT © BerryBrain
+BerryBrain is source-available under a non-commercial license.
+
+You may use, study, modify, and self-host BerryBrain for personal, educational, research, or internal non-commercial purposes.
+
+You may not sell, resell, sublicense, offer as a paid hosted service, include in a commercial product, monetize derivative services, or otherwise commercialize BerryBrain without explicit written permission from the copyright owner.
+
+Commercial rights are reserved exclusively by the owner, imsouza, unless a separate written commercial license is granted.

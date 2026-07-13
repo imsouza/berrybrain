@@ -3,6 +3,8 @@
 import Image from "next/image";
 import berrylogo from "../../../public/berrylogo.png";
 import berryPrint from "../../../public/berrybrain-print1.png";
+import berryPrint2 from "../../../public/berrybrain-print2.jpeg";
+import berryPrint3 from "../../../public/berrybrain-print3.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
@@ -294,6 +296,32 @@ const GraphIcon = ({ className = "size-5" }: { className?: string }) => (
   </svg>
 );
 
+function DiagramBox({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-panel p-4">
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="mt-2 text-xs leading-5 text-muted">{body}</div>
+    </div>
+  );
+}
+
+function DiagramArrow() {
+  return <div className="flex justify-center text-accent" aria-hidden="true">↓</div>;
+}
+
+function CapabilityMark({ value }: { value: boolean }) {
+  return (
+    <span
+      className={`inline-flex size-7 items-center justify-center rounded-full text-sm font-semibold ${
+        value ? "bg-accent text-black" : "bg-surface text-muted"
+      }`}
+      aria-label={value ? "Included" : "Not included"}
+    >
+      {value ? "✓" : "–"}
+    </span>
+  );
+}
+
 function LandingContent() {
   const featureCards = [
     { title: "Markdown vault", body: "Real files remain portable, inspectable, and easy to back up.", icon: DocsIcon },
@@ -301,30 +329,58 @@ function LandingContent() {
     { title: "Docker self-hosting", body: "Run web, API, and worker locally or behind your own reverse proxy.", icon: DockerIcon },
     { title: "GitHub-first", body: "Source, issues, deployment notes, and roadmap stay in the public repository.", icon: GithubIcon },
   ];
-  const pipeline = ["Capture", "Parse", "Assimilate", "Connect", "Review"];
+  const pipeline = [
+    ["Capture", "Write Markdown notes and keep source files portable."],
+    ["Parse", "Extract structure, links, headings, and metadata."],
+    ["Assimilate", "Generate concepts, summaries, and retrieval chunks."],
+    ["Connect", "Create explainable graph edges with evidence."],
+    ["Review", "Turn gaps and insights into next study actions."],
+  ];
+  const comparisonColumns = [
+    { label: "BerryBrain", score: 92, note: "Local-first cognitive layer" },
+    { label: "Obsidian", score: 72, note: "Local Markdown workspace" },
+    { label: "Notion", score: 58, note: "Cloud workspace" },
+    { label: "Plain folders", score: 34, note: "Raw files" },
+  ];
+  const comparisonRows = [
+    ["Local Markdown source", true, true, false, true],
+    ["Self-hostable stack", true, false, false, true],
+    ["Knowledge graph", true, true, false, false],
+    ["Explainable AI insights", true, false, false, false],
+    ["Evidence per connection", true, false, false, false],
+    ["Retrieval / semantic search", true, false, true, false],
+    ["Provider/model trace", true, false, false, false],
+    ["Collaboration workspace", false, false, true, false],
+    ["No vendor lock-in by default", true, true, false, true],
+  ];
   return (
     <>
-      <section className="relative min-h-[calc(100svh-73px)] overflow-hidden border-b border-border/70 bg-[#11130f] text-white">
-        <Image
-          src={berryPrint}
-          alt="BerryBrain knowledge workspace"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover opacity-28"
-        />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(17,19,15,0.96),rgba(17,19,15,0.76)_46%,rgba(17,19,15,0.28))]" />
-        <div className="relative mx-auto flex min-h-[calc(100svh-73px)] w-full max-w-6xl flex-col justify-center px-5 pb-20 pt-14 md:px-6 md:pb-24 md:pt-20">
-          <div className="max-w-3xl">
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/8 px-3 py-1 text-xs font-medium text-[#CDE69A]">
+      <style jsx global>{`
+        @keyframes bb-float-a {
+          0%, 100% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(0, -10px, 0); }
+        }
+        @keyframes bb-float-b {
+          0%, 100% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(8px, 8px, 0); }
+        }
+        @keyframes bb-float-c {
+          0%, 100% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(-7px, -6px, 0); }
+        }
+      `}</style>
+      <section className="overflow-hidden border-b border-border/70 bg-background">
+        <div className="mx-auto grid min-h-[calc(100svh-73px)] w-full max-w-7xl items-center gap-8 px-5 py-14 md:grid-cols-[1.42fr_0.58fr] md:px-6 md:py-20">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
               <span className="size-1.5 rounded-full bg-accent" />
               Open source · Local-first · Evidence-first
             </span>
-            <h1 className="mt-6 text-4xl font-semibold leading-[1.04] sm:text-5xl md:text-6xl">
+            <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
               BerryBrain turns Markdown notes into an evidence-backed knowledge graph.
             </h1>
-            <p className="mt-6 max-w-2xl text-base leading-8 text-white/78 md:text-lg">
-              A visual project page for a self-hosted second brain: private vault, explainable AI assistance, graph reasoning, and auditable automation.
+            <p className="mt-6 max-w-2xl text-base leading-8 text-muted md:text-lg">
+              A self-hosted second brain for local notes, explainable graph reasoning, and auditable AI assistance. Free, open source, and designed around your own vault.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
@@ -336,24 +392,57 @@ function LandingContent() {
                 <GithubIcon />
                 View on GitHub
               </a>
-              <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 rounded-md border border-white/20 bg-white/8 px-5 py-3 text-sm font-medium text-white hover:bg-white/12">
+              <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-panel px-5 py-3 text-sm font-medium text-foreground hover:bg-surface">
                 <DocsIcon className="size-4" />
                 Read docs
               </a>
             </div>
+            <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                ["License", "MIT"],
+                ["Runtime", "Docker"],
+                ["Vault", "Markdown"],
+                ["Model", "Local/cloud"],
+              ].map(([label, value]) => (
+                <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
+                  <div className="text-xs uppercase text-muted">{label}</div>
+                  <div className="mt-1 text-sm font-semibold">{value}</div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="mt-14 grid max-w-4xl grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              ["License", "MIT"],
-              ["Runtime", "Docker"],
-              ["Vault", "Markdown"],
-              ["Model", "Local/cloud"],
-            ].map(([label, value]) => (
-              <div key={label} className="border-l border-white/18 bg-white/6 px-4 py-3">
-                <div className="text-xs uppercase text-white/48">{label}</div>
-                <div className="mt-1 text-sm font-semibold text-white">{value}</div>
-              </div>
-            ))}
+          <div className="relative min-h-[330px] md:-ml-24 md:min-h-[470px]" aria-label="BerryBrain workspace previews">
+            <div className="absolute left-0 top-10 w-[88%] overflow-hidden rounded-lg border border-border bg-panel shadow-2xl shadow-black/10 motion-safe:[animation:bb-float-a_7s_ease-in-out_infinite]">
+              <Image
+                src={berryPrint}
+                alt="BerryBrain home screen"
+                priority
+                width={1100}
+                height={690}
+                sizes="(min-width: 768px) 48vw, 88vw"
+                className="h-auto w-full"
+              />
+            </div>
+            <div className="absolute right-0 top-0 w-[48%] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/10 motion-safe:[animation:bb-float-b_8s_ease-in-out_infinite]">
+              <Image
+                src={berryPrint2}
+                alt="BerryBrain graph preview"
+                width={760}
+                height={520}
+                sizes="(min-width: 768px) 22vw, 42vw"
+                className="h-auto w-full"
+              />
+            </div>
+            <div className="absolute bottom-6 right-4 w-[54%] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/10 motion-safe:[animation:bb-float-c_7.5s_ease-in-out_infinite]">
+              <Image
+                src={berryPrint3}
+                alt="BerryBrain note preview"
+                width={760}
+                height={520}
+                sizes="(min-width: 768px) 25vw, 48vw"
+                className="h-auto w-full"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -376,19 +465,30 @@ function LandingContent() {
       </section>
 
       <section className="border-y border-border/70 bg-[#182015] text-white">
-        <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[0.82fr_1.18fr] md:px-6">
+        <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:px-6">
           <div>
             <p className="text-xs font-semibold uppercase text-[#CDE69A]">Workflow</p>
             <h2 className="mt-3 text-3xl font-semibold">A second brain that leaves a trail.</h2>
-            <p className="mt-4 text-sm leading-7 text-white/68">
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/68">
               BerryBrain does not hide generated knowledge. Every assisted artifact is designed to be reviewable before it becomes part of the graph.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-5">
-            {pipeline.map((step, index) => (
-              <div key={step} className="rounded-lg border border-white/12 bg-white/7 p-4">
-                <div className="text-xs text-[#CDE69A]">{String(index + 1).padStart(2, "0")}</div>
-                <div className="mt-8 text-sm font-semibold">{step}</div>
+          <div className="grid gap-3 md:grid-cols-5">
+            {pipeline.map(([step, body], index) => (
+              <div key={step} className="relative rounded-lg border border-white/12 bg-white/7 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex size-8 items-center justify-center rounded-full bg-[#CDE69A] text-xs font-semibold text-[#182015]">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  {index < pipeline.length - 1 && (
+                    <span className="hidden text-[#CDE69A] md:block" aria-hidden="true">→</span>
+                  )}
+                </div>
+                <div className="mt-5 text-sm font-semibold">{step}</div>
+                <p className="mt-3 text-xs leading-5 text-white/62">{body}</p>
+                {index < pipeline.length - 1 && (
+                  <div className="mt-4 h-px bg-gradient-to-r from-[#CDE69A]/60 to-transparent md:hidden" aria-hidden="true" />
+                )}
               </div>
             ))}
           </div>
@@ -397,15 +497,24 @@ function LandingContent() {
 
       <section className="bg-panel/45">
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1.08fr_0.92fr] md:px-6">
-          <div className="overflow-hidden rounded-lg border border-border bg-panel">
-            <Image
-              src={berryPrint}
-              alt="BerryBrain home screen"
-              width={1100}
-              height={690}
-              sizes="(min-width: 768px) 58vw, 100vw"
-              className="h-auto w-full"
-            />
+          <div className="rounded-lg border border-border bg-background p-5">
+            <div className="grid gap-4 text-sm">
+              <DiagramBox title="Markdown vault" body="Local files, links, attachments" />
+              <DiagramArrow />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <DiagramBox title="API" body="Auth, notes, settings" />
+                <DiagramBox title="Worker" body="Jobs, parsing, AI tasks" />
+                <DiagramBox title="Models" body="Ollama or cloud provider" />
+              </div>
+              <DiagramArrow />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <DiagramBox title="Knowledge Base" body="Chunks, metadata, retrieval" />
+                <DiagramBox title="Knowledge Graph" body="Nodes, edges, evidence" />
+                <DiagramBox title="Semantic Layer" body="Jobs, stats, diagnostics" />
+              </div>
+              <DiagramArrow />
+              <DiagramBox title="BerryBrain UI" body="Home, graph, insights, monitor" />
+            </div>
           </div>
           <div className="flex flex-col justify-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Architecture</p>
@@ -413,7 +522,7 @@ function LandingContent() {
             <div className="mt-7 space-y-5">
               {[
                 ["Next.js web", "Public project pages and the self-hosted workspace UI."],
-              ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
+                ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
                 ["Worker pipeline", "Background parsing, assimilation, embeddings, graph expansion, and insights."],
               ].map(([title, body]) => (
                 <div key={title} className="border-t border-border pt-4">
@@ -429,21 +538,51 @@ function LandingContent() {
       <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-16 md:px-6">
         <div className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Why it exists</p>
-          <h2 className="mt-3 text-3xl font-semibold">Markdown stays simple. The knowledge layer does the heavy lifting.</h2>
+          <h2 className="mt-3 text-3xl font-semibold">A practical comparison against common knowledge workflows.</h2>
+          <p className="mt-4 text-sm leading-7 text-muted">
+            BerryBrain keeps Markdown portability, but adds provenance, graph reasoning, retrieval, and reviewable AI outputs.
+          </p>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {[
-            ["Obsidian", "Great for local Markdown, but graph curation and AI evidence are mostly manual."],
-            ["Notion", "Flexible, but cloud-first and not designed around transparent local provenance."],
-            ["Plain folders", "Portable, but no retrieval, graph reasoning, or auditable automation."],
-          ].map(([tool, body], index) => (
-            <article key={tool} className="rounded-lg border border-border bg-panel p-5">
-              <span className="text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
-              <h3 className="mt-2 text-sm font-semibold">{tool}</h3>
-              <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
-            </article>
+        <div className="overflow-x-auto rounded-lg border border-border bg-panel">
+          <div className="min-w-[860px]">
+          <div className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border bg-surface text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+            <div className="px-4 py-4">Capability</div>
+            {comparisonColumns.map((column) => (
+              <div key={column.label} className="border-l border-border px-4 py-4">
+                <div className="text-foreground">{column.label}</div>
+                <div className="mt-1 normal-case tracking-normal text-muted">{column.note}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border">
+            <div className="px-4 py-5 text-sm font-semibold">Knowledge fit score</div>
+            {comparisonColumns.map((column) => (
+              <div key={column.label} className="border-l border-border px-4 py-5">
+                <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+                  <span>{column.score}%</span>
+                  <span className="text-muted">fit</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface">
+                  <div className="h-full rounded-full bg-accent" style={{ width: `${column.score}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          {comparisonRows.map(([capability, berrybrain, obsidian, notion, folders]) => (
+            <div key={String(capability)} className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border last:border-b-0">
+              <div className="px-4 py-4 text-sm font-medium">{capability}</div>
+              {[berrybrain, obsidian, notion, folders].map((value, index) => (
+                <div key={index} className="flex items-center border-l border-border px-4 py-4">
+                  <CapabilityMark value={Boolean(value)} />
+                </div>
+              ))}
+            </div>
           ))}
+          </div>
         </div>
+        <p className="text-xs leading-5 text-muted">
+          Sources checked: Obsidian Help documents Markdown files in a local vault and graph views; Notion Help documents cloud backup/export, AWS-hosted infrastructure, and data residency controls.
+        </p>
       </section>
 
       <section className="border-t border-border/70 bg-accent/10">
