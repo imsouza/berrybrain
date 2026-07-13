@@ -2,6 +2,8 @@ services:
   api:
     image: python:3.12-slim
     restart: unless-stopped
+    cpus: "${BERRYBRAIN_API_CPUS:-1.0}"
+    mem_limit: "${BERRYBRAIN_API_MEMORY:-1g}"
     working_dir: /app/apps/api
     command: >
       sh -c "sh /app/scripts/validate-env.sh api &&
@@ -24,6 +26,8 @@ services:
   web:
     image: node:22-alpine
     restart: unless-stopped
+    cpus: "${BERRYBRAIN_WEB_CPUS:-1.0}"
+    mem_limit: "${BERRYBRAIN_WEB_MEMORY:-1g}"
     working_dir: /app/apps/web
     command: >
       sh -c "sh /app/scripts/validate-env.sh web &&
@@ -55,6 +59,8 @@ services:
   worker:
     image: python:3.12-slim
     restart: unless-stopped
+    cpus: "${BERRYBRAIN_WORKER_CPUS:-2.0}"
+    mem_limit: "${BERRYBRAIN_WORKER_MEMORY:-2g}"
     working_dir: /app/apps/worker
     command: >
       sh -c "sh /app/scripts/validate-env.sh worker &&
