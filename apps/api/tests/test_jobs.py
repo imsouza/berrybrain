@@ -40,6 +40,30 @@ class JobServiceTest(unittest.TestCase):
         self.assertEqual(claimed.status, "running")
         self.assertEqual(claimed.attempts, 1)
         self.assertIsNotNone(claimed.started_at)
+        self.assertIsNotNone(claimed.lease_expires_at)
+        self.assertEqual(claimed.claimed_by, "api-worker")
+
+    def test_running_job_is_not_recovered_before_lease_expires(self) -> None:
+        job = create_job(self.session, "PARSE_NOTE", {"note_path": "inbox/a.md"})
+        claimed = claim_next_job(self.session, lease_minutes=30)
+
+        self.assertIsNone(claim_next_job(self.session, stale_after_minutes=0))
+        self.session.refresh(claimed)
+        self.assertEqual(claimed.status, "running")
+        self.assertEqual(claimed.id, job.id)
+
+    def test_expired_lease_is_recovered_and_claimed_again(self) -> None:
+        job = create_job(self.session, "PARSE_NOTE", {"note_path": "inbox/a.md"})
+        claimed = claim_next_job(self.session, lease_minutes=30)
+        claimed.lease_expires_at = utc_now() - timedelta(minutes=1)
+        self.session.commit()
+
+        recovered = claim_next_job(self.session)
+
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.id, job.id)
+        self.assertEqual(recovered.status, "running")
+        self.assertEqual(recovered.attempts, 2)
 
     def test_claim_next_job_returns_none_when_queue_is_empty(self) -> None:
         self.assertIsNone(claim_next_job(self.session))

@@ -73,6 +73,8 @@ def ensure_sqlite_columns() -> None:
             "content_hash": "TEXT NOT NULL DEFAULT ''",
             "pipeline_run_id": "TEXT NOT NULL DEFAULT ''",
             "idempotency_key": "TEXT NOT NULL DEFAULT ''",
+            "claimed_by": "TEXT NOT NULL DEFAULT ''",
+            "lease_expires_at": "DATETIME",
         }
         with engine.begin() as connection:
             for name, definition in required_job_columns.items():

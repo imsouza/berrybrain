@@ -85,8 +85,10 @@ class JobRecord(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claimed_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 

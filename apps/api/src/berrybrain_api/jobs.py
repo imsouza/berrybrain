@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
@@ -191,7 +191,12 @@ def _needs_generated_title(note_path: str) -> bool:
     return filename.startswith("rascunho") or filename.startswith("nota-sem-titulo")
 
 
-def claim_next_job(session: Session, stale_after_minutes: int = 30) -> JobRecord | None:
+def claim_next_job(
+    session: Session,
+    stale_after_minutes: int = 30,
+    claimed_by: str = "api-worker",
+    lease_minutes: int = 30,
+) -> JobRecord | None:
     recover_stale_running_jobs(session, stale_after_minutes)
 
     candidates = list(
@@ -216,12 +221,29 @@ def claim_next_job(session: Session, stale_after_minutes: int = 30) -> JobRecord
     if job is None:
         return None
 
-    job.status = RUNNING
-    job.attempts += 1
-    job.started_at = utc_now()
+    now = utc_now()
+    lease_expires_at = now + timedelta(minutes=lease_minutes)
+    result = session.execute(
+        update(JobRecord)
+        .where(
+            JobRecord.id == job.id,
+            JobRecord.status == PENDING,
+            JobRecord.attempts < JobRecord.max_attempts,
+        )
+        .values(
+            status=RUNNING,
+            attempts=JobRecord.attempts + 1,
+            started_at=now,
+            lease_expires_at=lease_expires_at,
+            claimed_by=claimed_by[:120],
+        )
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        return None
     session.commit()
-    session.refresh(job)
-    return job
+    claimed = session.get(JobRecord, job.id)
+    return claimed
 
 
 def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) -> int:
@@ -232,7 +254,15 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
     ).scalars()
 
     for job in running_jobs:
-        if job.started_at and normalize_utc(job.started_at) <= cutoff:
+        lease_expired = (
+            job.lease_expires_at and normalize_utc(job.lease_expires_at) <= utc_now()
+        )
+        legacy_started_expired = (
+            job.lease_expires_at is None
+            and job.started_at
+            and normalize_utc(job.started_at) <= cutoff
+        )
+        if lease_expired or legacy_started_expired:
             if job.attempts >= job.max_attempts:
                 job.status = FAILED
                 job.completed_at = utc_now()
@@ -241,6 +271,8 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
                 job.status = PENDING
                 job.error_message = "Recovered stale running job"
             job.started_at = None
+            job.lease_expires_at = None
+            job.claimed_by = ""
             stale_count += 1
             create_automation_log(
                 session,
@@ -307,6 +339,8 @@ def complete_job(session: Session, job_id: int) -> JobRecord:
     job = get_job_or_404(session, job_id)
     job.status = COMPLETED
     job.error_message = None
+    job.claimed_by = ""
+    job.lease_expires_at = None
     job.completed_at = utc_now()
     session.commit()
     session.refresh(job)
@@ -320,9 +354,13 @@ def fail_job(session: Session, job_id: int, error_message: str) -> JobRecord:
 
     if job.attempts >= job.max_attempts:
         job.status = FAILED
+        job.claimed_by = ""
+        job.lease_expires_at = None
     else:
         job.status = PENDING
         job.started_at = None
+        job.claimed_by = ""
+        job.lease_expires_at = None
 
     session.commit()
     session.refresh(job)
@@ -361,8 +399,10 @@ def serialize_job(job: JobRecord) -> dict[str, Any]:
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,
         "error_message": job.error_message,
+        "claimed_by": job.claimed_by,
         "created_at": serialize_datetime(job.created_at),
         "started_at": serialize_datetime(job.started_at),
+        "lease_expires_at": serialize_datetime(job.lease_expires_at),
         "completed_at": serialize_datetime(job.completed_at),
     }
 
