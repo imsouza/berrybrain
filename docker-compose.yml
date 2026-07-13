@@ -4,7 +4,8 @@ services:
     restart: unless-stopped
     working_dir: /app/apps/api
     command: >
-      sh -c "pip install --no-cache-dir -e . &&
+      sh -c "sh /app/scripts/validate-env.sh api &&
+             pip install --no-cache-dir -e . &&
              uvicorn berrybrain_api.main:app --host 0.0.0.0 --port 8000"
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
@@ -25,7 +26,8 @@ services:
     restart: unless-stopped
     working_dir: /app/apps/web
     command: >
-      sh -c "npm install &&
+      sh -c "sh /app/scripts/validate-env.sh web &&
+             npm install &&
              npm run build &&
              npm run start -- --hostname 0.0.0.0 --port 3000"
     env_file:
@@ -55,7 +57,8 @@ services:
     restart: unless-stopped
     working_dir: /app/apps/worker
     command: >
-      sh -c "(pip show berrybrain-worker >/dev/null 2>&1 && echo 'skip install') || pip install --no-cache-dir -e .;
+      sh -c "sh /app/scripts/validate-env.sh worker &&
+             { (pip show berrybrain-worker >/dev/null 2>&1 && echo 'skip install') || pip install --no-cache-dir -e .; } &&
              python -u -m berrybrain_worker.main"
     env_file:
       - .env
