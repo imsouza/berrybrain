@@ -44,6 +44,11 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/berrybrain').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   worker:
     image: python:3.12-slim
@@ -62,6 +67,15 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import datetime,json,os,sys,urllib.request; token=os.getenv('BERRYBRAIN_API_TOKEN',''); req=urllib.request.Request('http://api:8000/api/v1/worker/status', headers={'Authorization':'Bearer '+token} if token else {}); data=json.loads(urllib.request.urlopen(req, timeout=5).read()); hb=data.get('worker',{}).get('last_heartbeat'); dt=datetime.datetime.fromisoformat(hb.replace('Z','+00:00')) if hb else None; age=(datetime.datetime.now(datetime.timezone.utc)-dt).total_seconds() if dt else 999999; sys.exit(0 if age < 120 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   searxng:
     image: searxng/searxng:latest
