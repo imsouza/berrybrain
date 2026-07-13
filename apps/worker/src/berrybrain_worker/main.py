@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 import time
 from contextlib import suppress
@@ -232,7 +233,10 @@ async def run_loop(
                     renew_lease_until_done(client, settings.api_url, int(job["id"]))
                 )
                 try:
-                    await process_job(client, settings, job)
+                    await asyncio.wait_for(
+                        process_job(client, settings, job),
+                        timeout=timeout_for_job(settings, str(job["type"])),
+                    )
                     lease_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await lease_task
@@ -243,11 +247,25 @@ async def run_loop(
                     lease_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await lease_task
+                    if is_permanent_job_error(exc):
+                        errors += 1
+                        error_msg = f"Permanent job error: {str(exc)[:1978]}"
+                        try:
+                            await fail_job(
+                                client, settings.api_url, int(job["id"]), error_msg
+                            )
+                        except httpx.HTTPError as report_exc:
+                            print(
+                                f"could not report failed job {job['id']} "
+                                f"({job['type']}): {report_exc}"
+                            )
+                        return
                     if retry < 2:
+                        delay = retry_delay_seconds(retry)
                         print(
                             f"retrying job {job['id']} ({job['type']}) — attempt {retry + 1}/2: {exc}"
                         )
-                        await asyncio.sleep(2 * (retry + 1))
+                        await asyncio.sleep(delay)
                         continue
                     errors += 1
                     error_msg = str(exc)[:2000]
@@ -307,6 +325,41 @@ async def renew_lease_until_done(
         return
     except Exception as exc:
         print(f"could not renew lease for job {job_id}: {exc}")
+
+
+def retry_delay_seconds(retry: int) -> float:
+    base = min(30.0, 2.0**retry)
+    return base + random.uniform(0.1, 1.0)
+
+
+def is_permanent_job_error(exc: Exception) -> bool:
+    if isinstance(
+        exc, (asyncio.TimeoutError, httpx.TimeoutException, httpx.ConnectError)
+    ):
+        return False
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status < 500 and status not in {408, 409, 425, 429}
+    if isinstance(exc, (CloudError, OllamaError)):
+        return False
+    return isinstance(exc, ValueError)
+
+
+def timeout_for_job(settings: WorkerSettings, job_type: str) -> int:
+    ai_job_timeout = max(30, settings.ollama_timeout + 30)
+    long_running = {
+        "ASSIMILATE_NOTE",
+        "GENERATE_GRAPH_INSIGHTS",
+        "GENERATE_INFERRED_CONNECTIONS",
+        "EXPAND_KNOWLEDGE_GRAPH",
+        "PROCESS_ATTACHMENT",
+    }
+    quick = {"UPDATE_GRAPH_STATS", "UPDATE_GRAPH_CLUSTERS"}
+    if job_type in long_running:
+        return max(ai_job_timeout, 300)
+    if job_type in quick:
+        return 60
+    return ai_job_timeout
 
 
 async def process_job(
