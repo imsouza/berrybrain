@@ -326,12 +326,13 @@ class IntegrationTest(unittest.TestCase):
     def test_15_generated_metadata(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]
         path = notes[0]["path"]
+        note = self.client.get(f"/api/v1/notes/{path}").json()
 
         resp = self.client.put(
             f"/api/v1/metadata/classification?note_path={path}",
             json={
                 "content": {"note_type": "study"},
-                "content_hash": "abc123",
+                "content_hash": note["content_hash"],
                 "model_used": "qwen3",
             },
         )

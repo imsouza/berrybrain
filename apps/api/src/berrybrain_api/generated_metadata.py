@@ -18,6 +18,26 @@ def upsert_generated_metadata(
     content_hash: str,
     model_used: str | None = None,
 ) -> GeneratedMetadataRecord:
+    note = session.get(NoteRecord, note_id)
+    if (
+        note is not None
+        and note.content_hash
+        and content_hash
+        and note.content_hash != content_hash
+    ):
+        existing_stale = session.execute(
+            select(GeneratedMetadataRecord).where(
+                GeneratedMetadataRecord.note_id == note_id,
+                GeneratedMetadataRecord.generation_type == generation_type,
+            )
+        ).scalar_one_or_none()
+        if existing_stale is not None:
+            return existing_stale
+        raise HTTPException(
+            status_code=409,
+            detail="Generated metadata is stale for current note content",
+        )
+
     existing = session.execute(
         select(GeneratedMetadataRecord).where(
             GeneratedMetadataRecord.note_id == note_id,

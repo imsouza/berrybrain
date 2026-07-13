@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
+from berrybrain_api.generated_metadata import upsert_generated_metadata
 from berrybrain_api.models import NoteRecord
 from berrybrain_api.sync import sync_note_record
 from berrybrain_api.vault import (
@@ -76,6 +77,43 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
                 loaded.frontmatter, '{"language":"pt-BR","note_type":"aula"}'
             )
             self.assertEqual(loaded.links, '["Ollama"]')
+
+    def test_generated_metadata_rejects_stale_content_hash(self) -> None:
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
+        Base.metadata.create_all(bind=engine)
+        session = sessionmaker(bind=engine)()
+        note = NoteRecord(
+            path="inbox/a.md",
+            title="A",
+            slug="a",
+            content="# A",
+            content_hash="current",
+        )
+        session.add(note)
+        session.commit()
+        session.refresh(note)
+
+        with self.assertRaises(Exception):
+            upsert_generated_metadata(
+                session,
+                note.id,
+                "summary",
+                {"summary": "old"},
+                "old",
+                "model",
+            )
+
+        stored = upsert_generated_metadata(
+            session,
+            note.id,
+            "summary",
+            {"summary": "current"},
+            "current",
+            "model",
+        )
+        self.assertEqual(stored.content_hash, "current")
 
     def test_create_note_allows_empty_title_with_incremental_draft_slug(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
