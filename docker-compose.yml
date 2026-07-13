@@ -7,6 +7,7 @@ services:
     working_dir: /app/apps/api
     command: >
       sh -c "sh /app/scripts/validate-env.sh api &&
+             sh /app/scripts/prepare-runtime-dirs.sh &&
              pip install --no-cache-dir -e . &&
              uvicorn berrybrain_api.main:app --host 0.0.0.0 --port 8000"
     environment:
@@ -17,6 +18,8 @@ services:
       - "${BERRYBRAIN_API_PORT:-8000}:8000"
     volumes:
       - .:/app
+      - berrybrain_data:/app/data
+      - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
@@ -64,6 +67,7 @@ services:
     working_dir: /app/apps/worker
     command: >
       sh -c "sh /app/scripts/validate-env.sh worker &&
+             sh /app/scripts/prepare-runtime-dirs.sh &&
              { (pip show berrybrain-worker >/dev/null 2>&1 && echo 'skip install') || pip install --no-cache-dir -e .; } &&
              python -u -m berrybrain_worker.main"
     env_file:
@@ -73,6 +77,8 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - .:/app
+      - berrybrain_data:/app/data
+      - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
     depends_on:
       api:
         condition: service_healthy
@@ -99,6 +105,7 @@ services:
       - searxng_config:/etc/searxng
 
 volumes:
+  berrybrain_data:
   searxng_config:
   web_node_modules:
   web_next_cache:
