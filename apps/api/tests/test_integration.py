@@ -1,4 +1,3 @@
-import json
 import os
 import tempfile
 import unittest
@@ -15,6 +14,7 @@ os.environ["BERRYBRAIN_VAULT_WATCHER_ENABLED"] = "false"
 SESSIONLOCAL_MODULES = (
     "berrybrain_api.main",
     "berrybrain_api.backup",
+    "berrybrain_api.security",
     "berrybrain_api.routers.automation",
     "berrybrain_api.routers.cognitive",
     "berrybrain_api.routers.concepts",
@@ -42,8 +42,8 @@ class IntegrationTest(unittest.TestCase):
 
         cls.db_url = f"sqlite:///{db_path}"
 
-        from berrybrain_api.config import Settings, get_settings
-        from berrybrain_api.database import Base, SessionLocal, engine, init_database
+        from berrybrain_api.config import get_settings
+        from berrybrain_api.database import Base, SessionLocal, engine
         import berrybrain_api.models  # noqa: F401 — register all ORM models
 
         cls.settings = get_settings()
@@ -52,11 +52,15 @@ class IntegrationTest(unittest.TestCase):
         cls.original_backup_path = cls.settings.backup_path
         cls.original_vault_watcher_enabled = cls.settings.vault_watcher_enabled
         cls.original_api_token = cls.settings.api_token
+        cls.original_require_auth = cls.settings.require_auth
+        cls.original_session_secure_cookie = cls.settings.session_secure_cookie
         cls.settings.database_url = cls.db_url
         cls.settings.vault_path = vault_path
         cls.settings.backup_path = backup_path
         cls.settings.vault_watcher_enabled = False
-        cls.settings.api_token = ""
+        cls.settings.api_token = "test-token"
+        cls.settings.require_auth = False
+        cls.settings.session_secure_cookie = False
 
         cls.original_engine = engine
         cls.original_session_local = SessionLocal
@@ -89,7 +93,21 @@ class IntegrationTest(unittest.TestCase):
 
         from berrybrain_api.main import app
 
-        cls.client = TestClient(app)
+        cls.client = TestClient(
+            app, headers={"Authorization": f"Bearer {cls.settings.api_token}"}
+        )
+        cls.admin_client = TestClient(
+            app, headers={"Authorization": f"Bearer {cls.settings.api_token}"}
+        )
+        setup_resp = cls.admin_client.post(
+            "/api/v1/setup/admin",
+            json={
+                "password": "StrongPass123",
+                "display_name": "Integration Admin",
+            },
+        )
+        if setup_resp.status_code not in (201, 409):
+            raise AssertionError(setup_resp.text)
 
     @classmethod
     def tearDownClass(cls):
@@ -99,11 +117,15 @@ class IntegrationTest(unittest.TestCase):
         db_mod.SessionLocal = cls.original_session_local
         for module, original in reversed(cls.patched_sessionlocal_modules):
             setattr(module, "SessionLocal", original)
+        cls.client.close()
+        cls.admin_client.close()
         cls.settings.database_url = cls.original_database_url
         cls.settings.vault_path = cls.original_vault_path
         cls.settings.backup_path = cls.original_backup_path
         cls.settings.vault_watcher_enabled = cls.original_vault_watcher_enabled
         cls.settings.api_token = cls.original_api_token
+        cls.settings.require_auth = cls.original_require_auth
+        cls.settings.session_secure_cookie = cls.original_session_secure_cookie
         cls.tmp_dir.cleanup()
 
     def test_01_health(self):
@@ -328,19 +350,19 @@ class IntegrationTest(unittest.TestCase):
         self.assertGreater(len(resp2.json()["logs"]), 0)
 
     def test_17_backup_and_restore(self):
-        resp = self.client.post("/api/v1/backups")
+        resp = self.admin_client.post("/api/v1/backups")
         self.assertEqual(resp.status_code, 201)
         backup = resp.json()["backup"]
         self.assertIn("id", backup)
 
-        resp2 = self.client.get("/api/v1/backups")
+        resp2 = self.admin_client.get("/api/v1/backups")
         self.assertEqual(resp2.status_code, 200)
         self.assertGreater(len(resp2.json()["backups"]), 0)
 
-        resp3 = self.client.post(f"/api/v1/backups/{backup['id']}/restore")
+        resp3 = self.admin_client.post(f"/api/v1/backups/{backup['id']}/restore")
         self.assertEqual(resp3.status_code, 200)
 
-        resp4 = self.client.delete(f"/api/v1/backups/{backup['id']}")
+        resp4 = self.admin_client.delete(f"/api/v1/backups/{backup['id']}")
         self.assertEqual(resp4.status_code, 200)
         self.assertEqual(resp4.json()["status"], "deleted")
 
@@ -354,6 +376,7 @@ class IntegrationTest(unittest.TestCase):
     def test_19_api_token_auth(self):
         from berrybrain_api.main import settings as app_settings
 
+        previous_token = app_settings.api_token
         app_settings.api_token = "secret123"
         try:
             get_resp = self.client.get("/api/v1/notes")
@@ -383,7 +406,7 @@ class IntegrationTest(unittest.TestCase):
                 headers={"Authorization": "Bearer secret123"},
             )
         finally:
-            app_settings.api_token = ""
+            app_settings.api_token = previous_token
 
     def test_20_jobs_health_and_recover_stale(self):
         health = self.client.get("/api/v1/jobs/health")
@@ -395,23 +418,23 @@ class IntegrationTest(unittest.TestCase):
         self.assertIn("recovered", recovered.json())
 
     def test_21_maintenance_contracts(self):
-        cleanup = self.client.post("/api/v1/maintenance/cleanup-legacy-insights")
+        cleanup = self.admin_client.post("/api/v1/maintenance/cleanup-legacy-insights")
         self.assertEqual(cleanup.status_code, 200)
         self.assertEqual(cleanup.json()["status"], "ok")
         self.assertIn("archivedInsights", cleanup.json())
 
-        validation = self.client.post("/api/v1/maintenance/validate-graph")
+        validation = self.admin_client.post("/api/v1/maintenance/validate-graph")
         self.assertEqual(validation.status_code, 200)
         self.assertEqual(validation.json()["status"], "ok")
         self.assertIn("deletedOrphanEdges", validation.json())
         self.assertIn("duplicateJobsMarkedFailed", validation.json())
 
-        reindex = self.client.post("/api/v1/maintenance/reindex-knowledge-base")
+        reindex = self.admin_client.post("/api/v1/maintenance/reindex-knowledge-base")
         self.assertEqual(reindex.status_code, 200)
         self.assertEqual(reindex.json()["status"], "indexed")
         self.assertIn("externalVectorStore", reindex.json())
 
-        rebuild = self.client.post("/api/v1/maintenance/rebuild-brain")
+        rebuild = self.admin_client.post("/api/v1/maintenance/rebuild-brain")
         self.assertEqual(rebuild.status_code, 200)
         self.assertEqual(rebuild.json()["status"], "queued")
         self.assertIn("knowledgeBase", rebuild.json())

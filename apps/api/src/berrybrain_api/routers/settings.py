@@ -1,3 +1,5 @@
+import json as _json
+import urllib.request
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -144,8 +146,6 @@ def get_graph_config(request: Request) -> dict:
 
 @router.get("/ai/models")
 def get_ai_models(url: str = "", key: str = "") -> dict:
-    import urllib.request, json as _json
-
     with SessionLocal() as session:
 
         def _get(k: str) -> str:

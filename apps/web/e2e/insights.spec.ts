@@ -1,20 +1,18 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Insights page", () => {
-  test("loads and shows header", async ({ page }) => {
-    await page.goto("/insights");
-    await expect(page.locator("h1")).toContainText("Insights", { timeout: 10_000 });
+test.describe("Documentation pages", () => {
+  test("loads docs page", async ({ page }) => {
+    await page.goto("/docs");
+    await expect(page.locator("body")).toContainText("What is BerryBrain", { timeout: 10_000 });
   });
 
-  test("shows filter buttons", async ({ page }) => {
-    await page.goto("/insights");
-    const allFilter = page.locator("button", { hasText: "All" }).first();
-    await expect(allFilter).toBeVisible({ timeout: 10_000 });
+  test("loads FAQ page", async ({ page }) => {
+    await page.goto("/faq");
+    await expect(page.locator("body")).toContainText("Can I self-host?", { timeout: 10_000 });
   });
 
-  test("shows empty state when no insights", async ({ page }) => {
-    await page.goto("/insights");
-    const emptyOrList = page.locator("text=No insights").or(page.locator("[class*='insight']"));
-    await expect(emptyOrList.first()).toBeVisible({ timeout: 10_000 });
+  test("loads security legal page", async ({ page }) => {
+    await page.goto("/security");
+    await expect(page.locator("h1")).toContainText("Security", { timeout: 10_000 });
   });
 });

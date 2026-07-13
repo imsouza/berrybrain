@@ -29,7 +29,6 @@ from berrybrain_api.second_brain import (
     expand_knowledge_graph,
     generate_inferred_graph_connections,
     get_node_summary,
-    infer_from_graph_with_ai,
     set_edge_status,
     set_edge_user_notes,
     set_node_status,

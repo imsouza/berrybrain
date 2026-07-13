@@ -1,7 +1,6 @@
 import json
 import os
 import shutil
-import time
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -139,7 +138,6 @@ def export_full() -> BytesIO:
             rel = f.relative_to(vault)
             zf.write(f, f"vault/{rel}")
 
-        t0 = time.time()
         backup = create_backup()
         zf.writestr(
             "backup_id.json",

@@ -33,4 +33,24 @@ else
   echo "skip=worker_status reason=BERRYBRAIN_API_TOKEN not set"
 fi
 
+echo "check=note_pipeline"
+if [ -n "$API_TOKEN" ]; then
+  note_title="Baseline $(date -u +%Y%m%dT%H%M%SZ)"
+  payload="$(printf '{"title":"%s","folder":"inbox","content":"# %s\\n\\nBaseline note for install smoke testing."}' "$note_title" "$note_title")"
+  note_response="$(curl -fsS -H "Authorization: Bearer $API_TOKEN" -H "Content-Type: application/json" -d "$payload" "$API_URL/api/v1/notes")"
+  note_path="$(printf '%s' "$note_response" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')"
+  if [ -z "$note_path" ]; then
+    echo "fail=note_pipeline reason=note_path_missing"
+    exit 1
+  fi
+  jobs_response="$(curl -fsS -H "Authorization: Bearer $API_TOKEN" "$API_URL/api/v1/jobs")"
+  if ! printf '%s' "$jobs_response" | grep -q "$note_path"; then
+    echo "fail=note_pipeline reason=job_not_enqueued note_path=$note_path"
+    exit 1
+  fi
+  echo "ok=note_pipeline note_path=$note_path"
+else
+  echo "skip=note_pipeline reason=BERRYBRAIN_API_TOKEN not set"
+fi
+
 echo "completed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

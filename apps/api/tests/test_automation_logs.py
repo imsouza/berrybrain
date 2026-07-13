@@ -1,4 +1,3 @@
-import json
 import unittest
 
 from sqlalchemy import create_engine
@@ -52,8 +51,6 @@ class AutomationLogTest(unittest.TestCase):
         )
 
         logs = list_automation_logs(self.session)
-        after_state = json.loads(logs[0].after_state)
-
         self.assertEqual(len(logs), 14)
         self.assertEqual(logs[0].action_type, "ENQUEUE_JOB")
         self.assertEqual(logs[0].target_id, "inbox/a.md")

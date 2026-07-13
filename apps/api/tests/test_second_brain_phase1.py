@@ -12,7 +12,6 @@ from berrybrain_api.models import (
     ConnectionRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
-    GraphEdgeRecord,
     InsightRecord,
     NoteRecord,
 )

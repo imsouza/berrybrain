@@ -1,17 +1,15 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Activity page", () => {
-  test("loads with stat cards", async ({ page }) => {
-    await page.goto("/activity");
-    await expect(page.locator("text=Completed").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("text=Running").first()).toBeVisible();
-    await expect(page.locator("text=Pending").first()).toBeVisible();
-    await expect(page.locator("text=Failed").first()).toBeVisible();
+test.describe("Legacy public routes", () => {
+  test("demo route redirects to docs", async ({ page }) => {
+    await page.goto("/demo");
+    await expect(page).toHaveURL(/\/docs$/);
+    await expect(page.locator("body")).toContainText("BerryBrain");
   });
 
-  test("has filter buttons", async ({ page }) => {
-    await page.goto("/activity");
-    const allBtn = page.locator("button", { hasText: "All" }).first();
-    await expect(allBtn).toBeVisible({ timeout: 10_000 });
+  test("admin route redirects to account page", async ({ page }) => {
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/account$/);
+    await expect(page.locator("h1")).toContainText("Control identity");
   });
 });

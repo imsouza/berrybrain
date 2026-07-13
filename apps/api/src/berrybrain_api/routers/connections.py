@@ -5,7 +5,7 @@ from sqlalchemy import select
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.generated_metadata import resolve_note_id
 from berrybrain_api.home_summary import list_recent_connections
-from berrybrain_api.models import NoteRecord
+from berrybrain_api.models import ConnectionRecord, NoteRecord
 from berrybrain_api.services import (
     create_connection,
     get_connections_for_note,
@@ -77,9 +77,6 @@ def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
                 )
                 created += 1
         return {"status": "synced", "connections_created": created}
-
-
-from berrybrain_api.models import ConnectionRecord
 
 
 @router.get("")

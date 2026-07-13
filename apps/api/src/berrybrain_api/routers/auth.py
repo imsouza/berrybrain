@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal

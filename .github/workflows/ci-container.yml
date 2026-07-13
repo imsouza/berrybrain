@@ -1,0 +1,47 @@
+name: CI Container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker-compose.yml"
+      - "apps/**"
+      - "scripts/baseline.sh"
+      - ".github/workflows/ci-container.yml"
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "apps/**"
+      - "scripts/baseline.sh"
+      - ".github/workflows/ci-container.yml"
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    env:
+      BERRYBRAIN_API_TOKEN: ci-token
+      BERRYBRAIN_SESSION_SECRET: ci-session-secret-change-me-32-bytes
+      BERRYBRAIN_ADMIN_EMAIL: owner@local.berrybrain
+      BERRYBRAIN_BASELINE_WEB_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare env
+        run: |
+          cp .env.example .env
+          sed -i 's/^BERRYBRAIN_API_TOKEN=.*/BERRYBRAIN_API_TOKEN=ci-token/' .env
+          sed -i 's/^BERRYBRAIN_SESSION_SECRET=.*/BERRYBRAIN_SESSION_SECRET=ci-session-secret-change-me-32-bytes/' .env
+          sed -i 's#^NEXT_PUBLIC_BERRYBRAIN_API_URL=.*#NEXT_PUBLIC_BERRYBRAIN_API_URL=#' .env
+          sed -i 's#^NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=.*#NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=#' .env
+          sed -i 's#^NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=.*#NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=#' .env
+      - name: Compose config
+        run: docker compose config --quiet
+      - name: Start Compose
+        run: docker compose up -d
+      - name: Smoke baseline
+        run: |
+          timeout 180 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 5; done'
+          timeout 240 bash -c 'until curl -fsS http://127.0.0.1:3000; do sleep 5; done'
+          ./scripts/baseline.sh
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail=120

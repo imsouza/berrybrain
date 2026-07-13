@@ -4,7 +4,6 @@ Starts the real FastAPI app with in-memory SQLite, runs worker functions
 against it via httpx.AsyncClient + ASGITransport. Mocks only AI calls.
 """
 
-import json
 import os
 import tempfile
 import unittest
@@ -40,7 +39,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
 
-        from berrybrain_api.database import Base, SessionLocal, engine
+        from berrybrain_api.database import Base
         import berrybrain_api.models  # noqa: F401
 
         from berrybrain_api.config import get_settings
@@ -62,7 +61,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         cls.settings.vault_path = vault_path
         cls.settings.backup_path = Path(cls.tmp_dir.name) / "backups"
         cls.settings.vault_watcher_enabled = False
-        cls.settings.api_token = ""
+        cls.settings.api_token = "test-token"
 
         from berrybrain_api.main import app
 
@@ -108,8 +107,6 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        from berrybrain_api.database import SessionLocal
-
         import berrybrain_api.database as db_mod
 
         db_mod.engine = cls._orig_engine
@@ -125,11 +122,13 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         cls.tmp_dir.cleanup()
 
     def _make_client(self) -> httpx.AsyncClient:
-        from starlette.testclient import TestClient
-
         # Use ASGITransport for async requests
         transport = httpx.ASGITransport(app=self.app)
-        return httpx.AsyncClient(transport=transport, base_url="http://testserver")
+        return httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers={"Authorization": f"Bearer {self.settings.api_token}"},
+        )
 
     async def _create_note(
         self, client: httpx.AsyncClient, title: str = "Test Note"
@@ -148,8 +147,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_claim_and_complete_job_lifecycle(self):
         """Create a note → jobs are enqueued → claim → complete → status=completed."""
         async with self._make_client() as client:
-            note = await self._create_note(client)
-            note_path = note["path"]
+            await self._create_note(client)
 
             # list pending jobs
             resp = await client.get("/api/v1/jobs", params={"status": "pending"})
@@ -209,7 +207,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         import berrybrain_worker.main as worker_main
 
         async with self._make_client() as client:
-            note = await self._create_note(client)
+            await self._create_note(client)
             resp = await client.post("/api/v1/jobs/claim")
             job = resp.json()["job"]
             self.assertEqual(job["type"], "PARSE_NOTE")
@@ -230,7 +228,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 worker_main.ollama_call = original
 
             # job should be completed
-            resp = await client.get(f"/api/v1/jobs?status=completed")
+            resp = await client.get("/api/v1/jobs?status=completed")
             completed = resp.json()["jobs"]
             self.assertTrue(
                 any(j["id"] == job["id"] for j in completed),

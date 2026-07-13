@@ -1,15 +1,17 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Home page", () => {
-  test("loads and renders workspace", async ({ page }) => {
+  test("loads public landing", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveTitle(/BerryBrain/);
-    await expect(page.locator("body")).toBeVisible();
+    await expect(page.locator("h1")).toContainText("evidence-backed knowledge graph");
+    await expect(page.locator("text=View on GitHub")).toBeVisible();
   });
 
-  test("has sidebar navigation", async ({ page }) => {
+  test("shows maturity comparison", async ({ page }) => {
     await page.goto("/");
-    const sidebar = page.locator("nav, [class*='sidebar'], [role='navigation']");
-    await expect(sidebar.first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("text=BerryBrain").first()).toBeVisible();
+    await expect(page.locator("text=Obsidian")).toBeVisible();
+    await expect(page.locator("text=Conditional").first()).toBeVisible();
   });
 });

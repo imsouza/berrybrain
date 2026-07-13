@@ -12,10 +12,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
 from berrybrain_api.security import get_session_user, require_admin
-from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.home_summary import build_home_summary
-from berrybrain_api.jobs import utc_now
-from berrybrain_api.models import GeneratedMetadataRecord, JobRecord, NoteRecord
+from berrybrain_api.jobs import serialize_datetime
+from berrybrain_api.models import JobRecord, NoteRecord
 from berrybrain_api.search import text_search
 from berrybrain_api.vault_watcher import VaultWatcher
 
@@ -434,7 +433,6 @@ def audit_system():
 def list_activity(limit: int = 50) -> dict:
     from berrybrain_api.automation_logs import (
         list_automation_logs,
-        serialize_automation_log,
     )
     from berrybrain_api.jobs import PENDING, COMPLETED, FAILED
 

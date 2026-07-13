@@ -520,8 +520,6 @@ def apply_insight_endpoint(insight_id: int) -> dict:
 @router.post("/{insight_id}/create-note")
 def create_note_from_insight(insight_id: int) -> dict:
     with SessionLocal() as session:
-        from berrybrain_api.jobs import utc_now
-
         insight = session.get(InsightRecord, insight_id)
         if insight is None:
             return {"status": "insight_not_found"}

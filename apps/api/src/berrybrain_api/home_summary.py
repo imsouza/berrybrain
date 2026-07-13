@@ -75,7 +75,6 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     today = now.date()
 
     notes = list(session.execute(select(NoteRecord)).scalars())
-    note_by_id = {note.id: note for note in notes}
     note_by_path = {note.path: note for note in notes}
     jobs = list(
         session.execute(

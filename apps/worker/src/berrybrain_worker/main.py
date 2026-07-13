@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -227,7 +226,6 @@ async def run_loop(
 
         async def handle(job):
             nonlocal jobs_processed, errors
-            attempts = getattr(job, "attempts", 0) or 0
             for retry in range(3):
                 try:
                     await process_job(client, settings, job)
@@ -482,8 +480,6 @@ def effective_generation_provider() -> str:
 async def process_parse_note(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
-    import re, json as _json
-
     note_path = payload.get("note_path", "")
     content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
@@ -1581,7 +1577,6 @@ async def process_generate_inferred_connections(
 async def process_generate_node_summary(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
-    note_path = payload.get("note_path", "")
     response = await client.post(f"{settings.api_url}/api/v1/graph/expand")
     response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
@@ -1607,7 +1602,6 @@ async def process_expand_concept_to_note(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
     note_path = payload.get("note_path", "")
-    content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
     note_content = note.get("content", "")
     frontmatter = note.get("frontmatter", {})
@@ -1749,7 +1743,7 @@ def _extract_insight_id_from_payload(payload: dict) -> int | None:
     if isinstance(raw.get("payload"), str):
         try:
             raw = json.loads(raw["payload"])
-        except:
+        except json.JSONDecodeError:
             pass
     vid = raw.get("insight_id")
     return int(vid) if vid is not None else None
