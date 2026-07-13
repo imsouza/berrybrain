@@ -50,6 +50,7 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         vault_path.mkdir()
 
         cls.db_url = f"sqlite:///{db_path}"
+        cls.note_counter = 0
 
         cls.settings = get_settings()
         cls.original_database_url = cls.settings.database_url
@@ -133,12 +134,14 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def _create_note(
         self, client: httpx.AsyncClient, title: str = "Test Note"
     ) -> dict:
+        type(self).note_counter += 1
+        unique_title = f"{title} {type(self).note_counter}"
         resp = await client.post(
             "/api/v1/notes",
             json={
-                "title": title,
+                "title": unique_title,
                 "folder": "inbox",
-                "content": "# Test\n\nHello world",
+                "content": f"# {unique_title}\n\nHello world",
             },
         )
         assert resp.status_code == 201, resp.text

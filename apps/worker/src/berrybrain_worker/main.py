@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import httpx
@@ -227,12 +228,21 @@ async def run_loop(
         async def handle(job):
             nonlocal jobs_processed, errors
             for retry in range(3):
+                lease_task = asyncio.create_task(
+                    renew_lease_until_done(client, settings.api_url, int(job["id"]))
+                )
                 try:
                     await process_job(client, settings, job)
+                    lease_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await lease_task
                     jobs_processed += 1
                     print(f"completed job {job['id']} ({job['type']})")
                     return
                 except Exception as exc:
+                    lease_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await lease_task
                     if retry < 2:
                         print(
                             f"retrying job {job['id']} ({job['type']}) — attempt {retry + 1}/2: {exc}"
@@ -279,6 +289,24 @@ async def claim_next_job(client: httpx.AsyncClient, api_url: str) -> dict | None
     response.raise_for_status()
     payload = response.json()
     return payload.get("job")
+
+
+async def renew_job_lease(client: httpx.AsyncClient, api_url: str, job_id: int) -> None:
+    response = await client.post(f"{api_url}/api/v1/jobs/{job_id}/renew-lease")
+    response.raise_for_status()
+
+
+async def renew_lease_until_done(
+    client: httpx.AsyncClient, api_url: str, job_id: int
+) -> None:
+    try:
+        while True:
+            await asyncio.sleep(60)
+            await renew_job_lease(client, api_url, job_id)
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:
+        print(f"could not renew lease for job {job_id}: {exc}")
 
 
 async def process_job(

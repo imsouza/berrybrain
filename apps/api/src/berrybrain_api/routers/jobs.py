@@ -17,6 +17,7 @@ from berrybrain_api.jobs import (
     normalize_utc,
     parse_json,
     recover_stale_running_jobs,
+    renew_job_lease,
     serialize_job,
     utc_now,
 )
@@ -65,6 +66,13 @@ def recover_stale_endpoint(stale_after_minutes: int = 30) -> dict:
             session, stale_after_minutes=max(1, stale_after_minutes)
         )
         return {"recovered": recovered}
+
+
+@router.post("/{job_id}/renew-lease")
+def renew_job_lease_endpoint(job_id: int, lease_minutes: int = 30) -> dict:
+    with SessionLocal() as session:
+        job = renew_job_lease(session, job_id, lease_minutes=max(1, lease_minutes))
+        return {"job": serialize_job(job)}
 
 
 @router.get("/health")

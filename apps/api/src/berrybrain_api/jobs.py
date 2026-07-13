@@ -207,7 +207,7 @@ def claim_next_job(
                 JobRecord.attempts < JobRecord.max_attempts,
             )
             .order_by(JobRecord.created_at.asc(), JobRecord.id.asc())
-            .limit(50)
+            .limit(500)
         ).scalars()
     )
     job = next(
@@ -333,6 +333,18 @@ def _job_dependencies_satisfied(session: Session, job: JobRecord) -> bool:
         query = query.where(JobRecord.content_hash == content_hash)
 
     return session.execute(query.limit(1)).scalar_one_or_none() is None
+
+
+def renew_job_lease(
+    session: Session, job_id: int, lease_minutes: int = 30
+) -> JobRecord:
+    job = get_job_or_404(session, job_id)
+    if job.status != RUNNING:
+        raise HTTPException(status_code=409, detail="Job is not running")
+    job.lease_expires_at = utc_now() + timedelta(minutes=lease_minutes)
+    session.commit()
+    session.refresh(job)
+    return job
 
 
 def complete_job(session: Session, job_id: int) -> JobRecord:
