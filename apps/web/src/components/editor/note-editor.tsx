@@ -96,11 +96,10 @@ export function NoteEditor() {
     );
   }
 
-  function toggleBold() {
+  function toggleMarker(marker: string) {
     const el = textareaRef.current;
     const start = el?.selectionStart ?? w.draft.length;
     const end = el?.selectionEnd ?? w.draft.length;
-    const marker = "**";
     const selected = w.draft.slice(start, end);
 
     if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length >= marker.length * 2) {
@@ -226,7 +225,7 @@ export function NoteEditor() {
     const key = event.key.toLowerCase();
     if (key === "b") {
       event.preventDefault();
-      toggleBold();
+      toggleMarker("**");
     } else if (key === "i") {
       event.preventDefault();
       wrapSelection("*", "*", "italic text");
@@ -307,8 +306,8 @@ export function NoteEditor() {
 
       {(w.viewMode === "edit" || w.viewMode === "split") && (
         <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-panel/70 px-3 py-2 lg:px-5">
-          <ToolbarButton label="B" title="Bold" onClick={toggleBold} />
-          <ToolbarButton label="I" title="Italic" onClick={() => wrapSelection("*", "*", "italic text")} />
+          <ToolbarButton label="B" title="Bold" onClick={() => toggleMarker("**")} />
+          <ToolbarButton label="I" title="Italic" onClick={() => toggleMarker("*")} />
           <ToolbarButton label="H2" title="Heading" onClick={() => insertBlock("## Heading\n")} />
           <ToolbarButton label=">" title="Quote" onClick={() => prefixLines("> ")} />
           <ToolbarButton label="*" title="Bullet list" onClick={() => prefixLines("- ")} />

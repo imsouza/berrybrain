@@ -6,7 +6,7 @@
 
 BerryBrain turns notes into connected knowledge. It watches a Markdown vault, parses note structure, extracts concepts, expands a knowledge graph, creates explainable connections, and surfaces insights that help the user study, assimilate, and discover gaps.
 
-There is no central BerryBrain account, SaaS tenant, or billing gate. You self-host the stack, create a local administrator, and manage local profiles/workspaces from the instance admin panel.
+There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or hosted management panel. You self-host the stack and create one local owner account for your own instance.
 
 ---
 
@@ -470,7 +470,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then open `http://localhost:3000/setup` and create the local administrator. Public signup is intentionally disabled.
+Then open `http://localhost:3000/setup` and create the local owner account. Public signup is intentionally disabled.
 
 | Service | URL |
 | --- | --- |
@@ -548,9 +548,9 @@ Edit `.env` and set at minimum:
 
 | Variable | Why it matters |
 | --- | --- |
-| `BERRYBRAIN_SESSION_SECRET` | HMAC pepper for sessions **and** password hashing. Use a long random value. Changing it later invalidates existing password hashes (re-seed the admin). |
-| `BERRYBRAIN_API_TOKEN` | Bearer token for service-to-service and admin API calls. Generate a random value. |
-| `BERRYBRAIN_ADMIN_EMAIL` | Only this account gets administrator privileges. |
+| `BERRYBRAIN_SESSION_SECRET` | HMAC pepper for sessions **and** password hashing. Use a long random value. Changing it later invalidates existing password hashes (re-seed the owner account). |
+| `BERRYBRAIN_API_TOKEN` | Bearer token for service-to-service automation. Generate a random value. |
+| `BERRYBRAIN_ADMIN_EMAIL` | Legacy environment name for the single local owner email. |
 | `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
@@ -570,11 +570,11 @@ docker compose up -d
 
 Web serves on `http://localhost:3000`, API on `http://localhost:8000`.
 
-### 3. Create the local administrator
+### 3. Create the local owner account
 
-Open `http://localhost:3000/setup` and create the local admin password. This creates an administrator only for this self-hosted instance.
+Open `http://localhost:3000/setup` and create the local owner password. This creates the only account for this self-hosted instance.
 
-For headless recovery, the admin can still be created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
+For headless recovery, the owner account can still be created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
 
 ```bash
 docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api \
@@ -686,18 +686,18 @@ Provider failures should:
 
 ## Security and Privacy
 
-BerryBrain ships with a hardened, fail-closed security model. The API enforces authentication on every route (Bearer token or session cookie), administrators are gated by `require_admin`, backups and system resets require admin, and secrets stay server-side.
+BerryBrain ships with a hardened, fail-closed security model. The API enforces authentication on every route (Bearer token or session cookie), dangerous actions require the authenticated local owner, and secrets stay server-side.
 
 ### Implemented controls
 
 - Argon2id password hashing (PBKDF2 fallback) with the session secret as pepper.
 - Session and CSRF cookies signed with HMAC; `SameSite=Lax`.
-- First-run local admin setup, session login/logout, and local admin provisioning.
+- First-run local owner setup, session login/logout, and owner provisioning.
 - Progressive rate limiting and account lockout on repeated failures.
-- `require_admin` gate on `/api/v1/admin/*`, maintenance, settings danger, backups, and system reset.
+- Authenticated owner gate on maintenance, settings danger, backups, system reset, and legacy maintenance endpoints.
 - Fail-closed auth middleware: missing/invalid credentials are denied, not allowed.
 - Path-traversal protection on backup IDs.
-- Secrets (API keys) are masked to non-admin clients.
+- Secrets (API keys) are masked in client responses.
 
 ### Operational safety
 
@@ -705,9 +705,9 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 - Treat any token pasted into chat/logs as compromised and rotate it.
 - Generate a unique `BERRYBRAIN_SESSION_SECRET` and `BERRYBRAIN_API_TOKEN` per deployment.
 - Serve only over HTTPS; enable `BERRYBRAIN_SESSION_SECURE_COOKIE`.
-- Re-run setup/admin seed after changing `BERRYBRAIN_SESSION_SECRET`.
+- Re-run setup/owner seed after changing `BERRYBRAIN_SESSION_SECRET`.
 
-The formal security/auth/admin plan is tracked in [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md).
+The formal security/auth/public site plan is tracked in [Security, Auth, and Public Site Plan](docs/planning/sec.md).
 
 ---
 
@@ -720,7 +720,7 @@ The formal security/auth/admin plan is tracked in [Security, Auth, Admin, and Pu
 | `1.0.x` | Current | Local vault, editor, jobs, graph, insights, activity, settings |
 | `1.1.x` | In progress/planned | Cognitive quality, graph action cleanup, stronger inference, better Home observability |
 | `1.2.x` | Planned | Attachment OCR/transcription and attachment graph nodes |
-| `1.3.x` | Planned | Self-hosting hardening, local profiles/workspaces, backup/export polish |
+| `1.3.x` | Planned | Self-hosting hardening, backup/export polish, attachment ingestion |
 | `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
 ### OCR and Attachment Roadmap
@@ -746,10 +746,10 @@ BerryBrain is free and open source. The default deployment is self-hosted: no ce
 Implemented security capabilities:
 
 - public marketing site;
-- first-run local admin setup;
+- first-run local owner setup;
 - session login/logout;
-- local profiles/workspaces managed by admin;
-- admin panel and administrator controls;
+- single local account management;
+- authenticated owner controls;
 - rate limiting and abuse protection;
 - privacy, security, LGPD/GDPR pages.
 
@@ -820,7 +820,7 @@ npm --prefix apps/web run typecheck
 | Document | Purpose |
 | --- | --- |
 | [OCR and Attachment Processing Plan](docs/planning/ocr.md) | Future multimodal attachment processing |
-| [Security, Auth, Admin, and Public Site Plan](docs/planning/sec.md) | Self-hosted security/auth/admin work |
+| [Security, Auth, and Public Site Plan](docs/planning/sec.md) | Self-hosted security/auth/public site work |
 | [Graph Planning](docs/planning/planing-grafos.md) | Graph maturity and improvement planning |
 | [Second Brain Plan](docs/planning/planing-100-segundo-cerebro.md) | 100% second brain maturation plan |
 | [Maturation Plan](docs/planning/maturacao.md) | Broader system maturity work |

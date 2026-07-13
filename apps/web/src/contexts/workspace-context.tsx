@@ -71,8 +71,8 @@ const DEMO_NOTE_DETAILS: NoteDetail[] = [
       "",
       "- Verified email before trusted account actions.",
       "- Session cookies with CSRF headers for sensitive mutations.",
-      "- Admin access limited to the configured administrator email.",
-      "- Audit events for account and admin activity.",
+      "- Owner actions limited to the authenticated local account.",
+      "- Audit events for account and sensitive activity.",
     ].join("\n"),
   },
 ];

@@ -1,7 +1,15 @@
 "use client";
 
-import { NoteWorkspace } from "@/components/note-workspace";
+import { appPath } from "@/contexts/workspace-context";
+import { useEffect } from "react";
 
 export default function Demo() {
-  return <NoteWorkspace />;
+  useEffect(() => {
+    window.location.href = appPath("/docs");
+  }, []);
+  return (
+    <main className="grid min-h-screen place-items-center bg-background text-sm text-muted">
+      Redirecting to documentation...
+    </main>
+  );
 }

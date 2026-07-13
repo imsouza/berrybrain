@@ -1,7 +1,7 @@
-# Security, Auth, Admin, and Public Site Plan
+# Security, Auth, and Public Site Plan
 
 ## Summary
-Build BerryBrain as a public SaaS-ready app with first-party login/signup, email 2FA, anti-abuse controls, admin management, privacy/legal pages, and an English public marketing site.
+BerryBrain is now a free, open source, self-hosted app. The security model is a single local owner account per instance, not SaaS multi-user administration. Keep first-party login, email 2FA/recovery, anti-abuse controls, privacy/legal pages, and an English public marketing site.
 
 ## Auth
 - [x] Implement app-owned auth in FastAPI.
@@ -32,19 +32,19 @@ Build BerryBrain as a public SaaS-ready app with first-party login/signup, email
 - [x] Use `apzin` only as a reference for how Umbler SMTP is configured.
 - [x] Log delivery status without logging secrets or OTP codes.
 
-## Admin
-- [x] Add `/admin` page and `/api/v1/admin/*` endpoints protected by the configured administrator account session.
-- [x] Allow only the configured `BERRYBRAIN_ADMIN_EMAIL`.
-- [x] Admin can view users, lock/unlock accounts, force password reset, revoke sessions, and inspect audit/security events.
-- [x] Add force password reset admin action.
-- [x] Every admin action writes an audit event.
-- [ ] Add optional OAuth/SSO callback before public SaaS exposure.
+## Local Owner
+- [x] Keep the first-run setup flow as the single local owner account.
+- [x] Remove the public admin panel from the product surface.
+- [x] Redirect legacy `/admin` routes to account settings.
+- [x] Keep authenticated maintenance/audit controls server-side where still needed.
+- [x] Every sensitive owner action writes an audit event.
+- [ ] Rename legacy backend identifiers such as `BERRYBRAIN_ADMIN_EMAIL` and `/setup/admin` in a compatibility-safe migration.
 
 ## Public Site
 - [x] Build English marketing pages:
   - landing page;
   - login;
-  - signup;
+- setup;
   - privacy;
   - terms;
   - security;
@@ -61,7 +61,7 @@ Build BerryBrain as a public SaaS-ready app with first-party login/signup, email
 - [x] Add "Keep me signed in" session behavior on login.
 
 ## Repository Privacy
-- The GitHub token exposed in chat must be revoked before use.
+- GitHub tokens exposed in chat should be treated as compromised and rotated when possible.
 - Remove token from git remote.
 - Use SSH or credential manager.
 - Make repo private with GitHub CLI only after safe auth is configured.

@@ -8,7 +8,6 @@ const RECOMMENDED_MODEL = "qwen/qwen3.5-397b-instruct";
 
 type MeResponse = {
   user?: { email?: string; displayName?: string };
-  isAdmin?: boolean;
 };
 
 type TourStep = {
@@ -46,21 +45,13 @@ const baseSteps: TourStep[] = [
   {
     eyebrow: "Account",
     title: "Keep identity and sessions under control.",
-    body: "Account settings let the local admin update profile data, change password, and revoke sessions.",
-    bullets: ["Use the account button in the sidebar.", "Logout and sensitive updates require CSRF-protected requests.", "Admins get dedicated instance-management tools."],
+    body: "Account settings let the local owner update profile data, change password, and revoke sessions.",
+    bullets: ["Use the account button in the sidebar.", "Logout and sensitive updates require CSRF-protected requests.", "Danger operations stay behind authenticated owner controls."],
   },
 ];
 
-const adminStep: TourStep = {
-  eyebrow: "Admin",
-  title: "Admin access follows the configured account.",
-  body: "The admin panel only opens for the authenticated account whose email matches BERRYBRAIN_ADMIN_EMAIL.",
-  bullets: ["Use /admin to review users and audit events.", "Lock, unlock, revoke sessions, and reset passwords from one place.", "Every admin mutation is audited and CSRF-protected."],
-};
-
 export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   const [show, setShow] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<"tour" | "ai">("tour");
   const [mode, setMode] = useState<"local" | "cloud">("local");
@@ -82,7 +73,6 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         .then((r) => (r.ok ? r.json() : null))
         .then((me: MeResponse | null) => {
           if (!alive) return;
-          setIsAdmin(Boolean(me?.isAdmin));
           setStep(0);
           setPhase("tour");
           setShow(true);
@@ -92,14 +82,11 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         });
     }
 
-    // Demo: the AI setup is mandatory on every refresh, exactly like a
-    // normal non-admin login. The tour is shown only once (first visit).
-    // Admins never auto-show — they open on demand via "bb:open-tour".
+    // Legacy demo path can still open the guided flow, but the public demo route redirects.
     if (demo) {
       const tourSeen = localStorage.getItem("bb_tour_seen") === "1";
       const startDemo = () => {
         if (!alive) return;
-        setIsAdmin(false);
         if (tourSeen) {
           setPhase("ai");
         } else {
@@ -116,8 +103,6 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         .then((r) => (r.ok ? r.json() : null))
         .then((me: MeResponse | null) => {
           if (!alive || !me?.user) return;
-          if (me.isAdmin) return;
-          setIsAdmin(false);
           setPhase("ai");
           setShow(true);
         })
@@ -130,7 +115,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     };
   }, [demo]);
 
-  const steps = useMemo(() => (isAdmin ? [...baseSteps, adminStep] : baseSteps), [isAdmin]);
+  const steps = useMemo(() => baseSteps, []);
   const isConfigStep = phase === "ai";
   const aiConfigured = modeSelected && (mode === "local" || (mode === "cloud" && Boolean(apiKey.trim()) && Boolean(model.trim())));
   const total = steps.length;
@@ -176,15 +161,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   }
 
   function skip() {
-    // Only admins can dismiss entirely. Every other user — real or demo —
-    // must configure AI first: skipping the tour jumps straight to the
-    // mandatory AI setup phase.
-    if (!isAdmin) {
-      setPhase("ai");
-      return;
-    }
-    localStorage.setItem("bb_onboarded", "1");
-    setShow(false);
+    setPhase("ai");
   }
 
   if (!show) return null;
@@ -363,7 +340,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
             ) : (
               <button
                 onClick={() => finish(mode)}
-                disabled={!isAdmin && !aiConfigured}
+                disabled={!aiConfigured}
                 className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
               >
                 Finish

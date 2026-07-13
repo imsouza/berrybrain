@@ -17,8 +17,8 @@ export default function SetupPage() {
   const apiUrl = getApiUrl();
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(true);
-  const [adminEmail, setAdminEmail] = useState("admin@local.berrybrain");
-  const [displayName, setDisplayName] = useState("Local Administrator");
+  const [ownerEmail, setOwnerEmail] = useState("owner@local.berrybrain");
+  const [displayName, setDisplayName] = useState("Local Owner");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [status, setStatus] = useState("");
@@ -31,7 +31,7 @@ export default function SetupPage() {
       .then((data) => {
         if (!alive) return;
         setNeedsSetup(Boolean(data.needsSetup));
-        setAdminEmail(data.adminEmail || "admin@local.berrybrain");
+        setOwnerEmail(data.adminEmail || "owner@local.berrybrain");
       })
       .catch(() => setStatus("API unavailable. Check the self-hosted backend."))
       .finally(() => {
@@ -62,10 +62,10 @@ export default function SetupPage() {
         body: JSON.stringify({ password, display_name: displayName }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Could not configure admin.");
+      if (!response.ok) throw new Error(data.detail || "Could not configure this instance.");
       window.location.href = appPath("/brain");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not configure admin.");
+      setStatus(error instanceof Error ? error.message : "Could not configure this instance.");
     } finally {
       setBusy(false);
     }
@@ -76,9 +76,9 @@ export default function SetupPage() {
       <main className="grid min-h-[100dvh] place-items-center bg-background px-6 py-12">
         <section className="w-full max-w-md rounded-lg border border-border bg-panel p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Self-hosted setup</p>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Create the local admin</h1>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Create the local owner account</h1>
           <p className="mt-3 text-sm leading-6 text-muted">
-            This configures only this BerryBrain instance. No central account is created.
+            This configures the single account for this BerryBrain instance. No central account is created.
           </p>
           {checking ? (
             <p className="mt-6 text-sm text-muted">Checking instance...</p>
@@ -92,10 +92,10 @@ export default function SetupPage() {
           ) : (
             <form className="mt-6 space-y-4" onSubmit={(event) => event.preventDefault()}>
               <div>
-                <label className="block text-xs font-medium text-muted">Admin email</label>
+                <label className="block text-xs font-medium text-muted">Owner email</label>
                 <input
                   readOnly
-                  value={adminEmail}
+                  value={ownerEmail}
                   className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-muted outline-none"
                 />
               </div>
@@ -135,7 +135,7 @@ export default function SetupPage() {
                 onClick={submit}
                 className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60"
               >
-                {busy ? "Configuring..." : "Configure instance"}
+                {busy ? "Configuring..." : "Configure local account"}
               </button>
               {status && <p className="rounded-md bg-surface px-3 py-2 text-xs leading-5 text-muted">{status}</p>}
             </form>

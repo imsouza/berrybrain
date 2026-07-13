@@ -71,7 +71,7 @@ Expose only the web/reverse-proxy entrypoint. Keep the raw API port private.`,
 
 BerryBrain is an open source, self-hosted product.
 
-- **No hosted account required**: setup creates a local admin only.
+- **No hosted account required**: setup creates one local owner account for the instance.
 - **No billing system in core**: all features are available in the codebase.
 - **Donations are optional**: operators can link PayPal, card, Pix, or another donation page
   outside the core app.
@@ -123,9 +123,9 @@ Findings — knowledge gaps, contradictions, study paths, suggested notes — ea
 ### Autopilot
 The background pipeline that keeps your knowledge current automatically.
 
-### Local profiles/workspaces
-Profiles are local workspaces inside one self-hosted instance. They are managed by the local
-admin and can later be provisioned from LAN discovery or automation.
+### Single local account
+BerryBrain is designed as a self-hosted personal system. One local owner account controls
+the instance, settings, provider keys, and vault access. It is not a SaaS user model.
 
 ### Evidence
 The recorded provider, model, prompt version, status, and source notes for every AI-assisted
@@ -163,7 +163,7 @@ and route API calls through the same origin.`,
 ### Prerequisites
 - A Linux host with Docker and Docker Compose.
 - A domain (for TLS) or a local network address for testing.
-- A strong local admin password for first-run setup.
+- A strong local owner password for first-run setup.
 
 ### Step 1 — Clone
 \`\`\`bash
@@ -177,8 +177,8 @@ cp .env.example .env
 \`\`\`
 Edit \`.env\` and set at least:
 - \`BERRYBRAIN_SESSION_SECRET\` — long random secret for sessions and password hashing.
-- \`BERRYBRAIN_API_TOKEN\` — random bearer token for service/admin automation.
-- \`BERRYBRAIN_ADMIN_EMAIL\` — the local admin identifier, e.g. \`admin@local.berrybrain\`.
+- \`BERRYBRAIN_API_TOKEN\` — random bearer token for service-to-service automation.
+- \`BERRYBRAIN_ADMIN_EMAIL\` — legacy environment name for the single local owner email.
 - \`BERRYBRAIN_CORS_ORIGINS\` — the exact public web origins.
 - \`BERRYBRAIN_ALLOWED_HOSTS\` — hostnames accepted by the API.
 - \`BERRYBRAIN_DONATION_URL\` — optional external donation link.
@@ -217,10 +217,10 @@ Expose **only** the web entrypoint. Do **not** expose the API port publicly.`,
 1. Clone the repository from GitHub.
 2. Configure \`.env\`.
 3. Start the Docker stack.
-4. Create the local administrator inside your own deployment.
-5. Use the instance admin area to create local profiles/workspaces.
+4. Create the local owner account inside your own deployment.
+5. Open the workspace and configure AI providers, vault settings, and privacy preferences.
 
-The setup endpoint is one-shot. After the configured admin exists, setup returns
+The setup endpoint is one-shot. After the configured owner exists, setup returns
 \`Instance already configured\`.
 
 ### AI setup (mandatory until configured)
@@ -229,12 +229,12 @@ On first login the **AI setup** modal opens automatically. Choose:
 - **Local** — uses Ollama on your machine (no API key).
 - **Cloud API** — uses NVIDIA NIM or another OpenAI-compatible provider.
 
-Until you finish this step, the setup reappears on every load (exactly like a normal
-non-admin login). This guarantees the system is never silently unconfigured.
+Until you finish this step, the setup reappears on every load. This guarantees the system is
+never silently unconfigured.
 
 ### Guided tour
 A short tour runs **once** on first use, explaining capture, autopilot, graph, insights, and
-admin/session controls. Reopen it anytime from the guide (?) button.`,
+session controls. Reopen it anytime from the guide (?) button.`,
   },
   {
     id: "ai-providers",
@@ -365,43 +365,40 @@ Editor modes: **Edit**, **Preview**, **Split**.`,
   },
   {
     id: "account-security",
-    title: "Admin & security",
-    md: `## Admin & security
+    title: "Account & security",
+    md: `## Account & security
 
-- **Local admin account** with secure session cookies.
+- **Single local owner account** with secure session cookies.
 - **CSRF protection**: sensitive requests require an explicit header token.
-- **Self-hosted setup** creates the administrator once; public signup is disabled.
-- **Admin boundary**: admin routes require the configured administrator account
-  (\`BERRYBRAIN_ADMIN_EMAIL\`).
+- **Self-hosted setup** creates the owner once; public signup is disabled.
+- **Owner boundary**: dangerous actions require the authenticated local owner session.
 - **Abuse controls**: rate limits, progressive lockout, and audit events.
-- **Sessions**: session cookies can be revoked by the local admin.
-- **Danger operations**: backup, maintenance, settings danger, and system reset require admin.
+- **Sessions**: session cookies can be revoked by the local owner.
+- **Danger operations**: backup, maintenance, settings danger, and system reset require authentication.
 
 Security controls block behavior, not tool names — they resist high-rate and replayed
 requests from any interception tool.`,
   },
   {
-    id: "profiles",
-    title: "Profiles & workspaces",
-    md: `## Profiles & workspaces
+    id: "workspace",
+    title: "Workspace model",
+    md: `## Workspace model
 
-Profiles are local workspaces managed by the instance admin.
+BerryBrain uses a single local workspace per self-hosted owner account.
 
 Current behavior:
 
-- A \`default\` profile is created automatically.
-- Admins can create and archive profiles.
-- Each profile has a slug and optional vault subpath.
-- The default profile cannot be archived or renamed.
+- The local vault is the source of truth.
+- Settings, provider keys, jobs, graph data, and insight data belong to the local instance.
+- Public signup and multi-tenant account management are intentionally not part of the core app.
 
 Planned network automation:
 
 - Discover trusted LAN devices or agents.
-- Provision profiles automatically.
-- Keep profile creation auditable.
+- Provision local sources automatically.
+- Keep source ingestion auditable.
 
-Profiles are not SaaS users. They are local workspace boundaries inside one self-hosted
-BerryBrain instance.`,
+BerryBrain is not a SaaS user system. It is a self-hosted personal knowledge system.`,
   },
   {
     id: "privacy",
@@ -410,7 +407,7 @@ BerryBrain instance.`,
 
 - **Local-first**: notes stay in your vault unless you enable external providers.
 - **Opt-in providers**: cloud AI and external enrichment are visible and traceable.
-- **Separation**: admin/session data is separate from note content.
+- **Separation**: account/session data is separate from note content.
 - **Provider trace**: provider, model, purpose, status, and evidence are recorded.
 - **Operator control**: self-hosted operators control backup, export, and deletion.
 
@@ -478,8 +475,8 @@ files.
 Clear cookies, ensure \`BERRYBRAIN_SESSION_SECRET\` is stable, and verify the proxy forwards cookies.
 
 **Self-hosted setup says the instance is already configured**
-This is expected after the first admin exists. Use the existing admin login or the headless
-admin seed script for recovery.
+This is expected after the first local owner exists. Use the existing login or the headless
+owner seed script for recovery.
 
 **Static assets fail under /berrybrain**
 Verify \`NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain\` and
@@ -620,10 +617,6 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     q: "How do notes become connected?",
     a: "The autopilot parses, classifies, assimilates, embeds, connects, and expands your notes into a graph. You confirm or ignore each suggested connection.",
-  },
-  {
-    q: "Why does AI setup appear on every demo refresh?",
-    a: "The demo is a read-only showcase. The setup is shown on every load so visitors always see the configuration step, just like a normal non-admin login. The tour appears only once.",
   },
   {
     q: "Is there a tour?",

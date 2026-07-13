@@ -270,9 +270,9 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
           <p className="mt-1.5 text-sm text-muted/70">{t("keepWriting")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
-          <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
-          <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
+          <HeaderLink accent onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
+          <HeaderLink accent onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
+          <HeaderLink accent onClick={onGraph}>{t("viewGraph")}</HeaderLink>
         </div>
       </div>
       <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -658,8 +658,11 @@ function StatusBadge({ label, status }: { label: string; status: "ok" | "bad" | 
   );
 }
 
-function HeaderLink({ children, onClick }: { children: ReactNode; onClick: () => void }) {
-  return <button className="rounded-lg bg-surface px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={onClick}>{children}</button>;
+function HeaderLink({ children, onClick, accent }: { children: ReactNode; onClick: () => void; accent?: boolean }) {
+  const cls = accent
+    ? "rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-black hover:opacity-90"
+    : "rounded-lg bg-surface px-2.5 py-1 text-[11px] text-muted hover:text-foreground";
+  return <button className={cls} onClick={onClick}>{children}</button>;
 }
 
 function normalizeStatus(status: string): StatusKind {

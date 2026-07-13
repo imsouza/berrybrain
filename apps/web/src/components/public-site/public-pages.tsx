@@ -12,9 +12,9 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
   security: {
     title: "Security model",
     body: [
-      "BerryBrain uses local administrator setup, secure session cookies, CSRF protection, rate limits, progressive lockout, and security audit events.",
+      "BerryBrain uses single local owner setup, secure session cookies, CSRF protection, rate limits, progressive lockout, and security audit events.",
       "Passwords use Argon2id when the production dependency set is installed.",
-      "Admin operations require an authenticated local admin session whose email matches the configured administrator account.",
+      "Sensitive operations require an authenticated local owner session.",
       "Security controls are designed to resist high-rate and replayed requests from any interception tool. The system blocks behavior, not tool names.",
       "Recommended production settings include HTTPS-only secure cookies, restricted CORS origins, a strong session secret, and a reverse proxy that exposes only the web entrypoint publicly.",
     ],
@@ -34,7 +34,7 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     body: [
       "BerryBrain is designed around data minimization, transparency, and user-controlled processing. Notes and graph data are treated as personal knowledge data.",
       "Self-hosted operators control access, correction, export, and deletion of their local instance data. Local vault files remain under the operator's storage control.",
-      "Processing purposes include local authentication, instance security, note indexing, graph construction, retrieval, insight generation, and optional provider integrations configured by the user or administrator.",
+      "Processing purposes include local authentication, instance security, note indexing, graph construction, retrieval, insight generation, and optional provider integrations configured by the local owner.",
       "For LGPD and GDPR requests, include enough context to verify ownership. Do not include passwords, API keys, tokens, or private notes in email.",
       "Privacy and data protection contact: contato@optlabs.com.br.",
     ],
@@ -43,9 +43,9 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     title: "Terms",
     body: [
       "BerryBrain is a knowledge system for personal study, research, and note organization. Users are responsible for the material they store and process.",
-      "The system may use local or configured cloud providers. Provider use must be configured by the user or administrator.",
+      "The system may use local or configured cloud providers. Provider use must be configured by the local owner.",
       "Users should not store content they do not have the right to process. Automated insights, graph connections, and generated summaries are assistance outputs and should be reviewed before relying on them.",
-      "Administrative access is limited and audited. Account misuse, abuse automation, credential stuffing, or attempts to bypass protective controls may lead to account restrictions.",
+      "Account misuse, abuse automation, credential stuffing, or attempts to bypass protective controls may lead to local lockout or instance restrictions.",
       "Support and account requests: contato@optlabs.com.br.",
     ],
   },
@@ -166,7 +166,7 @@ export function PublicShell({
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-3.5 md:px-6">
           <a href={appPath("/")} aria-label="BerryBrain" className="flex items-center">
-            <Image src={berrylogo} alt="BerryBrain" width={64} height={64} className="rounded-md" sizes="64px" />
+            <Image src={berrylogo} alt="BerryBrain" width={80} height={80} className="rounded-md" sizes="80px" />
           </a>
           <nav className="hidden items-center gap-7 text-sm font-medium text-muted lg:flex">
             {nav.map(([label, href]) =>
@@ -413,7 +413,7 @@ function LandingContent() {
             <div className="mt-7 space-y-5">
               {[
                 ["Next.js web", "Public project pages and the self-hosted workspace UI."],
-                ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and admin APIs."],
+              ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
                 ["Worker pipeline", "Background parsing, assimilation, embeddings, graph expansion, and insights."],
               ].map(([title, body]) => (
                 <div key={title} className="border-t border-border pt-4">
@@ -630,7 +630,7 @@ export function AuthPage({ mode: _mode }: { mode: "login" | "signup" }) {
           </p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">{leftTitle}</h1>
           <p className="mt-4 text-sm leading-6 text-muted">
-            BerryBrain uses local admin accounts, secure cookies, CSRF protection, rate limits, lockout, and audit events.
+            BerryBrain uses one local owner account, secure cookies, CSRF protection, rate limits, lockout, and audit events.
           </p>
         </div>
         <form className="rounded-lg border border-border bg-panel p-6" onSubmit={(event) => event.preventDefault()}>
@@ -709,7 +709,7 @@ export function AuthPage({ mode: _mode }: { mode: "login" | "signup" }) {
 
           {status && <p className="mt-4 rounded-md bg-surface px-3 py-2 text-xs leading-5 text-muted">{status}</p>}
           <p className="mt-4 text-xs leading-5 text-muted">
-            First run uses local setup. Password recovery is handled by the instance administrator.
+            First run uses local setup. Password recovery is handled by the local owner or recovery tooling.
           </p>
         </form>
       </section>
@@ -749,7 +749,7 @@ export function AccountSettingsPage() {
           {[
             ["Account", "Display name, password changes, active sessions, and logout-all."],
             ["Privacy", "Data export, deletion requests, local-first mode, external provider visibility, and consent history."],
-            ["Security", "Local admin setup, session review, lockout events, and audit history."],
+            ["Security", "Local owner setup, session review, lockout events, and audit history."],
           ].map(([title, body]) => (
             <article key={title} className="rounded-lg border border-border bg-panel p-5">
               <h2 className="text-sm font-semibold">{title}</h2>
