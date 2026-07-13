@@ -16,6 +16,7 @@ RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"
 DEAD_LETTER = "dead_letter"
+SUPERSEDED = "superseded"
 PARSE_NOTE = "PARSE_NOTE"
 CLASSIFY_NOTE = "CLASSIFY_NOTE"
 ASSIMILATE_NOTE = "ASSIMILATE_NOTE"
@@ -147,6 +148,20 @@ def enqueue_note_changed_jobs(
         select(NoteRecord).where(NoteRecord.path == note_path)
     ).scalar_one_or_none()
     note_id = note.id if note is not None else 0
+    superseded = list(
+        session.execute(
+            select(JobRecord).where(
+                JobRecord.note_path == note_path,
+                JobRecord.content_hash != content_hash,
+                JobRecord.status.in_([PENDING, RUNNING]),
+            )
+        ).scalars()
+    )
+    for old_job in superseded:
+        old_job.status = SUPERSEDED
+        old_job.error_message = "Superseded by newer note content"
+        old_job.claimed_by = ""
+        old_job.lease_expires_at = None
 
     for job_type, max_attempts in pipeline:
         existing = (

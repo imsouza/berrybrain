@@ -8,6 +8,7 @@ from berrybrain_api.database import Base
 from berrybrain_api.jobs import (
     PENDING,
     DEAD_LETTER,
+    SUPERSEDED,
     claim_next_job,
     complete_job,
     create_job,
@@ -225,6 +226,13 @@ class JobServiceTest(unittest.TestCase):
         self.assertEqual(second, [])
         self.assertEqual(len(third), 14)
         self.assertTrue(all('"content_hash":"hash-b"' in job.payload for job in third))
+        old_active = [
+            job
+            for job in first
+            if job.status in {PENDING, "running"} and job.content_hash == "hash-a"
+        ]
+        self.assertEqual(old_active, [])
+        self.assertTrue(all(job.status == SUPERSEDED for job in first))
 
     def test_claim_respects_note_pipeline_order(self) -> None:
         jobs = enqueue_note_changed_jobs(
