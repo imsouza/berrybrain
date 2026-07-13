@@ -73,6 +73,15 @@ class JobRecord(Base):
     type: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    note_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+    note_path: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    pipeline_run_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, default=""
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        String(700), nullable=False, default=""
+    )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

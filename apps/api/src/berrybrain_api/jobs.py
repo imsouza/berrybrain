@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
-from berrybrain_api.models import JobRecord
+from berrybrain_api.models import JobRecord, NoteRecord
 
 PENDING = "pending"
 RUNNING = "running"
@@ -84,9 +84,26 @@ def create_job(
     payload: dict[str, Any],
     max_attempts: int = 3,
 ) -> JobRecord:
+    note_path = str(payload.get("note_path") or "")
+    note_id = int(payload.get("note_id") or 0)
+    content_hash = str(payload.get("content_hash") or "")
+    pipeline_run_id = str(payload.get("pipeline_run_id") or "")
+    idempotency_key = str(
+        payload.get("idempotency_key")
+        or (
+            f"{job_type}:{note_path}:{content_hash}"
+            if note_path and content_hash
+            else ""
+        )
+    )
     job = JobRecord(
         type=job_type,
         payload=compact_json(payload),
+        note_id=note_id,
+        note_path=note_path,
+        content_hash=content_hash,
+        pipeline_run_id=pipeline_run_id,
+        idempotency_key=idempotency_key,
         status=PENDING,
         max_attempts=max_attempts,
     )
@@ -125,6 +142,10 @@ def enqueue_note_changed_jobs(
         pipeline.append((GENERATE_NOTE_TITLE, 2))
 
     jobs: list[JobRecord] = []
+    note = session.execute(
+        select(NoteRecord).where(NoteRecord.path == note_path)
+    ).scalar_one_or_none()
+    note_id = note.id if note is not None else 0
 
     for job_type, max_attempts in pipeline:
         existing = (
@@ -132,8 +153,8 @@ def enqueue_note_changed_jobs(
                 select(JobRecord).where(
                     JobRecord.type == job_type,
                     JobRecord.status.in_([PENDING, RUNNING]),
-                    JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
-                    JobRecord.payload.like(f'%"content_hash":"{content_hash}"%'),
+                    JobRecord.note_path == note_path,
+                    JobRecord.content_hash == content_hash,
                 )
             )
             .scalars()
@@ -146,6 +167,7 @@ def enqueue_note_changed_jobs(
         payload = {
             "content_hash": content_hash,
             "event_type": event_type,
+            "note_id": note_id,
             "note_path": note_path,
         }
         job = create_job(session, job_type, payload, max_attempts=max_attempts)
@@ -256,10 +278,11 @@ def _job_dependencies_satisfied(session: Session, job: JobRecord) -> bool:
             return False
 
     payload = parse_json(job.payload)
-    if not isinstance(payload, dict):
-        return True
-    note_path = payload.get("note_path")
-    content_hash = payload.get("content_hash")
+    note_path = job.note_path
+    content_hash = job.content_hash
+    if not note_path and isinstance(payload, dict):
+        note_path = str(payload.get("note_path") or "")
+        content_hash = str(payload.get("content_hash") or "")
     if not note_path or job.type not in NOTE_PIPELINE_RANK:
         return True
 
@@ -272,12 +295,10 @@ def _job_dependencies_satisfied(session: Session, job: JobRecord) -> bool:
         JobRecord.id != job.id,
         JobRecord.type.in_(blocking_types),
         JobRecord.status.in_([PENDING, RUNNING]),
-        JobRecord.payload.like(f'%"note_path":"{note_path}"%'),
+        JobRecord.note_path == note_path,
     )
     if content_hash:
-        query = query.where(
-            JobRecord.payload.like(f'%"content_hash":"{content_hash}"%')
-        )
+        query = query.where(JobRecord.content_hash == content_hash)
 
     return session.execute(query.limit(1)).scalar_one_or_none() is None
 
@@ -332,6 +353,11 @@ def serialize_job(job: JobRecord) -> dict[str, Any]:
         "type": job.type,
         "status": job.status,
         "payload": parse_json(job.payload),
+        "note_id": job.note_id,
+        "note_path": job.note_path,
+        "content_hash": job.content_hash,
+        "pipeline_run_id": job.pipeline_run_id,
+        "idempotency_key": job.idempotency_key,
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,
         "error_message": job.error_message,

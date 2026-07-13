@@ -66,13 +66,51 @@ def ensure_sqlite_columns() -> None:
 
     if "jobs" in inspector.get_table_names():
         existing_jobs = {column["name"] for column in inspector.get_columns("jobs")}
-        if "max_attempts" not in existing_jobs:
-            with engine.begin() as connection:
+        required_job_columns = {
+            "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+            "note_id": "INTEGER NOT NULL DEFAULT 0",
+            "note_path": "TEXT NOT NULL DEFAULT ''",
+            "content_hash": "TEXT NOT NULL DEFAULT ''",
+            "pipeline_run_id": "TEXT NOT NULL DEFAULT ''",
+            "idempotency_key": "TEXT NOT NULL DEFAULT ''",
+        }
+        with engine.begin() as connection:
+            for name, definition in required_job_columns.items():
+                if name not in existing_jobs:
+                    connection.execute(
+                        text(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
+                    )
+            if "note_path" not in existing_jobs or "content_hash" not in existing_jobs:
                 connection.execute(
                     text(
-                        "ALTER TABLE jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3"
+                        """
+                        UPDATE jobs
+                        SET
+                          note_id = COALESCE((SELECT id FROM notes WHERE notes.path = json_extract(jobs.payload, '$.note_path')), 0),
+                          note_path = COALESCE(json_extract(payload, '$.note_path'), ''),
+                          content_hash = COALESCE(json_extract(payload, '$.content_hash'), ''),
+                          pipeline_run_id = COALESCE(json_extract(payload, '$.pipeline_run_id'), ''),
+                          idempotency_key = CASE
+                            WHEN COALESCE(json_extract(payload, '$.note_path'), '') != ''
+                            THEN type || ':' || COALESCE(json_extract(payload, '$.note_path'), '') || ':' || COALESCE(json_extract(payload, '$.content_hash'), '')
+                            ELSE ''
+                          END
+                        WHERE note_path = '' AND content_hash = '' AND idempotency_key = ''
+                        """
                     )
                 )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_jobs_note_pipeline "
+                    "ON jobs(note_id, note_path, content_hash, type, status)"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_jobs_idempotency_key "
+                    "ON jobs(idempotency_key)"
+                )
+            )
 
     if "worker_status" in inspector.get_table_names():
         existing_ws = {
