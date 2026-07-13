@@ -28,6 +28,9 @@ PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompts"
 PROMPT_CACHE: dict[str, str] = {}
 _ai_config: dict = {"provider": "local"}  # cached from API
 _last_config_fetch = 0.0
+_provider_circuit: dict[str, dict[str, float]] = {}
+CIRCUIT_FAILURE_THRESHOLD = 3
+CIRCUIT_OPEN_SECONDS = 300
 
 
 def load_prompt(name: str) -> str:
@@ -362,6 +365,35 @@ def timeout_for_job(settings: WorkerSettings, job_type: str) -> int:
     return ai_job_timeout
 
 
+def circuit_state(provider: str) -> dict[str, float]:
+    return _provider_circuit.setdefault(
+        provider, {"failures": 0.0, "opened_until": 0.0}
+    )
+
+
+def assert_provider_available(provider: str) -> None:
+    state = circuit_state(provider)
+    opened_until = state.get("opened_until", 0.0)
+    if opened_until and opened_until > time.time():
+        remaining = int(opened_until - time.time())
+        raise RuntimeError(
+            f"Provider circuit open for {provider}; retry in {remaining}s"
+        )
+
+
+def record_provider_success(provider: str) -> None:
+    _provider_circuit[provider] = {"failures": 0.0, "opened_until": 0.0}
+
+
+def record_provider_failure(provider: str) -> None:
+    state = circuit_state(provider)
+    failures = state.get("failures", 0.0) + 1
+    opened_until = 0.0
+    if failures >= CIRCUIT_FAILURE_THRESHOLD:
+        opened_until = time.time() + CIRCUIT_OPEN_SECONDS
+    _provider_circuit[provider] = {"failures": failures, "opened_until": opened_until}
+
+
 async def process_job(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict
 ) -> None:
@@ -476,10 +508,13 @@ async def ollama_call(
 ) -> dict | str:
     start = time.time()
     cfg = _ai_config
+    provider_key = "local"
     try:
         provider = cfg.get("provider") or "local"
         is_cloud = provider != "local"
         if is_cloud and cfg.get("cloud_api_url") and cfg.get("cloud_api_key"):
+            provider_key = f"cloud:{cfg.get('cloud_api_url')}"
+            assert_provider_available(provider_key)
             cloud_model = cfg.get("cloud_model") or model
             if json_mode:
                 result = await cloud_generate_json(
@@ -500,6 +535,8 @@ async def ollama_call(
                     settings.ollama_timeout,
                 )
         else:
+            provider_key = f"ollama:{settings.ollama_base_url}"
+            assert_provider_available(provider_key)
             if json_mode:
                 result = await generate_json(
                     settings.ollama_base_url,
@@ -516,7 +553,9 @@ async def ollama_call(
                     system,
                     settings.ollama_timeout,
                 )
+        record_provider_success(provider_key)
     except (OllamaError, CloudError):
+        record_provider_failure(provider_key)
         raise
 
     duration_ms = (time.time() - start) * 1000
