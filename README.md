@@ -465,7 +465,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then open `http://localhost:3000/setup` and create the local owner account. Public signup is intentionally disabled.
+This starts Web, API, and Worker. Then open `http://localhost:3000/setup` and create the local owner account. Public signup is intentionally disabled.
 
 | Service | URL |
 | --- | --- |
@@ -476,7 +476,7 @@ Then open `http://localhost:3000/setup` and create the local owner account. Publ
 ### Common Commands
 
 ```bash
-# Start services
+# Start Web, API, and Worker
 docker compose up -d
 
 # Stop services
@@ -531,7 +531,7 @@ Current state: attachments are stored and linked to notes. Future state: attachm
 
 ## Self-Hosting
 
-BerryBrain runs as three Docker services (`web`, `api`, `worker`) defined in `docker-compose.yml`. The same stack works for local dev and production; only the configuration differs.
+BerryBrain runs as three Docker services (`web`, `api`, `worker`) defined in `docker-compose.yml`. The Worker is part of the default `docker compose up -d` path because cognitive processing depends on background jobs. The same stack works for local dev and production; only the configuration differs.
 
 ### 1. Prepare the environment
 
@@ -563,7 +563,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d
 ```
 
-Web serves on `http://localhost:3000`, API on `http://localhost:8000`.
+Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the Worker starts in the background to process vault scans, embeddings, graph expansion, and insights.
 
 ### 3. Create the local owner account
 

@@ -309,15 +309,22 @@ function DiagramArrow() {
   return <div className="flex justify-center text-accent" aria-hidden="true">↓</div>;
 }
 
-function CapabilityMark({ value }: { value: boolean }) {
+type CapabilityStatus = "Implemented" | "Conditional" | "Not native";
+
+function CapabilityMark({ value }: { value: CapabilityStatus }) {
+  const cls =
+    value === "Implemented"
+      ? "bg-accent text-black"
+      : value === "Conditional"
+        ? "bg-surface text-foreground"
+        : "bg-surface text-muted";
+
   return (
     <span
-      className={`inline-flex size-7 items-center justify-center rounded-full text-sm font-semibold ${
-        value ? "bg-accent text-black" : "bg-surface text-muted"
-      }`}
-      aria-label={value ? "Included" : "Not included"}
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${cls}`}
+      aria-label={value}
     >
-      {value ? "✓" : "–"}
+      {value}
     </span>
   );
 }
@@ -337,21 +344,21 @@ function LandingContent() {
     ["Review", "Turn gaps and insights into next study actions."],
   ];
   const comparisonColumns = [
-    { label: "BerryBrain", score: 92, note: "Local-first cognitive layer" },
-    { label: "Obsidian", score: 72, note: "Local Markdown workspace" },
-    { label: "Notion", score: 58, note: "Cloud workspace" },
-    { label: "Plain folders", score: 34, note: "Raw files" },
+    { label: "BerryBrain", note: "Source-available cognitive layer" },
+    { label: "Obsidian", note: "Local Markdown workspace" },
+    { label: "Notion", note: "Cloud workspace" },
+    { label: "Plain folders", note: "Raw files" },
   ];
   const comparisonRows = [
-    ["Local Markdown source", true, true, false, true],
-    ["Self-hostable stack", true, false, false, true],
-    ["Knowledge graph", true, true, false, false],
-    ["Explainable AI insights", true, false, false, false],
-    ["Evidence per connection", true, false, false, false],
-    ["Retrieval / semantic search", true, false, true, false],
-    ["Provider/model trace", true, false, false, false],
-    ["Collaboration workspace", false, false, true, false],
-    ["No vendor lock-in by default", true, true, false, true],
+    ["Local Markdown source", "Implemented", "Implemented", "Not native", "Implemented"],
+    ["First-party self-hostable web stack", "Implemented", "Not native", "Not native", "Not native"],
+    ["Knowledge graph", "Conditional", "Implemented", "Not native", "Not native"],
+    ["Explainable AI insights", "Conditional", "Not native", "Conditional", "Not native"],
+    ["Evidence per connection", "Conditional", "Not native", "Not native", "Not native"],
+    ["Retrieval / semantic search", "Conditional", "Not native", "Conditional", "Not native"],
+    ["Provider/model trace", "Implemented", "Not native", "Not native", "Not native"],
+    ["Collaboration workspace", "Not native", "Conditional", "Implemented", "Not native"],
+    ["Local source files and data portability", "Implemented", "Implemented", "Conditional", "Implemented"],
   ];
   return (
     <>
@@ -374,13 +381,13 @@ function LandingContent() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
               <span className="size-1.5 rounded-full bg-accent" />
-              Open source · Local-first · Evidence-first
+              Source-available · Local-first · Evidence-first
             </span>
             <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
               BerryBrain turns Markdown notes into an evidence-backed knowledge graph.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-muted md:text-lg">
-              A self-hosted second brain for local notes, explainable graph reasoning, and auditable AI assistance. Free, open source, and designed around your own vault.
+              A self-hosted second brain for local notes, explainable graph reasoning, and auditable AI assistance. Free for non-commercial self-hosting and designed around your own vault.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
@@ -554,26 +561,12 @@ function LandingContent() {
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border">
-            <div className="px-4 py-5 text-sm font-semibold">Knowledge fit score</div>
-            {comparisonColumns.map((column) => (
-              <div key={column.label} className="border-l border-border px-4 py-5">
-                <div className="flex items-center justify-between gap-2 text-xs font-semibold">
-                  <span>{column.score}%</span>
-                  <span className="text-muted">fit</span>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface">
-                  <div className="h-full rounded-full bg-accent" style={{ width: `${column.score}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
           {comparisonRows.map(([capability, berrybrain, obsidian, notion, folders]) => (
             <div key={String(capability)} className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border last:border-b-0">
               <div className="px-4 py-4 text-sm font-medium">{capability}</div>
               {[berrybrain, obsidian, notion, folders].map((value, index) => (
                 <div key={index} className="flex items-center border-l border-border px-4 py-4">
-                  <CapabilityMark value={Boolean(value)} />
+                  <CapabilityMark value={value as CapabilityStatus} />
                 </div>
               ))}
             </div>
@@ -581,7 +574,7 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Sources checked: Obsidian Help documents Markdown files in a local vault and graph views; Notion Help documents cloud backup/export, AWS-hosted infrastructure, and data residency controls.
+          Statuses are product-level, not plugin-level. Community plugins are excluded. BerryBrain graph, insights, and semantic search stay Conditional until a clean public end-to-end test proves indexing, updates, and answer quality.
         </p>
       </section>
 
