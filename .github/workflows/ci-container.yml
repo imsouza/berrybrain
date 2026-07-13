@@ -42,6 +42,11 @@ jobs:
           timeout 180 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 5; done'
           timeout 240 bash -c 'until curl -fsS http://127.0.0.1:3000; do sleep 5; done'
           ./scripts/baseline.sh
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
       - name: Show logs on failure
         if: failure()
         run: docker compose logs --tail=120
