@@ -1,6 +1,6 @@
 # Changelog
 
-All notable BerryBrain changes are documented here. The project has not tagged `v1.0.0` yet.
+All notable BerryBrain changes are documented here. The `v1.0.0` release candidate is in final remote validation.
 
 ## Unreleased — maturity program
 
@@ -27,9 +27,8 @@ All notable BerryBrain changes are documented here. The project has not tagged `
 
 - Flashcard UI and flashcard-oriented review behavior. Reviews are evidence-grounded cognitive prompts.
 
-### Known release blockers
+### Remaining release gates
 
 - Audio transcription requires an installed/configured local Whisper CLI.
 - Extractor subprocesses are not yet isolated in a dedicated sandbox/container.
-- Image signing and ten consecutive protected-main CI runs remain pending.
-- A clean external installation/restore audit remains pending.
+- Immutable multi-architecture images, signatures, and SBOM attestations must be published from the release tag.

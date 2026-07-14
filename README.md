@@ -94,9 +94,9 @@ The current worktree implements the complete local product foundation. Release g
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, no default password, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
-| Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, static gates, container scans, SBOM workflow |
+| Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, protected CI gates, container scans, SBOM workflow |
 
-Still external: protected `main`, required remote checks/review, ten consecutive green runs, signed registry artifacts, published SBOM attestation, release tag, and independent clean-machine validation.
+Release evidence is tracked in [`AUDIT.md`](AUDIT.md). Protected `main`, required checks/review, independent clean-stack validation, and 12 consecutive green container runs are complete. The remaining release gates are the tag, signed registry artifacts, and published SBOM attestations.
 
 ---
 
@@ -699,7 +699,7 @@ The repository includes `CODEOWNERS`, a structured epic form, CI workflows, and 
 ./scripts/bootstrap-github-governance.sh
 ```
 
-The script creates the release epics and protects `main` with required CI checks, one approving code-owner review, stale-review dismissal, conversation resolution, and force-push/deletion protection. It never accepts or stores a token in the repository; authentication remains managed by `gh auth login`.
+The script creates the release epics and protects `main` with required CI checks, one approving code-owner review, stale-review dismissal, conversation resolution, and force-push/deletion protection. It never accepts or stores a token in the repository; authentication remains managed by the GitHub CLI or its environment.
 - No flashcard surface; study suggestions should be insight/review oriented, not legacy flashcard UI.
 
 Latest local verification evidence (13 July 2026):

@@ -2,8 +2,8 @@
 
 **Data:** 13 de julho de 2026  
 **Escopo:** produto local-first, API, Worker, Web, Cognitive Layer, segurança, dados, instalação e release.  
-**Resultado local:** 295/307 critérios do planejamento concluídos (96,1%).  
-**Estado:** implementação local pronta; release 1.0 bloqueada por gates remotos e histórico de CI.
+**Resultado:** 302/307 critérios do planejamento concluídos (98,4%).
+**Estado:** implementação e governança remota validadas; publicação da release 1.0 em andamento.
 
 ## Conclusão Executiva
 
@@ -20,7 +20,7 @@ O BerryBrain implementa o núcleo de um segundo cérebro funcional:
 - anexos podem se tornar fontes cognitivas com extração, OCR e transcrição controlados;
 - autenticação protege uma conta owner local, sem senha padrão.
 
-O produto não deve ser chamado de release 1.0 final até os gates remotos listados nesta auditoria serem comprovados.
+O produto não deve ser chamado de release 1.0 final até o histórico de estabilidade e os artefatos assinados listados nesta auditoria serem comprovados.
 
 ## Evidência Reproduzida
 
@@ -80,7 +80,8 @@ Correção:
 | Backup/Restore | OK | manifesto, checksum, restauração e migrações versionadas |
 | Landing/Docs | OK | produto, arquitetura, confiabilidade e login documentados |
 | Containerização | OK | Web, API e Worker iniciam no comando padrão |
-| Release remoto | PENDENTE | exige GitHub autenticado, CI histórico e tag real |
+| Governança remota | OK | épicos, PRs, checks obrigatórios e proteção de `main` ativos |
+| Release remoto | EM ANDAMENTO | exige histórico verde final, tag e artefatos assinados |
 
 ## Segurança
 
@@ -112,41 +113,46 @@ Um artefato de conhecimento só é válido quando possui origem verificável. O 
 - escrita canônica reduz duplicidade de nós e arestas;
 - notas do usuário não são traduzidas automaticamente.
 
-## Governança Preparada
+## Governança Remota
 
-O repositório contém:
+O repositório aplica:
 
 - `CODEOWNERS` para `@imsouza`;
 - formulário estruturado de épico;
 - contato privado para segurança;
 - workflows separados para API, Worker, Web, containers, segurança e CodeQL;
 - workflow de release com imagens imutáveis, SBOM e assinatura;
-- script idempotente `scripts/bootstrap-github-governance.sh`.
+- script idempotente `scripts/bootstrap-github-governance.sh`;
+- seis épicos rastreáveis;
+- proteção estrita de `main` com oito contextos obrigatórios;
+- uma aprovação com CODEOWNERS, resolução de conversas e bloqueio de force-push/deleção;
+- execução real de API, Worker, Web, Compose, segurança e CodeQL em pull requests.
 
 O script exige uma sessão válida do GitHub CLI e não aceita nem persiste token no repositório.
 
-## Gates Remotos Pendentes
+## Evidência Remota
 
-Os seguintes critérios dependem do GitHub e não podem ser comprovados apenas pelo worktree:
+Evidências verificadas no GitHub:
 
-1. abrir e atribuir os épicos reais;
-2. proteger `main`;
-3. exigir todos os checks antes do merge;
-4. exigir uma revisão;
-5. obter dez execuções consecutivas verdes no `main`;
-6. criar a tag `v1.0.0` somente após o histórico verde;
-7. publicar imagens com tags imutáveis;
-8. assinar as imagens publicadas;
-9. publicar o SBOM da release;
-10. comprovar CI verde para o commit final;
-11. publicar esta auditoria no commit/release final.
+1. [PR #7](https://github.com/imsouza/berrybrain/pull/7) corrigiu e validou os gates reais de CI;
+2. [PR #8](https://github.com/imsouza/berrybrain/pull/8) tornou o smoke de container obrigatório e repetível;
+3. `main` exige Backend, Worker, Web, Compose, Security e os contextos CodeQL;
+4. o branch exige revisão de CODEOWNER e bloqueia force-push e deleção;
+5. o smoke de container constrói as três imagens, executa Trivy, inicia a stack, roda o baseline e gera SBOM.
+6. [12 execuções consecutivas](https://github.com/imsouza/berrybrain/actions/workflows/ci-container.yml) do smoke de container passaram no SHA `dfb1ecb3d8256d38791bc7ca7a3c0a4d479a127c` de `main`.
 
-O repositório público mostrava, na data desta auditoria, zero issues, duas execuções históricas de workflow e nenhuma release. Portanto, esses itens permanecem abertos.
+Gates ainda abertos neste documento:
+
+1. criar a tag `v1.0.0`;
+2. publicar imagens com tags imutáveis;
+3. assinar as imagens publicadas;
+4. publicar e atestar os SBOMs da release;
+5. publicar esta auditoria junto da release final.
 
 ## Parecer Final
 
 O BerryBrain já possui arquitetura e comportamento de segundo cérebro, não apenas editor com chatbot. A maturidade local é suficiente para uso self-hosted controlado e testes de release. A classificação correta, neste momento, é:
 
-**Segundo cérebro funcional e localmente validado; release 1.0 ainda não certificada.**
+**Segundo cérebro funcional, localmente validado e protegido por CI; release 1.0 ainda não certificada.**
 
 A certificação 100% depende agora de governança remota, histórico de estabilidade e publicação verificável dos artefatos de release.
