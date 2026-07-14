@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { t } from "@/i18n";
-import { listBrowserNotes } from "@/lib/browser-storage";
+import { getBrowserGraphData } from "@/lib/browser-storage";
 
 type GNode = {
   id: string;
@@ -23,7 +23,7 @@ type GNode = {
   createdByModel?: string;
 };
 type GEdge = {
-  id?: number;
+  id?: number | string;
   source: string;
   target: string;
   type: string;
@@ -83,25 +83,10 @@ export function useGraphData(apiUrl: string) {
     // ponytail: demo has no backend, render empty graph instead of erroring
     if (apiUrl === "__demo__") { setData({ nodes: [], edges: [], stats: {} }); return; }
     if (apiUrl === "__browser__") {
-      listBrowserNotes()
-        .then((notes) => setData({
-          nodes: notes.map((note) => ({
-            id: `note:${note.path}`,
-            type: "note",
-            label: note.title,
-            title: note.title,
-            path: note.path,
-            folder: note.folder,
-            source: "browser-storage",
-            status: "confirmed",
-            confidence: 1,
-            createdBy: "user",
-          })),
-          edges: [],
-          stats: { orphan_count: notes.length },
-        }))
-        .catch(() => setError(true));
-      return;
+      const load = () => getBrowserGraphData().then(setData).catch(() => setError(true));
+      void load();
+      window.addEventListener("bb:browser-knowledge-updated", load);
+      return () => window.removeEventListener("bb:browser-knowledge-updated", load);
     }
     fetch(`${apiUrl}/api/v1/graph`)
       .then(r => r.json()).then(setData).catch(() => setError(true));
@@ -110,23 +95,8 @@ export function useGraphData(apiUrl: string) {
     if (apiUrl === "__demo__") return;
     if (apiUrl === "__browser__") {
       setError(false);
-      listBrowserNotes()
-        .then((notes) => setData({
-          nodes: notes.map((note) => ({
-            id: `note:${note.path}`,
-            type: "note",
-            label: note.title,
-            title: note.title,
-            path: note.path,
-            folder: note.folder,
-            source: "browser-storage",
-            status: "confirmed",
-            confidence: 1,
-            createdBy: "user",
-          })),
-          edges: [],
-          stats: { orphan_count: notes.length },
-        }))
+      getBrowserGraphData()
+        .then(setData)
         .catch(() => setError(true));
       return;
     }

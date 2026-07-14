@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
+import { askBrowserNvidia } from "@/lib/browser-ai";
+import { saveBrowserInferenceInsight } from "@/lib/browser-storage";
 
 const EDGE_COLORS: Record<string, string> = {
   explicit_link: "#3C8F5A",
@@ -55,7 +57,7 @@ type GraphNode = {
 };
 
 type GraphEdge = {
-  id?: number;
+  id?: number | string;
   source: string;
   target: string;
   type: string;
@@ -527,20 +529,58 @@ export function GraphScreen({
     if (!text) return;
     if (apiUrl === "__demo__") return;
     if (apiUrl === "__browser__") {
-      const matches = (graphData?.nodes || []).filter((node) =>
-        `${node.label} ${node.summary || ""}`.toLowerCase().includes(text.toLowerCase()),
-      );
-      setInference({
-        status: matches.length ? "local_search" : "insufficient_evidence",
-        question: text,
-        answer: matches.length
-          ? `Found ${matches.length} matching note${matches.length === 1 ? "" : "s"} in this browser. AI inference requires a configured browser-safe provider.`
-          : "No matching local note was found. AI inference is not enabled in browser-only mode yet.",
-        relatedNodes: matches.map((node) => ({ id: node.id, title: node.title, label: node.label, type: node.type, path: node.path })),
-        evidence: matches.slice(0, 5).map((node) => ({ title: node.title || node.label, reference: node.path })),
-        provider: "browser-search",
-        model: "none",
-      });
+      setInferLoading(true);
+      setInference(null);
+      setInferenceSaveStatus("");
+      try {
+        const nodes = (graphData?.nodes || []).slice(0, 120).map((node) => ({
+          id: node.id,
+          type: node.type,
+          label: node.label,
+          summary: node.summary || "",
+          path: node.path || "",
+        }));
+        const edges = (graphData?.edges || []).slice(0, 180).map((edge) => ({
+          source: edge.source,
+          target: edge.target,
+          type: edge.type,
+          reason: edge.reason || "",
+          evidence: edge.evidence || [],
+          confidence: edge.confidence || 0,
+        }));
+        const response = await askBrowserNvidia([
+          {
+            role: "system",
+            content: "Answer only from the supplied BerryBrain graph. Return JSON only: {status,answer,relatedNodeIds,evidence}. status must be answered or insufficient_evidence. Evidence must cite node labels or edge reasons. Never invent a relation.",
+          },
+          { role: "user", content: JSON.stringify({ question: text, nodes, edges }) },
+        ]);
+        const parsed = JSON.parse(response.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as {
+          status?: string;
+          answer?: string;
+          relatedNodeIds?: string[];
+          evidence?: string[];
+        };
+        const relatedIds = new Set(Array.isArray(parsed.relatedNodeIds) ? parsed.relatedNodeIds : []);
+        const relatedNodes = (graphData?.nodes || []).filter((node) => relatedIds.has(node.id));
+        setInference({
+          status: parsed.status === "answered" ? "answered" : "insufficient_evidence",
+          question: text,
+          answer: parsed.answer || "There is not enough evidence in this graph to answer that question.",
+          relatedNodes: relatedNodes.map((node) => ({ id: node.id, title: node.title, label: node.label, type: node.type, path: node.path })),
+          evidence: (Array.isArray(parsed.evidence) ? parsed.evidence : []).slice(0, 8),
+          provider: response.provider,
+          model: response.model,
+        });
+      } catch (error) {
+        setInference({
+          status: "error",
+          question: text,
+          answer: error instanceof Error ? error.message : "Could not query NVIDIA NIM.",
+        });
+      } finally {
+        setInferLoading(false);
+      }
       return;
     }
     setInferLoading(true);
@@ -578,6 +618,24 @@ export function GraphScreen({
     setInferenceSaving(true);
     setInferenceSaveStatus("Saving inference as insight...");
     try {
+      if (apiUrl === "__browser__") {
+        if (inference.status === "insufficient_evidence" || !inference.evidence?.length) {
+          setInferenceSaveStatus("Not saved: this answer does not have enough evidence.");
+          return;
+        }
+        const insight = await saveBrowserInferenceInsight({
+          question: text,
+          answer: inference.answer,
+          relatedNodeIds: relatedInferenceNodes.map((node) => node.id),
+          evidence: inference.evidence.map(formatInferenceEvidence).filter(Boolean),
+          model: inference.model || "nvidia-nim",
+        });
+        setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
+        setInferenceSaveStatus(`Saved as insight: ${insight.title}`);
+        window.dispatchEvent(new CustomEvent("bb:browser-knowledge-updated"));
+        reload();
+        return;
+      }
       const response = await apiFetch(`${apiUrl}/api/v1/insights/from-inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

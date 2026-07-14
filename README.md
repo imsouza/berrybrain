@@ -19,7 +19,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 ![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
 ![License](https://img.shields.io/badge/license-non--commercial-lightgrey)
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/T5D823778G)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/berrybrain)
 
 ---
 
@@ -659,10 +659,16 @@ non-sensitive BerryBrain preferences, use a SHA-256 integrity checksum, and repl
 browser workspace only after validation and explicit confirmation.
 
 Browser storage belongs to one browser profile and origin. Clearing site data, browser eviction,
-or changing domains can remove it. Keep exported backups outside the browser. The current browser
-mode provides local note editing, local note graph nodes, and direct note search; the self-hosted
-worker remains required for embeddings, AI insights, semantic graph expansion, OCR, and background
-jobs. Provider keys, sessions, and analytics consent are not included in browser backups.
+or changing domains can remove it. Keep exported backups outside the browser. On first use, the
+tour may be skipped, but verified NVIDIA NIM setup is mandatory. The provider key is stored only in
+that origin's IndexedDB, excluded from backups, and sent through a same-origin stateless proxy to
+NVIDIA. No provider key or note database is persisted by the hosted BerryBrain server.
+
+While the workspace is open, a browser cognitive worker resumes queued note analysis, extracts
+concepts and evidence-based insights, creates explained graph edges, and powers graph Ask with the
+configured NVIDIA model. Closing the tab pauses this worker; reopening BerryBrain resumes pending
+jobs. OCR, media transcription, durable background processing while the browser is closed, and
+server-side vector databases remain self-hosted capabilities.
 
 For Netlify, deploy the `webapp` branch. The repository's `netlify.toml` sets `apps/web` as the
 base directory, `npm run build` as the build command, and `.next` as the publish directory. Keep
@@ -670,6 +676,8 @@ base directory, `npm run build` as the build command, and `.next` as the publish
 `BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for browser-only deployments.
 The Netlify Next.js runtime is pinned in the web package so App Router pages and middleware are
 packaged as Netlify Functions instead of publishing raw `.next` artifacts that return 404.
+The functions under `/api/browser-ai/*` are fixed NVIDIA NIM proxies: they reject cross-site calls,
+do not accept arbitrary upstream URLs, disable caching, and do not persist request bodies or keys.
 
 ### 3. Create the local owner account
 
