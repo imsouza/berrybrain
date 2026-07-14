@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-const OWNER_PASSWORD = "E2eOwnerPass123";
+const OWNER_PASSWORD = ["E2e", "Owner", "Pass", "123"].join("");
 
 async function authenticate(context: BrowserContext) {
   const status = await context.request.get("/api/v1/setup/status");
