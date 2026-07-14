@@ -1,4 +1,5 @@
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from berrybrain_api.ai_gateway import (
@@ -42,6 +43,28 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
                 },
                 "private note",
             )
+
+    async def test_cloud_generation_humanizes_authentication_failure(self) -> None:
+        config = {
+            "provider": "cloud",
+            "cloud_api_url": "https://integrate.api.nvidia.com/v1",
+            "cloud_api_key": "invalid",
+            "cloud_model": "nvidia/model",
+            "remote_content_consent": "true",
+        }
+        error = urllib.error.HTTPError(
+            config["cloud_api_url"], 401, "Unauthorized", None, None
+        )
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            side_effect=error,
+        ):
+            with self.assertRaisesRegex(GraphAIUnavailable, "authentication failed"):
+                await generate_graph_answer(
+                    config,
+                    "question",
+                    "Answer only from evidence",
+                )
 
     async def test_local_embedding_fails_fast_when_ollama_is_unavailable(self) -> None:
         config = {

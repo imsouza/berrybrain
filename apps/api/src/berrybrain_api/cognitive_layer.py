@@ -196,8 +196,23 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         result = await generate_graph_answer(config, prompt, system, timeout=120)
     except GraphAIUnavailable as exc:
         return _fallback_answer(question, orchestrated, f"AI unavailable: {exc}")
-    except Exception as exc:
-        return _fallback_answer(question, orchestrated, f"AI failed: {exc}")
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            reason = (
+                "NVIDIA NIM authentication failed. Replace the API key in Settings "
+                "and save again."
+            )
+        elif exc.code == 429:
+            reason = "The AI provider rate limit was reached. Try again shortly."
+        else:
+            reason = f"The AI provider returned HTTP {exc.code}. Check Settings."
+        return _fallback_answer(question, orchestrated, reason)
+    except Exception:
+        return _fallback_answer(
+            question,
+            orchestrated,
+            "The AI provider request failed. Check the provider configuration in Settings.",
+        )
 
     answer_text = str(result.get("answer") or "").strip()
     returned_evidence = result.get("evidence")
@@ -985,9 +1000,20 @@ def _fallback_answer(
     question: str, orchestrated: dict[str, Any], reason: str
 ) -> dict[str, Any]:
     evidence = orchestrated["evidence"]
-    answer = (
-        "Evidence found, but the configured model did not return a grounded answer."
-    )
+    if "authentication failed" in reason.lower():
+        answer = "Evidence was found, but NVIDIA NIM rejected the configured API key."
+        suggestions = [
+            "Replace the NVIDIA NIM API key in Settings and click Save.",
+            "Retry the question after Settings shows Connected.",
+        ]
+    else:
+        answer = (
+            "Evidence found, but the configured model did not return a grounded answer."
+        )
+        suggestions = [
+            "Retry after the provider recovers.",
+            "Create an insight manually from the evidence.",
+        ]
     if evidence:
         answer = f"{answer} Strongest evidence: {evidence[0]['title']}."
     if reason:
@@ -999,10 +1025,7 @@ def _fallback_answer(
         "routes": orchestrated["routes"],
         "evidence": evidence[:8],
         "relatedNodes": orchestrated["relatedNodes"],
-        "suggestions": [
-            "Retry after provider recovers.",
-            "Create an insight manually from the evidence.",
-        ],
+        "suggestions": suggestions,
         "reason": reason,
     }
 

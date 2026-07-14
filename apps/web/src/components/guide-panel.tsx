@@ -14,13 +14,13 @@ export function GuidePanel({ open, onClose }: GuidePanelProps) {
 
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-background/70 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/10">
+      <div className="bb-card bb-card--elevated flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-border/40 px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">{t("guideTitle")}</h2>
           <button
             onClick={handleClose}
             className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground"
-            aria-label="Fechar"
+            aria-label="Close"
           >
             <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
@@ -49,13 +49,13 @@ export function GuidePanel({ open, onClose }: GuidePanelProps) {
               handleClose();
               window.dispatchEvent(new Event("bb:open-tour"));
             }}
-            className="rounded-lg px-4 py-1.5 text-xs font-medium text-muted hover:bg-surface hover:text-foreground"
+            className="bb-action px-4 py-1.5 text-xs font-medium"
           >
             {t("guideViewTour")}
           </button>
           <button
             onClick={handleClose}
-            className="rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white hover:opacity-90"
+            className="bb-action px-4 py-1.5 text-xs font-medium"
           >
             {t("guideClose")}
           </button>

@@ -74,10 +74,10 @@ export function UserMenu() {
   if (!user) {
     return (
       <div className="flex items-center gap-2">
-        <a href={appPath("/login")} className="rounded-md px-3 py-2 text-xs text-muted hover:text-foreground">
+        <a href={appPath("/login")} className="bb-action px-3 py-2 text-xs">
           Log in
         </a>
-        <a href={appPath("/setup")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black hover:opacity-90">
+        <a href={appPath("/setup")} className="bb-action px-3 py-2 text-xs font-medium">
           Set up
         </a>
       </div>
@@ -86,7 +86,7 @@ export function UserMenu() {
 
   return (
     <div className="flex items-center gap-2">
-      <a href={appPath("/brain")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
+      <a href={appPath("/brain")} className="bb-action px-3 py-2 text-xs font-medium">
         Open app
       </a>
       <button
@@ -101,7 +101,7 @@ export function UserMenu() {
           <circle cx="12" cy="7" r="4" />
         </svg>
       </button>
-      <button type="button" onClick={logout} className="rounded-md border border-border px-3 py-2 text-xs text-muted hover:text-foreground">
+      <button type="button" onClick={logout} className="bb-action px-3 py-2 text-xs">
         Sign out
       </button>
       <AccountSettingsDialog
@@ -132,8 +132,6 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [twoFaPassword, setTwoFaPassword] = useState("");
-  const [deleteStage, setDeleteStage] = useState<"idle" | "code">("idle");
-  const [deleteCode, setDeleteCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -210,7 +208,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 await call("/me", "PATCH", { display_name: displayName });
               }, "Profile updated.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Save profile
           </button>
@@ -229,7 +227,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setEmailPassword("");
               }, "Email updated.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Change email
           </button>
@@ -252,7 +250,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setNewPassword("");
               }, "Password changed.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Change password
           </button>
@@ -271,7 +269,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setTwoFaPassword("");
               }, "2FA updated.")
             }
-            className="rounded-md border border-border px-3 py-2 hover:text-foreground disabled:opacity-50"
+            className="bb-action px-3 py-2"
           >
             {user.twoFactorEnabled ? "Disable 2FA" : "Enable 2FA"}
           </button>
@@ -288,47 +286,22 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 window.location.href = appPath("/login");
               }, "Sessions closed.")
             }
-            className="rounded-md border border-border px-3 py-2 hover:text-foreground disabled:opacity-50"
+            className="bb-action px-3 py-2"
           >
             Sign out everywhere
           </button>
         </section>
 
-        <section className="space-y-2 border-t border-red-500/30 pt-4">
-          <h3 className="font-medium text-red-400">Delete account</h3>
-          <p className="text-muted">A confirmation code will be sent to your email. This action is permanent.</p>
-          {deleteStage === "idle" ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                guard(async () => {
-                  await call("/delete-account/request", "POST", {});
-                  setDeleteStage("code");
-                }, "Code sent to your email.")
-              }
-              className="rounded-md border border-red-500/50 px-3 py-2 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-            >
-              Request deletion
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <input inputMode="numeric" placeholder="6-digit code" value={deleteCode} onChange={(e) => setDeleteCode(e.target.value.replace(/\D/g, "").slice(0, 12))} className="w-full rounded-md border border-border bg-surface px-3 py-2 outline-none focus:border-accent" />
-              <button
-                type="button"
-                disabled={busy || !deleteCode}
-                onClick={() =>
-                  guard(async () => {
-                    await call("/delete-account/confirm", "POST", { code: deleteCode });
-                    window.location.href = appPath("/");
-                  }, "Account deleted.")
-                }
-                className="rounded-md bg-red-500 px-3 py-2 font-medium text-white disabled:opacity-50"
-              >
-                Confirm permanent deletion
-              </button>
-            </div>
-          )}
+        <section className="space-y-2 border-t border-border pt-4">
+          <h3 className="font-medium text-foreground">Instance ownership</h3>
+          <p className="leading-5 text-muted">
+            This is the single owner account. Password recovery and owner removal are local
+            operator actions documented in the self-hosting guide, preventing a remote request
+            from locking the instance owner out.
+          </p>
+          <a href={appPath("/docs#account-recovery")} className="inline-flex text-accent hover:underline">
+            Open account recovery guide
+          </a>
         </section>
       </div>
     </dialog>

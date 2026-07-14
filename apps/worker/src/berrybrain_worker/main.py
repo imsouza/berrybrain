@@ -68,11 +68,14 @@ async def main() -> None:
     )
     async with httpx.AsyncClient(timeout=10, headers=headers) as client:
         await assert_api_ready(client, settings.api_url)
-        ollama_ok = await check_health(settings.ollama_base_url, timeout=5)
+        await fetch_ai_config(client, settings.api_url)
+        ollama_ok = await check_health(effective_ollama_base_url(settings), timeout=5)
         if ollama_ok:
-            print(f"Ollama ready: {settings.ollama_base_url}")
+            print(f"Ollama ready: {effective_ollama_base_url(settings)}")
         else:
-            print(f"WARNING: Ollama not reachable at {settings.ollama_base_url}")
+            print(
+                f"WARNING: Ollama not reachable at {effective_ollama_base_url(settings)}"
+            )
         await send_heartbeat(client, settings.api_url, 0, 0, ollama_ok)
         await run_loop(client, settings, ollama_ok)
 
@@ -99,7 +102,9 @@ async def run_loop(
                 jobs.append(j)
         if not jobs:
             empty_count += 1
-            ollama_ok = await check_health(settings.ollama_base_url, timeout=5)
+            ollama_ok = await check_health(
+                effective_ollama_base_url(settings), timeout=5
+            )
             await send_heartbeat(
                 client, settings.api_url, jobs_processed, errors, ollama_ok
             )
@@ -172,7 +177,7 @@ async def run_loop(
                     print(f"failed job {job['id']} ({job['type']}): {error_msg}")
 
         await asyncio.gather(*(handle(j) for j in jobs))
-        ollama_ok = await check_health(settings.ollama_base_url, timeout=5)
+        ollama_ok = await check_health(effective_ollama_base_url(settings), timeout=5)
         await send_heartbeat(
             client, settings.api_url, jobs_processed, errors, ollama_ok
         )
@@ -296,15 +301,14 @@ async def ollama_call(
                     settings.ollama_timeout,
                 )
         else:
-            provider_key = f"ollama:{settings.ollama_base_url}"
+            ollama_url = effective_ollama_base_url(settings)
+            provider_key = f"ollama:{ollama_url}"
             assert_provider_available(provider_key)
-            if not await check_health(settings.ollama_base_url, timeout=2):
-                raise OllamaError(
-                    f"Ollama is not reachable at {settings.ollama_base_url}"
-                )
+            if not await check_health(ollama_url, timeout=2):
+                raise OllamaError(f"Ollama is not reachable at {ollama_url}")
             if json_mode:
                 result = await generate_json(
-                    settings.ollama_base_url,
+                    ollama_url,
                     model,
                     prompt,
                     f"{UNTRUSTED_CONTENT_POLICY}\n\n{system or ''}",
@@ -312,7 +316,7 @@ async def ollama_call(
                 )
             else:
                 result = await generate(
-                    settings.ollama_base_url,
+                    ollama_url,
                     model,
                     prompt,
                     f"{UNTRUSTED_CONTENT_POLICY}\n\n{system or ''}",
@@ -349,7 +353,13 @@ def effective_generation_model(local_model: str) -> str:
         and cfg.get("cloud_api_key")
     ):
         return cfg.get("cloud_model") or local_model
-    return local_model
+    return cfg.get("ollama_model") or local_model
+
+
+def effective_ollama_base_url(settings: WorkerSettings) -> str:
+    return str(_ai_config.get("ollama_base_url") or settings.ollama_base_url).rstrip(
+        "/"
+    )
 
 
 def effective_generation_provider() -> str:
@@ -608,7 +618,7 @@ async def process_generate_embedding(
     ollama_embedding_available = False
     if not use_cloud_embeddings:
         ollama_embedding_available = await check_health(
-            settings.ollama_base_url, timeout=2
+            effective_ollama_base_url(settings), timeout=2
         )
         if not ollama_embedding_available:
             await upsert_metadata(
@@ -646,7 +656,7 @@ async def process_generate_embedding(
         else:
             try:
                 vec = await generate_embedding(
-                    settings.ollama_base_url,
+                    effective_ollama_base_url(settings),
                     settings.embedding_model,
                     text,
                     settings.ollama_timeout,
@@ -1097,7 +1107,7 @@ async def process_generate_note_title(
     note_path = payload.get("note_path", "")
     note = await fetch_note(client, settings.api_url, note_path)
     content = note.get("content", "")
-    default_title = "Rascunho"
+    default_title = "Untitled"
 
     h1_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
     if h1_match:
@@ -1109,12 +1119,15 @@ async def process_generate_note_title(
 
     try:
         system = "You generate note titles. Return ONLY the title. No quotes, no explanation, no prefixes such as 'Here is'. Just the raw title."
-        result = await generate(
-            settings.ollama_base_url,
-            settings.fast_model,
+        result = await ollama_call(
+            client,
+            settings.api_url,
+            settings,
+            note_path,
+            effective_generation_model(settings.fast_model),
             f"Title (max 10 words, English unless the source title is already clear):\n\n{wrap_user_data(content[:800], 'note')}",
             system=system,
-            ollama_timeout=settings.ollama_timeout,
+            json_mode=False,
         )
         ai_title = result.strip()[:120]
         garbage_prefixes = [

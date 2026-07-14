@@ -87,7 +87,7 @@ export default function SetupPage() {
           ) : !needsSetup ? (
             <div className="mt-6 rounded-md border border-border bg-surface p-4">
               <p className="text-sm text-muted">This instance is already configured.</p>
-              <a href={appPath("/login")} className="mt-4 inline-flex rounded-md bg-accent px-4 py-2 text-sm font-medium text-black">
+              <a href={appPath("/login")} className="bb-action mt-4 inline-flex px-4 py-2 text-sm font-medium">
                 Sign in
               </a>
             </div>
@@ -144,7 +144,7 @@ export default function SetupPage() {
                 type="button"
                 disabled={busy || !password || !confirm}
                 onClick={submit}
-                className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60"
+                className="bb-action w-full px-4 py-2 text-sm font-medium"
               >
                 {busy ? "Configuring..." : "Configure local account"}
               </button>

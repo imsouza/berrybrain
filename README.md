@@ -34,8 +34,11 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 - [API Surface](#api-surface)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
+- [System Requirements](#system-requirements)
 - [Configuration](#configuration)
 - [Self-Hosting](#self-hosting)
+- [PWA](#pwa)
+- [Account Recovery and Deletion](#account-recovery-and-deletion)
 - [Deploying at /berrybrain](#deploying-at-berrybrain)
 - [Engineering Practices](#engineering-practices)
 - [Security and Privacy](#security-and-privacy)
@@ -474,9 +477,9 @@ berrybrain/
 
 ### Prerequisites
 
-- Docker + Docker Compose
-- Optional: NVIDIA NIM/OpenAI-compatible API key
-- Optional: Ollama for local models
+- 64-bit Linux host or Linux VM
+- Recent Docker Engine and Docker Compose v2
+- Ollama with an installed model, or an OpenAI-compatible cloud provider
 
 ### Run Locally
 
@@ -487,7 +490,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-This starts Web, API, and Worker. Open `http://localhost:3000`; the landing page exposes a **Login** action. On an unconfigured instance, login directs the owner to the one-time setup flow.
+This starts Web, API, and Worker. Open `http://localhost:3000`; an unconfigured instance exposes **Setup**, while a configured instance exposes **Open BerryBrain** or **Logout** for the active owner session.
 
 | Service | URL |
 | --- | --- |
@@ -511,11 +514,30 @@ docker logs berrybrain-api-1 --tail 120
 docker logs berrybrain-worker-1 --tail 120
 
 # Run API tests locally
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/api/src python -m unittest discover apps/api/tests
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/api/src:apps/api python -m unittest discover apps/api/tests
 
 # Frontend typecheck without writing tsbuildinfo
 cd apps/web && ./node_modules/.bin/tsc --noEmit --incremental false
 ```
+
+---
+
+## System Requirements
+
+These are practical deployment baselines, not model-quality benchmarks. Actual storage and
+memory depend on vault size, attachments, backups, embedding dimensions, and the local model.
+
+| Profile | CPU | Memory | Free SSD | Intended use |
+| --- | ---: | ---: | ---: | --- |
+| Minimum, cloud AI | 2 x86-64/ARM64 cores | 4 GB | 10 GB | Small vault and cloud inference |
+| Recommended, cloud AI | 4 cores | 8 GB | 20+ GB | Daily use and concurrent services |
+| Recommended, local AI | 6+ cores | 16 GB | 30+ GB | Quantized 7B–8B Ollama models |
+| Larger local models | 8+ cores and supported GPU | 32+ GB RAM/VRAM as required | 60+ GB | Larger contexts and throughput |
+
+Use a current Chromium, Firefox, or Safari browser. Public deployments require HTTPS and a
+same-origin reverse proxy. PWA installation outside `localhost` also requires HTTPS. The
+local-AI figures do not include every model: verify the artifact's RAM/VRAM and disk needs
+before pulling it.
 
 ---
 
@@ -532,11 +554,12 @@ Configuration lives in `.env`, Settings UI, and persisted settings.
 | OpenAI-compatible API | Alternative cloud model route |
 | DeepSeek-compatible API | Reasoning and analysis route |
 
-Recommended current cloud model:
-
-```text
-qwen/qwen3.5-397b-a17b
-```
+Provider configuration is mandatory on first use. The tour may be skipped, but onboarding
+cannot finish until the owner explicitly selects Local with an installed Ollama model, or
+Cloud with a provider URL, API key, and model. Provider keys are stored in the local database
+and are not persisted in browser `localStorage`. Docker deployments reach a host Ollama
+instance through `http://host.docker.internal:11434` by default; both API and Worker include
+the Linux `host-gateway` mapping.
 
 ### Attachment Limits
 
@@ -548,6 +571,33 @@ The editor supports attaching files to notes, with limits configured in Settings
 - other MB limit.
 
 Attachments are persisted, queued, extracted, indexed as chunks, and represented as evidence-backed graph nodes. PDF/document parsing, Tesseract OCR, and local Faster Whisper transcription run in a constrained extractor process with configurable timeout and file-size limits.
+
+### OCR Languages
+
+`BERRYBRAIN_ATTACHMENT_OCR_LANGUAGE` is passed to Tesseract's `-l` option. Changing the code
+does not download a language automatically: the matching Tesseract `traineddata` package must
+already exist in the API image. The default image bundles English (`eng`) and orientation
+detection (`osd`) only.
+
+For Debian-based images, add the required packages to `apps/api/Dockerfile`, rebuild the API,
+and then select their Tesseract codes in Settings. Example for Portuguese and Spanish:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+```bash
+docker compose build api
+docker compose up -d api
+docker compose exec api tesseract --list-langs
+```
+
+Use Tesseract codes such as `eng`, `por`, `spa`, `deu`, or `fra`. Multiple installed
+languages can be combined, for example `por+eng`. An unknown code or a code whose package is
+absent causes the OCR job to fail; this rule applies to every language.
 
 ---
 
@@ -592,13 +642,15 @@ Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the W
 
 ### 3. Create the local owner account
 
-Open `http://localhost:3000`, choose **Login**, then complete the one-time setup. The default username alias is `admin`, but **there is no default password**: the owner must create a strong password of at least 12 characters. Change the alias with `BERRYBRAIN_OWNER_USERNAME` before startup.
+Open `http://localhost:3000`, choose **Setup**, then complete the one-time owner setup. The default username alias is `admin`, but **there is no default password**: the owner must create a strong password of at least 12 characters. Change the alias with `BERRYBRAIN_OWNER_USERNAME` before startup. On the first workspace load, BerryBrain shows the guided tour and then requires Local or Cloud AI configuration.
 
-For headless recovery, the owner account can still be created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
+For headless recovery, the owner account can be created or updated by the script copied into the API image. Pass the password through stdin/environment rather than a CLI argument:
 
 ```bash
-docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api \
-  python scripts/seed_admin.py
+read -s SEED_ADMIN_PASSWORD
+export SEED_ADMIN_PASSWORD
+docker compose exec -e SEED_ADMIN_PASSWORD api python /app/scripts/seed_admin.py
+unset SEED_ADMIN_PASSWORD
 ```
 
 Because `BERRYBRAIN_SESSION_SECRET` is used as a password-hash pepper, re-run this seed whenever you change the secret.
@@ -665,8 +717,59 @@ ingress:
 git pull
 docker compose pull
 docker compose up -d --build
-docker compose exec -e SEED_ADMIN_PASSWORD='your-strong-password' api python scripts/seed_admin.py
 ```
+
+---
+
+## PWA
+
+BerryBrain is installable as a Progressive Web App and starts directly at `/brain`. Install
+it from a supported browser while using HTTPS or `localhost`.
+
+The Service Worker caches public static assets only. It does **not** cache API responses,
+authenticated HTML navigation, or note contents. If the self-hosted server is unavailable,
+the PWA displays a neutral offline page instead of stale private content. Editing, retrieval,
+and cognitive processing require connectivity to the self-hosted server.
+
+---
+
+## Account Recovery and Deletion
+
+### Forgot password
+
+Use **Forgot password** on Login when SMTP is configured. Without SMTP, reset the local owner
+password using the non-interactive host command documented above. This replaces the password
+hash, clears lockout state, and disables 2FA unless `--enable-2fa` is passed.
+
+### Remove only the owner account
+
+The local operator can remove the owner while preserving vault files, cognitive data, and
+Settings. All owner sessions are revoked and one-time Setup becomes available again:
+
+```bash
+docker compose exec -e DELETE_OWNER_CONFIRM=DELETE_LOCAL_OWNER api \
+  python /app/scripts/delete_owner.py
+```
+
+### Delete knowledge while keeping Settings
+
+Use **Settings → Danger zone → Erase all data and keep settings**. This removes notes and
+derived knowledge but preserves appearance and provider configuration.
+
+### Factory reset
+
+Back up anything needed, then remove the complete local runtime state:
+
+```bash
+docker compose down
+rm -rf data/* vault/*
+mkdir -p data vault
+docker compose up -d
+```
+
+This removes the owner, settings, API keys stored in the database, notes, jobs, graph, and
+insights. Provider secrets deliberately placed in `.env` must be removed there separately.
+Never commit `.env`, `data/`, `vault/`, backups, or diagnostics exports.
 
 ---
 
@@ -771,7 +874,7 @@ Implemented capabilities:
 - `attachment` graph nodes;
 - attachment-backed insights and graph answers.
 
-Remaining maturity work includes broader real-world fixtures, more OCR languages, larger transcription model choices, and public quality benchmarks.
+Remaining maturity work includes bundling more OCR language packs by default, broader real-world fixtures, larger transcription model choices, and public quality benchmarks. Any Tesseract language can be added by installing its matching `traineddata` package as documented above.
 
 ### Security and Self-Hosting Roadmap
 

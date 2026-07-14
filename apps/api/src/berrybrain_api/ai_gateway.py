@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -178,8 +179,21 @@ def _cloud_json(
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code in {401, 403}:
+            raise GraphAIUnavailable(
+                "NVIDIA NIM authentication failed. Replace the API key in Settings."
+            ) from error
+        if error.code == 429:
+            raise GraphAIUnavailable(
+                "The AI provider rate limit was reached. Try again shortly."
+            ) from error
+        raise GraphAIUnavailable(
+            f"The AI provider returned HTTP {error.code}."
+        ) from error
     raw = payload["choices"][0]["message"]["content"]
     return _loads_json_object(raw)
 

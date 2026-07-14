@@ -24,7 +24,7 @@ function readCsrf(): string {
   const match = document.cookie.match(/(?:^|;\s*)bb_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }
-function apiFetch(input: string, init: RequestInit = {}) {
+export function apiFetch(input: string, init: RequestInit = {}) {
   const method = (init.method || "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
@@ -143,7 +143,7 @@ type Ctx = {
   setCmdOpen: (v: boolean) => void; setMonitorOpen: (v: boolean) => void; setSettingsOpen: (v: boolean) => void; setGraphOpen: (v: boolean) => void; setGuideOpen: (v: boolean) => void; setNotificationsOpen: (v: boolean) => void;
   openNote: (p: string) => Promise<void>; closeNote: () => void; save: () => Promise<void>; download: () => void; renameNote: () => Promise<void>;
   resolveSaveConflict: (strategy: "reload" | "overwrite") => Promise<void>;
-  createDraft: (content?: string) => Promise<void>; deleteActive: () => Promise<void>; scanVault: () => Promise<void>;
+  createDraft: (content?: string) => Promise<boolean>; deleteActive: () => Promise<void>; scanVault: () => Promise<void>;
   loadAll: () => Promise<void>; toast: (t: string, k?: Toast["kind"]) => void;
 };
 
@@ -303,18 +303,20 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         setNotes((prev) => [{ title: note.title, path: note.path, folder: note.folder }, ...prev]);
         setDemoContents((current) => ({ ...current, [note.path]: note.content }));
         setActive(note); setDraft(note.content); draftRef.current = note.content; setSaveConflict(null); setAutosave("saved");
-        return;
+        return true;
       }
       const r = await apiFetch(`${api}/api/v1/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder: "inbox", content }),
       });
-      if (!r.ok) { toast("Failed to create note.", "error"); return; }
+      if (!r.ok) { toast("Failed to create note.", "error"); return false; }
       const n = await r.json();
       setNotes((prev) => [n, ...prev]);
       setActive(n); setDraft(n.content || content); draftRef.current = n.content || content; setSaveConflict(null); setAutosave("saved");
+      return true;
     } catch {
       toast("API unavailable.", "error");
+      return false;
     } finally {
       setCreatingDraft(false);
     }
@@ -333,8 +335,16 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Demo note deleted.", "success");
       return;
     }
-    await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
-    setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Deleted.", "success"); await loadAll();
+    try {
+      const response = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
+      if (!response.ok) {
+        toast("Failed to remove note.", "error");
+        return;
+      }
+      setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Removed.", "success"); await loadAll();
+    } catch {
+      toast("Failed to remove note.", "error");
+    }
   }
 
   async function scanVault() {
@@ -350,20 +360,13 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
 
   async function download() {
     if (!active) return;
-    if (demo) {
-      const blob = new Blob([draft], { type: "text/markdown;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${active.title}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
-      return;
-    }
+    const blob = new Blob([draft], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = `${api}/api/v1/notes/${encode(active.path)}/download`;
-    a.download = `${active.title}.md`;
+    a.href = url;
+    a.download = `${active.title.replace(/[\\/:*?"<>|]/g, "-")}.md`;
     a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   async function renameNote() {
@@ -441,7 +444,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       {children}
       {creatingDraft && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-background/60 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 rounded-xl bg-panel px-6 py-5 shadow-lg">
+          <div className="bb-card bb-card--elevated flex flex-col items-center gap-3 px-6 py-5">
             <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
             <span className="text-xs text-muted">Creating note...</span>
           </div>

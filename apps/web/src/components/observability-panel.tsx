@@ -126,7 +126,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
-      <div className="relative z-50 w-full max-w-[92vw] max-h-[70vh] flex flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5 sm:w-[720px]">
+      <div className="bb-card bb-card--elevated relative z-50 flex max-h-[70vh] w-full max-w-[92vw] flex-col overflow-hidden sm:w-[720px]">
         <div className="flex items-center justify-between px-6 py-4">
           <h2 className="text-base font-semibold tracking-tight">Monitor</h2>
           <button
@@ -220,7 +220,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                           </span>
                           {isFailedJob(job) && (
                             <button
-                              className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              className="bb-action shrink-0 px-2.5 py-1 text-[11px] font-medium"
                               disabled={retryingJobId === job.id}
                               onClick={() => retryJob(job.id)}
                             >

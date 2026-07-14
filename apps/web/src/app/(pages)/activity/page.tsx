@@ -195,27 +195,26 @@ export default function ActivityPage() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
-        <header className="mb-6">
-          <h1 className="text-xl font-semibold">{t("activityTitle")}</h1>
-          <p className="mt-1 text-sm text-muted/60">{t("activityDesc")}</p>
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
+        <header className="mb-7 border-b border-border/60 pb-5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">Knowledge processing</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{t("activityTitle")}</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted/65">{t("activityDesc")}</p>
         </header>
 
-        <div className="mb-6 grid grid-cols-4 gap-3">
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard label={t("completedLabel")} value={summary.completed} color="emerald" />
           <StatCard label={t("runningLabel")} value={summary.running} color="blue" />
           <StatCard label={t("pendingLabel")} value={summary.pending} color="amber" />
           <StatCard label={t("failedLabel")} value={summary.failed} color="red" />
         </div>
 
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-1 text-xs">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             {(["all", "completed", "running", "pending", "failed"] as const).map((f) => (
               <button
                 key={f}
-                className={`rounded-lg px-2.5 py-1 font-medium transition ${
-                  filter === f ? "bg-accent/10 text-accent" : "text-muted hover:bg-surface hover:text-foreground"
-                }`}
+                className={`bb-action px-3 py-1.5 font-medium ${filter === f ? "bb-action--active" : ""}`}
                 onClick={() => setFilter(f)}
               >
                  {f === "all" ? t("allFilter") : f === "completed" ? t("completedLabel") : f === "running" ? t("runningLabel") : f === "pending" ? t("pendingLabel") : t("failedLabel")}
@@ -223,9 +222,7 @@ export default function ActivityPage() {
              ))}
            </div>
            <button
-             className={`rounded-lg px-3 py-1 text-xs transition ${
-               technicalMode ? "bg-surface text-accent font-medium" : "text-muted hover:bg-surface hover:text-foreground"
-             }`}
+             className={`bb-action self-start px-3 py-1.5 text-xs sm:self-auto ${technicalMode ? "bb-action--active" : ""}`}
              onClick={() => setTechnicalMode(!technicalMode)}
            >
              {technicalMode ? t("normalView") : t("technicalView")}
@@ -233,17 +230,17 @@ export default function ActivityPage() {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="rounded-xl bg-surface p-6 text-center text-xs text-muted/60 ring-1 ring-border/35">
+          <div className="bb-card p-8 text-center text-xs text-muted/60">
              <p className="font-medium">{t("noActivity")}</p>
              <p className="mt-1">{t("writeNotesActivity")}</p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <section className="bb-card overflow-hidden" aria-label="Activity stream">
             {filtered.map((item) => (
               <div
                 key={item.id}
-                className={`flex items-start gap-3 rounded-lg px-3 py-2 text-sm transition ${
-                  item.kind === "failed" ? "hover:bg-red-500/5" : "hover:bg-surface"
+                className={`flex items-start gap-3 border-b border-border/35 px-4 py-3.5 text-sm transition last:border-b-0 sm:px-5 ${
+                  item.kind === "failed" ? "bg-danger/[0.025] hover:bg-danger/[0.05]" : "hover:bg-surface/70"
                 }`}
               >
                 <span
@@ -260,12 +257,12 @@ export default function ActivityPage() {
                     <span className={`font-medium ${item.kind === "failed" ? "text-red-500" : ""}`}>
                       {item.human}
                     </span>
-                    <span className="shrink-0 text-xs tabular-nums text-muted/55">
+                    <span className="shrink-0 rounded-md bg-surface px-2 py-0.5 text-[10px] tabular-nums text-muted/55">
                        {item.when ? new Date(item.when).toLocaleTimeString(locale()) : ""}
                     </span>
                   </div>
                   {technicalMode && (
-                    <div className="mt-0.5 text-xs text-muted/50 break-all">{item.technical}</div>
+                    <div className="bb-subcard mt-2 break-all px-3 py-2 font-mono text-[10px] leading-5 text-muted/60">{item.technical}</div>
                   )}
                   {!technicalMode && item.kind === "failed" && item.detail && (
                     <div className="mt-0.5 text-xs text-red-500/70 line-clamp-1">{item.detail}</div>
@@ -273,7 +270,7 @@ export default function ActivityPage() {
                 </div>
               </div>
             ))}
-          </div>
+          </section>
         )}
       </div>
     </div>
@@ -288,9 +285,10 @@ function StatCard({ label, value, color }: { label: string; value: number; color
     red: "text-red-500",
   };
   return (
-    <div className="rounded-xl bg-surface p-3 text-center ring-1 ring-border/35">
+    <div className="bb-card relative overflow-hidden px-4 py-4 text-left">
+      <span className={`absolute inset-y-0 left-0 w-1 ${color === "emerald" ? "bg-emerald-500" : color === "blue" ? "bg-blue-500" : color === "amber" ? "bg-amber-500" : "bg-danger"}`} />
       <div className={`text-2xl font-semibold tabular-nums ${colors[color]}`}>{value}</div>
-      <div className="mt-0.5 text-[11px] text-muted">{label}</div>
+      <div className="mt-1 text-[11px] font-medium uppercase tracking-[0.1em] text-muted/65">{label}</div>
     </div>
   );
 }
