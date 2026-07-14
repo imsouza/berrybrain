@@ -96,7 +96,7 @@ The current worktree implements the complete local product foundation. Release g
 | Owner security | Local single-owner setup, configurable `admin` alias, no default password, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
 | Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, protected CI gates, container scans, SBOM workflow |
 
-Release evidence is tracked in [`AUDIT.md`](AUDIT.md). Protected `main`, required checks/review, independent clean-stack validation, and 12 consecutive green container runs are complete. The remaining release gates are the tag, signed registry artifacts, and published SBOM attestations.
+Release evidence is tracked in [`AUDIT.md`](AUDIT.md) and the public [`v1.0.0` release](https://github.com/imsouza/berrybrain/releases/tag/v1.0.0). Protected `main`, required checks/review, clean-stack validation, 12 consecutive green container runs, multi-architecture images, OIDC signatures, and SPDX SBOM attestations are complete.
 
 ---
 
@@ -751,7 +751,7 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 
 | Version | Status | Focus |
 | --- | --- | --- |
-| `1.0.x` | Release candidate | Local vault, resilient jobs, hybrid retrieval, graph, insights, reviews, cognitive attachments, activity, settings |
+| `1.0.x` | Stable | Local vault, resilient jobs, hybrid retrieval, graph, insights, reviews, cognitive attachments, activity, settings |
 | `1.1.x` | Planned | Evaluation datasets, stronger reranking/inference, graph quality tuning, broader accessibility |
 | `1.2.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
 | `1.3.x` | Planned | Optional external vector-store operations and backup/export polish |
