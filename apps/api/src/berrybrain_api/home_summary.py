@@ -34,7 +34,6 @@ from berrybrain_api.models import (
     WorkerStatus,
 )
 from berrybrain_api.review_service import serialize_review
-from berrybrain_api.provider_security import provider_credential_matches
 from berrybrain_api.services import _is_visible_insight
 
 
@@ -329,12 +328,10 @@ def _ai_config(session: Session) -> dict[str, str]:
     rows = session.execute(select(SettingRecord)).scalars()
     values = {row.key: row.value for row in rows}
     cloud_url = values.get("ai_api_url") or values.get("ai_custom_url", "")
-    api_key = values.get("ai_api_key", "")
     test_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == cloud_url.rstrip("/")
-        and provider_credential_matches(
-            values.get("ai_last_test_key_fingerprint", ""), api_key
-        )
+        and values.get("ai_last_test_key_revision", "")
+        == values.get("ai_key_revision", "")
         and values.get("ai_last_test_method") == "chat_completions"
     )
     return {
