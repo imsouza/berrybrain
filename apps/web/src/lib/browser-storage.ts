@@ -39,6 +39,19 @@ type StoredAttachment = {
   createdAt: string;
 };
 
+export type BrowserCloudConfig = {
+  id: "cloud-provider";
+  provider: "nvidia-nim";
+  apiUrl: "https://integrate.api.nvidia.com/v1";
+  apiKey: string;
+  model: string;
+  verifiedAt: string;
+  updatedAt: string;
+};
+
+const BROWSER_CLOUD_CONFIG_ID = "cloud-provider";
+const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
+
 export type BrowserAttachment = Omit<StoredAttachment, "blob" | "notePath"> & {
   downloadUrl: string;
 };
@@ -173,6 +186,39 @@ export async function browserStorageStatus() {
     usage: estimate?.usage || 0,
     quota: estimate?.quota || 0,
   };
+}
+
+export async function getBrowserCloudConfig(): Promise<BrowserCloudConfig | null> {
+  const record = await withStore<BrowserCloudConfig | undefined>("settings", "readonly", (store) =>
+    store.get(BROWSER_CLOUD_CONFIG_ID),
+  );
+  return record || null;
+}
+
+export async function saveBrowserCloudConfig(input: {
+  apiKey: string;
+  model: string;
+}): Promise<BrowserCloudConfig> {
+  const apiKey = input.apiKey.trim();
+  const model = input.model.trim();
+  if (apiKey.length < 20 || apiKey.length > 512) throw new Error("Enter a valid NVIDIA NIM API key.");
+  if (!model || model.length > 200) throw new Error("Select a valid NVIDIA NIM model.");
+  const now = new Date().toISOString();
+  const record: BrowserCloudConfig = {
+    id: BROWSER_CLOUD_CONFIG_ID,
+    provider: "nvidia-nim",
+    apiUrl: NVIDIA_NIM_URL,
+    apiKey,
+    model,
+    verifiedAt: now,
+    updatedAt: now,
+  };
+  await withStore<IDBValidKey>("settings", "readwrite", (store) => store.put(record));
+  return record;
+}
+
+export async function clearBrowserCloudConfig(): Promise<void> {
+  await withStore<undefined>("settings", "readwrite", (store) => store.delete(BROWSER_CLOUD_CONFIG_ID));
 }
 
 export async function listBrowserNotes(): Promise<NoteSummary[]> {
@@ -357,6 +403,335 @@ export async function browserStats(): Promise<Stats> {
   }
 }
 
+export type BrowserCognitiveAnalysis = {
+  summary: string;
+  concepts: Array<{ name: string; description: string; confidence: number }>;
+  insights: Array<{
+    title: string;
+    description: string;
+    type: string;
+    confidence: number;
+    evidence: string[];
+  }>;
+  connections: Array<{
+    targetPath: string;
+    reason: string;
+    confidence: number;
+    evidence: string[];
+  }>;
+};
+
+export type BrowserGraphNodeRecord = {
+  id: string;
+  type: "concept" | "insight";
+  label: string;
+  title: string;
+  summary: string;
+  sourceNotePaths: string[];
+  status: "suggested" | "confirmed";
+  confidence: number;
+  createdBy: "ai";
+  createdByModel: string;
+  provider: "nvidia-nim";
+  updatedAt: string;
+};
+
+export type BrowserGraphDataNode = {
+  id: string;
+  type: string;
+  label: string;
+  title: string;
+  summary?: string;
+  path?: string;
+  folder?: string;
+  source?: string;
+  status: string;
+  confidence: number;
+  createdBy: string;
+  createdByModel?: string;
+};
+
+export type BrowserGraphEdgeRecord = {
+  id: string;
+  source: string;
+  target: string;
+  type: "mentions" | "semantic_relation" | "supports";
+  label: string;
+  reason: string;
+  evidence: string[];
+  confidence: number;
+  status: "suggested";
+  provider: "nvidia-nim";
+  model: string;
+  sourceNotePath: string;
+  updatedAt: string;
+};
+
+export type BrowserCognitiveJob = {
+  id: string;
+  type: "EXPAND_KNOWLEDGE_GRAPH";
+  notePath: string;
+  status: "pending" | "running" | "completed" | "failed";
+  progress: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function queueBrowserCognitiveJob(notePath: string): Promise<void> {
+  const id = `expand:${notePath}`;
+  const existing = await withStore<BrowserCognitiveJob | undefined>("jobs", "readonly", (store) => store.get(id));
+  const now = new Date().toISOString();
+  const record: BrowserCognitiveJob = {
+    id,
+    type: "EXPAND_KNOWLEDGE_GRAPH",
+    notePath,
+    status: "pending",
+    progress: 0,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  await withStore<IDBValidKey>("jobs", "readwrite", (store) => store.put(record));
+}
+
+export async function nextBrowserCognitiveJob(): Promise<BrowserCognitiveJob | null> {
+  const jobs = await withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll());
+  return jobs
+    .filter((job) => job.type === "EXPAND_KNOWLEDGE_GRAPH" && job.status === "pending")
+    .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))[0] || null;
+}
+
+export async function updateBrowserCognitiveJob(
+  id: string,
+  patch: Partial<Pick<BrowserCognitiveJob, "status" | "progress" | "error">>,
+): Promise<void> {
+  const existing = await withStore<BrowserCognitiveJob | undefined>("jobs", "readonly", (store) => store.get(id));
+  if (!existing) return;
+  const updated: BrowserCognitiveJob = {
+    ...existing,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  if (patch.error === undefined) delete updated.error;
+  await withStore<IDBValidKey>("jobs", "readwrite", (store) => store.put(updated));
+}
+
+export async function listBrowserCognitiveJobs(): Promise<BrowserCognitiveJob[]> {
+  return withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll());
+}
+
+export async function saveBrowserCognitiveAnalysis(
+  notePath: string,
+  model: string,
+  analysis: BrowserCognitiveAnalysis,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const database = await openBrowserDatabase();
+  try {
+    const transaction = database.transaction(["graphNodes", "graphEdges", "insights"], "readwrite");
+    const done = transactionDone(transaction);
+    const nodeStore = transaction.objectStore("graphNodes");
+    const edgeStore = transaction.objectStore("graphEdges");
+    const insightStore = transaction.objectStore("insights");
+    const [nodes, edges, insights] = await Promise.all([
+      requestResult(nodeStore.getAll()) as Promise<BrowserGraphNodeRecord[]>,
+      requestResult(edgeStore.getAll()) as Promise<BrowserGraphEdgeRecord[]>,
+      requestResult(insightStore.getAll()) as Promise<BrowserGraphNodeRecord[]>,
+    ]);
+
+    for (const edge of edges) {
+      if (edge.sourceNotePath === notePath) edgeStore.delete(edge.id);
+    }
+    for (const insight of insights) {
+      if (insight.sourceNotePaths?.includes(notePath)) insightStore.delete(insight.id);
+    }
+    for (const node of nodes) {
+      if (node.type === "insight" && node.sourceNotePaths?.includes(notePath)) nodeStore.delete(node.id);
+    }
+
+    const noteNodeId = `note:${notePath}`;
+    for (const concept of analysis.concepts.slice(0, 12)) {
+      const conceptId = `concept:${slugify(concept.name)}`;
+      const existing = nodes.find((node) => node.id === conceptId);
+      const sourceNotePaths = Array.from(new Set([...(existing?.sourceNotePaths || []), notePath]));
+      const node: BrowserGraphNodeRecord = {
+        id: conceptId,
+        type: "concept",
+        label: concept.name.slice(0, 120),
+        title: concept.name.slice(0, 120),
+        summary: concept.description.slice(0, 1_000),
+        sourceNotePaths,
+        status: "suggested",
+        confidence: Math.max(0, Math.min(1, concept.confidence)),
+        createdBy: "ai",
+        createdByModel: model,
+        provider: "nvidia-nim",
+        updatedAt: now,
+      };
+      nodeStore.put(node);
+      edgeStore.put({
+        id: `mentions:${notePath}:${conceptId}`,
+        source: noteNodeId,
+        target: conceptId,
+        type: "mentions",
+        label: "mentions",
+        reason: `The concept “${concept.name}” was extracted from this note by NVIDIA NIM.`,
+        evidence: [concept.description.slice(0, 500)],
+        confidence: node.confidence,
+        status: "suggested",
+        provider: "nvidia-nim",
+        model,
+        sourceNotePath: notePath,
+        updatedAt: now,
+      } satisfies BrowserGraphEdgeRecord);
+    }
+
+    for (const insight of analysis.insights.slice(0, 8)) {
+      const insightId = `insight:${slugify(notePath)}:${slugify(insight.title)}`;
+      const node: BrowserGraphNodeRecord = {
+        id: insightId,
+        type: "insight",
+        label: insight.title.slice(0, 160),
+        title: insight.title.slice(0, 160),
+        summary: insight.description.slice(0, 2_000),
+        sourceNotePaths: [notePath],
+        status: "suggested",
+        confidence: Math.max(0, Math.min(1, insight.confidence)),
+        createdBy: "ai",
+        createdByModel: model,
+        provider: "nvidia-nim",
+        updatedAt: now,
+      };
+      nodeStore.put(node);
+      insightStore.put(node);
+      edgeStore.put({
+        id: `supports:${insightId}:${noteNodeId}`,
+        source: insightId,
+        target: noteNodeId,
+        type: "supports",
+        label: insight.type.slice(0, 80) || "insight evidence",
+        reason: insight.description.slice(0, 1_000),
+        evidence: insight.evidence.slice(0, 6).map((item) => item.slice(0, 500)),
+        confidence: node.confidence,
+        status: "suggested",
+        provider: "nvidia-nim",
+        model,
+        sourceNotePath: notePath,
+        updatedAt: now,
+      } satisfies BrowserGraphEdgeRecord);
+    }
+
+    for (const connection of analysis.connections.slice(0, 8)) {
+      edgeStore.put({
+        id: `semantic:${notePath}:${connection.targetPath}`,
+        source: noteNodeId,
+        target: `note:${connection.targetPath}`,
+        type: "semantic_relation",
+        label: "semantic relation",
+        reason: connection.reason.slice(0, 1_000),
+        evidence: connection.evidence.slice(0, 6).map((item) => item.slice(0, 500)),
+        confidence: Math.max(0, Math.min(1, connection.confidence)),
+        status: "suggested",
+        provider: "nvidia-nim",
+        model,
+        sourceNotePath: notePath,
+        updatedAt: now,
+      } satisfies BrowserGraphEdgeRecord);
+    }
+    await done;
+  } finally {
+    database.close();
+  }
+}
+
+export async function getBrowserGraphData() {
+  const [notes, nodes, edges] = await Promise.all([
+    listBrowserNotes(),
+    withStore<BrowserGraphNodeRecord[]>("graphNodes", "readonly", (store) => store.getAll()),
+    withStore<BrowserGraphEdgeRecord[]>("graphEdges", "readonly", (store) => store.getAll()),
+  ]);
+  const noteNodes: BrowserGraphDataNode[] = notes.map((note) => ({
+    id: `note:${note.path}`,
+    type: "note",
+    label: note.title,
+    title: note.title,
+    path: note.path,
+    folder: note.folder,
+    source: "browser-storage",
+    status: "confirmed",
+    confidence: 1,
+    createdBy: "user",
+  }));
+  const graphNodes: BrowserGraphDataNode[] = nodes;
+  const validIds = new Set([...noteNodes.map((node) => node.id), ...graphNodes.map((node) => node.id)]);
+  const validEdges = edges.filter((edge) => validIds.has(edge.source) && validIds.has(edge.target));
+  const degree = new Map<string, number>();
+  for (const edge of validEdges) {
+    degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+  }
+  return {
+    nodes: [...noteNodes, ...graphNodes],
+    edges: validEdges,
+    stats: { orphan_count: [...validIds].filter((id) => !degree.get(id)).length },
+  };
+}
+
+export async function saveBrowserInferenceInsight(input: {
+  question: string;
+  answer: string;
+  relatedNodeIds: string[];
+  evidence: string[];
+  model: string;
+}): Promise<BrowserGraphNodeRecord> {
+  const now = new Date().toISOString();
+  const id = `insight:inference:${Date.now().toString(36)}`;
+  const node: BrowserGraphNodeRecord = {
+    id,
+    type: "insight",
+    label: input.question.trim().slice(0, 160),
+    title: input.question.trim().slice(0, 160),
+    summary: input.answer.trim().slice(0, 2_000),
+    sourceNotePaths: input.relatedNodeIds
+      .filter((nodeId) => nodeId.startsWith("note:"))
+      .map((nodeId) => nodeId.slice(5)),
+    status: "suggested",
+    confidence: input.evidence.length ? 0.75 : 0.5,
+    createdBy: "ai",
+    createdByModel: input.model,
+    provider: "nvidia-nim",
+    updatedAt: now,
+  };
+  const database = await openBrowserDatabase();
+  try {
+    const transaction = database.transaction(["graphNodes", "graphEdges", "insights"], "readwrite");
+    const done = transactionDone(transaction);
+    transaction.objectStore("graphNodes").put(node);
+    transaction.objectStore("insights").put(node);
+    for (const target of input.relatedNodeIds.slice(0, 12)) {
+      transaction.objectStore("graphEdges").put({
+        id: `supports:${id}:${target}`,
+        source: id,
+        target,
+        type: "supports",
+        label: "inference evidence",
+        reason: input.answer.trim().slice(0, 1_000),
+        evidence: input.evidence.slice(0, 8).map((item) => item.slice(0, 500)),
+        confidence: node.confidence,
+        status: "suggested",
+        provider: "nvidia-nim",
+        model: input.model,
+        sourceNotePath: node.sourceNotePaths[0] || "inference",
+        updatedAt: now,
+      } satisfies BrowserGraphEdgeRecord);
+    }
+    await done;
+    return node;
+  } finally {
+    database.close();
+  }
+}
+
 function bytesToBase64(bytes: Uint8Array) {
   let output = "";
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -393,10 +768,12 @@ async function encodeValue(value: unknown): Promise<EncodedValue> {
       data: bytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)),
     };
   }
-  if (Array.isArray(value)) return Promise.all(value.map(encodeValue));
+  if (Array.isArray(value)) return Promise.all(value.map((child) => child === undefined ? null : encodeValue(child)));
   if (typeof value === "object") {
     const encoded: Record<string, EncodedValue> = {};
-    for (const [key, child] of Object.entries(value)) encoded[key] = await encodeValue(child);
+    for (const [key, child] of Object.entries(value)) {
+      if (child !== undefined) encoded[key] = await encodeValue(child);
+    }
     return encoded;
   }
   throw new Error(`Unsupported backup value: ${typeof value}`);
@@ -435,7 +812,10 @@ export async function exportBrowserBackup(): Promise<Blob> {
       const done = transactionDone(transaction);
       const records = await requestResult(transaction.objectStore(storeName).getAll());
       await done;
-      stores[storeName] = (await encodeValue(records)) as EncodedValue[];
+      const exportRecords = storeName === "settings"
+        ? (records as Array<{ id?: unknown }>).filter((record) => record.id !== BROWSER_CLOUD_CONFIG_ID)
+        : records;
+      stores[storeName] = (await encodeValue(exportRecords)) as EncodedValue[];
     }
     const payload: BackupPayload = {
       product: "BerryBrain",

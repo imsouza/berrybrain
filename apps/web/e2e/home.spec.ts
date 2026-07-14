@@ -11,6 +11,11 @@ test.describe("Home page", () => {
     await expect(page.locator("h1")).toContainText("knowledge you can navigate");
     await expect(page.locator("header").getByRole("link", { name: "Open BerryBrain", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "GitHub", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Donate to BerryBrain on Ko-fi" })).toHaveAttribute(
+      "href",
+      "https://ko-fi.com/berrybrain",
+    );
+    await expect(page.locator('script[src*="storage.ko-fi.com"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { name: /More than notes with an AI button/ })).toBeVisible();
   });
 

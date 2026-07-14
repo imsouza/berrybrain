@@ -10,9 +10,11 @@ import {
   getBrowserNote,
   initializeBrowserStorage,
   listBrowserNotes,
+  queueBrowserCognitiveJob,
   renameBrowserNote,
   saveBrowserNote,
 } from "@/lib/browser-storage";
+import { runBrowserCognitiveWorker } from "@/lib/browser-cognitive-worker";
 
 export function getApiUrl() {
   if (process.env.NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE === "browser") return "__browser__";
@@ -209,6 +211,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         setStats(localStats);
         setJobs([]);
         setInsights([]);
+        void runBrowserCognitiveWorker();
       } catch {
         toast("Browser storage could not be opened.", "error");
       }
@@ -271,6 +274,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         const updated = await saveBrowserNote(active, contentToSave);
         setActive(updated);
         setNotes(await listBrowserNotes());
+        await queueBrowserCognitiveJob(updated.path);
+        void runBrowserCognitiveWorker();
         setSaveConflict(null);
         setAutosave(draftRef.current === contentToSave ? "saved" : "unsaved");
       } catch {
@@ -370,6 +375,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         draftRef.current = note.content;
         setSaveConflict(null);
         setAutosave("saved");
+        await queueBrowserCognitiveJob(note.path);
+        void runBrowserCognitiveWorker();
         return true;
       }
       const r = await apiFetch(`${api}/api/v1/notes`, {
@@ -512,6 +519,12 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }
 
   useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    if (!BROWSER_STORAGE_MODE) return;
+    const resumeWorker = () => { void runBrowserCognitiveWorker(); };
+    window.addEventListener("bb:cloud-configured", resumeWorker);
+    return () => window.removeEventListener("bb:cloud-configured", resumeWorker);
+  }, []);
   useEffect(() => {
     if (demo || BROWSER_STORAGE_MODE) return;
     const iv = setInterval(() => { apiFetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);

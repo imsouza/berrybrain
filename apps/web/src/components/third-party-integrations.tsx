@@ -11,9 +11,6 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
-    kofiWidgetOverlay?: {
-      draw: (account: string, options: Record<string, string>) => void;
-    };
   }
 }
 
@@ -102,30 +99,6 @@ function GoogleAnalytics({ enabled }: { enabled: boolean }) {
   );
 }
 
-function KofiDonateWidget() {
-  const drawn = useRef(false);
-  const drawWidget = useCallback(() => {
-    if (drawn.current || !window.kofiWidgetOverlay) return;
-    window.kofiWidgetOverlay.draw("berrybrain", {
-      type: "floating-chat",
-      "floating-chat.donateButton.text": "Donate",
-      "floating-chat.donateButton.background-color": "#d9534f",
-      "floating-chat.donateButton.text-color": "#fff",
-    });
-    drawn.current = true;
-  }, []);
-
-  return (
-    <Script
-      id="berrybrain-kofi-widget"
-      src="https://storage.ko-fi.com/cdn/scripts/overlay-widget.js"
-      strategy="lazyOnload"
-      onLoad={drawWidget}
-      onReady={drawWidget}
-    />
-  );
-}
-
 export function ThirdPartyIntegrations() {
   const pathname = usePathname();
   const privateRouteSegments = new Set([
@@ -144,19 +117,17 @@ export function ThirdPartyIntegrations() {
   return (
     <>
       <GoogleAnalytics enabled={!isKnowledgeWorkspace} />
-      {isKnowledgeWorkspace ? (
-        <a
-          href="https://ko-fi.com/T5D823778G"
-          target="_blank"
-          rel="noreferrer"
-          className="bb-action fixed bottom-4 right-4 z-[70] px-3 py-2 text-xs font-semibold"
-          aria-label="Donate to BerryBrain on Ko-fi"
-        >
-          Donate
-        </a>
-      ) : (
-        <KofiDonateWidget />
-      )}
+      <a
+        href="https://ko-fi.com/berrybrain"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`bb-action fixed right-4 z-[70] px-3 py-2 text-xs font-semibold ${
+          isKnowledgeWorkspace ? "bottom-4" : "bottom-56 sm:bottom-4"
+        }`}
+        aria-label="Donate to BerryBrain on Ko-fi"
+      >
+        Donate
+      </a>
     </>
   );
 }

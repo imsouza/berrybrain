@@ -6,10 +6,14 @@ import { readCsrf } from "./public-site/user-menu";
 import {
   BROWSER_STORAGE_MODE,
   browserStorageStatus,
+  clearBrowserCloudConfig,
   exportBrowserBackup,
+  getBrowserCloudConfig,
   importBrowserBackup,
+  saveBrowserCloudConfig,
   wipeBrowserStorage,
 } from "@/lib/browser-storage";
+import { testBrowserNvidiaConnection } from "@/lib/browser-ai";
 
 type ThemeKind = "light" | "dark";
 
@@ -323,6 +327,41 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       setIsAdmin(false);
       setSettingsLoading(false);
       browserStorageStatus().then(setStorageStatus).catch(() => setStorageStatus(null));
+      getBrowserCloudConfig()
+        .then((config) => {
+          setApiKeyConfigured(Boolean(config));
+          setGraphApiKeyConfigured(Boolean(config));
+          setProviderStatus(config ? {
+            state: "connected",
+            provider: "nvidia-nim",
+            providerMode: "cloud",
+            keyConfigured: true,
+            modelConfigured: true,
+            model: config.model,
+            graphProviderMode: "cloud",
+            graphKeyConfigured: true,
+            graphModelConfigured: true,
+            graphModel: config.model,
+            lastTestStatus: "connected",
+            remoteContentConsent: true,
+          } : null);
+          if (!config || editedRef.current) return;
+          setS((previous) => ({
+            ...previous,
+            ai_provider: "cloud",
+            graph_ai_provider: "cloud",
+            ai_api_url: NVIDIA_NIM_URL,
+            graph_ai_api_url: NVIDIA_NIM_URL,
+            ai_api_key: config.apiKey,
+            graph_ai_api_key: config.apiKey,
+            ai_model: config.model,
+            graph_ai_model: config.model,
+            kb_embedding_provider: "cloud",
+            remote_content_consent: "true",
+          }));
+          cloudConnectionVerifiedRef.current = true;
+        })
+        .catch(() => setProviderStatus(null));
       return;
     }
     let cancelled = false;
@@ -416,6 +455,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       else localStorage.setItem(`bb_${key}`, String(next[key]));
       if (!SECRET_SETTING_KEYS.has(key) || String(next[key]).trim()) values[key] = String(next[key]);
     });
+    if (BROWSER_STORAGE_MODE) {
+      await saveBrowserCloudConfig({ apiKey: next.ai_api_key, model: next.ai_model });
+      return;
+    }
     if (!isAdmin || apiUrl === "__demo__") return;
     const response = await fetch(`${apiUrl}/api/v1/settings/batch`, {
       method: "PUT",
@@ -435,15 +478,28 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
       const hasCloudModel = Boolean(s.ai_model.trim());
       const inferNimActivation = isNvidiaNim && providerChoiceRef.current !== "local";
-      const wantsCloud = s.ai_provider === "cloud" || inferNimActivation;
+      const wantsCloud = BROWSER_STORAGE_MODE || s.ai_provider === "cloud" || inferNimActivation;
       let next = s;
+
+      if (BROWSER_STORAGE_MODE) {
+        next = {
+          ...s,
+          ai_provider: "cloud",
+          graph_ai_provider: "cloud",
+          ai_api_url: NVIDIA_NIM_URL,
+          graph_ai_api_url: NVIDIA_NIM_URL,
+          graph_ai_model: s.ai_model,
+          kb_embedding_provider: "cloud",
+          remote_content_consent: "true",
+        };
+      }
 
       if (wantsCloud && (!baseUrl || !hasCloudKey || !hasCloudModel)) {
         setSaveStatus("Cloud setup is incomplete. Add an API URL, API key, and model before saving.");
         return;
       }
 
-      const needsConsent = wantsCloud && s.remote_content_consent !== "true";
+      const needsConsent = !BROWSER_STORAGE_MODE && wantsCloud && s.remote_content_consent !== "true";
       if (needsConsent) {
         const confirmed = window.confirm(
           "Enable NVIDIA NIM processing?\n\nBerryBrain will send note, attachment, and graph content to the configured NVIDIA API for AI processing. This consent is saved and will not be requested again unless cloud processing is disabled.",
@@ -471,11 +527,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       applyTheme(next);
       if (next.ai_api_key) setApiKeyConfigured(true);
       if (next.graph_ai_api_key) setGraphApiKeyConfigured(true);
-      setS({ ...next, ai_api_key: "", graph_ai_api_key: "" });
+      setS(BROWSER_STORAGE_MODE ? next : { ...next, ai_api_key: "", graph_ai_api_key: "" });
       editedRef.current = false;
       providerChoiceRef.current = null;
       cloudConnectionEditedRef.current = false;
       setSaveStatus(wantsCloud ? "Settings saved. NVIDIA NIM is active." : "Settings saved.");
+      if (BROWSER_STORAGE_MODE) {
+        localStorage.setItem("bb_onboarding_completed", "true");
+        window.dispatchEvent(new CustomEvent("bb:cloud-configured"));
+      }
       await refreshProviderStatus();
     } catch (error) {
       setSaveStatus(error instanceof Error ? error.message : "Settings could not be saved.");
@@ -494,9 +554,21 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       return false;
     }
     if (BROWSER_STORAGE_MODE) {
-      setConnectionStatus("Direct browser provider testing is not available yet. Your key was not stored.");
-      setSaveStatus("Cloud AI remains disabled in browser-only mode.");
-      return false;
+      setLoadingModels(true);
+      setConnectionStatus("");
+      try {
+        const payload = await testBrowserNvidiaConnection(next.ai_api_key);
+        setCloudModels(payload.models.map((id) => ({ id })));
+        setConnectionStatus(`Connection verified. ${payload.models.length} models available.`);
+        cloudConnectionVerifiedRef.current = true;
+        return true;
+      } catch (error) {
+        setConnectionStatus(`Connection failed: ${error instanceof Error ? error.message : "Provider unavailable."}`);
+        setSaveStatus("Settings were not saved because NVIDIA NIM could not be verified.");
+        return false;
+      } finally {
+        setLoadingModels(false);
+      }
     }
     const baseUrl = next.ai_api_url || next.ai_custom_url;
     setLoadingModels(true);
@@ -542,12 +614,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   async function clearCloudKey() {
     if (!window.confirm("Clear the saved cloud API key? AI cloud processing will stop until a new key is configured.")) return;
     if (BROWSER_STORAGE_MODE) {
-      localStorage.removeItem("bb_ai_api_key");
-      localStorage.removeItem("bb_graph_ai_api_key");
+      await clearBrowserCloudConfig();
       setApiKeyConfigured(false);
       setGraphApiKeyConfigured(false);
       setS((previous) => ({ ...previous, ai_api_key: "", graph_ai_api_key: "" }));
       setConnectionStatus("Cloud API key cleared from this browser.");
+      localStorage.removeItem("bb_onboarding_completed");
+      window.dispatchEvent(new CustomEvent("bb:open-tour"));
       return;
     }
     const response = await fetch(`${apiUrl}/api/v1/settings/ai/key`, {
@@ -604,9 +677,18 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setConnectionStatus("Wiping BerryBrain data...");
     if (BROWSER_STORAGE_MODE) {
       try {
+        const preservedCloudConfig = resetSettings ? null : await getBrowserCloudConfig();
         await wipeBrowserStorage();
         if (resetSettings) resetLocalSettings();
-        else preserveLocalSettings();
+        else {
+          preserveLocalSettings();
+          if (preservedCloudConfig) {
+            await saveBrowserCloudConfig({
+              apiKey: preservedCloudConfig.apiKey,
+              model: preservedCloudConfig.model,
+            });
+          }
+        }
         setConnectionStatus(resetSettings ? "Browser data wiped. Settings reset. Reloading..." : "Browser data wiped. Settings preserved. Reloading...");
         window.setTimeout(() => window.location.reload(), 700);
       } catch (error) {
@@ -787,7 +869,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             <ReadOnlyValue value="Markdown toolbar and split preview are enabled." />
           </Section>
 
-          <Section title="Attachment processing" description="Local OCR and transcription used to turn files into evidence.">
+          {!BROWSER_STORAGE_MODE && <Section title="Attachment processing" description="Local OCR and transcription used to turn files into evidence.">
             <Field label="OCR language" description="Installed Tesseract code, such as eng, por, or por+eng. Settings do not download language packs; verify them with tesseract --list-langs in the API container.">
               <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng or por+eng" />
             </Field>
@@ -800,22 +882,22 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             <Field label="Transcription model" description="Local Faster Whisper model path or model name used by the configured engine.">
               <TextInput value={s.attachment_transcription_model} onChange={(value) => update("attachment_transcription_model", value)} placeholder="/opt/berrybrain/models/faster-whisper-tiny.en" />
             </Field>
-          </Section>
+          </Section>}
 
           <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
-            <Field label="AI provider" description="Cloud uses NVIDIA NIM or another compatible API. Local uses Ollama.">
-              <Select value={s.ai_provider} onChange={(value) => update("ai_provider", value as Settings["ai_provider"])}>
+            <Field label="AI provider" description={BROWSER_STORAGE_MODE ? "The hosted web app uses NVIDIA NIM for cognitive processing." : "Cloud uses NVIDIA NIM or another compatible API. Local uses Ollama."}>
+              {BROWSER_STORAGE_MODE ? <ReadOnlyValue value="NVIDIA NIM cloud API (required)" /> : <Select value={s.ai_provider} onChange={(value) => update("ai_provider", value as Settings["ai_provider"])}>
                 <option value="">Select a provider</option>
                 <option value="cloud">Cloud provider</option>
                 <option value="local">Local Ollama</option>
-              </Select>
+              </Select>}
             </Field>
             <Field label="Graph inference provider" description="Controls AI answers in the graph screen.">
-              <Select value={s.graph_ai_provider} onChange={(value) => update("graph_ai_provider", value as Settings["graph_ai_provider"])}>
+              {BROWSER_STORAGE_MODE ? <ReadOnlyValue value="NVIDIA NIM cloud API" /> : <Select value={s.graph_ai_provider} onChange={(value) => update("graph_ai_provider", value as Settings["graph_ai_provider"])}>
                 <option value="">Select a graph provider</option>
                 <option value="cloud">Cloud provider</option>
                 <option value="local">Local Ollama</option>
-              </Select>
+              </Select>}
             </Field>
             <Field label="Cloud processing consent" description="Requested once when Save activates a cloud provider. Selecting Local Ollama disables it.">
               <ReadOnlyValue value={s.remote_content_consent === "true" ? "Enabled — configured cloud processing is allowed" : "Not granted — confirmation will appear when cloud settings are saved"} />
@@ -825,19 +907,21 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           <Section title="NVIDIA NIM" description="Cloud model used for graph inference, insights, and knowledge expansion.">
             <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
             <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
-              <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
+              {BROWSER_STORAGE_MODE ? <ReadOnlyValue value="NVIDIA NIM" /> : <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
                 <option value="">Select a provider</option>
                 {Object.entries(CLOUD_PROVIDERS).map(([url, label]) => <option key={url || "custom"} value={url}>{label}</option>)}
-              </Select>
+              </Select>}
             </Field>
-            {s.ai_api_url === "" && (
+            {!BROWSER_STORAGE_MODE && s.ai_api_url === "" && (
               <Field label="Custom API base URL" description="OpenAI-compatible endpoint.">
                 <TextInput value={s.ai_custom_url} onChange={(value) => update("ai_custom_url", value)} placeholder="https://example.com/v1" />
               </Field>
             )}
             <Field
               label="NVIDIA NIM API Key"
-              description={apiKeyConfigured ? "A key is saved securely. Enter a new key only to replace it." : "The key is stored by the BerryBrain API and is never returned to the browser."}
+              description={BROWSER_STORAGE_MODE
+                ? "Stored only in IndexedDB on this browser and excluded from workspace exports. It is sent through a stateless same-origin proxy when NVIDIA NIM is called."
+                : apiKeyConfigured ? "A key is saved securely. Enter a new key only to replace it." : "The key is stored by the BerryBrain API and is never returned to the browser."}
             >
               <div className="flex flex-wrap gap-2">
                 <TextInput
@@ -864,22 +948,22 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 {s.ai_model && !cloudModels.some((model) => model.id === s.ai_model) && <option value={s.ai_model}>{s.ai_model}</option>}
               </Select>
             </Field>
-            <Field label="Graph cloud model" description="Model used by graph questions and graph insight generation.">
+            {!BROWSER_STORAGE_MODE && <Field label="Graph cloud model" description="Model used by graph questions and graph insight generation.">
               <TextInput value={s.graph_ai_model} onChange={(value) => update("graph_ai_model", value)} placeholder="Select or type a graph model" />
-            </Field>
+            </Field>}
             {connectionStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{connectionStatus}</p>}
           </Section>
 
           <Section title="Cognitive Layer" description="Configure the BerryBrain Knowledge System: Knowledge Base, Knowledge Graph, semantic state, and retrieval orchestration.">
-            <Field label="Knowledge Base vector store" description="SQLite is local fallback. Qdrant and Chroma are supported as configurable external stores.">
-              <Select value={s.kb_vector_store} onChange={(value) => update("kb_vector_store", value as Settings["kb_vector_store"])}>
+            <Field label="Knowledge Base vector store" description={BROWSER_STORAGE_MODE ? "Knowledge records are kept in this browser's IndexedDB." : "SQLite is local fallback. Qdrant and Chroma are supported as configurable external stores."}>
+              {BROWSER_STORAGE_MODE ? <ReadOnlyValue value="Browser IndexedDB" /> : <Select value={s.kb_vector_store} onChange={(value) => update("kb_vector_store", value as Settings["kb_vector_store"])}>
                 <option value="">Select a vector store</option>
                 <option value="sqlite">SQLite local fallback</option>
                 <option value="qdrant">Qdrant</option>
                 <option value="chroma">Chroma</option>
-              </Select>
+              </Select>}
             </Field>
-            <div className="grid gap-3 sm:grid-cols-2">
+            {!BROWSER_STORAGE_MODE && <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Qdrant URL" description="Used when the vector store is Qdrant.">
                 <TextInput value={s.qdrant_url} onChange={(value) => update("qdrant_url", value)} placeholder="http://localhost:6333" />
               </Field>
@@ -892,13 +976,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               <Field label="Chroma collection" description="Collection for BerryBrain chunks.">
                 <TextInput value={s.chroma_collection} onChange={(value) => update("chroma_collection", value)} placeholder="berrybrain" />
               </Field>
-            </div>
-            <Field label="Embedding provider" description="Cloud uses the configured compatible API. Local uses Ollama.">
-              <Select value={s.kb_embedding_provider} onChange={(value) => update("kb_embedding_provider", value as Settings["kb_embedding_provider"])}>
+            </div>}
+            <Field label="Embedding provider" description={BROWSER_STORAGE_MODE ? "NVIDIA NIM is used when the selected model supports this cognitive task." : "Cloud uses the configured compatible API. Local uses Ollama."}>
+              {BROWSER_STORAGE_MODE ? <ReadOnlyValue value="NVIDIA NIM cloud API" /> : <Select value={s.kb_embedding_provider} onChange={(value) => update("kb_embedding_provider", value as Settings["kb_embedding_provider"])}>
                 <option value="">Select an embedding provider</option>
                 <option value="cloud">Cloud provider</option>
                 <option value="local">Local Ollama</option>
-              </Select>
+              </Select>}
             </Field>
             <Field label="Embedding model" description="Model used for semantic search chunks. Required to move embeddings above zero.">
               <TextInput value={s.kb_embedding_model} onChange={(value) => update("kb_embedding_model", value)} placeholder="Example: nvidia/llama-3.2-nv-embedqa-1b-v2 or bge-m3" />
@@ -947,7 +1031,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             </div>
           </Section>
 
-          <Section title="Local" description="Local Ollama settings for offline processing.">
+          {!BROWSER_STORAGE_MODE && <Section title="Local" description="Local Ollama settings for offline processing.">
             <Field label="Ollama URL" description="Address reachable from the API and Worker containers.">
               <TextInput value={s.ollama_base_url} onChange={(value) => update("ollama_base_url", value)} placeholder="http://host.docker.internal:11434" />
             </Field>
@@ -966,13 +1050,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <option value="connections">Centrality</option>
               </Select>
             </Field>
-          </Section>
+          </Section>}
 
           <Section title="Saving" description="Settings are persisted only after clicking Save.">
-            <ReadOnlyValue value="Click Save to write these values to local storage and the BerryBrain API." />
+            <ReadOnlyValue value={BROWSER_STORAGE_MODE ? "Click Save to keep non-secret preferences in local storage and the provider key in this browser's IndexedDB." : "Click Save to write these values to local storage and the BerryBrain API."} />
           </Section>
 
-          <Section title="Maintenance" description="Repair and rebuild BerryBrain without deleting note files.">
+          {!BROWSER_STORAGE_MODE && <Section title="Maintenance" description="Repair and rebuild BerryBrain without deleting note files.">
             <div className="grid gap-2 sm:grid-cols-2">
               <MaintenanceButton onClick={() => runMaintenance("rebuild-brain")}>Rebuild second brain</MaintenanceButton>
               <MaintenanceButton onClick={() => runMaintenance("cleanup-legacy-insights")}>Cleanup legacy insights</MaintenanceButton>
@@ -980,9 +1064,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               <MaintenanceButton onClick={() => runMaintenance("reindex-knowledge-base")}>Reindex knowledge base</MaintenanceButton>
             </div>
             {maintenanceStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{maintenanceStatus}</p>}
-          </Section>
+          </Section>}
 
-          <Section title={t("diagnostics")} description={t("diagnosticsDesc")}>
+          {!BROWSER_STORAGE_MODE && <Section title={t("diagnostics")} description={t("diagnosticsDesc")}>
             {diagLoading ? (
               <p className="text-xs text-muted">{t("loadingDiagnostics")}</p>
             ) : diagnostics ? (
@@ -1016,7 +1100,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             ) : (
               <p className="text-xs text-muted">{t("loadingDiagnostics")}</p>
             )}
-          </Section>
+          </Section>}
 
           {BROWSER_STORAGE_MODE && (
             <Section title="Data portability" description="Your browser is the primary data store. Keep external backups.">

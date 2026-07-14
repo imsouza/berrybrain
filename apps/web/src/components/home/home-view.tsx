@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { ThemedProgressBar } from "./themed-progress-bar";
+import { getBrowserCloudConfig, getBrowserGraphData, listBrowserCognitiveJobs } from "@/lib/browser-storage";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
@@ -163,52 +164,104 @@ export function HomeView() {
       return;
     }
     if (w.api === "__browser__") {
-      const localNotes = w.notes.slice(0, 8).map((note) => ({
-        title: note.title,
-        path: note.path,
-        folder: note.folder,
-        status: "saved locally",
-      }));
-      setSummary({
-        ...DEMO_HOME_SUMMARY,
-        status: {
-          ...DEMO_HOME_SUMMARY.status,
-          worker: "browser storage",
-          cloudProvider: "not configured",
-          cloudModel: "",
-          cloudStatus: "completed",
-          cloudConfigured: false,
-          remoteContentConsent: false,
-          lastProcessingAt: null,
-        },
-        progress: {
-          ...DEMO_HOME_SUMMARY.progress,
-          completed: 0,
-          currentStep: "Browser data saved locally",
-          lastResult: "No background worker in browser mode",
-        },
-        stats: {
-          notes: { total: w.notes.length, createdToday: 0, unassimilated: 0 },
-          connections: { total: 0, createdToday: 0, averageConfidence: 0 },
-          concepts: { total: 0, newToday: 0, withoutPermanentNote: 0 },
-          study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
-          jobs: { pending: 0, active: 0, failed: 0, completedToday: 0, total: 0 },
-          ai: { provider: "browser", model: "", metadata: 0, embeddings: 0, jobsProcessed: 0, errors: 0 },
-        },
-        recentNotes: localNotes,
-        recentInsights: [],
-        recentConnections: [],
-        graphSummary: {
-          nodes: w.notes.length,
-          edges: 0,
-          orphans: w.notes.length,
-          clusters: 0,
-          centralNotes: [],
-        },
-        needsAttention: [],
-      });
-      setPipelineProgress([]);
-      setLoading(false);
+      Promise.all([getBrowserCloudConfig(), getBrowserGraphData(), listBrowserCognitiveJobs()])
+        .then(([config, graph, jobs]) => {
+          const localNotes = w.notes.slice(0, 8).map((note) => ({
+            title: note.title,
+            path: note.path,
+            folder: note.folder,
+            status: "saved locally",
+          }));
+          const pending = jobs.filter((job) => job.status === "pending").length;
+          const active = jobs.filter((job) => job.status === "running").length;
+          const failed = jobs.filter((job) => job.status === "failed").length;
+          const completed = jobs.filter((job) => job.status === "completed").length;
+          const total = jobs.length;
+          const percent = total ? Math.round((completed / total) * 100) : 100;
+          const concepts = graph.nodes.filter((node) => node.type === "concept");
+          const insightNodes = graph.nodes.filter((node) => node.type === "insight");
+          const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+          setSummary({
+            ...DEMO_HOME_SUMMARY,
+            status: {
+              ...DEMO_HOME_SUMMARY.status,
+              worker: active ? "processing in browser" : "browser worker ready",
+              cloudProvider: config ? "nvidia-nim" : "not configured",
+              cloudModel: config?.model || "",
+              cloudStatus: config ? (active ? "running" : "connected") : "offline",
+              cloudConfigured: Boolean(config),
+              remoteContentConsent: Boolean(config),
+              pendingJobs: pending,
+              activeJobs: active,
+              lastProcessingAt: jobs.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.updatedAt || null,
+            },
+            progress: {
+              ...DEMO_HOME_SUMMARY.progress,
+              mode: "determinate",
+              percent,
+              active,
+              pending,
+              completed,
+              failed,
+              currentStep: active ? "Expanding knowledge graph with NVIDIA NIM" : pending ? "Waiting for browser worker" : "Knowledge graph is up to date",
+              lastResult: completed ? `${completed} notes assimilated in this browser` : "Waiting for the first assimilated note",
+              status: failed ? "failed" : active ? "running" : "completed",
+            },
+            stats: {
+              notes: { total: w.notes.length, createdToday: 0, unassimilated: Math.max(0, w.notes.length - completed) },
+              connections: {
+                total: graph.edges.length,
+                createdToday: 0,
+                averageConfidence: graph.edges.length
+                  ? graph.edges.reduce((sum, edge) => sum + edge.confidence, 0) / graph.edges.length
+                  : 0,
+              },
+              concepts: { total: concepts.length, newToday: 0, withoutPermanentNote: concepts.length },
+              study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
+              jobs: { pending, active, failed, completedToday: completed, total },
+              ai: { provider: config ? "nvidia-nim" : "not configured", model: config?.model || "", metadata: graph.nodes.length, embeddings: 0, jobsProcessed: completed, errors: failed },
+            },
+            recentNotes: localNotes,
+            recentInsights: insightNodes.slice(-5).reverse().map((node, index) => ({
+              id: index + 1,
+              type: "knowledge insight",
+              title: node.title || node.label,
+              description: node.summary || "",
+              priority: 2,
+              confidence: node.confidence,
+              provider: "nvidia-nim",
+              model: node.createdByModel,
+              status: node.status,
+            })),
+            recentConnections: graph.edges.slice(-5).reverse().map((edge, index) => ({
+              id: index + 1,
+              type: edge.type,
+              confidence: edge.confidence,
+              confidencePercent: Math.round(edge.confidence * 100),
+              reason: edge.reason,
+              status: edge.status,
+              source: { title: nodeById.get(edge.source)?.label || edge.source, path: nodeById.get(edge.source)?.path || "" },
+              target: { title: nodeById.get(edge.target)?.label || edge.target, path: nodeById.get(edge.target)?.path || "" },
+            })),
+            graphSummary: {
+              nodes: graph.nodes.length,
+              edges: graph.edges.length,
+              orphans: graph.stats.orphan_count,
+              clusters: 0,
+              centralNotes: [],
+            },
+            needsAttention: failed ? [{ kind: "worker", title: `${failed} cognitive job${failed === 1 ? "" : "s"} failed`, description: "Open Activity or save the note again to retry.", action: "Open Activity" }] : [],
+          });
+          setPipelineProgress(jobs.filter((job) => job.status === "running" || job.status === "pending").map((job) => ({
+            notePath: job.notePath,
+            completed: job.progress,
+            total: 100,
+            percent: job.progress,
+            currentStep: job.status === "running" ? "NVIDIA NIM cognitive analysis" : "Queued in browser",
+          })));
+        })
+        .catch(() => setError(true))
+        .finally(() => setLoading(false));
       return;
     }
     fetch(`${w.api}/api/v1/home/summary`)
@@ -244,6 +297,19 @@ export function HomeView() {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  useEffect(() => {
+    if (w.api !== "__browser__") return;
+    const refresh = () => loadSummary();
+    window.addEventListener("bb:browser-worker-updated", refresh);
+    window.addEventListener("bb:browser-knowledge-updated", refresh);
+    window.addEventListener("bb:cloud-configured", refresh);
+    return () => {
+      window.removeEventListener("bb:browser-worker-updated", refresh);
+      window.removeEventListener("bb:browser-knowledge-updated", refresh);
+      window.removeEventListener("bb:cloud-configured", refresh);
+    };
+  }, [loadSummary, w.api]);
 
   function updateStarterText(value: string) {
     setStarterText(value.slice(0, QUICK_NOTE_MAX_LENGTH));

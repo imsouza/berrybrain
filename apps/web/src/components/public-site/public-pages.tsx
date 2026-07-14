@@ -28,7 +28,7 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     body: [
       "BerryBrain is local-first. User notes remain in the configured vault unless the user enables external providers.",
       "Google Analytics is disabled by default on self-hosted instances and requires explicit visitor consent on the official website. Analytics is configured without advertising signals or ad personalization.",
-      "The Ko-fi donation widget is provided by an external service. Opening or using it is subject to Ko-fi's own privacy practices.",
+      "The Donate link opens Ko-fi in a separate tab. BerryBrain does not embed the Ko-fi widget or load Ko-fi scripts on its pages.",
       "When cloud AI, email, or external enrichment is configured, BerryBrain records provider, model, purpose, status, and evidence so the user can understand what left the local system.",
       "Account data is separated from note content. Security events may include timestamps, IP-derived request metadata, session state, and administrative actions needed to protect the service.",
       "Knowledge data is processed to build notes, concepts, graph edges, insights, and retrieval indexes. The product should never hide whether a result came from local processing or a configured external provider.",
@@ -85,7 +85,7 @@ const footerGroups = [
       ["Docs", "/docs"],
       ["Open BerryBrain", "/brain"],
       ["GitHub", GITHUB_URL],
-      ["Donate", "https://ko-fi.com/T5D823778G"],
+      ["Donate", "https://ko-fi.com/berrybrain"],
     ],
   },
   {

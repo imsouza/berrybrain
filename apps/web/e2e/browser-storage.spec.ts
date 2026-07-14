@@ -7,9 +7,54 @@ test.describe("Browser-only persistence", () => {
   );
   test.setTimeout(90_000);
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
+    await page.route("**/api/browser-ai/models", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ connected: true, provider: "nvidia-nim", models: ["test/model"] }),
+    }));
+    await page.route("**/api/browser-ai/chat", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        content: JSON.stringify({ summary: "", concepts: [], insights: [], connections: [] }),
+        provider: "nvidia-nim",
+        model: "test/model",
+      }),
+    }));
+    await page.goto("/brain");
+    await page.evaluate(async () => {
       localStorage.setItem("bb_tour_seen", "1");
       localStorage.setItem("bb_nome", "Browser owner");
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("berrybrain-webapp", 1);
+        request.onupgradeneeded = () => {
+          const database = request.result;
+          for (const name of ["notes", "attachments", "graphNodes", "graphEdges", "insights", "jobs", "settings", "metadata"]) {
+            if (!database.objectStoreNames.contains(name)) {
+              database.createObjectStore(name, { keyPath: name === "notes" ? "path" : "id" });
+            }
+          }
+        };
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction("settings", "readwrite");
+          transaction.objectStore("settings").put({
+            id: "cloud-provider",
+            provider: "nvidia-nim",
+            apiUrl: "https://integrate.api.nvidia.com/v1",
+            apiKey: "nvapi-test-key-that-is-long-enough",
+            model: "test/model",
+            verifiedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+          transaction.oncomplete = () => {
+            database.close();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+        };
+      });
     });
   });
 
@@ -57,6 +102,8 @@ test.describe("Browser-only persistence", () => {
     expect(backup.stores.notes).toHaveLength(1);
     expect(backup.stores.attachments).toHaveLength(1);
     expect(backup.stores.attachments[0].blob.__berrybrainType).toBe("Blob");
+    expect(backup.stores.settings).toEqual([]);
+    expect(backupText).not.toContain("nvapi-test-key-that-is-long-enough");
 
     const tamperedBackup = structuredClone(backup);
     tamperedBackup.stores.notes[0].title = "Tampered title";
@@ -111,6 +158,11 @@ test.describe("Browser-only persistence", () => {
     );
     expect(restoredCounts).toEqual({ notes: 1, attachments: 1 });
     await expect(page.getByText("Browser persistence test", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Connect NVIDIA NIM to continue." })).toBeVisible();
+    await page.getByLabel("NVIDIA NIM API Key").fill("nvapi-restored-key-that-is-long-enough");
+    await page.getByRole("button", { name: "Load models" }).click();
+    await page.getByLabel("Model").selectOption("test/model");
+    await page.getByRole("button", { name: "Connect and open workspace" }).click();
     await page.getByText("Browser persistence test", { exact: true }).first().click();
     await expect(page.getByText("evidence.txt", { exact: true })).toBeVisible();
     expect(unexpectedApiRequests).toEqual([]);
