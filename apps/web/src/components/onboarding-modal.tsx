@@ -5,6 +5,7 @@ import { getApiUrl } from "@/contexts/workspace-context";
 import {
   BROWSER_STORAGE_MODE,
   getBrowserCloudConfig,
+  queueUnprocessedBrowserNotes,
   saveBrowserCloudConfig,
 } from "@/lib/browser-storage";
 import { testBrowserCloudConnection } from "@/lib/browser-ai";
@@ -238,6 +239,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
           apiKey,
           model,
         });
+        await queueUnprocessedBrowserNotes();
         localStorage.setItem("bb_ai_provider", "cloud");
         localStorage.setItem("bb_graph_ai_provider", "cloud");
         localStorage.setItem("bb_ai_api_url", connection.providerUrl);
