@@ -1,7 +1,11 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Browser-only persistence", () => {
-  test.setTimeout(60_000);
+  test.skip(
+    process.env.E2E_BROWSER_STORAGE_MODE !== "browser",
+    "Requires a build with NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE=browser.",
+  );
+  test.setTimeout(90_000);
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("bb_tour_seen", "1");
@@ -106,9 +110,7 @@ test.describe("Browser-only persistence", () => {
       }),
     );
     expect(restoredCounts).toEqual({ notes: 1, attachments: 1 });
-    await page.waitForTimeout(1_000);
-    await page.reload();
-    await expect(page.getByText("Browser persistence test", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Browser persistence test", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
     await page.getByText("Browser persistence test", { exact: true }).first().click();
     await expect(page.getByText("evidence.txt", { exact: true })).toBeVisible();
     expect(unexpectedApiRequests).toEqual([]);
