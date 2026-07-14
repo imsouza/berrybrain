@@ -73,7 +73,9 @@ async def main() -> None:
         if ollama_ok:
             print(f"Ollama ready: {effective_ollama_base_url(settings)}")
         else:
-            print(f"WARNING: Ollama not reachable at {effective_ollama_base_url(settings)}")
+            print(
+                f"WARNING: Ollama not reachable at {effective_ollama_base_url(settings)}"
+            )
         await send_heartbeat(client, settings.api_url, 0, 0, ollama_ok)
         await run_loop(client, settings, ollama_ok)
 
@@ -100,7 +102,9 @@ async def run_loop(
                 jobs.append(j)
         if not jobs:
             empty_count += 1
-            ollama_ok = await check_health(effective_ollama_base_url(settings), timeout=5)
+            ollama_ok = await check_health(
+                effective_ollama_base_url(settings), timeout=5
+            )
             await send_heartbeat(
                 client, settings.api_url, jobs_processed, errors, ollama_ok
             )
@@ -301,9 +305,7 @@ async def ollama_call(
             provider_key = f"ollama:{ollama_url}"
             assert_provider_available(provider_key)
             if not await check_health(ollama_url, timeout=2):
-                raise OllamaError(
-                    f"Ollama is not reachable at {ollama_url}"
-                )
+                raise OllamaError(f"Ollama is not reachable at {ollama_url}")
             if json_mode:
                 result = await generate_json(
                     ollama_url,
@@ -355,7 +357,9 @@ def effective_generation_model(local_model: str) -> str:
 
 
 def effective_ollama_base_url(settings: WorkerSettings) -> str:
-    return str(_ai_config.get("ollama_base_url") or settings.ollama_base_url).rstrip("/")
+    return str(_ai_config.get("ollama_base_url") or settings.ollama_base_url).rstrip(
+        "/"
+    )
 
 
 def effective_generation_provider() -> str:
@@ -1115,7 +1119,7 @@ async def process_generate_note_title(
 
     try:
         system = "You generate note titles. Return ONLY the title. No quotes, no explanation, no prefixes such as 'Here is'. Just the raw title."
-        result = await ai_call(
+        result = await ollama_call(
             client,
             settings.api_url,
             settings,

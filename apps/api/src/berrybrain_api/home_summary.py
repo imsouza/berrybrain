@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -35,6 +34,7 @@ from berrybrain_api.models import (
     WorkerStatus,
 )
 from berrybrain_api.review_service import serialize_review
+from berrybrain_api.provider_security import provider_credential_matches
 from berrybrain_api.services import _is_visible_insight
 
 
@@ -332,8 +332,9 @@ def _ai_config(session: Session) -> dict[str, str]:
     api_key = values.get("ai_api_key", "")
     test_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == cloud_url.rstrip("/")
-        and values.get("ai_last_test_key_fingerprint", "")
-        == (hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else "")
+        and provider_credential_matches(
+            values.get("ai_last_test_key_fingerprint", ""), api_key
+        )
         and values.get("ai_last_test_method") == "chat_completions"
     )
     return {
