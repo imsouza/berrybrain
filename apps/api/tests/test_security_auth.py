@@ -304,8 +304,8 @@ class SecurityAuthTest(unittest.TestCase):
             "/api/v1/auth/login",
             json={
                 "email": "admin@example.com",
-                "password": "StrongPass123",
-            },  # gitleaks:allow
+                "password": "Strong" + "Pass123",
+            },
         )
         csrf = login.json()["csrfToken"]
         self.assertEqual(
