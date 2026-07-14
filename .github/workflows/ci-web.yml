@@ -15,6 +15,18 @@ jobs:
       NEXT_PUBLIC_BERRYBRAIN_API_URL: ""
       NEXT_PUBLIC_BERRYBRAIN_BASE_PATH: ""
       NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX: ""
+      BERRYBRAIN_INTERNAL_API_URL: http://127.0.0.1:8000
+      BERRYBRAIN_ENV: test
+      BERRYBRAIN_DATABASE_URL: sqlite:////tmp/berrybrain-ci-web.db
+      BERRYBRAIN_VAULT_PATH: /tmp/berrybrain-ci-web-vault
+      BERRYBRAIN_JOBS_PATH: /tmp/berrybrain-ci-web-jobs
+      BERRYBRAIN_LOG_PATH: /tmp/berrybrain-ci-web-logs
+      BERRYBRAIN_BACKUP_PATH: /tmp/berrybrain-ci-web-backups
+      BERRYBRAIN_API_TOKEN: ci-web-token
+      BERRYBRAIN_SESSION_SECRET: ci-web-session-secret-change-me-32-bytes
+      BERRYBRAIN_ALLOWED_HOSTS: localhost,127.0.0.1,testserver
+      BERRYBRAIN_CORS_ORIGINS: http://127.0.0.1:3000
+      BERRYBRAIN_REQUIRE_AUTH: "true"
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +35,12 @@ jobs:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: apps/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: pip install -e .
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
@@ -35,6 +53,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: E2E smoke
         run: |
+          (cd ../api && PYTHONPATH=src uvicorn berrybrain_api.main:app --host 127.0.0.1 --port 8000 > /tmp/berrybrain-ci-web-api.log 2>&1) &
           npm run start -- --hostname 127.0.0.1 --port 3000 &
+          timeout 120 bash -c 'until curl -fsS http://127.0.0.1:8000/health >/dev/null; do sleep 2; done'
           timeout 120 bash -c 'until curl -fsS http://127.0.0.1:3000 >/dev/null; do sleep 2; done'
           E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e
