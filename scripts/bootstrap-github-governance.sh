@@ -58,7 +58,16 @@ cat >"$protection_payload" <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["backend", "worker", "web", "compose", "security", "analyze"]
+    "contexts": [
+      "backend",
+      "worker",
+      "web",
+      "compose",
+      "security",
+      "CodeQL",
+      "Analyze (python)",
+      "Analyze (javascript-typescript)"
+    ]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {

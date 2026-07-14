@@ -41,7 +41,7 @@ jobs:
           docker compose build --pull
           echo "metric=image_build_seconds value=$(($(date +%s) - started))" | tee container-metrics.txt
       - name: Scan API image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: berrybrain-api:local
           format: table
@@ -49,7 +49,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
       - name: Scan Worker image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: berrybrain-worker:local
           format: table
@@ -57,7 +57,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
       - name: Scan Web image
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: berrybrain-web:local
           format: table
