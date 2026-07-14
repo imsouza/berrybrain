@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { DonateLink } from "@/components/donate-link";
 import { PwaRegister } from "@/components/pwa-register";
 import berrylogo from "../../public/berrylogo.png";
 import "./globals.css";
@@ -50,6 +51,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <PwaRegister />
         {children}
+        <DonateLink />
       </body>
     </html>
   );
