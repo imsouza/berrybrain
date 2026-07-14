@@ -1,4 +1,3 @@
-import hashlib
 import json as _json
 import time
 import urllib.error
@@ -36,6 +35,7 @@ from berrybrain_api.models import (
     TagRecord,
     WorkerStatus,
 )
+from berrybrain_api.provider_security import provider_credential_fingerprint
 from berrybrain_api.settings_store import (
     get_setting,
     list_settings,
@@ -139,7 +139,7 @@ def _record_ai_test(
 
 
 def _key_fingerprint(api_key: str) -> str:
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else ""
+    return provider_credential_fingerprint(api_key)
 
 
 def _caller_state(request: Request) -> str:

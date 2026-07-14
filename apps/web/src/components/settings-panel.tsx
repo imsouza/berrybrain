@@ -23,6 +23,15 @@ const EDITOR_FONTS: Record<string, string> = {
 
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
 
+function isNvidiaNimEndpoint(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase().replace(/\.$/, "");
+    return hostname === "nvidia.com" || hostname.endsWith(".nvidia.com");
+  } catch {
+    return false;
+  }
+}
+
 const CLOUD_PROVIDERS: Record<string, string> = {
   [NVIDIA_NIM_URL]: "NVIDIA NIM",
   "https://api.openai.com/v1": "OpenAI",
@@ -406,7 +415,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaveStatus("");
     try {
       const baseUrl = (s.ai_api_url || s.ai_custom_url).trim();
-      const isNvidiaNim = baseUrl.toLowerCase().includes("nvidia.com");
+      const isNvidiaNim = isNvidiaNimEndpoint(baseUrl);
       const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
       const hasCloudModel = Boolean(s.ai_model.trim());
       const inferNimActivation = isNvidiaNim && providerChoiceRef.current !== "local";
