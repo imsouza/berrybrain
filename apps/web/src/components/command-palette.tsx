@@ -125,7 +125,7 @@ export function CommandPalette({
       onKeyDown={handleKeyDown}
     >
       <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5">
+      <div className="bb-card bb-card--elevated relative w-full max-w-lg overflow-hidden">
         <div className="flex items-center gap-3 px-5">
           <svg className="size-4 shrink-0 text-muted/40" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

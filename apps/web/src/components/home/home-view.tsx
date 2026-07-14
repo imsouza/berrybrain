@@ -8,6 +8,8 @@ import { ThemedProgressBar } from "./themed-progress-bar";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
+const QUICK_NOTE_MAX_LENGTH = 2_000;
+
 type HomeSummary = {
   status: {
     worker: string;
@@ -16,6 +18,9 @@ type HomeSummary = {
     cloudProvider: string;
     cloudModel: string;
     cloudStatus: StatusKind | string;
+    cloudConfigured?: boolean;
+    cloudLastTestAt?: string | null;
+    remoteContentConsent?: boolean;
     pendingJobs: number;
     activeJobs: number;
     lastProcessingAt?: string | null;
@@ -75,7 +80,9 @@ const DEMO_HOME_SUMMARY: HomeSummary = {
     ollama: "offline",
     cloudProvider: "local-demo",
     cloudModel: "demo",
-    cloudStatus: "completed",
+    cloudStatus: "connected",
+    cloudConfigured: true,
+    remoteContentConsent: true,
     pendingJobs: 0,
     activeJobs: 0,
     lastProcessingAt: new Date().toISOString(),
@@ -188,13 +195,19 @@ export function HomeView() {
     loadSummary();
   }, [loadSummary]);
 
-  async function startWriting(value: string) {
-    setStarterText(value);
-    if (creatingDraft || !value.trim()) return;
+  function updateStarterText(value: string) {
+    setStarterText(value.slice(0, QUICK_NOTE_MAX_LENGTH));
+  }
+
+  async function createNote(content = "") {
+    if (creatingDraft || (content.length > 0 && !content.trim())) return;
     setCreatingDraft(true);
     try {
-      await w.createDraft(value);
-      loadSummary();
+      const created = await w.createDraft(content);
+      if (created) {
+        setStarterText("");
+        loadSummary();
+      }
     } finally {
       setCreatingDraft(false);
     }
@@ -213,7 +226,7 @@ export function HomeView() {
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="text-center">
           <div className="text-sm font-medium">{t("loadHomeFailed")}</div>
-          <button className="mt-3 h-9 rounded-xl bg-accent px-4 text-xs font-medium text-white" onClick={loadSummary}>{t("retry")}</button>
+          <button className="bb-action mt-3 h-9 px-4 text-xs font-medium" onClick={loadSummary}>{t("retry")}</button>
         </div>
       </div>
     );
@@ -228,13 +241,14 @@ export function HomeView() {
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <HomeHeader summary={summary} nome={nome} onGraph={() => w.setGraphOpen(true)} />
 
-        <div className="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div className="mt-6 grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
           <ComposeCard
             noNotes={noNotes}
             value={starterText}
             disabled={creatingDraft}
-            onChange={(value) => startWriting(value)}
-            onCreateEmpty={() => w.createDraft()}
+            onChange={updateStarterText}
+            onSubmit={() => createNote(starterText)}
+            onCreateEmpty={() => createNote()}
             creating={creatingDraft}
           />
           <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
@@ -242,12 +256,12 @@ export function HomeView() {
 
         <StatsGrid summary={summary} />
 
-        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-          <div className="space-y-8">
+        <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+          <div className="space-y-6">
             <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
             <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
           </div>
-          <aside className="space-y-8">
+          <aside className="space-y-6">
             <ReviewTodayCard reviews={summary.dueReviews || []} total={summary.stats.study?.dueReviews || 0} />
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
             <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
@@ -260,11 +274,11 @@ export function HomeView() {
         <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
         <InfographicsGrid summary={summary} />
 
-        <div className="mt-8 flex flex-wrap gap-2">
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => (window.location.href = appPath("/reviews"))}>Review today</button>
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
-          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={w.scanVault}>{t("scanVault")}</button>
+        <div className="bb-card mt-8 flex flex-wrap gap-2 p-4">
+          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
+          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => (window.location.href = appPath("/reviews"))}>Review today</button>
+          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
+          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={w.scanVault}>{t("scanVault")}</button>
         </div>
       </div>
     </div>
@@ -273,14 +287,14 @@ export function HomeView() {
 
 function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: number }) {
   return (
-    <section className="rounded-2xl bg-surface p-5 ring-1 ring-border/40">
+    <section className="bb-card p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted/50">Review today</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums">{total}</p>
         </div>
         <button
-          className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-45"
+          className="bb-action px-3 py-2 text-xs font-medium"
           disabled={total === 0}
           onClick={() => (window.location.href = appPath("/reviews"))}
         >
@@ -290,7 +304,7 @@ function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: num
       {reviews.length > 0 ? (
         <div className="mt-4 space-y-2">
           {reviews.slice(0, 2).map((review) => (
-            <div key={review.id} className="rounded-lg bg-panel px-3 py-2 ring-1 ring-border/30">
+            <div key={review.id} className="bb-subcard px-3 py-2">
               <p className="line-clamp-2 text-xs text-foreground/85">{review.prompt}</p>
               <p className="mt-1 text-[10px] uppercase tracking-wide text-muted/45">{review.reviewType.replaceAll("_", " ")}</p>
             </div>
@@ -305,9 +319,13 @@ function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: num
 
 function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: string; onGraph: () => void }) {
   const usingCloud = Boolean(summary.status.cloudProvider && summary.status.cloudProvider !== "local");
+  const providerState = summary.status.cloudStatus;
   const providerStatus = usingCloud
-    ? `AI · ${providerLabel(summary.status.cloudProvider)}`
-    : `AI · Local${summary.status.ollama === "online" ? " ready" : " unavailable"}`;
+    ? cloudStatusLabel(summary.status.cloudProvider, providerState)
+    : "AI · Local";
+  const providerTone = usingCloud
+    ? providerState === "connected" ? "ok" : providerState === "failed" || providerState === "incomplete" ? "bad" : "muted"
+    : summary.status.ollama === "online" ? "ok" : "muted";
   return (
     <header className="border-b border-border/60 pb-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -327,7 +345,7 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
           <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" || summary.status.worker === "online" ? "ok" : "bad"} />
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
-          <StatusBadge label={providerStatus} status={usingCloud || summary.status.ollama === "online" ? "ok" : "muted"} />
+          <StatusBadge label={providerStatus} status={providerTone} />
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">{tf("activeJobsCount", { count: summary.status.activeJobs })} · {tf("queuedCount", { count: summary.status.pendingJobs })}</span>
         {summary.status.lastProcessingAt && (
@@ -338,26 +356,49 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
   );
 }
 
-function ComposeCard({ noNotes, value, disabled, onChange, onCreateEmpty, creating }: { noNotes: boolean; value: string; disabled: boolean; onChange: (value: string) => void; onCreateEmpty: () => void; creating: boolean }) {
+function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmpty, creating }: { noNotes: boolean; value: string; disabled: boolean; onChange: (value: string) => void; onSubmit: () => void; onCreateEmpty: () => void; creating: boolean }) {
+  const canSubmit = Boolean(value.trim()) && !disabled;
+
   return (
-    <div className="rounded-3xl border border-border/60 bg-panel p-5 shadow-sm ring-1 ring-border/30 transition focus-within:border-accent focus-within:ring-accent/30">
+    <div className="bb-card p-5 transition focus-within:border-accent">
       <div className="mb-3 flex items-center gap-2">
         <span className="size-2 rounded-full bg-accent" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted/50">{t("startWriting")}</span>
       </div>
       <textarea
+        aria-label={t("quickNoteLabel")}
         autoFocus
         className="min-h-36 w-full resize-none bg-transparent text-sm leading-7 outline-none placeholder:text-muted/40"
         disabled={disabled}
+        maxLength={QUICK_NOTE_MAX_LENGTH}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && canSubmit) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
         placeholder={noNotes ? t("startFirstNote") : t("startNote")}
         value={value}
       />
-      <div className="mt-2 flex items-center justify-between text-[11px] text-muted/45">
-        <span>{creating ? t("creatingNote") : t("noTitleNeeded")}</span>
-        <button className="rounded-lg px-2 py-1 hover:bg-surface hover:text-muted" onClick={onCreateEmpty}>
-          {t("createEmptyDraft")}
-        </button>
+      <div className="mt-3 flex flex-col gap-3 border-t border-border/40 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted/50">
+          <span>{tf("noteCharacterCount", { count: value.length, max: QUICK_NOTE_MAX_LENGTH })}</span>
+          <span>{t("createNoteShortcut")}</span>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" className="bb-action px-3 py-2 text-xs" disabled={disabled} onClick={onCreateEmpty}>
+            {t("createEmptyDraft")}
+          </button>
+          <button
+            type="button"
+            className="bb-action px-4 py-2 text-xs font-semibold"
+            disabled={!canSubmit}
+            onClick={onSubmit}
+          >
+            {creating ? t("creatingNote") : t("createNote")}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -367,7 +408,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
   const running = status === "running";
   const waiting = status === "waiting_provider" || status === "queued";
   return (
-    <button className="w-full rounded-2xl bg-surface p-5 text-left ring-1 ring-border/40 transition hover:ring-accent/30" onClick={onOpenMonitor}>
+    <button className="bb-card bb-card--interactive w-full p-5 text-left" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
@@ -409,7 +450,7 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
       ) : (
         <div className="space-y-2">
           {insights.slice(0, 4).map((insight) => (
-            <div key={insight.id} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
+            <div key={insight.id} className="bb-subcard p-4">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-medium uppercase text-accent">{insightTypeLabel(insight.type)}</span>
                 {insight.priority > 0 && <span className="text-[10px] text-muted/40">Priority {insight.priority}</span>}
@@ -418,9 +459,9 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
               <p className="mt-1 text-xs font-medium">{insight.title}</p>
               {insight.description && <p className="mt-1 text-[11px] leading-5 text-muted/65 line-clamp-2">{insight.description}</p>}
               <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = appPath("/insights")}>{t("viewDetails")}</button>
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => dismissInsight(insight.id, "dismiss")}>{t("apply")}</button>
-                <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => dismissInsight(insight.id, "ignore")}>{t("ignore")}</button>
+                <button className="bb-action px-2.5 py-1" onClick={() => window.location.href = appPath("/insights")}>{t("viewDetails")}</button>
+                <button className="bb-action px-2.5 py-1 text-emerald-600" onClick={() => dismissInsight(insight.id, "dismiss")}>{t("apply")}</button>
+                <button className="bb-action bb-action--danger px-2.5 py-1" onClick={() => dismissInsight(insight.id, "ignore")}>{t("ignore")}</button>
               </div>
             </div>
           ))}
@@ -441,7 +482,7 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
           {jobs.slice(0, 5).map((job) => {
             const pp = job.notePath ? progressByPath.get(job.notePath) : undefined;
             return (
-              <button key={job.id} className="w-full rounded-xl bg-surface p-3 text-left ring-1 ring-border/35 hover:ring-accent/30" onClick={onOpenMonitor}>
+              <button key={job.id} className="bb-subcard w-full p-3 text-left transition hover:border-accent" onClick={onOpenMonitor}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium">{job.label}</span>
                   <span className="text-[10px] text-muted/45">{formatElapsed(job.elapsedSeconds || 0)}</span>
@@ -478,13 +519,13 @@ function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: 
   };
   return (
     <Section title={t("knowledgeGraph")}>
-      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
+      <div className="bb-subcard p-4">
         <div className="text-sm font-semibold">{graph.nodes} nodes · {graph.edges} connections</div>
         <p className="mt-1 text-xs text-muted/60">{graph.orphans} {t("orphans")} · {graph.clusters} {t("clusters")}</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={onOpenGraph}>{t("openGraph")}</button>
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={() => { if (typeof window !== "undefined") localStorage.setItem("bb_graph_filter_orphans", "1"); onOpenGraph(); }}>{t("viewOrphans")}</button>
-          <button className="rounded-lg bg-panel px-2.5 py-1 text-[11px] text-muted hover:text-foreground" onClick={recalcular}>{t("recalcConnections")}</button>
+          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={onOpenGraph}>{t("openGraph")}</button>
+          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={() => { if (typeof window !== "undefined") localStorage.setItem("bb_graph_filter_orphans", "1"); onOpenGraph(); }}>{t("viewOrphans")}</button>
+          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={recalcular}>{t("recalcConnections")}</button>
         </div>
       </div>
     </Section>
@@ -495,7 +536,7 @@ function NeedsAttentionCard({ items, onOpenMonitor }: { items: AttentionItem[]; 
   if (items.length === 0) {
     return (
       <Section title={t("needsAttention")}>
-        <div className="rounded-xl bg-surface p-4 text-xs text-muted/60 ring-1 ring-border/35">{t("allGood")}</div>
+        <div className="bb-subcard p-4 text-xs text-muted/70">{t("allGood")}</div>
       </Section>
     );
   }
@@ -503,7 +544,7 @@ function NeedsAttentionCard({ items, onOpenMonitor }: { items: AttentionItem[]; 
     <Section title={t("needsAttention")}>
       <div className="space-y-2">
         {items.map((item) => (
-          <button key={item.kind} className="w-full rounded-xl bg-surface p-3 text-left ring-1 ring-border/35 hover:ring-accent/30" onClick={onOpenMonitor}>
+          <button key={item.kind} className="bb-subcard w-full p-3 text-left transition hover:border-danger" onClick={onOpenMonitor}>
             <div className="text-xs font-medium">{item.title}</div>
             <p className="mt-1 text-[11px] text-muted/60">{item.description}</p>
           </button>
@@ -517,7 +558,7 @@ function StatsGrid({ summary }: { summary: HomeSummary }) {
   const s = summary.stats;
   return (
     <Section title={t("stats")} className="mt-8">
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label={t("notes")} value={s.notes.total} detail={`+${s.notes.createdToday} ${t("oneCreatedToday")} · ${s.notes.unassimilated} ${t("notAssimilated")}`} />
         <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")} · ${percent(s.connections.averageConfidence)} ${t("confidence")}`} />
         <StatCard label={t("concepts")} value={s.concepts.total} detail={`${s.concepts.newToday} ${t("newToday")} · ${s.concepts.withoutPermanentNote} ${t("withoutNote")}`} />
@@ -542,7 +583,7 @@ function InfographicsGrid({ summary }: { summary: HomeSummary }) {
         <Donut label={t("assimilation")} value={assimilated} caption={`${s.notes.total - s.notes.unassimilated}/${s.notes.total} ${t("notes")}`} />
         <Donut label={t("avgConfidence")} value={s.connections.averageConfidence} caption={`${s.connections.total} ${t("connections")}`} />
         <Donut label={t("graphHealth")} value={graphHealth} caption={`${g.orphans} ${t("orphans")} ${t("of")} ${g.nodes}`} />
-        <div className="rounded-xl bg-surface px-4 py-3 ring-1 ring-border/30">
+        <div className="bb-subcard px-4 py-3">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted/40">{t("jobsByType")}</div>
           {jobEntries.length === 0 ? (
             <p className="text-[11px] text-muted/50">{t("noJobsRecorded")}</p>
@@ -561,7 +602,7 @@ function Donut({ label, value, caption }: { label: string; value: number; captio
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - pct);
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-surface px-4 py-3 ring-1 ring-border/30">
+    <div className="bb-subcard flex items-center gap-3 px-4 py-3">
       <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0 -rotate-90">
         <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-border)" strokeWidth="7" />
         <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-accent)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} />
@@ -610,7 +651,7 @@ function RecentConnectionsList({
       ) : (
         <div className="space-y-2">
           {connections.slice(0, 5).map((connection) => (
-            <div key={connection.id} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
+            <div key={connection.id} className="bb-subcard p-4">
               <div className="text-xs font-medium">
                 {connection.source?.title || t("origin")} ↔ {connection.target?.title || t("destination")}
               </div>
@@ -618,12 +659,12 @@ function RecentConnectionsList({
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted/55">
                 <span>{t("connectionConfidence")}: {connection.confidencePercent}%</span>
                 <span className="rounded-full bg-panel px-2 py-1">{connection.status || t("suggested")}</span>
-                <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={onOpenGraph}>{t("viewInGraph")}</button>
+                <button className="bb-action px-2.5 py-1" onClick={onOpenGraph}>{t("viewInGraph")}</button>
                 {connection.status !== "confirmed" && (
-                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "confirm")}>{t("confirm")}</button>
+                  <button className="bb-action px-2.5 py-1" onClick={() => onUpdateStatus(connection.id, "confirm")}>{t("confirm")}</button>
                 )}
                 {connection.status !== "ignored" && (
-                  <button className="rounded-lg bg-panel px-2.5 py-1 hover:text-foreground" onClick={() => onUpdateStatus(connection.id, "ignore")}>{t("ignore")}</button>
+                  <button className="bb-action bb-action--danger px-2.5 py-1" onClick={() => onUpdateStatus(connection.id, "ignore")}>{t("ignore")}</button>
                 )}
               </div>
             </div>
@@ -637,14 +678,14 @@ function RecentConnectionsList({
 function RecentActivityTimeline({ activity, completed }: { activity: ActivityItem[]; completed: CompletionItem[] }) {
   return (
     <Section title={t("recentActivity")} className="mt-8">
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
+      <div className="grid gap-3 xl:grid-cols-2">
+        <div className="bb-subcard p-4">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("doneRecently")}</div>
           {completed.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentResults")}</p> : completed.slice(0, 5).map((item) => (
             <RowLine key={item.id} left={item.label} right={formatTime(item.completedAt)} />
           ))}
         </div>
-        <div className="rounded-2xl bg-surface p-4 ring-1 ring-border/35">
+        <div className="bb-subcard p-4">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("autoQueue")}</div>
           {activity.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentActivity")}</p> : activity.slice(0, 5).map((item, index) => (
             <RowLine key={item.id || index} left={item.description} right={formatTime(item.when)} />
@@ -655,10 +696,10 @@ function RecentActivityTimeline({ activity, completed }: { activity: ActivityIte
   );
 }
 
-function Section({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
+function Section({ title, children, className = "", elevated = false }: { title: string; children: ReactNode; className?: string; elevated?: boolean }) {
   return (
-    <section className={className}>
-      <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-muted/40">{title}</h2>
+    <section className={`bb-card ${elevated ? "bb-card--elevated" : ""} p-4 sm:p-5 ${className}`}>
+      <h2 className="bb-section-title mb-4 text-[11px] font-semibold uppercase">{title}</h2>
       {children}
     </section>
   );
@@ -666,17 +707,17 @@ function Section({ title, children, className = "" }: { title: string; children:
 
 function StatCard({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
   return (
-    <div className="rounded-xl bg-surface px-3 py-3 text-center ring-1 ring-border/30">
-      <div className="text-lg font-semibold tabular-nums">{value}</div>
-      <div className="text-[10px] text-muted/50">{label}</div>
-      {detail && <div className="mt-1 text-[10px] leading-4 text-muted/45">{detail}</div>}
+    <div className="bb-subcard px-4 py-3 text-left">
+      <div className="text-xl font-semibold tabular-nums">{value}</div>
+      <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted/70">{label}</div>
+      {detail && <div className="mt-2 text-[10px] leading-4 text-muted/60">{detail}</div>}
     </div>
   );
 }
 
 function EmptyState({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-xl bg-surface p-4 text-xs ring-1 ring-border/35">
+    <div className="bb-subcard p-4 text-xs">
       <div className="font-medium">{title}</div>
       <p className="mt-1 text-muted/55">{text}</p>
     </div>
@@ -704,8 +745,8 @@ function StatusBadge({ label, status }: { label: string; status: "ok" | "bad" | 
 
 function HeaderLink({ children, onClick, accent }: { children: ReactNode; onClick: () => void; accent?: boolean }) {
   const cls = accent
-    ? "rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-black hover:opacity-90"
-    : "rounded-lg bg-surface px-2.5 py-1 text-[11px] text-muted hover:text-foreground";
+    ? "bb-action px-2.5 py-1 text-[11px] font-medium"
+    : "bb-action px-2.5 py-1 text-[11px]";
   return <button className={cls} onClick={onClick}>{children}</button>;
 }
 
@@ -719,6 +760,18 @@ function providerLabel(provider: string) {
   if (provider === "cloud") return "Cloud";
   if (provider === "local") return "Local";
   return provider || "AI";
+}
+
+function cloudStatusLabel(provider: string, status: string) {
+  const name = providerLabel(provider);
+  const suffix: Record<string, string> = {
+    connected: "connected",
+    configured: "configured, not tested",
+    disabled: "disabled by privacy setting",
+    incomplete: "setup incomplete",
+    failed: "connection failed",
+  };
+  return `AI · ${name} ${suffix[status] || status}`;
 }
 
 function insightTypeLabel(type: string) {

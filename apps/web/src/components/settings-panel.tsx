@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LangKind, getLang, t, tf } from "../i18n";
+import { readCsrf } from "./public-site/user-menu";
 
 type ThemeKind = "light" | "dark";
 
@@ -74,6 +75,24 @@ type Settings = {
   attachment_ocr_language: string;
   attachment_transcription_executable: "faster-whisper" | "whisper";
   attachment_transcription_model: string;
+};
+
+type AiProviderStatus = {
+  state: "local" | "incomplete" | "disabled" | "configured" | "connected" | "failed";
+  provider: string;
+  providerMode: "local" | "cloud";
+  keyConfigured: boolean;
+  modelConfigured: boolean;
+  model: string;
+  graphProviderMode: "local" | "cloud";
+  graphKeyConfigured: boolean;
+  graphModelConfigured: boolean;
+  graphModel: string;
+  remoteContentConsent: boolean;
+  lastTestStatus: string;
+  lastTestAt?: string | null;
+  lastTestLatencyMs?: number | null;
+  lastError?: string;
 };
 
 function defaults(): Settings {
@@ -181,7 +200,9 @@ function applyTheme(s: Settings) {
   r.style.setProperty("--color-muted", p.mu);
   r.style.setProperty("--color-panel", p.pn);
   r.style.setProperty("--color-border", p.bd);
-  r.style.setProperty("--color-accent", "#9EBF61");
+  r.style.setProperty("--color-accent", "#96B55C");
+  r.style.setProperty("--color-brand-green", "#96B55C");
+  r.style.setProperty("--color-brand-red", "#CC4168");
   r.style.setProperty("--color-danger", "#CC4168");
   r.style.setProperty("--font-ui", UI_FONTS[s.ui_font] || UI_FONTS.inter);
   r.style.setProperty("--font-editor", EDITOR_FONTS[s.editor_font] || EDITOR_FONTS.mono);
@@ -244,9 +265,18 @@ const SECRET_SETTING_KEYS = new Set<keyof Settings>(["ai_api_key", "graph_ai_api
 
 export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClose: () => void; apiUrl: string }) {
   const [s, setS] = useState<Settings>(loadSettings);
+  const editedRef = useRef(false);
+  const providerChoiceRef = useRef<Settings["ai_provider"] | null>(null);
+  const cloudConnectionEditedRef = useRef(false);
+  const cloudConnectionVerifiedRef = useRef(false);
   const [saving, setSaving] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [graphApiKeyConfigured, setGraphApiKeyConfigured] = useState(false);
+  const [providerStatus, setProviderStatus] = useState<AiProviderStatus | null>(null);
   const [cloudModels, setCloudModels] = useState<{ id: string }[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("");
@@ -261,11 +291,17 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
+    editedRef.current = false;
+    providerChoiceRef.current = null;
+    cloudConnectionEditedRef.current = false;
+    cloudConnectionVerifiedRef.current = false;
+    setSaveStatus("");
     if (apiUrl === "__demo__") {
       setIsAdmin(false);
       return;
     }
     let cancelled = false;
+    setSettingsLoading(true);
     fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((me) => {
@@ -273,18 +309,33 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         if (cancelled) return;
         setIsAdmin(admin);
         if (!admin) return;
-        return fetch(`${apiUrl}/api/v1/settings`)
-          .then((r) => r.json())
-          .then((d) => {
+        return Promise.all([
+          fetch(`${apiUrl}/api/v1/settings`, { credentials: "include" }),
+          fetch(`${apiUrl}/api/v1/settings/ai/status`, { credentials: "include" }),
+        ]).then(async ([settingsResponse, statusResponse]) => {
+            if (!settingsResponse.ok) throw new Error("Settings could not be loaded.");
+            const d = await settingsResponse.json();
             const loaded: Partial<Settings> = {};
             for (const item of d.settings || []) {
               const key = String(item.key) as keyof Settings;
-              if (SETTING_KEYS.includes(key)) (loaded as Record<string, string>)[key] = item.value;
+              if (key === "ai_api_key") setApiKeyConfigured(Boolean(item.configured));
+              else if (key === "graph_ai_api_key") setGraphApiKeyConfigured(Boolean(item.configured));
+              else if (SETTING_KEYS.includes(key)) (loaded as Record<string, string>)[key] = item.value;
             }
-            if (!cancelled) setS((prev) => ({ ...prev, ...loaded, lang: "en" }));
+            if (!cancelled && !editedRef.current) setS((prev) => ({ ...prev, ...loaded, lang: "en" }));
+            if (statusResponse.ok && !cancelled) {
+              const status = await statusResponse.json();
+              setProviderStatus(status);
+              cloudConnectionVerifiedRef.current = status.lastTestStatus === "connected";
+            }
           });
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (!cancelled) setSaveStatus(error instanceof Error ? error.message : "Settings could not be loaded.");
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -305,12 +356,32 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }, [open, apiUrl]);
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
-    const next: Settings = { ...s, [key]: value, lang: "en" };
-    if (key === "ai_api_key" && !next.graph_ai_api_key) next.graph_ai_api_key = String(value);
-    if (key === "ai_model" && !next.graph_ai_model) next.graph_ai_model = String(value);
-    if (key === "ai_api_url" && !next.graph_ai_api_url) next.graph_ai_api_url = String(value);
-    setS(next);
-    if (["theme", "font_size", "ui_font", "editor_font"].includes(String(key))) applyTheme(next);
+    editedRef.current = true;
+    setSaveStatus("");
+    if (["ai_api_url", "ai_custom_url", "ai_api_key", "ai_model"].includes(String(key))) {
+      cloudConnectionEditedRef.current = true;
+      cloudConnectionVerifiedRef.current = false;
+    }
+    setS((previous) => {
+      const next: Settings = { ...previous, [key]: value, lang: "en" };
+      if (key === "ai_api_key" && String(value)) next.graph_ai_api_key = String(value);
+      if (key === "ai_provider") {
+        providerChoiceRef.current = value as Settings["ai_provider"];
+        next.graph_ai_provider = value as Settings["graph_ai_provider"];
+        if (value === "local") next.remote_content_consent = "false";
+      }
+      if (key === "ai_model" && (!previous.graph_ai_model || previous.graph_ai_model === previous.ai_model)) next.graph_ai_model = String(value);
+      if (key === "ai_api_url" && (!previous.graph_ai_api_url || previous.graph_ai_api_url === previous.ai_api_url)) next.graph_ai_api_url = String(value);
+      if (key === "ai_custom_url" && !previous.ai_api_url) next.graph_ai_api_url = String(value);
+      if (["theme", "font_size", "ui_font", "editor_font"].includes(String(key))) applyTheme(next);
+      return next;
+    });
+  }
+
+  async function refreshProviderStatus() {
+    if (apiUrl === "__demo__" || !isAdmin) return;
+    const response = await fetch(`${apiUrl}/api/v1/settings/ai/status`, { credentials: "include" });
+    if (response.ok) setProviderStatus(await response.json());
   }
 
   async function persist(next = s) {
@@ -318,12 +389,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     SETTING_KEYS.forEach((key) => {
       if (SECRET_SETTING_KEYS.has(key)) localStorage.removeItem(`bb_${key}`);
       else localStorage.setItem(`bb_${key}`, String(next[key]));
-      values[key] = String(next[key]);
+      if (!SECRET_SETTING_KEYS.has(key) || String(next[key]).trim()) values[key] = String(next[key]);
     });
     if (!isAdmin || apiUrl === "__demo__") return;
     const response = await fetch(`${apiUrl}/api/v1/settings/batch`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
       credentials: "include",
       body: JSON.stringify({ values }),
     });
@@ -332,44 +403,131 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   async function save() {
     setSaving(true);
+    setSaveStatus("");
     try {
-      await persist(s);
-      applyTheme(s);
-      onClose();
+      const baseUrl = (s.ai_api_url || s.ai_custom_url).trim();
+      const isNvidiaNim = baseUrl.toLowerCase().includes("nvidia.com");
+      const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
+      const hasCloudModel = Boolean(s.ai_model.trim());
+      const inferNimActivation = isNvidiaNim && providerChoiceRef.current !== "local";
+      const wantsCloud = s.ai_provider === "cloud" || inferNimActivation;
+      let next = s;
+
+      if (wantsCloud && (!baseUrl || !hasCloudKey || !hasCloudModel)) {
+        setSaveStatus("Cloud setup is incomplete. Add an API URL, API key, and model before saving.");
+        return;
+      }
+
+      const needsConsent = wantsCloud && s.remote_content_consent !== "true";
+      if (needsConsent) {
+        const confirmed = window.confirm(
+          "Enable NVIDIA NIM processing?\n\nBerryBrain will send note, attachment, and graph content to the configured NVIDIA API for AI processing. This consent is saved and will not be requested again unless cloud processing is disabled.",
+        );
+        if (!confirmed) {
+          setSaveStatus("Save cancelled. NVIDIA NIM was not enabled.");
+          return;
+        }
+        next = {
+          ...s,
+          ai_provider: "cloud",
+          graph_ai_provider: "cloud",
+          graph_ai_api_url: baseUrl,
+          graph_ai_model: s.graph_ai_model || s.ai_model,
+          remote_content_consent: "true",
+        };
+      }
+
+      const needsConnectionTest = wantsCloud && !cloudConnectionVerifiedRef.current && (
+        needsConsent || cloudConnectionEditedRef.current || providerStatus?.lastTestStatus !== "connected"
+      );
+      if (needsConnectionTest && !(await testCloudConnection(next, false))) return;
+
+      await persist(next);
+      applyTheme(next);
+      if (next.ai_api_key) setApiKeyConfigured(true);
+      if (next.graph_ai_api_key) setGraphApiKeyConfigured(true);
+      setS({ ...next, ai_api_key: "", graph_ai_api_key: "" });
+      editedRef.current = false;
+      providerChoiceRef.current = null;
+      cloudConnectionEditedRef.current = false;
+      setSaveStatus(wantsCloud ? "Settings saved. NVIDIA NIM is active." : "Settings saved.");
+      await refreshProviderStatus();
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : "Settings could not be saved.");
     } finally {
       setSaving(false);
     }
   }
 
   async function fetchModels() {
+    await testCloudConnection(s, true);
+  }
+
+  async function testCloudConnection(next: Settings, announceSuccess: boolean): Promise<boolean> {
     if (apiUrl === "__demo__") {
       setConnectionStatus("Provider testing is disabled in demo mode.");
-      return;
+      return false;
     }
-    const baseUrl = s.ai_api_url || s.ai_custom_url;
+    const baseUrl = next.ai_api_url || next.ai_custom_url;
     setLoadingModels(true);
     setConnectionStatus("");
     try {
       const response = await fetch(`${apiUrl}/api/v1/settings/ai/models`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: baseUrl, key: s.ai_api_key }),
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
+        body: JSON.stringify({ url: baseUrl, key: next.ai_api_key, model: next.ai_model }),
       });
       const payload = await response.json();
-      if (payload.error) {
-        setCloudModels([]);
-        setConnectionStatus(`Connection failed: ${payload.error}`);
+      if (!response.ok || !payload.connected) {
+        setCloudModels(payload.models || []);
+        if (payload.requiresModel) {
+          setConnectionStatus(payload.error || "Models loaded. Select a model, then test again.");
+          setSaveStatus("");
+          return false;
+        }
+        setConnectionStatus(`Connection failed: ${payload.error || payload.detail || "Provider unavailable."}`);
+        setSaveStatus("Settings were not saved because the cloud connection could not be verified.");
+        return false;
       } else {
         setCloudModels(payload.models || []);
-        setConnectionStatus((payload.models || []).length ? "Connection OK. Select a model below." : "Connection OK, but no models were returned.");
+        const latency = payload.latencyMs ? ` (${payload.latencyMs} ms)` : "";
+        if (announceSuccess) {
+          setConnectionStatus((payload.models || []).length ? `Connection verified${latency}. Select a model, then click Save to activate it.` : `Connection verified${latency}, but no models were returned.`);
+        }
+        await refreshProviderStatus();
+        cloudConnectionVerifiedRef.current = true;
+        return true;
       }
     } catch (error: any) {
       setCloudModels([]);
       setConnectionStatus(`Connection failed: ${error.message}`);
+      setSaveStatus("Settings were not saved because the cloud connection could not be verified.");
+      return false;
     } finally {
       setLoadingModels(false);
     }
+  }
+
+  async function clearCloudKey() {
+    if (!window.confirm("Clear the saved cloud API key? AI cloud processing will stop until a new key is configured.")) return;
+    const response = await fetch(`${apiUrl}/api/v1/settings/ai/key`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "X-CSRF-Token": readCsrf() },
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      setConnectionStatus(payload.detail || "The API key could not be cleared.");
+      return;
+    }
+    setApiKeyConfigured(false);
+    setGraphApiKeyConfigured(false);
+    cloudConnectionVerifiedRef.current = false;
+    setS((previous) => ({ ...previous, ai_api_key: "", graph_ai_api_key: "" }));
+    setCloudModels([]);
+    setConnectionStatus("Cloud API key cleared.");
+    await refreshProviderStatus();
   }
 
   function preserveLocalSettings() {
@@ -474,7 +632,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative z-50 w-full max-w-[92vw] overflow-hidden rounded-2xl bg-panel text-foreground shadow-2xl ring-1 ring-border/70 sm:w-[560px]" role="dialog" aria-label="Settings">
+      <div className="bb-card bb-card--elevated relative z-50 w-full max-w-[92vw] overflow-hidden text-foreground sm:w-[560px]" role="dialog" aria-label="Settings">
         <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold tracking-tight">Settings</h2>
@@ -540,8 +698,8 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           </Section>
 
           <Section title="Attachment processing" description="Local OCR and transcription used to turn files into evidence.">
-            <Field label="OCR language" description="Tesseract language code installed in the API image, such as eng.">
-              <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng" />
+            <Field label="OCR language" description="Installed Tesseract code, such as eng, por, or por+eng. Settings do not download language packs; verify them with tesseract --list-langs in the API container.">
+              <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng or por+eng" />
             </Field>
             <Field label="Transcription engine" description="Faster Whisper is bundled and local. Custom CLI requires a compatible executable in the API image.">
               <Select value={s.attachment_transcription_executable} onChange={(value) => update("attachment_transcription_executable", value as Settings["attachment_transcription_executable"])}>
@@ -569,15 +727,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <option value="local">Local Ollama</option>
               </Select>
             </Field>
-            <Field label="Remote content processing" description="Explicit consent to send note, attachment, graph, or embedding content to the configured cloud provider. Keep disabled for fully local processing.">
-              <Select value={s.remote_content_consent} onChange={(value) => update("remote_content_consent", value as Settings["remote_content_consent"])}>
-                <option value="false">Disabled — keep content local</option>
-                <option value="true">Enabled — allow configured cloud provider</option>
-              </Select>
+            <Field label="Cloud processing consent" description="Requested once when Save activates a cloud provider. Selecting Local Ollama disables it.">
+              <ReadOnlyValue value={s.remote_content_consent === "true" ? "Enabled — configured cloud processing is allowed" : "Not granted — confirmation will appear when cloud settings are saved"} />
             </Field>
           </Section>
 
           <Section title="NVIDIA NIM" description="Cloud model used for graph inference, insights, and knowledge expansion.">
+            <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
             <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
               <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
                 <option value="">Select a provider</option>
@@ -589,20 +745,26 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <TextInput value={s.ai_custom_url} onChange={(value) => update("ai_custom_url", value)} placeholder="https://example.com/v1" />
               </Field>
             )}
-            <Field label="NVIDIA NIM API Key" description="Stored locally and in BerryBrain settings.">
-              <div className="flex gap-2">
+            <Field
+              label="NVIDIA NIM API Key"
+              description={apiKeyConfigured ? "A key is saved securely. Enter a new key only to replace it." : "The key is stored by the BerryBrain API and is never returned to the browser."}
+            >
+              <div className="flex flex-wrap gap-2">
                 <TextInput
                   type={showKey ? "text" : "password"}
                   value={nimApiKey}
                   onChange={(value) => update("ai_api_key", value)}
-                  placeholder="Paste your NVIDIA NIM API key"
+                  placeholder={apiKeyConfigured ? "Saved securely — enter a new key to replace it" : "Paste your NVIDIA NIM API key"}
                 />
-                <button className="h-9 rounded-xl bg-surface px-3 text-xs text-muted ring-1 ring-border/50 hover:text-foreground" onClick={() => setShowKey((value) => !value)}>
+                <button className="bb-action h-9 px-3 text-xs" onClick={() => setShowKey((value) => !value)}>
                   {showKey ? "Hide" : "Show"}
                 </button>
-                <button className="h-9 rounded-xl bg-accent px-3 text-xs font-medium text-white disabled:opacity-40" disabled={!s.ai_api_key || loadingModels} onClick={fetchModels}>
+                <button className="bb-action h-9 px-3 text-xs font-medium" disabled={(!s.ai_api_key && !apiKeyConfigured) || loadingModels} onClick={fetchModels}>
                   {loadingModels ? "Testing..." : "Test connection"}
                 </button>
+                {(apiKeyConfigured || graphApiKeyConfigured) && (
+                  <button className="bb-action h-9 px-3 text-xs" onClick={clearCloudKey}>Clear key</button>
+                )}
               </div>
             </Field>
             <Field label="Cloud model" description="Model used by the main AI pipeline.">
@@ -774,11 +936,14 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           </Section>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border/50 px-6 py-3">
-          <button className="h-9 rounded-lg px-4 text-xs font-medium text-muted hover:text-foreground" onClick={onClose}>Cancel</button>
-          <button className="h-9 rounded-lg bg-foreground px-4 text-xs font-medium text-background hover:opacity-90 disabled:opacity-40" onClick={save} disabled={saving}>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 px-6 py-3">
+          <p className="text-xs text-muted" role="status">{settingsLoading ? "Loading settings..." : saveStatus}</p>
+          <div className="flex gap-2">
+          <button className="bb-action h-9 px-4 text-xs font-medium" onClick={onClose}>Cancel</button>
+          <button className="bb-action h-9 px-4 text-xs font-medium" onClick={save} disabled={saving || settingsLoading}>
             {saving ? "Saving..." : "Save"}
           </button>
+          </div>
         </div>
       </div>
     </div>
@@ -787,7 +952,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
 function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl bg-surface/70 p-4 ring-1 ring-border/45">
+    <section className="bb-subcard p-4">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <p className="mt-1 text-xs text-muted/75">{description}</p>
       <div className="mt-4 space-y-3">{children}</div>
@@ -846,9 +1011,42 @@ function ReadOnlyValue({ value }: { value: string }) {
   return <div className="rounded-xl bg-panel px-3 py-2 text-sm text-foreground ring-1 ring-border/45">{value}</div>;
 }
 
+function ProviderConnectionStatus({ status, loading }: { status: AiProviderStatus | null; loading: boolean }) {
+  if (loading) return <ReadOnlyValue value="Checking provider configuration..." />;
+  if (!status) return <ReadOnlyValue value="Provider status is unavailable." />;
+  const labels: Record<AiProviderStatus["state"], { title: string; description: string; tone: string }> = {
+    connected: { title: "Connected", description: "The cloud provider was verified and is enabled for the main pipeline and graph.", tone: "text-emerald-700" },
+    configured: { title: "Configured, not tested", description: "Credentials and model are saved. Test the connection before relying on cloud processing.", tone: "text-amber-700" },
+    disabled: { title: "Disabled by privacy setting", description: "Credentials are saved, but remote content processing is disabled.", tone: "text-amber-700" },
+    incomplete: { title: "Setup incomplete", description: "A provider URL, API key, and model are required.", tone: "text-danger" },
+    failed: { title: "Connection failed", description: status.lastError || "Test the connection and review the provider configuration.", tone: "text-danger" },
+    local: { title: "Local processing selected", description: "The worker is configured to use Ollama, even if a cloud key is saved.", tone: "text-muted" },
+  };
+  const current = labels[status.state];
+  const checks = [
+    `${status.providerMode === "cloud" ? "✓" : "○"} Main pipeline: ${status.providerMode}`,
+    `${status.graphProviderMode === "cloud" ? "✓" : "○"} Graph inference: ${status.graphProviderMode}`,
+    `${status.keyConfigured ? "✓" : "○"} API key`,
+    `${status.modelConfigured ? "✓" : "○"} Model`,
+    `${status.remoteContentConsent ? "✓" : "○"} Remote processing consent`,
+  ];
+  return (
+    <div className="rounded-xl border border-border bg-panel p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className={`text-xs font-semibold ${current.tone}`}>{current.title}</p>
+          <p className="mt-1 text-[11px] leading-4 text-muted">{current.description}</p>
+        </div>
+        {status.lastTestLatencyMs ? <span className="text-[10px] tabular-nums text-muted">{status.lastTestLatencyMs} ms</span> : null}
+      </div>
+      <div className="mt-3 grid gap-1 text-[10px] text-muted sm:grid-cols-2">{checks.map((check) => <span key={check}>{check}</span>)}</div>
+    </div>
+  );
+}
+
 function MaintenanceButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
-    <button className="h-9 rounded-xl border border-accent/30 bg-accent/10 px-3 text-xs font-medium text-accent hover:bg-accent/15" onClick={onClick}>
+    <button className="bb-action h-9 px-3 text-xs font-medium" onClick={onClick}>
       {children}
     </button>
   );
@@ -856,7 +1054,7 @@ function MaintenanceButton({ children, onClick }: { children: React.ReactNode; o
 
 function DangerButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
-    <button className="h-9 rounded-xl border border-danger/25 bg-danger/5 px-3 text-xs font-medium text-danger hover:bg-danger/10" onClick={onClick}>
+    <button className="bb-action bb-action--danger h-9 px-3 text-xs font-medium" onClick={onClick}>
       {children}
     </button>
   );

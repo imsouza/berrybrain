@@ -170,7 +170,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       aria-hidden="true"
     />
     <aside
-      className={`fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden border-r border-border/50 bg-panel shadow-xl transition-transform duration-200 lg:static lg:z-auto lg:flex-shrink-0 lg:translate-x-0 lg:shadow-none ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
+      className={`bb-workspace-sidebar fixed inset-y-0 left-0 z-50 flex flex-col overflow-hidden bg-panel transition-transform duration-200 lg:static lg:z-auto lg:flex-shrink-0 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
       style={{ width: mobileOpen ? "min(86vw, 22rem)" : `${w.sidebarWidth}px` }}
       aria-label="Navigation"
       suppressHydrationWarning
@@ -181,12 +181,12 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v1.0.0</div>
 
       <div className="px-3 pb-2">
-        <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted transition hover:bg-surface hover:text-foreground" onClick={() => { onMobileClose?.(); w.createDraft(); }}>
+        <button className="bb-action flex w-full items-center gap-2 px-3 py-2 text-sm font-medium" onClick={() => { onMobileClose?.(); w.createDraft(); }}>
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           {t("newNote")}
         </button>
         <button
-          className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted transition hover:bg-surface hover:text-foreground"
+          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
           onClick={() => { onMobileClose?.(); window.location.href = appPath("/reviews"); }}
         >
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11l3 3L22 4M5 4h7a2 2 0 012 2v1M5 4a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5" /></svg>

@@ -154,7 +154,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         body: JSON.stringify({ url, key: apiKey.trim() }),
       });
       const data = await r.json();
-      if (data.error) throw new Error(data.error);
+      if (!r.ok || !data.connected) throw new Error(data.error || data.detail || "Provider connection failed");
       const ids: string[] = Array.isArray(data?.models)
         ? data.models.map((m: { id?: string }) => m?.id).filter(Boolean)
         : [];
@@ -224,7 +224,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-panel text-foreground shadow-2xl sm:max-w-2xl">
+      <div className="bb-card bb-card--elevated flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden text-foreground sm:max-w-2xl">
         <div className="border-b border-border px-6 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -379,7 +379,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                         type="button"
                         onClick={loadModels}
                         disabled={loadingModels}
-                        className="shrink-0 rounded-md border border-border px-3 py-2 text-xs text-muted hover:text-foreground disabled:opacity-50"
+                        className="bb-action shrink-0 px-3 py-2 text-xs"
                       >
                         {loadingModels ? "Loading…" : "Load models"}
                       </button>
@@ -413,14 +413,14 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                   setStep((current) => Math.max(0, current - 1));
                 }
               }}
-              className="rounded-md border border-border px-4 py-2 text-sm text-muted hover:text-foreground disabled:opacity-40"
+              className="bb-action px-4 py-2 text-sm"
             >
               Back
             </button>
             {!isConfigStep ? (
               <button
                 onClick={() => (isLastTourStep ? setPhase("ai") : setStep((current) => current + 1))}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-black"
+                className="bb-action px-4 py-2 text-sm font-medium"
               >
                 {isLastTourStep ? "Set up AI" : "Continue"}
               </button>
@@ -428,7 +428,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
               <button
                 onClick={() => finish(mode)}
                 disabled={!aiConfigured || saving}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+                className="bb-action px-4 py-2 text-sm font-medium"
               >
                 {saving ? "Saving…" : "Finish"}
               </button>

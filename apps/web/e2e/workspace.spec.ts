@@ -115,6 +115,29 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("keeps quick capture local until explicit creation", async ({
+    page,
+    context,
+  }) => {
+    await openWorkspace(page, context);
+
+    const quickNote = page.getByRole("textbox", { name: "Quick note draft" });
+    await quickNote.fill("A short idea that is not a note yet.");
+    await expect(quickNote).toHaveAttribute("maxlength", "2000");
+    await expect(page.getByText("36/2000 characters")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Editor" })).toHaveCount(0);
+
+    await page.route("**/api/v1/notes", async (route) => {
+      if (route.request().method() === "POST") await new Promise((resolve) => setTimeout(resolve, 250));
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "Create note" }).click();
+    await expect(page.getByText("Creating note...").first()).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Editor" })).toHaveValue(
+      "A short idea that is not a note yet.",
+    );
+  });
+
   test("requires provider setup even when the tour is skipped", async ({
     page,
     context,
@@ -159,6 +182,37 @@ test.describe("Authenticated workspace quality", () => {
     await expect(palette.getByRole("textbox")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(palette).toBeHidden();
+  });
+
+  test("shows functional note actions above the editor toolbar", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    await page.keyboard.press("Control+KeyK");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    const menu = page.getByRole("menu", { name: "Note actions" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Export Markdown" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Rename note" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Remove note" })).toBeVisible();
+
+    const download = page.waitForEvent("download");
+    await menu.getByRole("menuitem", { name: "Export Markdown" }).click();
+    expect((await download).suggestedFilename()).toMatch(/\.md$/);
+
+    await page.route("**/api/v1/notes/**", async (route) => {
+      if (route.request().method() === "DELETE") {
+        await route.fulfill({ status: 500, body: "{}" });
+      } else {
+        await route.continue();
+      }
+    });
+    await page.getByRole("button", { name: "More actions" }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("menuitem", { name: "Remove note" }).click();
+    await expect(page.getByText("Failed to remove note.")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();
   });
 
   test("keeps the workspace usable without horizontal overflow on mobile", async ({

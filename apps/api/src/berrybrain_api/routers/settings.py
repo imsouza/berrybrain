@@ -1,5 +1,10 @@
+import hashlib
 import json as _json
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -44,6 +49,99 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 SECRET_KEYS = {"ai_api_key", "graph_ai_api_key"}
 
 
+def _safe_int(value: str | None) -> int | None:
+    try:
+        return int(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _provider_name(api_url: str) -> str:
+    host = (urllib.parse.urlparse(api_url).hostname or "").lower()
+    if "nvidia" in host:
+        return "nvidia-nim"
+    if "openai" in host:
+        return "openai"
+    if "deepseek" in host:
+        return "deepseek"
+    if "groq" in host:
+        return "groq"
+    if "openrouter" in host:
+        return "openrouter"
+    return host or "cloud"
+
+
+def _provider_error(error: Exception) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        messages = {
+            400: "The provider rejected the request. Check the base URL and API key.",
+            401: "The provider rejected the API key.",
+            403: "The API key does not have permission to access this provider.",
+            404: "The provider models endpoint was not found. Check the base URL.",
+            408: "The provider timed out while testing the connection.",
+            429: "The provider rate limit was reached. Try again shortly.",
+        }
+        return messages.get(
+            error.code,
+            f"The provider returned HTTP {error.code} while testing the connection.",
+        )
+    if isinstance(error, (TimeoutError, urllib.error.URLError)):
+        reason = getattr(error, "reason", None)
+        if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower():
+            return "The provider did not respond within 15 seconds."
+        return (
+            "The provider could not be reached. Check the URL and network connection."
+        )
+    if isinstance(error, (_json.JSONDecodeError, KeyError, TypeError, ValueError)):
+        return "The provider returned an invalid response."
+    return "The provider connection test failed."
+
+
+def _set_values(session, values: dict[str, str]) -> None:
+    existing = {
+        row.key: row
+        for row in session.execute(
+            select(SettingRecord).where(SettingRecord.key.in_(values))
+        ).scalars()
+    }
+    for key, value in values.items():
+        setting = existing.get(key)
+        if setting is None:
+            session.add(SettingRecord(key=key, value=value))
+        else:
+            setting.value = value
+
+
+def _record_ai_test(
+    session,
+    status: str,
+    error: str = "",
+    latency_ms: int | None = None,
+    api_url: str = "",
+    api_key: str = "",
+    method: str = "",
+) -> str:
+    tested_at = datetime.now(UTC).isoformat()
+    _set_values(
+        session,
+        {
+            "ai_last_test_status": status,
+            "ai_last_test_at": tested_at,
+            "ai_last_test_latency_ms": "" if latency_ms is None else str(latency_ms),
+            "ai_last_test_error": error,
+            "ai_last_test_url": api_url.rstrip("/"),
+            "ai_last_test_key_fingerprint": _key_fingerprint(api_key),
+            "ai_last_test_method": method,
+        },
+    )
+    session.commit()
+    return tested_at
+
+
+def _key_fingerprint(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else ""
+
+
 def _caller_state(request: Request) -> str:
     app_settings = get_app_settings()
     with SessionLocal() as session:
@@ -85,6 +183,7 @@ class UpdateSettingRequest(BaseModel):
 class AiModelsRequest(BaseModel):
     url: str = ""
     key: str = ""
+    model: str = ""
 
 
 class BatchUpdateSettingsRequest(BaseModel):
@@ -115,13 +214,13 @@ WIPE_MODELS = [
 
 @router.get("", dependencies=[Depends(_require_settings_reader)])
 def get_settings_list(request: Request) -> dict:
-    hide_secrets = _caller_state(request) != "admin"
     with SessionLocal() as session:
         settings = list_settings(session)
         items = []
         for s in settings:
             data = serialize_setting(s)
-            if hide_secrets and data.get("key") in SECRET_KEYS:
+            if data.get("key") in SECRET_KEYS:
+                data["configured"] = bool(data.get("value"))
                 data["value"] = ""
             items.append(data)
         return {"settings": items}
@@ -129,7 +228,7 @@ def get_settings_list(request: Request) -> dict:
 
 @router.get("/ai/config", dependencies=[Depends(_require_settings_reader)])
 def get_ai_config(request: Request) -> dict:
-    hide_secrets = _caller_state(request) not in {"admin", "service"}
+    hide_secrets = _caller_state(request) != "service"
     with SessionLocal() as session:
 
         def _get(key: str) -> str:
@@ -160,7 +259,7 @@ def get_ai_config(request: Request) -> dict:
 
 @router.get("/graph/config", dependencies=[Depends(_require_settings_reader)])
 def get_graph_config(request: Request) -> dict:
-    hide_secrets = _caller_state(request) not in {"admin", "service"}
+    hide_secrets = _caller_state(request) != "service"
     with SessionLocal() as session:
 
         def _get(key: str) -> str:
@@ -198,22 +297,185 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
         api_url = payload.url or _get("ai_api_url") or _get("ai_custom_url")
         api_key = payload.key or _get("ai_api_key")
         if not api_url or not api_key:
-            return {"models": [], "error": "URL ou API Key nao configurada"}
+            _record_ai_test(
+                session,
+                "incomplete",
+                "Provider URL and API key are required.",
+                api_url=api_url,
+                api_key=api_key,
+            )
+            return {
+                "connected": False,
+                "models": [],
+                "error": "Provider URL and API key are required.",
+            }
 
         base = api_url.rstrip("/")
+        parsed = urllib.parse.urlparse(base)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            _record_ai_test(
+                session,
+                "failed",
+                "Invalid provider URL.",
+                api_url=base,
+                api_key=api_key,
+            )
+            return {
+                "connected": False,
+                "models": [],
+                "error": "Enter a valid HTTP or HTTPS provider URL.",
+            }
+        started = time.perf_counter()
+        models: list[dict[str, str]] = []
         try:
             req = urllib.request.Request(f"{base}/models")
             req.add_header("Authorization", f"Bearer {api_key}")
-            r = urllib.request.urlopen(req, timeout=10)
-            d = _json.loads(r.read())
+            req.add_header("Accept", "application/json")
+            with urllib.request.urlopen(req, timeout=15) as response:
+                d = _json.loads(response.read())
             models = [
                 {"id": m["id"]}
                 for m in (d.get("data", []) or [])
                 if m.get("id") and len(m.get("id", "")) < 80
             ]
-            return {"models": models}
-        except Exception as e:
-            return {"models": [], "error": str(e)}
+            model = payload.model.strip()
+            if not model:
+                tested_at = _record_ai_test(
+                    session,
+                    "untested",
+                    "Select a model to verify generation access.",
+                    api_url=base,
+                    api_key=api_key,
+                )
+                return {
+                    "connected": False,
+                    "requiresModel": True,
+                    "provider": _provider_name(base),
+                    "models": models,
+                    "error": "Models loaded. Select a model to verify generation access.",
+                    "testedAt": tested_at,
+                }
+            if models and not any(item["id"] == model for item in models):
+                raise ValueError("Selected model is not available from this provider")
+
+            generation_request = urllib.request.Request(
+                f"{base}/chat/completions",
+                data=_json.dumps(
+                    {
+                        "model": model,
+                        "messages": [{"role": "user", "content": "Reply with OK."}],
+                        "max_tokens": 1,
+                        "temperature": 0,
+                        "stream": False,
+                    }
+                ).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(generation_request, timeout=30) as response:
+                generation_payload = _json.loads(response.read())
+            if not generation_payload.get("choices"):
+                raise ValueError("Provider generation response has no choices")
+
+            latency_ms = max(1, round((time.perf_counter() - started) * 1000))
+            tested_at = _record_ai_test(
+                session,
+                "connected",
+                "",
+                latency_ms,
+                api_url=base,
+                api_key=api_key,
+                method="chat_completions",
+            )
+            return {
+                "connected": True,
+                "provider": _provider_name(base),
+                "models": models,
+                "latencyMs": latency_ms,
+                "testedAt": tested_at,
+            }
+        except Exception as error:
+            message = _provider_error(error)
+            latency_ms = max(1, round((time.perf_counter() - started) * 1000))
+            tested_at = _record_ai_test(
+                session,
+                "failed",
+                message,
+                latency_ms,
+                api_url=base,
+                api_key=api_key,
+                method="chat_completions" if payload.model.strip() else "models",
+            )
+            return {
+                "connected": False,
+                "models": models,
+                "error": message,
+                "latencyMs": latency_ms,
+                "testedAt": tested_at,
+            }
+
+
+@router.get("/ai/status", dependencies=[Depends(_require_settings_reader)])
+def get_ai_status(request: Request) -> dict:
+    with SessionLocal() as session:
+        values = {
+            row.key: row.value
+            for row in session.execute(select(SettingRecord)).scalars()
+        }
+    provider = values.get("ai_provider") or "local"
+    api_url = values.get("ai_api_url") or values.get("ai_custom_url") or ""
+    key_configured = bool(values.get("ai_api_key"))
+    model_configured = bool(values.get("ai_model"))
+    graph_provider = values.get("graph_ai_provider") or provider
+    graph_key_configured = bool(
+        values.get("graph_ai_api_key") or values.get("ai_api_key")
+    )
+    graph_model_configured = bool(
+        values.get("graph_ai_model") or values.get("ai_model")
+    )
+    consent = values.get("remote_content_consent", "false").lower() == "true"
+    last_test = values.get("ai_last_test_status") or "untested"
+    tested_configuration_matches = (
+        values.get("ai_last_test_url", "").rstrip("/") == api_url.rstrip("/")
+        and values.get("ai_last_test_key_fingerprint", "")
+        == _key_fingerprint(values.get("ai_api_key", ""))
+        and values.get("ai_last_test_method") == "chat_completions"
+    )
+    if not tested_configuration_matches:
+        last_test = "untested"
+    if provider != "cloud":
+        state = "local"
+    elif not api_url or not key_configured or not model_configured:
+        state = "incomplete"
+    elif not consent:
+        state = "disabled"
+    elif last_test == "connected":
+        state = "connected"
+    elif last_test == "failed":
+        state = "failed"
+    else:
+        state = "configured"
+    return {
+        "state": state,
+        "provider": _provider_name(api_url) if provider == "cloud" else "local",
+        "providerMode": provider,
+        "keyConfigured": key_configured,
+        "modelConfigured": model_configured,
+        "model": values.get("ai_model") or "",
+        "graphProviderMode": graph_provider,
+        "graphKeyConfigured": graph_key_configured,
+        "graphModelConfigured": graph_model_configured,
+        "graphModel": values.get("graph_ai_model") or values.get("ai_model") or "",
+        "remoteContentConsent": consent,
+        "lastTestStatus": last_test,
+        "lastTestAt": values.get("ai_last_test_at") or None,
+        "lastTestLatencyMs": _safe_int(values.get("ai_last_test_latency_ms")),
+        "lastError": values.get("ai_last_test_error") or "",
+    }
 
 
 @router.put("/batch", dependencies=[Depends(_require_admin_csrf)])
@@ -224,22 +486,35 @@ def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     with SessionLocal() as session:
-        existing = {
-            row.key: row
-            for row in session.execute(
-                select(SettingRecord).where(SettingRecord.key.in_(payload.values))
-            ).scalars()
+        values = {
+            key: value
+            for key, value in payload.values.items()
+            if key not in SECRET_KEYS or bool(value.strip())
         }
-        for key, value in payload.values.items():
-            setting = existing.get(key)
-            if setting is None:
-                setting = SettingRecord(key=key, value=value)
-                session.add(setting)
-                existing[key] = setting
-            else:
-                setting.value = value
+        _set_values(session, values)
         session.commit()
-        return {"status": "saved", "count": len(payload.values)}
+        return {"status": "saved", "count": len(values)}
+
+
+@router.delete("/ai/key", dependencies=[Depends(_require_admin_csrf)])
+def clear_ai_key() -> dict:
+    with SessionLocal() as session:
+        _set_values(
+            session,
+            {
+                "ai_api_key": "",
+                "graph_ai_api_key": "",
+                "ai_last_test_status": "untested",
+                "ai_last_test_at": "",
+                "ai_last_test_latency_ms": "",
+                "ai_last_test_error": "",
+                "ai_last_test_url": "",
+                "ai_last_test_key_fingerprint": "",
+                "ai_last_test_method": "",
+            },
+        )
+        session.commit()
+    return {"status": "cleared"}
 
 
 @router.get("/{key:path}", dependencies=[Depends(_require_settings_reader)])
@@ -247,7 +522,8 @@ def get_setting_endpoint(key: str, request: Request) -> dict:
     with SessionLocal() as session:
         setting = get_setting(session, key)
         data = serialize_setting(setting)
-        if key in SECRET_KEYS and _caller_state(request) != "admin":
+        if key in SECRET_KEYS:
+            data["configured"] = bool(data.get("value"))
             data["value"] = ""
         return {"setting": data}
 
@@ -258,7 +534,11 @@ def update_setting_endpoint(
 ) -> dict:
     with SessionLocal() as session:
         setting = set_setting(session, key, payload.value)
-        return {"setting": serialize_setting(setting)}
+        data = serialize_setting(setting)
+        if key in SECRET_KEYS:
+            data["configured"] = bool(data.get("value"))
+            data["value"] = ""
+        return {"setting": data}
 
 
 @router.post("/danger/wipe", dependencies=[Depends(_require_admin_csrf)])

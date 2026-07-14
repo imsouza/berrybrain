@@ -157,7 +157,7 @@ export default function InsightsPage() {
           <div className="mt-3 flex items-center gap-3">
             <span className="text-xs text-muted/60">{tf("insightsCount", { filtered: filtered.length, total: insights.length })}</span>
             <button
-              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="bb-action px-3 py-1.5 text-xs font-medium"
               onClick={generateNow}
               disabled={generating}
             >
@@ -191,7 +191,7 @@ export default function InsightsPage() {
               {t("noInsightsDesc")}
             </p>
             <button
-              className="mt-4 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              className="bb-action mt-4 px-3 py-1.5 text-xs font-medium"
               onClick={generateNow}
               disabled={generating}
             >
@@ -395,21 +395,21 @@ function InsightCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={onCreateNote}>
+        <button className="bb-action px-2.5 py-1" onClick={onCreateNote}>
           {t("createPermanentNote")}
         </button>
-        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={onCreateReview}>
+        <button className="bb-action px-2.5 py-1" onClick={onCreateReview}>
           {t("generateReview")}
         </button>
-        <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-foreground" onClick={() => window.location.href = appPath("/brain?graph=open")}>
+        <button className="bb-action px-2.5 py-1" onClick={() => window.location.href = appPath("/brain?graph=open")}>
           {t("viewInGraph")}
         </button>
         {insight.status === "new" && (
           <>
-            <button className="rounded-lg bg-panel px-2.5 py-1 text-emerald-600 hover:text-emerald-700" onClick={() => onDismiss(insight.id, "apply")}>
+            <button className="bb-action px-2.5 py-1 text-emerald-600" onClick={() => onDismiss(insight.id, "apply")}>
               {t("applyBtn")}
             </button>
-            <button className="rounded-lg bg-panel px-2.5 py-1 text-muted hover:text-red-500" onClick={() => onDismiss(insight.id, "ignore")}>
+            <button className="bb-action bb-action--danger px-2.5 py-1" onClick={() => onDismiss(insight.id, "ignore")}>
               {t("ignoreBtn")}
             </button>
           </>

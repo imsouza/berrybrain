@@ -804,7 +804,7 @@ export function GraphScreen({
           />
           <button
             type="submit"
-            className="h-8 shrink-0 rounded-lg bg-accent px-3 text-[11px] text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="bb-action h-8 min-w-14 shrink-0 px-3 text-[11px] font-medium"
             disabled={inferLoading || !query.trim()}
           >
             {inferLoading ? "..." : t("ask")}
@@ -849,7 +849,7 @@ export function GraphScreen({
           <option value="connections">{t("layoutConnections")}</option>
         </select>
         <button
-          className={`h-8 rounded-lg px-2.5 text-[11px] ${viewMode === "list" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}
+          className={`bb-action h-8 px-2.5 text-[11px] ${viewMode === "list" ? "bb-action--active" : ""}`}
           aria-pressed={viewMode === "list"}
           onClick={() => {
             const next = viewMode === "visual" ? "list" : "visual";
@@ -859,12 +859,12 @@ export function GraphScreen({
         >
           {viewMode === "visual" ? "List view" : "Visual view"}
         </button>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={expandGraph}>{t("expand")}</button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showInsightNodes ? "bg-surface text-muted hover:text-foreground" : "bg-accent text-white"}`} onClick={toggleInsightNodes}>
+        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
+        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={expandGraph}>{t("expand")}</button>
+        <button className={`bb-action h-8 px-2.5 text-[11px] ${showInsightNodes ? "bb-action--active" : ""}`} onClick={toggleInsightNodes}>
           {showInsightNodes ? t("hideInsightNodes") : t("showInsightNodes")}
         </button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showLegend ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
+        <button className={`bb-action h-8 px-2.5 text-[11px] ${showLegend ? "bb-action--active" : ""}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
       </div>
 
       {inference && (
@@ -908,14 +908,14 @@ export function GraphScreen({
             <div className="mt-2 flex flex-wrap gap-1">
               {((inference.status === "answered" || inference.status === "success" || inference.status === "sufficient_evidence" || inference.status === "saved_as_insight")) && (
                 <button
-                  className="rounded-lg bg-accent px-3 py-1 text-[10px] text-white disabled:opacity-50"
+                  className="bb-action px-3 py-1 text-[10px]"
                   disabled={inferenceSaving || inference.status === "saved_as_insight"}
                   onClick={saveInferenceAsInsight}
                 >
                   {inferenceSaving ? "Saving..." : inference.status === "saved_as_insight" ? "Saved" : t("saveAsInsight")}
                 </button>
               )}
-              <button className="rounded-lg bg-panel px-3 py-1 text-[10px] text-muted hover:text-foreground" onClick={() => setInference(null)}>{t("close")}</button>
+              <button className="bb-action px-3 py-1 text-[10px]" onClick={() => setInference(null)}>{t("close")}</button>
             </div>
             {inferenceSaveStatus && (
               <div className="mt-2 rounded-lg bg-panel/70 px-2 py-1 text-[10px] text-muted">
@@ -936,8 +936,8 @@ export function GraphScreen({
               <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
               {apiUrl === "__demo__" && (
                 <div className="mt-2 flex gap-2">
-                  <a href="https://github.com/imsouza/berrybrain" target="_blank" rel="noreferrer" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-black hover:opacity-90">GitHub</a>
-                  <a href={appPath("/docs")} className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Docs</a>
+                  <a href="https://github.com/imsouza/berrybrain" target="_blank" rel="noreferrer" className="bb-action px-3 py-1.5 text-xs font-medium">GitHub</a>
+                  <a href={appPath("/docs")} className="bb-action px-3 py-1.5 text-xs font-medium">Docs</a>
                 </div>
               )}
             </div>
@@ -1067,7 +1067,7 @@ export function GraphScreen({
                     value={manualNotes}
                     onChange={(event) => setManualNotes(event.target.value)}
                   />
-                  <button className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
+                  <button className="bb-action mt-2 px-3 py-1.5 text-[10px]" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
                 </section>
 
                 {!!nodeSummary?.notes?.length && (
@@ -1132,7 +1132,7 @@ export function GraphScreen({
 
               <div className="flex flex-wrap gap-1 pt-1">
                 {selectedNode.path && (
-                  <button className="rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
+                  <button className="bb-action px-3 py-1.5 text-[10px]" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
                 )}
                 {nodeActions.filter((action) => action.visible && action.variant !== "danger").map((action) => (
                   <GraphActionButton
@@ -1149,7 +1149,7 @@ export function GraphScreen({
                   />
                 ))}
                 {selectedNode.type === "concept" && selectedNode.sourceId && (
-                  <button className="rounded-lg border border-amber-500/45 bg-amber-500/15 px-3 py-1.5 text-[10px] font-medium text-amber-300 hover:bg-amber-500/25" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
+                  <button className="bb-action px-3 py-1.5 text-[10px] font-medium text-amber-600" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
                 )}
               </div>
               {nodeActionStatus && <div className="rounded-lg bg-surface p-2 text-[10px] text-muted/70">{nodeActionStatus}</div>}
@@ -1185,26 +1185,26 @@ function GraphActionButton({ action, loading, onClick }: { action: GraphAction; 
 }
 
 function graphActionClass(action: GraphAction) {
-  const base = "rounded-lg px-3 py-1.5 text-[10px] font-medium transition disabled:opacity-50";
+  const base = "bb-action px-3 py-1.5 text-[10px] font-medium";
   if (action.id === "confirm-node") {
-    return `${base} bg-emerald-600 text-white hover:bg-emerald-500`;
+    return `${base} text-emerald-600`;
   }
   if (action.id === "ignore-node") {
-    return `${base} border border-red-500/45 bg-red-500/12 text-red-300 hover:bg-red-500/20`;
+    return `${base} bb-action--danger`;
   }
   if (action.id === "reprocess-node") {
-    return `${base} border border-sky-500/45 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25`;
+    return base;
   }
   if (action.id === "enrich-node-ai") {
-    return `${base} border border-violet-500/45 bg-violet-500/15 text-violet-300 hover:bg-violet-500/25`;
+    return base;
   }
   if (action.id === "validate-node-web") {
-    return `${base} border border-cyan-500/45 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25`;
+    return base;
   }
   if (action.variant === "danger") {
-    return `${base} bg-danger text-white`;
+    return `${base} bb-action--danger`;
   }
-  return `${base} border border-accent/45 bg-accent/15 text-accent hover:bg-accent/25`;
+  return base;
 }
 
 function formatConfidence(value?: number) {
