@@ -77,7 +77,7 @@ class SettingsStoreTest(unittest.TestCase):
 
         updated = settings_router.update_setting_endpoint(
             "ai_api_key",
-            settings_router.UpdateSettingRequest(value="replacement-secret"),
+            settings_router.UpdateSettingRequest(value="replacement-value"),
             None,
         )
         self.assertEqual(updated["setting"]["value"], "")
@@ -85,7 +85,7 @@ class SettingsStoreTest(unittest.TestCase):
 
     def test_ai_status_explains_local_disabled_and_connected_states(self) -> None:
         set_setting(self.session, "ai_api_url", "https://integrate.api.nvidia.com/v1")
-        set_setting(self.session, "ai_api_key", "secret")
+        set_setting(self.session, "ai_api_key", "sample-value")
         set_setting(self.session, "ai_model", "nvidia/test-model")
 
         local = settings_router.get_ai_status(None)
@@ -100,21 +100,21 @@ class SettingsStoreTest(unittest.TestCase):
             self.session,
             "connected",
             api_url="https://integrate.api.nvidia.com/v1",
-            api_key="secret",
             method="chat_completions",
         )
         connected = settings_router.get_ai_status(None)
         self.assertEqual(connected["state"], "connected")
         self.assertTrue(connected["keyConfigured"])
 
-        set_setting(self.session, "ai_api_key", "replacement-secret")
+        set_setting(self.session, "ai_api_key", "replacement-value")
+        set_setting(self.session, "ai_key_revision", "changed")
         changed = settings_router.get_ai_status(None)
         self.assertEqual(changed["state"], "configured")
         self.assertEqual(changed["lastTestStatus"], "untested")
 
     def test_model_test_records_provider_health_without_exposing_key(self) -> None:
         set_setting(self.session, "ai_api_url", "https://integrate.api.nvidia.com/v1")
-        set_setting(self.session, "ai_api_key", "secret")
+        set_setting(self.session, "ai_api_key", "sample-value")
 
         class FakeResponse:
             def __init__(self, payload: bytes):
@@ -154,7 +154,7 @@ class SettingsStoreTest(unittest.TestCase):
 
     def test_model_listing_alone_does_not_mark_provider_connected(self) -> None:
         set_setting(self.session, "ai_api_url", "https://integrate.api.nvidia.com/v1")
-        set_setting(self.session, "ai_api_key", "secret")
+        set_setting(self.session, "ai_api_key", "sample-value")
 
         class FakeResponse:
             def __enter__(self):
@@ -180,7 +180,7 @@ class SettingsStoreTest(unittest.TestCase):
         )
 
     def test_blank_secret_batch_preserves_saved_key_and_clear_is_explicit(self) -> None:
-        set_setting(self.session, "ai_api_key", "secret")
+        set_setting(self.session, "ai_api_key", "sample-value")
 
         settings_router.update_settings_batch(
             settings_router.BatchUpdateSettingsRequest(
@@ -188,7 +188,7 @@ class SettingsStoreTest(unittest.TestCase):
             )
         )
         self.session.expire_all()
-        self.assertEqual(get_setting(self.session, "ai_api_key").value, "secret")
+        self.assertEqual(get_setting(self.session, "ai_api_key").value, "sample-value")
 
         settings_router.clear_ai_key()
         self.session.expire_all()

@@ -1,4 +1,5 @@
 import json as _json
+import secrets
 import time
 import urllib.error
 import urllib.parse
@@ -35,7 +36,6 @@ from berrybrain_api.models import (
     TagRecord,
     WorkerStatus,
 )
-from berrybrain_api.provider_security import provider_credential_fingerprint
 from berrybrain_api.settings_store import (
     get_setting,
     list_settings,
@@ -118,7 +118,6 @@ def _record_ai_test(
     error: str = "",
     latency_ms: int | None = None,
     api_url: str = "",
-    api_key: str = "",
     method: str = "",
 ) -> str:
     tested_at = datetime.now(UTC).isoformat()
@@ -130,7 +129,7 @@ def _record_ai_test(
             "ai_last_test_latency_ms": "" if latency_ms is None else str(latency_ms),
             "ai_last_test_error": error,
             "ai_last_test_url": api_url.rstrip("/"),
-            "ai_last_test_key_fingerprint": _key_fingerprint(api_key),
+            "ai_last_test_key_revision": _current_ai_key_revision(session),
             "ai_last_test_method": method,
         },
     )
@@ -138,8 +137,19 @@ def _record_ai_test(
     return tested_at
 
 
-def _key_fingerprint(api_key: str) -> str:
-    return provider_credential_fingerprint(api_key)
+def _new_key_revision() -> str:
+    return secrets.token_urlsafe(18)
+
+
+def _current_ai_key_revision(session) -> str:
+    setting = session.execute(
+        select(SettingRecord).where(SettingRecord.key == "ai_key_revision")
+    ).scalar_one_or_none()
+    if setting is not None and setting.value:
+        return setting.value
+    revision = _new_key_revision()
+    _set_values(session, {"ai_key_revision": revision})
+    return revision
 
 
 def _caller_state(request: Request) -> str:
@@ -302,7 +312,6 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 "incomplete",
                 "Provider URL and API key are required.",
                 api_url=api_url,
-                api_key=api_key,
             )
             return {
                 "connected": False,
@@ -318,7 +327,6 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 "failed",
                 "Invalid provider URL.",
                 api_url=base,
-                api_key=api_key,
             )
             return {
                 "connected": False,
@@ -345,7 +353,6 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                     "untested",
                     "Select a model to verify generation access.",
                     api_url=base,
-                    api_key=api_key,
                 )
                 return {
                     "connected": False,
@@ -388,7 +395,6 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 "",
                 latency_ms,
                 api_url=base,
-                api_key=api_key,
                 method="chat_completions",
             )
             return {
@@ -407,7 +413,6 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 message,
                 latency_ms,
                 api_url=base,
-                api_key=api_key,
                 method="chat_completions" if payload.model.strip() else "models",
             )
             return {
@@ -441,8 +446,8 @@ def get_ai_status(request: Request) -> dict:
     last_test = values.get("ai_last_test_status") or "untested"
     tested_configuration_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == api_url.rstrip("/")
-        and values.get("ai_last_test_key_fingerprint", "")
-        == _key_fingerprint(values.get("ai_api_key", ""))
+        and values.get("ai_last_test_key_revision", "")
+        == values.get("ai_key_revision", "")
         and values.get("ai_last_test_method") == "chat_completions"
     )
     if not tested_configuration_matches:
@@ -491,6 +496,8 @@ def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
             for key, value in payload.values.items()
             if key not in SECRET_KEYS or bool(value.strip())
         }
+        if "ai_api_key" in values:
+            values["ai_key_revision"] = _new_key_revision()
         _set_values(session, values)
         session.commit()
         return {"status": "saved", "count": len(values)}
@@ -510,7 +517,9 @@ def clear_ai_key() -> dict:
                 "ai_last_test_error": "",
                 "ai_last_test_url": "",
                 "ai_last_test_key_fingerprint": "",
+                "ai_last_test_key_revision": "",
                 "ai_last_test_method": "",
+                "ai_key_revision": "",
             },
         )
         session.commit()
@@ -534,6 +543,9 @@ def update_setting_endpoint(
 ) -> dict:
     with SessionLocal() as session:
         setting = set_setting(session, key, payload.value)
+        if key == "ai_api_key" and payload.value.strip():
+            _set_values(session, {"ai_key_revision": _new_key_revision()})
+            session.commit()
         data = serialize_setting(setting)
         if key in SECRET_KEYS:
             data["configured"] = bool(data.get("value"))
