@@ -110,7 +110,8 @@ export function CommandPalette({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      results[selectedIndex]?.action();
+      const currentResults = results.length ? results : commands;
+      currentResults[Math.min(selectedIndex, currentResults.length - 1)]?.action();
     }
   }
 

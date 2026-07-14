@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from berrybrain_api.config import get_settings
@@ -10,7 +11,9 @@ def provider_credential_fingerprint(credential: str) -> str:
     if not credential:
         return ""
     key = get_settings().session_secret.encode("utf-8")
-    return hmac.new(key, credential.encode("utf-8"), "sha256").hexdigest()
+    return hashlib.blake2b(
+        credential.encode("utf-8"), key=key, digest_size=32
+    ).hexdigest()
 
 
 def provider_credential_matches(fingerprint: str, credential: str) -> bool:
