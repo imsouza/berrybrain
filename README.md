@@ -19,6 +19,8 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 ![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
 ![License](https://img.shields.io/badge/license-non--commercial-lightgrey)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/T5D823778G)
+
 ---
 
 ## Table of Contents
@@ -622,6 +624,7 @@ Edit `.env` and set at minimum:
 | `BERRYBRAIN_INTERNAL_API_URL` | Server-side API origin used by the web proxy. Defaults to `http://api:8000`; use `http://127.0.0.1:8000` when running Web outside Docker. |
 | `BERRYBRAIN_ENV_FILE` | Optional Compose environment file path. Defaults to `.env`; useful for isolated smoke tests or multiple self-hosted instances. |
 | `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
+| `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` | Optional analytics property for public pages. Empty by default on self-hosted instances; tracking still requires visitor consent. Never send note or account data as analytics events. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
 | `SMTP_*` | Optional legacy email delivery settings. Not required for default self-hosted setup. |

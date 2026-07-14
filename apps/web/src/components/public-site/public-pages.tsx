@@ -26,6 +26,8 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     title: "Privacy",
     body: [
       "BerryBrain is local-first. User notes remain in the configured vault unless the user enables external providers.",
+      "Google Analytics is disabled by default on self-hosted instances and requires explicit visitor consent on the official website. Analytics is configured without advertising signals or ad personalization.",
+      "The Ko-fi donation widget is provided by an external service. Opening or using it is subject to Ko-fi's own privacy practices.",
       "When cloud AI, email, or external enrichment is configured, BerryBrain records provider, model, purpose, status, and evidence so the user can understand what left the local system.",
       "Account data is separated from note content. Security events may include timestamps, IP-derived request metadata, session state, and administrative actions needed to protect the service.",
       "Knowledge data is processed to build notes, concepts, graph edges, insights, and retrieval indexes. The product should never hide whether a result came from local processing or a configured external provider.",
@@ -36,6 +38,7 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     title: "GDPR and LGPD",
     body: [
       "BerryBrain is designed around data minimization, transparency, and user-controlled processing. Notes and graph data are treated as personal knowledge data.",
+      "Optional website analytics remains disabled until consent is granted. Consent can be declined without losing access to BerryBrain.",
       "Self-hosted operators control access, correction, export, and deletion of their local instance data. Local vault files remain under the operator's storage control.",
       "Processing purposes include local authentication, instance security, note indexing, graph construction, retrieval, insight generation, and optional provider integrations configured by the local owner.",
       "For LGPD and GDPR requests, include enough context to verify ownership. Do not include passwords, API keys, tokens, or private notes in email.",
@@ -81,6 +84,7 @@ const footerGroups = [
       ["Docs", "/docs"],
       ["Open BerryBrain", "/brain"],
       ["GitHub", GITHUB_URL],
+      ["Donate", "https://ko-fi.com/T5D823778G"],
     ],
   },
   {
@@ -88,6 +92,7 @@ const footerGroups = [
     links: [
       ["Security", "legal:security"],
       ["Privacy", "legal:privacy"],
+      ["Privacy choices", "consent:analytics"],
       ["GDPR/LGPD", "legal:gdpr-lgpd"],
     ],
   },
@@ -152,6 +157,7 @@ const mobileNavLinks = [
   ...nav,
   ["Security", "legal:security"],
   ["Privacy", "legal:privacy"],
+  ["Privacy choices", "consent:analytics"],
   ["GDPR/LGPD", "legal:gdpr-lgpd"],
   ["Terms", "legal:terms"],
   ["Contact", "legal:contact"],
@@ -307,7 +313,17 @@ export function PublicShell({
               <ul className="space-y-1">
                 {mobileNavLinks.map(([label, href]) => (
                   <li key={href}>
-                    {href.startsWith("legal:") ? (
+                    {href === "consent:analytics" ? (
+                      <button
+                        onClick={() => {
+                          window.localStorage.removeItem("bb_analytics_consent");
+                          window.dispatchEvent(new Event("bb:analytics-consent"));
+                        }}
+                        className="text-sm text-muted hover:text-foreground"
+                      >
+                        {label}
+                      </button>
+                    ) : href.startsWith("legal:") ? (
                       <button
                         onClick={() => { openModal(href.slice(6)); setMobileMenuOpen(false); }}
                         className="block w-full rounded-md px-3 py-2 text-left text-sm text-muted hover:bg-surface hover:text-foreground"
@@ -1081,7 +1097,17 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
               <ul className="mt-3 space-y-2">
                 {group.links.map(([label, href]) => (
                   <li key={href}>
-                    {href.startsWith("legal:") ? (
+                    {href === "consent:analytics" ? (
+                      <button
+                        onClick={() => {
+                          window.localStorage.removeItem("bb_analytics_consent");
+                          window.dispatchEvent(new Event("bb:analytics-consent"));
+                        }}
+                        className="text-sm text-muted hover:text-foreground"
+                      >
+                        {label}
+                      </button>
+                    ) : href.startsWith("legal:") ? (
                       <button onClick={() => onOpenModal(href.slice(6))} className="text-sm text-muted hover:text-foreground">
                         {label}
                       </button>
