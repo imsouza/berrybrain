@@ -664,6 +664,11 @@ mode provides local note editing, local note graph nodes, and direct note search
 worker remains required for embeddings, AI insights, semantic graph expansion, OCR, and background
 jobs. Provider keys, sessions, and analytics consent are not included in browser backups.
 
+For Netlify, deploy the `webapp` branch. The repository's `netlify.toml` sets `apps/web` as the
+base directory, `npm run build` as the build command, and `.next` as the publish directory. Keep
+`NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` in the Netlify environment when analytics is enabled. Do not set
+`BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for browser-only deployments.
+
 ### 3. Create the local owner account
 
 Open `http://localhost:3000`, choose **Setup**, then complete the one-time owner setup. The default username alias is `admin`, but **there is no default password**: the owner must create a strong password of at least 12 characters. Change the alias with `BERRYBRAIN_OWNER_USERNAME` before startup. On the first workspace load, BerryBrain shows the guided tour and then requires Local or Cloud AI configuration.
