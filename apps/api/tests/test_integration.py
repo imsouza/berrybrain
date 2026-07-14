@@ -17,6 +17,7 @@ SESSIONLOCAL_MODULES = (
     "berrybrain_api.backup",
     "berrybrain_api.security",
     "berrybrain_api.routers.automation",
+    "berrybrain_api.routers.auth",
     "berrybrain_api.routers.cognitive",
     "berrybrain_api.routers.concepts",
     "berrybrain_api.routers.connections",
@@ -645,11 +646,17 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue(resp2.json()["worker"]["last_heartbeat"].endswith("Z"))
 
     def test_14_settings(self):
-        resp = self.client.put(
+        denied = self.client.put(
             "/api/v1/settings/test.key",
             json={"value": "42"},
         )
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(denied.status_code, 401)
+
+        from berrybrain_api.database import SessionLocal
+        from berrybrain_api.settings_store import set_setting
+
+        with SessionLocal() as session:
+            set_setting(session, "test.key", "42")
 
         resp2 = self.client.get("/api/v1/settings/test.key")
         self.assertEqual(resp2.status_code, 200)

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#9ebf61" />
+    <title>BerryBrain is offline</title>
+    <style>
+      :root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #121212; color: #e8e8e8; }
+      main { width: min(28rem, calc(100% - 3rem)); }
+      p { color: #a8a8a8; line-height: 1.6; }
+      button { border: 0; border-radius: 6px; background: #9ebf61; color: #10140a; padding: .7rem 1rem; font: inherit; font-weight: 650; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>OFFLINE</p>
+      <h1>BerryBrain cannot reach your local server.</h1>
+      <p>Your private pages and notes are never stored in the offline cache. Reconnect to the server and try again.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>
