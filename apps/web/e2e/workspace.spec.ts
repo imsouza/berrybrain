@@ -17,22 +17,29 @@ async function authenticate(context: BrowserContext) {
     if (configured.status() !== 409) expect(configured.status()).toBe(201);
   }
   const me = await context.request.get("/api/v1/auth/me");
-  if (me.ok()) return;
-  const login = await context.request.post("/api/v1/auth/login", {
-    data: {
-      email: ownerUsername,
-      password: OWNER_PASSWORD,
-      remember_me: false,
-    },
-  });
-  expect(login.ok(), await login.text()).toBeTruthy();
+  if (!me.ok()) {
+    const login = await context.request.post("/api/v1/auth/login", {
+      data: {
+        email: ownerUsername,
+        password: OWNER_PASSWORD,
+        remember_me: false,
+      },
+    });
+    expect(login.ok(), await login.text()).toBeTruthy();
+  }
+  const state = await context.storageState();
+  const csrf = state.cookies.find((cookie) => cookie.name === "bb_csrf")?.value || "";
+  expect(csrf).not.toBe("");
+  return csrf;
 }
 
 async function openWorkspace(page: Page, context: BrowserContext) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("bb_onboarded", "1");
+  const csrf = await authenticate(context);
+  const completed = await context.request.put("/api/v1/settings/onboarding_completed", {
+    data: { value: "true" },
+    headers: { "X-CSRF-Token": csrf },
   });
-  await authenticate(context);
+  expect(completed.ok(), await completed.text()).toBeTruthy();
   await page.goto("/brain");
   if ((page.viewportSize()?.width || 1280) < 1024) {
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible({
@@ -46,9 +53,46 @@ async function openWorkspace(page: Page, context: BrowserContext) {
 }
 
 test.describe("Public owner entry", () => {
-  test("opens the local owner login without a default password", async ({ page }) => {
+  test("publishes a brain-scoped PWA without private navigation caching", async ({
+    request,
+  }) => {
+    const manifestResponse = await request.get("/manifest.webmanifest");
+    expect(manifestResponse.ok()).toBeTruthy();
+    const manifest = await manifestResponse.json();
+    expect(manifest.start_url).toBe("brain");
+    expect(manifest.scope).toBe("./");
+
+    const workerResponse = await request.get("/sw.js");
+    expect(workerResponse.ok()).toBeTruthy();
+    const worker = await workerResponse.text();
+    const navigationHandler = worker.split("if (request.mode === \"navigate\")")[1].split("const staticAsset")[0];
+    expect(navigationHandler).not.toContain("cache.put");
+    expect(worker).toContain('caches.match(BASE + "/offline.html")');
+  });
+
+  test("offers setup only before the local owner exists", async ({ page }) => {
+    await page.route("**/api/v1/setup/status", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ needsSetup: true }) }),
+    );
     await page.goto("/");
-    await page.locator("header").getByRole("link", { name: "Login", exact: true }).click();
+    await expect(page.locator("header").getByRole("link", { name: "Setup", exact: true })).toHaveAttribute(
+      "href",
+      /\/setup$/,
+    );
+    await expect(page.locator("header").getByRole("link", { name: "Login", exact: true })).toHaveCount(0);
+  });
+
+  test("opens the configured system and lets its auth guard request login", async ({ page }) => {
+    await page.route("**/api/v1/setup/status", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ needsSetup: false }) }),
+    );
+    await page.route("**/api/v1/auth/me", (route) => route.fulfill({ status: 401, body: "{}" }));
+    await page.goto("/");
+    const openSystem = page.locator("header").getByRole("link", { name: "Open BerryBrain", exact: true });
+    await expect(openSystem).toHaveAttribute("href", /\/brain$/);
+    await expect(page.locator("header").getByRole("link", { name: "Login", exact: true })).toHaveCount(0);
+    await openSystem.click();
+    await page.waitForURL(/\/login(?:\?|$)/);
     await expect(page.getByLabel("Username or owner email")).toHaveValue("");
     await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("Username or owner email")).toHaveAttribute(
@@ -56,9 +100,46 @@ test.describe("Public owner entry", () => {
       "admin",
     );
   });
+
+  test("shows logout when the owner session is active", async ({ page }) => {
+    await page.route("**/api/v1/setup/status", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ needsSetup: false }) }),
+    );
+    await page.route("**/api/v1/auth/me", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: 1 } }) }),
+    );
+    await page.goto("/");
+    await expect(page.locator("header").getByRole("button", { name: "Logout", exact: true })).toBeVisible();
+    await expect(page.locator("header").getByRole("link", { name: "Login", exact: true })).toHaveCount(0);
+  });
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("requires provider setup even when the tour is skipped", async ({
+    page,
+    context,
+  }) => {
+    const csrf = await authenticate(context);
+    const reset = await context.request.put("/api/v1/settings/onboarding_completed", {
+      data: { value: "false" },
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(reset.ok(), await reset.text()).toBeTruthy();
+
+    await page.goto("/brain");
+    await expect(page.getByRole("heading", { name: "Capture first, organize later." })).toBeVisible();
+    await page.getByRole("button", { name: "Skip" }).click();
+    await expect(page.getByRole("heading", { name: "Choose how BerryBrain uses AI." })).toBeVisible();
+
+    const finish = page.getByRole("button", { name: "Finish" });
+    await expect(finish).toBeDisabled();
+    await page.getByRole("button", { name: "Local", exact: true }).click();
+    await expect(page.getByLabel("Ollama model")).toHaveValue("qwen3:8b");
+    await expect(finish).toBeEnabled();
+    await finish.click();
+    await expect(page.getByRole("heading", { name: "Choose how BerryBrain uses AI." })).toBeHidden();
+  });
+
   test("supports the main keyboard workflow", async ({ page, context }) => {
     await openWorkspace(page, context);
 

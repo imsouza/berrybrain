@@ -7,7 +7,13 @@ from sqlalchemy import delete, func, select, text
 
 from berrybrain_api.config import get_settings as get_app_settings
 from berrybrain_api.database import SessionLocal
-from berrybrain_api.security import get_session_user, normalize_email, require_admin
+from berrybrain_api.security import (
+    assert_csrf,
+    get_session_user,
+    normalize_email,
+    require_session_user,
+    verify_service_token,
+)
 from berrybrain_api.models import (
     AutomationLogRecord,
     ConceptRecord,
@@ -41,6 +47,11 @@ SECRET_KEYS = {"ai_api_key", "graph_ai_api_key"}
 def _caller_state(request: Request) -> str:
     app_settings = get_app_settings()
     with SessionLocal() as session:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer ") and verify_service_token(
+            session, app_settings, authorization[7:].strip()
+        ):
+            return "service"
         result = get_session_user(session, app_settings, request)
         if result is None:
             return "anon"
@@ -50,8 +61,34 @@ def _caller_state(request: Request) -> str:
         return "user"
 
 
+def _require_settings_reader(request: Request) -> None:
+    state = _caller_state(request)
+    if state == "anon":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if state == "user":
+        raise HTTPException(status_code=403, detail="Owner access required")
+
+
+def _require_admin_csrf(request: Request) -> None:
+    app_settings = get_app_settings()
+    with SessionLocal() as session:
+        user, session_record = require_session_user(session, app_settings, request)
+        if normalize_email(user.email) != normalize_email(app_settings.admin_email):
+            raise HTTPException(status_code=403, detail="Owner access required")
+        assert_csrf(app_settings, request, session_record)
+
+
 class UpdateSettingRequest(BaseModel):
     value: str
+
+
+class AiModelsRequest(BaseModel):
+    url: str = ""
+    key: str = ""
+
+
+class BatchUpdateSettingsRequest(BaseModel):
+    values: dict[str, str]
 
 
 class WipeDataRequest(BaseModel):
@@ -76,9 +113,9 @@ WIPE_MODELS = [
 ]
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(_require_settings_reader)])
 def get_settings_list(request: Request) -> dict:
-    hide_secrets = _caller_state(request) == "user"
+    hide_secrets = _caller_state(request) != "admin"
     with SessionLocal() as session:
         settings = list_settings(session)
         items = []
@@ -90,9 +127,9 @@ def get_settings_list(request: Request) -> dict:
         return {"settings": items}
 
 
-@router.get("/ai/config")
+@router.get("/ai/config", dependencies=[Depends(_require_settings_reader)])
 def get_ai_config(request: Request) -> dict:
-    hide_secrets = _caller_state(request) == "user"
+    hide_secrets = _caller_state(request) not in {"admin", "service"}
     with SessionLocal() as session:
 
         def _get(key: str) -> str:
@@ -107,6 +144,8 @@ def get_ai_config(request: Request) -> dict:
             "cloud_api_url": api_url,
             "cloud_api_key": "" if hide_secrets else _get("ai_api_key"),
             "cloud_model": _get("ai_model"),
+            "ollama_base_url": _get("ollama_base_url"),
+            "ollama_model": _get("ollama_model") or _get("graph_ollama_model"),
             "embedding_model": _get("kb_embedding_model") or _get("embedding_model"),
             "cloud_embedding_model": _get("kb_embedding_model")
             or _get("cloud_embedding_model")
@@ -119,9 +158,9 @@ def get_ai_config(request: Request) -> dict:
         }
 
 
-@router.get("/graph/config")
+@router.get("/graph/config", dependencies=[Depends(_require_settings_reader)])
 def get_graph_config(request: Request) -> dict:
-    hide_secrets = _caller_state(request) == "user"
+    hide_secrets = _caller_state(request) not in {"admin", "service"}
     with SessionLocal() as session:
 
         def _get(key: str) -> str:
@@ -146,8 +185,8 @@ def get_graph_config(request: Request) -> dict:
         }
 
 
-@router.get("/ai/models")
-def get_ai_models(url: str = "", key: str = "") -> dict:
+@router.post("/ai/models", dependencies=[Depends(_require_admin_csrf)])
+def get_ai_models(payload: AiModelsRequest) -> dict:
     with SessionLocal() as session:
 
         def _get(k: str) -> str:
@@ -156,8 +195,8 @@ def get_ai_models(url: str = "", key: str = "") -> dict:
             ).scalar_one_or_none()
             return row.value if row else ""
 
-        api_url = url or _get("ai_api_url") or _get("ai_custom_url")
-        api_key = key or _get("ai_api_key")
+        api_url = payload.url or _get("ai_api_url") or _get("ai_custom_url")
+        api_key = payload.key or _get("ai_api_key")
         if not api_url or not api_key:
             return {"models": [], "error": "URL ou API Key nao configurada"}
 
@@ -177,30 +216,52 @@ def get_ai_models(url: str = "", key: str = "") -> dict:
             return {"models": [], "error": str(e)}
 
 
-@router.get("/{key:path}")
+@router.put("/batch", dependencies=[Depends(_require_admin_csrf)])
+def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
+    if not payload.values or len(payload.values) > 100:
+        raise HTTPException(status_code=400, detail="Invalid settings batch")
+    if any(not key or len(key) > 128 or "\x00" in key for key in payload.values):
+        raise HTTPException(status_code=400, detail="Invalid setting key")
+
+    with SessionLocal() as session:
+        existing = {
+            row.key: row
+            for row in session.execute(
+                select(SettingRecord).where(SettingRecord.key.in_(payload.values))
+            ).scalars()
+        }
+        for key, value in payload.values.items():
+            setting = existing.get(key)
+            if setting is None:
+                setting = SettingRecord(key=key, value=value)
+                session.add(setting)
+                existing[key] = setting
+            else:
+                setting.value = value
+        session.commit()
+        return {"status": "saved", "count": len(payload.values)}
+
+
+@router.get("/{key:path}", dependencies=[Depends(_require_settings_reader)])
 def get_setting_endpoint(key: str, request: Request) -> dict:
     with SessionLocal() as session:
         setting = get_setting(session, key)
         data = serialize_setting(setting)
-        if key in SECRET_KEYS and _caller_state(request) == "user":
+        if key in SECRET_KEYS and _caller_state(request) != "admin":
             data["value"] = ""
         return {"setting": data}
 
 
-@router.put("/{key:path}")
+@router.put("/{key:path}", dependencies=[Depends(_require_admin_csrf)])
 def update_setting_endpoint(
     key: str, payload: UpdateSettingRequest, request: Request
 ) -> dict:
-    if _caller_state(request) == "user":
-        raise HTTPException(
-            status_code=403, detail="Only the admin can change workspace settings"
-        )
     with SessionLocal() as session:
         setting = set_setting(session, key, payload.value)
         return {"setting": serialize_setting(setting)}
 
 
-@router.post("/danger/wipe", dependencies=[Depends(require_admin)])
+@router.post("/danger/wipe", dependencies=[Depends(_require_admin_csrf)])
 def wipe_all_data(payload: WipeDataRequest) -> dict:
     cfg = get_app_settings()
     vault_path = cfg.vault_path.resolve()

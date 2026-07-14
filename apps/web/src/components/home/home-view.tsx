@@ -219,31 +219,35 @@ export function HomeView() {
     );
   }
 
-  const nome = w.demo ? "" : (typeof window !== "undefined" ? localStorage.getItem("bb_nome") || "Mateus" : "Mateus");
+  const nome = w.demo ? "" : (typeof window !== "undefined" ? localStorage.getItem("bb_nome") || "Owner" : "Owner");
   const noNotes = summary.stats.notes.total === 0 && w.notes.length === 0;
   const progressStatus = normalizeStatus(summary.progress.status);
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl px-6 py-8 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <HomeHeader summary={summary} nome={nome} onGraph={() => w.setGraphOpen(true)} />
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
-          <div className="space-y-6">
-            <ComposeCard
-              noNotes={noNotes}
-              value={starterText}
-              disabled={creatingDraft}
-              onChange={(value) => startWriting(value)}
-              onCreateEmpty={() => w.createDraft()}
-              creating={creatingDraft}
-            />
-            <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
-            <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
+        <div className="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+          <ComposeCard
+            noNotes={noNotes}
+            value={starterText}
+            disabled={creatingDraft}
+            onChange={(value) => startWriting(value)}
+            onCreateEmpty={() => w.createDraft()}
+            creating={creatingDraft}
+          />
+          <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
+        </div>
+
+        <StatsGrid summary={summary} />
+
+        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+          <div className="space-y-8">
             <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
             <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
           </div>
-          <aside className="space-y-6">
+          <aside className="space-y-8">
             <ReviewTodayCard reviews={summary.dueReviews || []} total={summary.stats.study?.dueReviews || 0} />
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
             <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
@@ -253,7 +257,7 @@ export function HomeView() {
           </aside>
         </div>
 
-        <StatsGrid summary={summary} />
+        <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
         <InfographicsGrid summary={summary} />
 
         <div className="mt-8 flex flex-wrap gap-2">
@@ -300,13 +304,17 @@ function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: num
 }
 
 function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: string; onGraph: () => void }) {
+  const usingCloud = Boolean(summary.status.cloudProvider && summary.status.cloudProvider !== "local");
+  const providerStatus = usingCloud
+    ? `AI · ${providerLabel(summary.status.cloudProvider)}`
+    : `AI · Local${summary.status.ollama === "online" ? " ready" : " unavailable"}`;
   return (
-    <header className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-accent-soft/70 via-panel to-panel p-6 lg:p-8">
+    <header className="border-b border-border/60 pb-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="max-w-2xl">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">{t("home")}</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">{nome ? `${t("homeGreeting")}, ${nome}.` : `${t("homeGreeting")}.`}</h1>
-          <p className="mt-1.5 text-sm text-muted/70">{t("keepWriting")}</p>
+          <p className="mt-2 text-sm leading-6 text-muted/70">{t("keepWriting")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <HeaderLink accent onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
@@ -314,15 +322,12 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
           <HeaderLink accent onClick={onGraph}>{t("viewGraph")}</HeaderLink>
         </div>
       </div>
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
           <StatusBadge label={`Worker ${summary.status.worker}`} status={summary.status.worker === "running" || summary.status.worker === "online" ? "ok" : "bad"} />
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
-          <StatusBadge label={`Ollama ${summary.status.ollama}`} status={summary.status.ollama === "online" ? "ok" : "bad"} />
-        </span>
-        <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">
-          <StatusBadge label={`Cloud: ${providerLabel(summary.status.cloudProvider)}${summary.status.cloudModel ? ` · ${summary.status.cloudModel}` : ""}`} status={summary.status.cloudProvider === "local" ? "muted" : "ok"} />
+          <StatusBadge label={providerStatus} status={usingCloud || summary.status.ollama === "online" ? "ok" : "muted"} />
         </span>
         <span className="inline-flex items-center gap-2 rounded-full bg-surface/80 px-3 py-1.5 text-[11px] text-muted/70 ring-1 ring-border/40">{tf("activeJobsCount", { count: summary.status.activeJobs })} · {tf("queuedCount", { count: summary.status.pendingJobs })}</span>
         {summary.status.lastProcessingAt && (
@@ -407,7 +412,7 @@ function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem
             <div key={insight.id} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-medium uppercase text-accent">{insightTypeLabel(insight.type)}</span>
-                {insight.priority > 0 && <span className="text-[10px] text-muted/40">prioridade {insight.priority}</span>}
+                {insight.priority > 0 && <span className="text-[10px] text-muted/40">Priority {insight.priority}</span>}
                 <span className="text-[10px] text-muted/40 ml-auto">{Math.round((insight.confidence || 0) * 100)}%</span>
               </div>
               <p className="mt-1 text-xs font-medium">{insight.title}</p>
@@ -441,7 +446,7 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
                   <span className="text-xs font-medium">{job.label}</span>
                   <span className="text-[10px] text-muted/45">{formatElapsed(job.elapsedSeconds || 0)}</span>
                 </div>
-                <p className="mt-1 truncate text-[11px] text-muted/60">{job.noteTitle || job.notePath || "Sistema"}</p>
+                <p className="mt-1 truncate text-[11px] text-muted/60">{job.noteTitle || job.notePath || "System"}</p>
                 {pp && (
                   <div className="mt-1.5 flex items-center gap-2">
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-border/30">
@@ -599,7 +604,7 @@ function RecentConnectionsList({
   onUpdateStatus: (id: number, action: "confirm" | "ignore") => void;
 }) {
   return (
-    <Section title={t("recentConnections")} className="mt-8">
+    <Section title={t("recentConnections")}>
       {connections.length === 0 ? (
         <EmptyState title={t("noConnectionsYet")} text={t("autopilotCreatesRelations")} />
       ) : (
@@ -713,7 +718,7 @@ function providerLabel(provider: string) {
   if (provider === "nvidia-nim") return "NVIDIA NIM";
   if (provider === "cloud") return "Cloud";
   if (provider === "local") return "Local";
-  return provider || "IA";
+  return provider || "AI";
 }
 
 function insightTypeLabel(type: string) {

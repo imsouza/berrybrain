@@ -48,6 +48,7 @@ type Settings = {
   graph_ai_api_url: string;
   graph_ai_api_key: string;
   graph_ai_model: string;
+  ollama_base_url: string;
   graph_ollama_model: string;
   graph_auto_confirm_confidence: string;
   graph_default_layout: "brain" | "radial" | "type" | "connections";
@@ -83,7 +84,7 @@ function defaults(): Settings {
     editor_font_size: "15",
     ui_font: "inter",
     editor_font: "mono",
-    nome: "Mateus",
+    nome: "Owner",
     ai_provider: "local",
     ai_api_url: NVIDIA_NIM_URL,
     ai_custom_url: "",
@@ -93,6 +94,7 @@ function defaults(): Settings {
     graph_ai_api_url: NVIDIA_NIM_URL,
     graph_ai_api_key: "",
     graph_ai_model: "",
+    ollama_base_url: "http://host.docker.internal:11434",
     graph_ollama_model: "qwen3:8b",
     graph_auto_confirm_confidence: "0.9",
     graph_default_layout: "brain",
@@ -135,12 +137,13 @@ function loadSettings(): Settings {
     ai_provider: (localStorage.getItem("bb_ai_provider") as Settings["ai_provider"]) || d.ai_provider,
     ai_api_url: localStorage.getItem("bb_ai_api_url") || d.ai_api_url,
     ai_custom_url: localStorage.getItem("bb_ai_custom_url") || d.ai_custom_url,
-    ai_api_key: localStorage.getItem("bb_ai_api_key") || d.ai_api_key,
+    ai_api_key: d.ai_api_key,
     ai_model: localStorage.getItem("bb_ai_model") || d.ai_model,
     graph_ai_provider: (localStorage.getItem("bb_graph_ai_provider") as Settings["graph_ai_provider"]) || d.graph_ai_provider,
     graph_ai_api_url: localStorage.getItem("bb_graph_ai_api_url") || d.graph_ai_api_url,
-    graph_ai_api_key: localStorage.getItem("bb_graph_ai_api_key") || d.graph_ai_api_key,
+    graph_ai_api_key: d.graph_ai_api_key,
     graph_ai_model: localStorage.getItem("bb_graph_ai_model") || d.graph_ai_model,
+    ollama_base_url: localStorage.getItem("bb_ollama_base_url") || d.ollama_base_url,
     graph_ollama_model: localStorage.getItem("bb_graph_ollama_model") || d.graph_ollama_model,
     graph_auto_confirm_confidence: localStorage.getItem("bb_graph_auto_confirm_confidence") || d.graph_auto_confirm_confidence,
     graph_default_layout: (localStorage.getItem("bb_graph_default_layout") as Settings["graph_default_layout"]) || d.graph_default_layout,
@@ -209,6 +212,7 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "graph_ai_api_url",
   "graph_ai_api_key",
   "graph_ai_model",
+  "ollama_base_url",
   "graph_ollama_model",
   "graph_auto_confirm_confidence",
   "graph_default_layout",
@@ -235,6 +239,8 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "attachment_transcription_executable",
   "attachment_transcription_model",
 ];
+
+const SECRET_SETTING_KEYS = new Set<keyof Settings>(["ai_api_key", "graph_ai_api_key"]);
 
 export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClose: () => void; apiUrl: string }) {
   const [s, setS] = useState<Settings>(loadSettings);
@@ -308,18 +314,20 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   }
 
   async function persist(next = s) {
-    await Promise.all(
-      SETTING_KEYS.map((key) => {
-        localStorage.setItem(`bb_${key}`, String(next[key]));
-        if (!isAdmin || apiUrl === "__demo__") return Promise.resolve();
-        return fetch(`${apiUrl}/api/v1/settings/${key}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ value: String(next[key]) }),
-        });
-      }),
-    );
+    const values: Record<string, string> = {};
+    SETTING_KEYS.forEach((key) => {
+      if (SECRET_SETTING_KEYS.has(key)) localStorage.removeItem(`bb_${key}`);
+      else localStorage.setItem(`bb_${key}`, String(next[key]));
+      values[key] = String(next[key]);
+    });
+    if (!isAdmin || apiUrl === "__demo__") return;
+    const response = await fetch(`${apiUrl}/api/v1/settings/batch`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ values }),
+    });
+    if (!response.ok) throw new Error("Settings could not be saved.");
   }
 
   async function save() {
@@ -342,7 +350,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setLoadingModels(true);
     setConnectionStatus("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/settings/ai/models?url=${encodeURIComponent(baseUrl)}&key=${encodeURIComponent(s.ai_api_key)}`);
+      const response = await fetch(`${apiUrl}/api/v1/settings/ai/models`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: baseUrl, key: s.ai_api_key }),
+      });
       const payload = await response.json();
       if (payload.error) {
         setCloudModels([]);
@@ -683,6 +696,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           </Section>
 
           <Section title="Local" description="Local Ollama settings for offline processing.">
+            <Field label="Ollama URL" description="Address reachable from the API and Worker containers.">
+              <TextInput value={s.ollama_base_url} onChange={(value) => update("ollama_base_url", value)} placeholder="http://host.docker.internal:11434" />
+            </Field>
             <Field label="Ollama graph model" description="Used when graph provider is Local Ollama.">
               <TextInput value={s.graph_ollama_model} onChange={(value) => update("graph_ollama_model", value)} placeholder="qwen3:8b" />
             </Field>

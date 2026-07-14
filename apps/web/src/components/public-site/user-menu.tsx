@@ -132,8 +132,6 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [twoFaPassword, setTwoFaPassword] = useState("");
-  const [deleteStage, setDeleteStage] = useState<"idle" | "code">("idle");
-  const [deleteCode, setDeleteCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -294,41 +292,16 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
           </button>
         </section>
 
-        <section className="space-y-2 border-t border-red-500/30 pt-4">
-          <h3 className="font-medium text-red-400">Delete account</h3>
-          <p className="text-muted">A confirmation code will be sent to your email. This action is permanent.</p>
-          {deleteStage === "idle" ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                guard(async () => {
-                  await call("/delete-account/request", "POST", {});
-                  setDeleteStage("code");
-                }, "Code sent to your email.")
-              }
-              className="rounded-md border border-red-500/50 px-3 py-2 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-            >
-              Request deletion
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <input inputMode="numeric" placeholder="6-digit code" value={deleteCode} onChange={(e) => setDeleteCode(e.target.value.replace(/\D/g, "").slice(0, 12))} className="w-full rounded-md border border-border bg-surface px-3 py-2 outline-none focus:border-accent" />
-              <button
-                type="button"
-                disabled={busy || !deleteCode}
-                onClick={() =>
-                  guard(async () => {
-                    await call("/delete-account/confirm", "POST", { code: deleteCode });
-                    window.location.href = appPath("/");
-                  }, "Account deleted.")
-                }
-                className="rounded-md bg-red-500 px-3 py-2 font-medium text-white disabled:opacity-50"
-              >
-                Confirm permanent deletion
-              </button>
-            </div>
-          )}
+        <section className="space-y-2 border-t border-border pt-4">
+          <h3 className="font-medium text-foreground">Instance ownership</h3>
+          <p className="leading-5 text-muted">
+            This is the single owner account. Password recovery and owner removal are local
+            operator actions documented in the self-hosting guide, preventing a remote request
+            from locking the instance owner out.
+          </p>
+          <a href={appPath("/docs#account-recovery")} className="inline-flex text-accent hover:underline">
+            Open account recovery guide
+          </a>
         </section>
       </div>
     </dialog>

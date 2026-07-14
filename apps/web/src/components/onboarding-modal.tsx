@@ -60,9 +60,13 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   const [apiUrl, setApiUrl] = useState(NVIDIA_NIM_URL);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [localUrl, setLocalUrl] = useState("http://host.docker.internal:11434");
+  const [localModel, setLocalModel] = useState("qwen3:8b");
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -71,7 +75,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     function openTour() {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((me: MeResponse | null) => {
+        .then(() => {
           if (!alive) return;
           setStep(0);
           setPhase("tour");
@@ -98,12 +102,24 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
         .then(() => startDemo())
         .catch(() => startDemo());
-    } else if (localStorage.getItem("bb_onboarded") !== "1") {
+    } else {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((me: MeResponse | null) => {
+        .then(async (me: MeResponse | null) => {
           if (!alive || !me?.user) return;
-          setPhase("ai");
+          const response = await fetch(`${getApiUrl()}/api/v1/settings`, {
+            credentials: "include",
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const completed = data?.settings?.some(
+              (setting: { key?: string; value?: string }) =>
+                setting.key === "onboarding_completed" && setting.value === "true",
+            );
+            if (completed) return;
+          }
+          setStep(0);
+          setPhase("tour");
           setShow(true);
         })
         .catch(() => {});
@@ -117,7 +133,11 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
   const steps = useMemo(() => baseSteps, []);
   const isConfigStep = phase === "ai";
-  const aiConfigured = modeSelected && (mode === "local" || (mode === "cloud" && Boolean(apiKey.trim()) && Boolean(model.trim())));
+  const aiConfigured =
+    modeSelected &&
+    (mode === "local"
+      ? Boolean(localUrl.trim()) && Boolean(localModel.trim())
+      : Boolean(apiUrl.trim()) && Boolean(apiKey.trim()) && Boolean(model.trim()));
   const total = steps.length;
   const progress = isConfigStep ? 100 : Math.round(((step + 1) / total) * 100);
   const isLastTourStep = step === steps.length - 1;
@@ -127,8 +147,12 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     setLoadingModels(true);
     setModelsError("");
     try {
-      const params = new URLSearchParams({ url, key: apiKey.trim() });
-      const r = await fetch(`${getApiUrl()}/api/v1/ai/models?${params}`);
+      const r = await fetch(`${getApiUrl()}/api/v1/settings/ai/models`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, key: apiKey.trim() }),
+      });
       const data = await r.json();
       if (data.error) throw new Error(data.error);
       const ids: string[] = Array.isArray(data?.models)
@@ -144,20 +168,52 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     }
   }
 
-  function finish(provider: "local" | "cloud" = mode) {
-    localStorage.setItem("bb_ai_provider", provider);
-    localStorage.setItem("bb_graph_ai_provider", provider);
-    if (provider === "cloud") {
-      const url = apiUrl.trim() || NVIDIA_NIM_URL;
-      localStorage.setItem("bb_ai_api_url", url);
-      localStorage.setItem("bb_graph_ai_api_url", url);
-      localStorage.setItem("bb_ai_api_key", apiKey.trim());
-      localStorage.setItem("bb_graph_ai_api_key", apiKey.trim());
-      localStorage.setItem("bb_ai_model", model.trim());
-      localStorage.setItem("bb_graph_ai_model", model.trim());
+  async function finish(provider: "local" | "cloud" = mode) {
+    setSaving(true);
+    setSaveError("");
+    const url = apiUrl.trim() || NVIDIA_NIM_URL;
+    const values: Record<string, string> = {
+      ai_provider: provider,
+      graph_ai_provider: provider,
+      ai_api_url: provider === "cloud" ? url : "",
+      graph_ai_api_url: provider === "cloud" ? url : "",
+      ai_api_key: provider === "cloud" ? apiKey.trim() : "",
+      graph_ai_api_key: provider === "cloud" ? apiKey.trim() : "",
+      ai_model: provider === "cloud" ? model.trim() : "",
+      graph_ai_model: provider === "cloud" ? model.trim() : "",
+      ollama_base_url: provider === "local" ? localUrl.trim() : "",
+      ollama_model: provider === "local" ? localModel.trim() : "",
+      graph_ollama_model: provider === "local" ? localModel.trim() : "",
+      remote_content_consent: provider === "cloud" ? "true" : "false",
+      onboarding_completed: "true",
+    };
+    try {
+      const response = await fetch(`${getApiUrl()}/api/v1/settings/batch`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values }),
+      });
+      if (!response.ok) throw new Error("Settings could not be saved.");
+      localStorage.setItem("bb_ai_provider", provider);
+      localStorage.setItem("bb_graph_ai_provider", provider);
+      if (provider === "cloud") {
+        localStorage.setItem("bb_ai_api_url", url);
+        localStorage.setItem("bb_graph_ai_api_url", url);
+        localStorage.setItem("bb_ai_model", model.trim());
+        localStorage.setItem("bb_graph_ai_model", model.trim());
+      } else {
+        localStorage.setItem("bb_graph_ollama_model", localModel.trim());
+      }
+      localStorage.removeItem("bb_ai_api_key");
+      localStorage.removeItem("bb_graph_ai_api_key");
+      localStorage.removeItem("bb_onboarded");
+      setShow(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Settings could not be saved.");
+    } finally {
+      setSaving(false);
     }
-    localStorage.setItem("bb_onboarded", "1");
-    setShow(false);
   }
 
   function skip() {
@@ -257,6 +313,32 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                 </div>
               </div>
 
+              {mode === "local" && modeSelected && (
+                <div className="mt-4 grid gap-3">
+                  <label className="block text-xs text-muted">
+                    Ollama URL
+                    <input
+                      value={localUrl}
+                      onChange={(event) => setLocalUrl(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                      placeholder="http://host.docker.internal:11434"
+                    />
+                  </label>
+                  <label className="block text-xs text-muted">
+                    Ollama model
+                    <input
+                      value={localModel}
+                      onChange={(event) => setLocalModel(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                      placeholder="Select or enter an installed model"
+                    />
+                    <span className="mt-1 block text-[11px] text-muted">
+                      The model must already be available in your Ollama installation.
+                    </span>
+                  </label>
+                </div>
+              )}
+
               {mode === "cloud" && (
                 <div className="mt-4 grid gap-3">
                   <label className="block text-xs text-muted">
@@ -307,6 +389,11 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                   </label>
                 </div>
               )}
+              {saveError && (
+                <p role="alert" className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
+                  {saveError}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -340,10 +427,10 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
             ) : (
               <button
                 onClick={() => finish(mode)}
-                disabled={!aiConfigured}
+                disabled={!aiConfigured || saving}
                 className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
               >
-                Finish
+                {saving ? "Saving…" : "Finish"}
               </button>
             )}
           </div>
