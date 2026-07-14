@@ -668,6 +668,8 @@ For Netlify, deploy the `webapp` branch. The repository's `netlify.toml` sets `a
 base directory, `npm run build` as the build command, and `.next` as the publish directory. Keep
 `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` in the Netlify environment when analytics is enabled. Do not set
 `BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for browser-only deployments.
+The Netlify Next.js runtime is pinned in the web package so App Router pages and middleware are
+packaged as Netlify Functions instead of publishing raw `.next` artifacts that return 404.
 
 ### 3. Create the local owner account
 
