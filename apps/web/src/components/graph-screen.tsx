@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { t } from "@/i18n";
-import { appPath } from "@/contexts/workspace-context";
+import { apiFetch, appPath } from "@/contexts/workspace-context";
 
 const EDGE_COLORS: Record<string, string> = {
   explicit_link: "#3C8F5A",
@@ -461,7 +461,7 @@ export function GraphScreen({
 
   useEffect(() => {
     if (apiUrl === "__demo__") return;
-    fetch(`${apiUrl}/api/v1/settings/graph/config`)
+    apiFetch(`${apiUrl}/api/v1/settings/graph/config`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((config) => {
         const mode = config.default_layout as GraphLayoutMode;
@@ -478,7 +478,7 @@ export function GraphScreen({
     }
     let cancelled = false;
     setSummaryLoading(true);
-    fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
+    apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((payload) => {
         if (!cancelled) {
@@ -502,7 +502,7 @@ export function GraphScreen({
       setResearchModeEnabled(false);
       return;
     }
-    fetch(`${apiUrl}/api/v1/settings`)
+    apiFetch(`${apiUrl}/api/v1/settings`)
       .then((r) => r.json())
       .then((payload) => {
         const item = (payload.settings || []).find((setting: { key: string; value: string }) => setting.key === "research_mode_enabled");
@@ -518,7 +518,7 @@ export function GraphScreen({
 
   async function expandGraph() {
     if (apiUrl === "__demo__") return;
-    await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
+    await apiFetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
     reload();
   }
 
@@ -530,17 +530,24 @@ export function GraphScreen({
     setInference(null);
     setInferenceSaveStatus("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/infer`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text }),
       });
-      setInference(await response.json());
-    } catch {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof payload.detail === "string"
+          ? payload.detail
+          : `Graph inference failed (HTTP ${response.status}).`;
+        throw new Error(message);
+      }
+      setInference(payload as InferenceResult);
+    } catch (error) {
       setInference({
         status: "error",
         question: text,
-        answer: "Could not query the graph right now.",
+        answer: error instanceof Error ? error.message : "Could not query the graph right now.",
       });
     } finally {
       setInferLoading(false);
@@ -554,7 +561,7 @@ export function GraphScreen({
     setInferenceSaving(true);
     setInferenceSaveStatus("Saving inference as insight...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/insights/from-inference`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/insights/from-inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, inference }),
@@ -585,7 +592,7 @@ export function GraphScreen({
   async function createPermanentConceptNote() {
     if (!selectedNode?.sourceId || selectedNode.type !== "concept") return;
     if (apiUrl === "__demo__") return;
-    const response = await fetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
+    const response = await apiFetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
     const payload = await response.json();
     if (payload.note?.path) {
       onNavigate(payload.note.path);
@@ -595,7 +602,7 @@ export function GraphScreen({
   async function saveManualNodeNotes() {
     if (!selectedNode?.recordId) return;
     if (apiUrl === "__demo__") return;
-    const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notes: manualNotes }),
@@ -615,7 +622,7 @@ export function GraphScreen({
     setActionLoading("validate-node-web");
     setNodeActionStatus("Validating with web...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error) {
         setNodeActionStatus(payload.detail || payload.error || "Web validation failed.");
@@ -628,7 +635,7 @@ export function GraphScreen({
       );
       reload();
       if (selectedNode.recordId) {
-        const summaryResponse = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
+        const summaryResponse = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
         if (summaryResponse.ok) setNodeSummary(await summaryResponse.json());
       }
     } finally {
@@ -642,7 +649,7 @@ export function GraphScreen({
     setActionLoading("enrich-node-ai");
     setNodeActionStatus("Enriching node with configured AI...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "AI enrichment failed.");
@@ -666,7 +673,7 @@ export function GraphScreen({
     setActionLoading(status === "confirmed" ? "confirm-node" : "ignore-node");
     const action = status === "confirmed" ? "confirm" : "ignore";
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
       if (!response.ok) {
         setNodeActionStatus(`${status === "confirmed" ? "Confirm Node" : "Ignore Node"} failed.`);
         return;
@@ -690,13 +697,13 @@ export function GraphScreen({
     setActionLoading(isApply ? "confirm-node" : "ignore-node");
     try {
       const insightAction = isApply ? "apply" : "ignore";
-      const insightResponse = await fetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
+      const insightResponse = await apiFetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
       if (!insightResponse.ok) {
         setNodeActionStatus(isApply ? "Apply Insight failed." : "Ignore Insight failed.");
         return;
       }
       const nodeAction = isApply ? "confirm" : "ignore";
-      await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
+      await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
       setNodeSummary((current) => current ? { ...current, status } : current);
       setNodeActionStatus(isApply ? "Insight applied." : "Insight ignored.");
       if (!isApply) {
@@ -714,7 +721,7 @@ export function GraphScreen({
     const action = status === "confirmed" ? "confirm" : "ignore";
     setActionLoading(`${action}-connection-${edgeId}`);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
       if (!response.ok) {
         setNodeActionStatus(`${status === "confirmed" ? "Confirm Connection" : "Ignore Connection"} failed.`);
         return;
@@ -737,7 +744,7 @@ export function GraphScreen({
     setActionLoading(`save-insight-${edgeId}`);
     setNodeActionStatus("Generating connection insight with configured AI...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "Connection insight generation failed.");
@@ -761,7 +768,7 @@ export function GraphScreen({
     setActionLoading("reprocess-node");
     setNodeActionStatus("Node reprocess queued.");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/reprocess`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/reprocess`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "Reprocess node failed.");

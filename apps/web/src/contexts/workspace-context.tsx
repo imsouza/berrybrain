@@ -24,7 +24,7 @@ function readCsrf(): string {
   const match = document.cookie.match(/(?:^|;\s*)bb_csrf=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : "";
 }
-function apiFetch(input: string, init: RequestInit = {}) {
+export function apiFetch(input: string, init: RequestInit = {}) {
   const method = (init.method || "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
