@@ -113,7 +113,7 @@ export default function NotificationsPage() {
                       <p className="mt-0.5 text-xs text-muted/60">{a.description}</p>
                       <a
                         href={a.kind === "failed_jobs" || a.kind === "ollama_offline" ? "/brain?monitor=open" : "/activity"}
-                        className="mt-2 inline-block rounded-lg bg-accent px-3 py-1 text-[11px] font-medium text-white"
+                        className="bb-action mt-2 inline-block px-3 py-1 text-[11px] font-medium"
                       >
                         {a.action}
                       </a>
@@ -145,7 +145,7 @@ export default function NotificationsPage() {
                         <div className="flex shrink-0 items-center gap-2">
                           <span className="text-muted/50">{new Date(j.created_at).toLocaleTimeString(locale())}</span>
                           <button
-                            className="rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="bb-action px-2.5 py-1 text-[11px] font-medium"
                             disabled={retryingJobId === j.id}
                             onClick={() => retryJob(j.id)}
                           >

@@ -3,6 +3,7 @@
 import { useWorkspace } from "@/contexts/workspace-context";
 import { MarkdownPreview } from "./markdown-preview";
 import { useState, useEffect, useRef, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { t } from "@/i18n";
 
 type AttachmentItem = {
@@ -62,11 +63,13 @@ function Backlinks({ notePath }: { notePath: string }) {
 export function NoteEditor() {
   const w = useWorkspace();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [pipelineProgress, setPipelineProgress] = useState<NotePipelineProgress | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!w.active || w.demo) {
@@ -79,6 +82,26 @@ export function NoteEditor() {
       .then((data) => setAttachments(data?.attachments || []))
       .catch(() => setAttachments([]));
   }, [w.active?.path, w.api, w.demo]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [w.active?.path]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    const closeMenu = () => setMenuOpen(false);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!w.active || w.demo) {
@@ -109,6 +132,21 @@ export function NoteEditor() {
 
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;
+
+  function toggleNoteMenu() {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return;
+    }
+    const rect = menuButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 176;
+    setMenuPosition({
+      top: rect.bottom + 6,
+      left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+    });
+    setMenuOpen(true);
+  }
 
   function replaceSelection(nextText: string, selectStart?: number, selectEnd?: number) {
     w.setDraft(nextText);
@@ -319,29 +357,10 @@ export function NoteEditor() {
             ))}
           </div>
 
-          <div className="relative">
-            <button className="rounded-lg p-1.5 text-muted hover:bg-surface" onClick={() => setMenuOpen(!menuOpen)} aria-label={t("moreActions")}>
+          <div>
+            <button ref={menuButtonRef} className="rounded-lg p-1.5 text-muted hover:bg-surface" onClick={toggleNoteMenu} aria-label={t("moreActions")} aria-haspopup="menu" aria-expanded={menuOpen}>
               <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01" /></svg>
             </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-xl bg-panel shadow-lg ring-1 ring-black/10 py-1">
-                  <button className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); w.download(); }}>
-                    <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                     {t("download")}
-                  </button>
-                  <button className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); w.renameNote(); }}>
-                    <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                     {t("rename")}
-                  </button>
-                  <button className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50" onClick={() => { setMenuOpen(false); w.deleteActive(); }}>
-                    <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                     {t("delete")}
-                  </button>
-                </div>
-              </>
-            )}
           </div>
 
           <div className="ml-1 pl-1 border-l border-border/50">
@@ -351,10 +370,36 @@ export function NoteEditor() {
           </div>
 
           {isDirty && (
-            <button className="h-8 rounded-lg bg-accent px-3 text-xs font-medium text-white hover:opacity-90 ml-1" onClick={w.save}>{t("save")}</button>
+            <button className="bb-action ml-1 h-8 px-3 text-xs font-medium" onClick={w.save}>{t("save")}</button>
           )}
         </div>
       </div>
+
+      {menuOpen && typeof document !== "undefined" && createPortal(
+        <>
+          <button className="fixed inset-0 z-[80] cursor-default" onClick={() => setMenuOpen(false)} aria-label="Close note actions" />
+          <div
+            className="fixed z-[81] w-44 rounded-xl border border-border bg-panel py-1 shadow-lg"
+            style={{ top: menuPosition.top, left: menuPosition.left }}
+            role="menu"
+            aria-label="Note actions"
+          >
+            <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); void w.download(); }}>
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Export Markdown
+            </button>
+            <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); void w.renameNote(); }}>
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              Rename note
+            </button>
+            <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-danger/10" onClick={() => { setMenuOpen(false); void w.deleteActive(); }}>
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              Remove note
+            </button>
+          </div>
+        </>,
+        document.body,
+      )}
 
       {w.saveConflict && (
         <div
@@ -366,13 +411,13 @@ export function NoteEditor() {
             <span className="text-muted">Your local draft was not overwritten.</span>
           </div>
           <button
-            className="rounded-md border border-border bg-panel px-3 py-1.5 font-medium text-foreground hover:bg-surface"
+            className="bb-action px-3 py-1.5 font-medium"
             onClick={() => w.resolveSaveConflict("reload")}
           >
             Load latest
           </button>
           <button
-            className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700"
+            className="bb-action bb-action--danger px-3 py-1.5 font-medium"
             onClick={() => {
               if (window.confirm("Overwrite the newer note with your local draft?")) {
                 void w.resolveSaveConflict("overwrite");
@@ -472,7 +517,7 @@ function NotePipelineStatus({
           <p className="text-muted">{progress.completed}/{progress.total} stages · {progress.percent}%</p>
         </div>
         {error && (
-          <button className="rounded-md bg-danger/10 px-2.5 py-1 font-medium text-danger hover:bg-danger/15" onClick={onOpenMonitor}>
+          <button className="bb-action bb-action--danger px-2.5 py-1 font-medium" onClick={onOpenMonitor}>
             Open Monitor
           </button>
         )}

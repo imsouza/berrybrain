@@ -159,6 +159,33 @@ The API should **never** be publicly exposed directly. Publish the reverse-proxy
 and route API calls through the same origin.`,
   },
   {
+    id: "system-requirements",
+    title: "System requirements",
+    md: `## System requirements
+
+The values below are deployment baselines, not model-quality benchmarks. Storage grows with
+your notes, attachments, extracted text, embeddings, backups, and local model files.
+
+| Profile | CPU | Memory | Free storage | Suitable for |
+| --- | ---: | ---: | ---: | --- |
+| Minimum, cloud AI | 2 x86-64/ARM64 cores | 4 GB RAM | 10 GB SSD | Small vault and cloud inference. |
+| Recommended, cloud AI | 4 cores | 8 GB RAM | 20+ GB SSD | Daily use, attachments, and concurrent services. |
+| Recommended, local AI | 6+ cores | 16 GB RAM | 30+ GB SSD | Quantized 7B–8B Ollama models and moderate vaults. |
+| Larger local models | 8+ cores and supported GPU | 32+ GB RAM/VRAM as required | 60+ GB SSD | Larger context windows and higher throughput. |
+
+Required software:
+
+- 64-bit Linux host or Linux VM with a recent Docker Engine and Docker Compose v2.
+- A modern Chromium, Firefox, or Safari browser.
+- HTTPS for public deployments and PWA installation outside \`localhost\`.
+- Ollama plus an installed model for Local mode, **or** an OpenAI-compatible provider URL,
+  API key, and model for Cloud mode.
+
+The baseline does not include the disk or RAM required by your chosen Ollama model. Check the
+model artifact size before downloading it. Keep the API port private and use a same-origin TLS
+reverse proxy for public deployments.`,
+  },
+  {
     id: "installation",
     title: "Installation",
     md: `## Installation (self-hosting)
@@ -218,8 +245,9 @@ Expose **only** the web entrypoint. Do **not** expose the API port publicly.`,
 1. Clone the repository from GitHub.
 2. Configure \`.env\`.
 3. Start the Docker stack.
-4. Choose **Login** on the landing page and create the local owner account when prompted.
-5. Open the workspace and configure AI providers, vault settings, and privacy preferences.
+4. Choose **Setup** on the landing page and create the local owner account when prompted.
+5. The guided tour opens. You may skip the tour, but not provider configuration.
+6. Choose Local or Cloud AI and finish the required provider setup.
 
 The setup endpoint is one-shot. After the configured owner exists, setup returns
 \`Instance already configured\`.
@@ -239,7 +267,27 @@ never silently unconfigured.
 
 ### Guided tour
 A short tour runs **once** on first use, explaining capture, autopilot, graph, insights, and
-session controls. Reopen it anytime from the guide (?) button.`,
+session controls. **Skip** moves directly to AI setup; it does not dismiss onboarding. The
+completion state is stored in the local database, so a clean instance always starts with the
+tour. Reopen it anytime from the guide (?) button.`,
+  },
+  {
+    id: "pwa",
+    title: "Installable PWA",
+    md: `## Install BerryBrain as a PWA
+
+BerryBrain can be installed from a supported browser and opens directly in \`/brain\`.
+
+1. Serve the instance through HTTPS, or open it on \`localhost\`.
+2. Sign in and open **BerryBrain**.
+3. Use the browser's **Install app** action.
+
+Security behavior:
+
+- API responses, authenticated pages, and note contents are not stored in the Service Worker cache.
+- Static assets are cached for reliable loading.
+- When the server is unreachable, a neutral offline page is shown instead of stale private content.
+- Editing and cognitive processing still require a connection to your self-hosted server.`,
   },
   {
     id: "ai-providers",
@@ -251,20 +299,23 @@ session controls. Reopen it anytime from the guide (?) button.`,
 2. Start it: \`ollama serve\`.
 3. Pull a model: \`ollama pull qwen3:14b\`.
 4. In BerryBrain AI setup, choose **Local**.
-5. Nothing leaves your machine; no API key is required.
+5. Keep the Docker default URL \`http://host.docker.internal:11434\`, or enter an address
+   reachable from the API and Worker containers.
+6. Enter the installed model name. Nothing leaves your machine; no API key is required.
 
 ### Cloud API (NVIDIA NIM) — step by step
 1. Get an API key from your provider (e.g. NVIDIA NIM).
 2. In AI setup, choose **Cloud API**.
 3. Enter the **Provider URL** (default NVIDIA NIM).
 4. Paste your **API key**.
-5. Click **Load models**, then pick the recommended one
-   (e.g. \`qwen/qwen3.5-397b-instruct\`).
+5. Click **Load models**, then select a model returned by your provider.
 6. Finish.
 
-### Without AI
-BerryBrain still works: deterministic insights and the lexical knowledge graph remain
-available. Cloud or local models unlock richer embeddings, connections, and graph insights.`,
+### Provider setup is required
+BerryBrain does not allow onboarding to finish without an explicit Local or Cloud choice.
+Local mode requires an installed Ollama model name. Cloud mode requires a provider URL, API
+key, and model. This prevents the cognitive pipeline from appearing ready while no inference
+provider is available.`,
   },
   {
     id: "pipeline",
@@ -306,7 +357,32 @@ Attachments are knowledge sources, not passive downloads.
 
 Extraction runs in a constrained subprocess with fixed arguments, bounded resources,
 \`no_new_privs\`, limited output, and no shell interpolation. File-size limits are configured
-separately for image, audio, video, and other attachments in **Settings**.`,
+separately for image, audio, video, and other attachments in **Settings**.
+
+### OCR languages
+
+The OCR language value is passed directly to Tesseract's \`-l\` option. A code works only
+when its matching \`traineddata\` package is installed in the API image. The default image
+includes \`eng\` and \`osd\`; changing Settings to \`por\`, \`spa\`, \`deu\`, or another
+code does not download that language automatically.
+
+Install the required Debian package, rebuild the API, and verify the result:
+
+\`\`\`dockerfile
+RUN apt-get update \\
+    && apt-get install -y --no-install-recommends \\
+       tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \\
+    && rm -rf /var/lib/apt/lists/*
+\`\`\`
+
+\`\`\`bash
+docker compose build api
+docker compose up -d api
+docker compose exec api tesseract --list-langs
+\`\`\`
+
+Use \`por+eng\` for multilingual documents after both packs are installed. Missing or invalid
+language data makes the OCR job fail. This requirement applies to every Tesseract language.`,
   },
   {
     id: "notes",
@@ -389,6 +465,61 @@ Editor shortcuts:
 | **Ctrl+K** (editor) | Commands |
 
 Editor modes: **Edit**, **Preview**, **Split**.`,
+  },
+  {
+    id: "account-recovery",
+    title: "Account recovery & deletion",
+    md: `## Account recovery & deletion
+
+### Forgot the owner password
+
+If SMTP is configured, choose **Forgot password** on the Login page and use the one-time code
+sent to the configured owner email. If SMTP is not configured, reset the password locally on
+the host without placing it in shell history:
+
+\`\`\`bash
+read -s SEED_ADMIN_PASSWORD
+export SEED_ADMIN_PASSWORD
+docker compose exec -e SEED_ADMIN_PASSWORD api python /app/scripts/seed_admin.py
+unset SEED_ADMIN_PASSWORD
+\`\`\`
+
+This revokes the old password by replacing its hash and disables email 2FA unless
+\`--enable-2fa\` is explicitly passed. If \`BERRYBRAIN_SESSION_SECRET\` changes, run this
+recovery again because that secret is part of password verification.
+
+### Remove only the local owner account
+
+This keeps notes, graph data, and Settings, but revokes access and reopens one-time Setup:
+
+\`\`\`bash
+docker compose exec -e DELETE_OWNER_CONFIRM=DELETE_LOCAL_OWNER api \\
+  python /app/scripts/delete_owner.py
+\`\`\`
+
+Create a new owner through **Setup** afterward. The explicit confirmation protects against
+accidental lockout.
+
+### Delete knowledge data but keep Settings
+
+In **Settings → Danger zone**, use **Erase all data and keep settings**. This removes vault
+notes and derived knowledge while preserving provider, appearance, and instance settings.
+
+### Factory-reset the whole instance
+
+Stop the stack, back up anything you need, remove the local runtime volumes/directories, and
+start again. This removes the owner, settings, provider keys stored in the database, notes,
+jobs, graph, and insights:
+
+\`\`\`bash
+docker compose down
+rm -rf data/* vault/*
+mkdir -p data vault
+docker compose up -d
+\`\`\`
+
+Also remove any provider keys you deliberately placed in \`.env\`. Never commit \`.env\`, data,
+vault content, backups, or exported diagnostics.`,
   },
   {
     id: "account-security",
@@ -547,6 +678,14 @@ Clear cookies, ensure \`BERRYBRAIN_SESSION_SECRET\` is stable, and verify the pr
 This is expected after the first local owner exists. Use the existing login or the headless
 owner seed script for recovery.
 
+**I forgot the owner password and email delivery is not configured**
+Run \`/app/scripts/seed_admin.py\` inside the API container as documented in **Account recovery
+& deletion**. Do not delete the database merely to reset a password.
+
+**The install-app option is missing**
+Use HTTPS or \`localhost\`, verify \`manifest.webmanifest\` and \`sw.js\` are reachable under the
+same path prefix, then reload after the Service Worker activates.
+
 **Static assets fail under /berrybrain**
 Verify \`NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain\` and
 \`NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain\` before building the web app.`,
@@ -600,7 +739,7 @@ function DocsContent() {
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-black"
+            className="bb-action inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
               <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />

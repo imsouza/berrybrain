@@ -59,7 +59,11 @@ class SecurityAuthTest(unittest.TestCase):
         Base.metadata.create_all(bind=new_engine)
 
         cls.patched = []
-        for module_name in ("berrybrain_api.main", "berrybrain_api.routers.auth"):
+        for module_name in (
+            "berrybrain_api.main",
+            "berrybrain_api.routers.auth",
+            "berrybrain_api.routers.settings",
+        ):
             module = import_module(module_name)
             if hasattr(module, "SessionLocal"):
                 cls.patched.append(module)
@@ -281,6 +285,48 @@ class SecurityAuthTest(unittest.TestCase):
             headers={"X-CSRF-Token": csrf},
         )
         self.assertEqual(allowed.status_code, 200)
+
+    def test_settings_require_owner_session_and_csrf(self) -> None:
+        app = import_module("berrybrain_api.main").app
+        self._create_user("admin@example.com")
+
+        anonymous = TestClient(app)
+        self.assertEqual(anonymous.get("/api/v1/settings").status_code, 401)
+        self.assertEqual(
+            anonymous.put(
+                "/api/v1/settings/ai_api_key", json={"value": "not-a-real-key"}
+            ).status_code,
+            401,
+        )
+
+        owner = TestClient(app)
+        login = owner.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "admin@example.com",
+                "password": "Strong" + "Pass123",
+            },
+        )
+        csrf = login.json()["csrfToken"]
+        self.assertEqual(
+            owner.put(
+                "/api/v1/settings/ai_api_key", json={"value": "not-a-real-key"}
+            ).status_code,
+            403,
+        )
+        saved = owner.put(
+            "/api/v1/settings/ai_api_key",
+            json={"value": "not-a-real-key"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(saved.status_code, 200)
+        batch = owner.put(
+            "/api/v1/settings/batch",
+            json={"values": {"ai_provider": "local", "ollama_model": "qwen3:8b"}},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(batch.status_code, 200)
+        self.assertEqual(batch.json()["count"], 2)
 
     def test_admin_profile_crud_requires_admin_and_csrf(self) -> None:
         app = import_module("berrybrain_api.main").app

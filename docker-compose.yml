@@ -16,6 +16,8 @@ services:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     ports:
       - "${BERRYBRAIN_API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
@@ -68,6 +70,8 @@ services:
       BERRYBRAIN_API_URL: http://api:8000
       BERRYBRAIN_PROMPT_DIR: /app/prompts
       PYTHONDONTWRITEBYTECODE: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
