@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
+from uuid import uuid4
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.ai_gateway import (
@@ -19,6 +21,7 @@ from berrybrain_api.ai_gateway import (
 from berrybrain_api.models import (
     ConceptRecord,
     ConnectionRecord,
+    ChunkRecord,
     GeneratedMetadataRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -56,74 +59,15 @@ STOPWORDS = {
 
 
 def _merge_duplicate_nodes(session: Session) -> int:
-    nodes = list(session.execute(select(GraphNodeRecord)).scalars())
-    by_key: dict[tuple[str, str], list[GraphNodeRecord]] = defaultdict(list)
-    for n in nodes:
-        if n.type == "insight":
-            continue
-        if n.type == "note" and n.source_id:
-            by_key[(n.type, f"source:{n.source_id}")].append(n)
-            continue
-        key = normalize_concept_name(n.label or "")
-        if key:
-            by_key[(n.type, key)].append(n)
-    merged = 0
-    for key, group in by_key.items():
-        if len(group) < 2:
-            continue
-        group.sort(key=lambda n: n.confidence or 0, reverse=True)
-        survivor = group[0]
-        for victim in group[1:]:
-            for edge in session.execute(
-                select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.source_node_id == victim.id
-                )
-            ).scalars():
-                edge.source_node_id = survivor.id
-            for edge in session.execute(
-                select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.target_node_id == victim.id
-                )
-            ).scalars():
-                edge.target_node_id = survivor.id
-            sur_ids = set(_parse_json_list(survivor.source_note_ids))
-            vic_ids = set(_parse_json_list(victim.source_note_ids))
-            survivor.source_note_ids = _dump_json(sorted(sur_ids | vic_ids))
-            survivor.confidence = max(survivor.confidence, victim.confidence or 0)
-            session.delete(victim)
-            merged += 1
-    if merged:
-        session.flush()
-        _delete_duplicate_edges(session)
-    return merged
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).deduplicate_nodes()
 
 
 def _delete_duplicate_edges(session: Session) -> int:
-    edges = list(session.execute(select(GraphEdgeRecord)).scalars())
-    seen: dict[tuple[int, int, str], GraphEdgeRecord] = {}
-    deleted = 0
-    for edge in edges:
-        key = (edge.source_node_id, edge.target_node_id, edge.type)
-        existing = seen.get(key)
-        if existing is None:
-            seen[key] = edge
-            continue
-        existing.confidence = max(existing.confidence or 0, edge.confidence or 0)
-        evidence = set(_parse_json_list(existing.evidence)) | set(
-            _parse_json_list(edge.evidence)
-        )
-        source_note_ids = set(_parse_json_list(existing.source_note_ids)) | set(
-            _parse_json_list(edge.source_note_ids)
-        )
-        existing.evidence = _dump_json(sorted(evidence))
-        existing.source_note_ids = _dump_json(sorted(source_note_ids))
-        if not existing.reason and edge.reason:
-            existing.reason = edge.reason
-        session.delete(edge)
-        deleted += 1
-    if deleted:
-        session.flush()
-    return deleted
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).deduplicate_edges()
 
 
 def expand_knowledge_graph(session: Session) -> dict[str, int]:
@@ -371,6 +315,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
 
     contextualized_nodes = _ensure_graph_node_context(session)
     qualified_edges = _ensure_graph_edge_traceability(session)
+    ai_evidence_migration = _migrate_active_ai_edge_evidence(session)
     visible_nodes = [
         node
         for node in session.execute(select(GraphNodeRecord)).scalars()
@@ -398,6 +343,8 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         "createdEdges": edges_count,
         "contextualizedNodes": contextualized_nodes,
         "qualifiedEdges": qualified_edges,
+        "aiEdgesEvidenceRecovered": ai_evidence_migration["recovered"],
+        "aiEdgesMarkedStale": ai_evidence_migration["stale"],
     }
 
 
@@ -406,7 +353,9 @@ def _ensure_graph_node_context(session: Session) -> int:
         note.id: note for note in session.execute(select(NoteRecord)).scalars()
     }
     changed = 0
-    now = datetime.now(UTC)
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    writer = GraphWriteService(session, autocommit=False)
     for node in session.execute(select(GraphNodeRecord)).scalars():
         if node.status == "ignored":
             continue
@@ -431,36 +380,31 @@ def _ensure_graph_node_context(session: Session) -> int:
         ai_summary, ai_context, learning_value = _build_node_context(
             node, related_notes, evidence
         )
-        touched = False
-        if not node.ai_summary:
-            node.ai_summary = ai_summary
-            touched = True
-        if not node.ai_context:
-            node.ai_context = ai_context
-            touched = True
-        if not node.source_evidence and evidence:
-            node.source_evidence = _dump_json(evidence[:12])
-            touched = True
-        if not node.learning_value:
-            node.learning_value = learning_value[:20]
-            touched = True
-        if not node.source_quality:
-            node.source_quality = "contextualized"
-            touched = True
-        if not node.provider:
-            node.provider = node.created_by or "deterministic"
-            touched = True
-        if not node.model:
-            node.model = node.created_by_model or PROMPT_VERSION
-            touched = True
-        if not node.prompt_version:
-            node.prompt_version = PROMPT_VERSION
-            touched = True
-        if not node.generated_at:
-            node.generated_at = now
-            touched = True
-        if touched:
-            node.updated_at = now
+        values = {
+            "ai_summary": node.ai_summary or ai_summary,
+            "ai_context": node.ai_context or ai_context,
+            "source_evidence": node.source_evidence or _dump_json(evidence[:12]),
+            "learning_value": node.learning_value or learning_value[:20],
+            "source_quality": node.source_quality or "contextualized",
+            "provider": node.provider or node.created_by or "deterministic",
+            "model": node.model or node.created_by_model or PROMPT_VERSION,
+            "prompt_version": node.prompt_version or PROMPT_VERSION,
+        }
+        if any(
+            not current
+            for current in (
+                node.ai_summary,
+                node.ai_context,
+                node.source_evidence,
+                node.learning_value,
+                node.source_quality,
+                node.provider,
+                node.model,
+                node.prompt_version,
+                node.generated_at,
+            )
+        ):
+            writer.update_node_enrichment(node.id, values)
             changed += 1
     return changed
 
@@ -568,9 +512,14 @@ def _ensure_graph_edge_traceability(session: Session) -> int:
         note.id: note for note in session.execute(select(NoteRecord)).scalars()
     }
     changed = 0
-    now = datetime.now(UTC)
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    writer = GraphWriteService(session, autocommit=False)
     for edge in session.execute(select(GraphEdgeRecord)).scalars():
         if edge.status == "ignored":
+            continue
+        # AI edges are validated or quarantined by the chunk-evidence migration below.
+        if edge.created_by == "ai":
             continue
         source = nodes_by_id.get(edge.source_node_id)
         target = nodes_by_id.get(edge.target_node_id)
@@ -592,47 +541,135 @@ def _ensure_graph_edge_traceability(session: Session) -> int:
         if not evidence:
             evidence = note_titles or [source.label, target.label]
 
-        touched = False
-        if not edge.label:
-            edge.label = edge.type.replace("_", " ")
-            touched = True
-        if not edge.reason:
-            edge.reason = (
-                f'"{source.label}" connects to "{target.label}" through '
-                f'{edge.type.replace("_", " ")} evidence.'
+        if any(
+            value in (None, "", "[]")
+            for value in (
+                edge.label,
+                edge.reason,
+                edge.evidence,
+                edge.status,
+                edge.created_by,
+                edge.provider,
+                edge.model,
+                edge.prompt_version,
             )
-            touched = True
-        if not edge.evidence or edge.evidence == "[]":
-            edge.evidence = _dump_json(evidence[:12])
-            touched = True
-        if not edge.source_note_ids and source_note_ids:
-            edge.source_note_ids = _dump_json(source_note_ids)
-            touched = True
-        if edge.confidence is None:
-            edge.confidence = 1.0 if edge.status == "confirmed" else 0.7
-            touched = True
-        if not edge.status:
-            edge.status = "suggested"
-            touched = True
-        if not edge.created_by:
-            edge.created_by = "system"
-            touched = True
-        if not edge.provider:
-            edge.provider = "deterministic"
-            touched = True
-        if not edge.model:
-            edge.model = edge.created_by_model or PROMPT_VERSION
-            touched = True
-        if not edge.created_by_model:
-            edge.created_by_model = edge.model or PROMPT_VERSION
-            touched = True
-        if not edge.prompt_version:
-            edge.prompt_version = PROMPT_VERSION
-            touched = True
-        if touched:
-            edge.updated_at = now
+        ):
+            writer.upsert_edge(
+                source_node_id=edge.source_node_id,
+                target_node_id=edge.target_node_id,
+                edge_type=edge.type,
+                label=edge.label or edge.type.replace("_", " "),
+                reason=edge.reason
+                or (
+                    f'"{source.label}" connects to "{target.label}" through '
+                    f"{edge.type.replace('_', ' ')} evidence."
+                ),
+                evidence=evidence[:12],
+                source_note_ids=source_note_ids,
+                confidence=edge.confidence
+                if edge.confidence is not None
+                else (1.0 if edge.status == "confirmed" else 0.7),
+                status=edge.status or "suggested",
+                created_by="legacy_ai"
+                if edge.created_by == "ai"
+                else (edge.created_by or "system"),
+                provider=edge.provider or "deterministic",
+                model=edge.model or edge.created_by_model or PROMPT_VERSION,
+                prompt_version=edge.prompt_version or PROMPT_VERSION,
+            )
             changed += 1
+    if changed:
+        writer.deduplicate_edges()
     return changed
+
+
+def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
+    from berrybrain_api.graph_write_service import (
+        GraphWriteService,
+        has_traceable_ai_evidence,
+    )
+
+    writer = GraphWriteService(session, autocommit=False)
+    nodes = {
+        node.id: node for node in session.execute(select(GraphNodeRecord)).scalars()
+    }
+    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    recovered = 0
+    stale = 0
+    for edge in session.execute(
+        select(GraphEdgeRecord).where(
+            GraphEdgeRecord.created_by == "ai",
+            GraphEdgeRecord.status.not_in(("ignored", "archived", "stale")),
+        )
+    ).scalars():
+        if has_traceable_ai_evidence(edge):
+            continue
+        note_ids = {
+            int(value)
+            for value in _parse_json_list(edge.source_note_ids)
+            if str(value).isdigit()
+        }
+        for node_id in (edge.source_node_id, edge.target_node_id):
+            node = nodes.get(node_id)
+            if node is None:
+                continue
+            note_ids.update(
+                int(value)
+                for value in _parse_json_list(node.source_note_ids)
+                if str(value).isdigit()
+            )
+        selected_ids = [note_id for note_id in sorted(note_ids) if note_id in notes][:2]
+        chunks: list[ChunkRecord] = []
+        for note_id in selected_ids:
+            note = notes[note_id]
+            chunk = (
+                session.execute(
+                    select(ChunkRecord)
+                    .where(
+                        ChunkRecord.note_id == note_id,
+                        ChunkRecord.content_hash == note.content_hash,
+                    )
+                    .order_by(ChunkRecord.chunk_index)
+                )
+                .scalars()
+                .first()
+            )
+            if chunk is not None:
+                chunks.append(chunk)
+        if len(chunks) != 2:
+            writer.set_edge_status(edge.id, "stale")
+            stale += 1
+            continue
+        source_chunk, target_chunk = chunks
+        evidence = {
+            "sourceNoteId": source_chunk.note_id,
+            "targetNoteId": target_chunk.note_id,
+            "sourceChunkId": source_chunk.id,
+            "targetChunkId": target_chunk.id,
+            "startLine": source_chunk.start_line,
+            "endLine": source_chunk.end_line,
+            "excerpt": f"{source_chunk.text[:240]} | {target_chunk.text[:240]}",
+            "hash": f"{source_chunk.content_hash}:{target_chunk.content_hash}",
+        }
+        writer.upsert_edge(
+            source_node_id=edge.source_node_id,
+            target_node_id=edge.target_node_id,
+            edge_type=edge.type,
+            label=edge.label,
+            reason=edge.reason
+            or "Legacy AI relation recovered from current note chunks.",
+            evidence=[evidence],
+            source_note_ids=selected_ids,
+            confidence=edge.confidence or 0.5,
+            status=edge.status or "suggested",
+            created_by="ai",
+            provider=edge.provider or "legacy-ai",
+            model=edge.model or edge.created_by_model or "legacy-ai",
+            prompt_version=edge.prompt_version or "graph-evidence-migration.v1",
+            pipeline_run_id=f"graph-evidence-migration:{uuid4()}",
+        )
+        recovered += 1
+    return {"recovered": recovered, "stale": stale}
 
 
 def _human_join(items: list[str]) -> str:
@@ -661,14 +698,46 @@ async def generate_inferred_graph_connections(
     if len(candidates) < 2:
         return {"connections": 0, "reason": "not_enough_nodes"}
 
-    label_to_id = {n.label: n.id for n in candidates}
-    context = "\n".join(f"- [{n.type}] {n.label}" for n in candidates[:60])
+    label_to_node = {n.label: n for n in candidates}
+
+    def node_chunk(node: GraphNodeRecord) -> tuple[ChunkRecord, NoteRecord] | None:
+        note_ids = [
+            int(value)
+            for value in _parse_json_list(node.source_note_ids)
+            if str(value).isdigit()
+        ]
+        if node.type == "note" and node.source_id:
+            note_ids.insert(0, node.source_id)
+        if not note_ids:
+            return None
+        return session.execute(
+            select(ChunkRecord, NoteRecord)
+            .join(NoteRecord, NoteRecord.id == ChunkRecord.note_id)
+            .where(
+                ChunkRecord.note_id.in_(note_ids),
+                ChunkRecord.content_hash == NoteRecord.content_hash,
+            )
+            .order_by(ChunkRecord.chunk_index.asc())
+            .limit(1)
+        ).first()
+
+    chunk_by_node_id = {node.id: node_chunk(node) for node in candidates[:60]}
+    evidenced_candidates = [
+        node for node in candidates[:60] if chunk_by_node_id.get(node.id) is not None
+    ]
+    if len(evidenced_candidates) < 2:
+        return {"connections": 0, "reason": "insufficient_chunk_evidence"}
+    context = "\n".join(
+        f"- [{node.type}] {node.label}: {chunk_by_node_id[node.id][0].text[:280]}"
+        for node in evidenced_candidates
+    )
     prompt = (
         "Below are nodes from a knowledge graph. Identify non-obvious, "
         "semantically meaningful connections between DIFFERENT nodes.\n\n"
         f"{context}\n\n"
         'Return JSON: {"connections": [{"source": "<exact label>", '
-        '"target": "<exact label>", "reason": "<why they connect>", '
+        '"target": "<exact label>", "type": "<semantic_relation|prerequisite|example_of|contrasts_with|duplicates|applies_to|supports|contradicts>", '
+        '"reason": "<why they connect using the supplied excerpts>", '
         '"confidence": 0.0}]}. Maximum 20 connections. Confidence between 0 and 1.'
     )
     system = (
@@ -698,13 +767,30 @@ async def generate_inferred_graph_connections(
     model = config.get("cloud_model") or config.get("ollama_model", "")
     provider = config.get("provider", "local")
     created = 0
+    rejected = 0
+    pipeline_run_id = f"graph-infer:{uuid4()}"
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    writer = GraphWriteService(session)
     for c in connections[:max_pairs]:
         src_label = str(c.get("source", "")).strip()
         tgt_label = str(c.get("target", "")).strip()
-        src_id = label_to_id.get(src_label)
-        tgt_id = label_to_id.get(tgt_label)
-        if not src_id or not tgt_id or src_id == tgt_id:
+        source_node = label_to_node.get(src_label)
+        target_node = label_to_node.get(tgt_label)
+        if (
+            source_node is None
+            or target_node is None
+            or source_node.id == target_node.id
+        ):
+            rejected += 1
             continue
+        source_pair = chunk_by_node_id.get(source_node.id)
+        target_pair = chunk_by_node_id.get(target_node.id)
+        if source_pair is None or target_pair is None:
+            rejected += 1
+            continue
+        source_chunk, source_note = source_pair
+        target_chunk, target_note = target_pair
         try:
             conf = float(c.get("confidence", 0.5))
         except (TypeError, ValueError):
@@ -713,25 +799,47 @@ async def generate_inferred_graph_connections(
             str(c.get("reason", "")).strip()
             or f"Relationship between {src_label} and {tgt_label}."
         )
-        edge = _upsert_graph_edge(
-            session,
-            src_id,
-            tgt_id,
-            edge_type="inferred",
-            label=reason[:255],
-            reason=reason,
-            evidence=[src_label, tgt_label],
-            source_note_ids=[],
-            created_by="ai",
-            status="confirmed" if conf >= auto_confirm else "suggested",
-            provider=provider,
-            model=model,
-            prompt_version="graph-infer.v1",
-            confidence=conf,
+        excerpt = (
+            f"{source_note.title}: {source_chunk.text[:180]} | "
+            f"{target_note.title}: {target_chunk.text[:180]}"
         )
+        evidence = {
+            "sourceNoteId": source_note.id,
+            "targetNoteId": target_note.id,
+            "sourceChunkId": source_chunk.id,
+            "targetChunkId": target_chunk.id,
+            "startLine": source_chunk.start_line,
+            "endLine": source_chunk.end_line,
+            "targetStartLine": target_chunk.start_line,
+            "targetEndLine": target_chunk.end_line,
+            "excerpt": excerpt,
+            "hash": hashlib.sha256(excerpt.encode()).hexdigest(),
+            "sourceContentHash": source_chunk.content_hash,
+            "targetContentHash": target_chunk.content_hash,
+        }
+        try:
+            edge = writer.upsert_edge(
+                source_node_id=source_node.id,
+                target_node_id=target_node.id,
+                edge_type=str(c.get("type") or "semantic_relation"),
+                label=reason[:255],
+                reason=reason,
+                evidence=[evidence],
+                source_note_ids=[source_note.id, target_note.id],
+                created_by="ai",
+                status="confirmed" if conf >= auto_confirm else "suggested",
+                provider=provider,
+                model=model,
+                prompt_version="graph-infer.v1",
+                pipeline_run_id=pipeline_run_id,
+                confidence=conf,
+            )
+        except HTTPException:
+            rejected += 1
+            continue
         if edge:
             created += 1
-    return {"connections": created}
+    return {"connections": created, "rejected": rejected}
 
 
 def _prune_stale_concepts(session: Session, valid_normalized: set[str]) -> int:
@@ -754,13 +862,7 @@ def _prune_stale_concepts(session: Session, valid_normalized: set[str]) -> int:
             ).scalars()
         )
         for node in nodes:
-            session.execute(
-                delete(GraphEdgeRecord).where(
-                    (GraphEdgeRecord.source_node_id == node.id)
-                    | (GraphEdgeRecord.target_node_id == node.id)
-                )
-            )
-            session.delete(node)
+            _delete_graph_node_with_edges(session, node)
         session.delete(concept)
         removed += 1
     if removed:
@@ -769,13 +871,9 @@ def _prune_stale_concepts(session: Session, valid_normalized: set[str]) -> int:
 
 
 def _delete_graph_node_with_edges(session: Session, node: GraphNodeRecord) -> None:
-    session.execute(
-        delete(GraphEdgeRecord).where(
-            (GraphEdgeRecord.source_node_id == node.id)
-            | (GraphEdgeRecord.target_node_id == node.id)
-        )
-    )
-    session.delete(node)
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    GraphWriteService(session, autocommit=False).delete_node(node.id)
 
 
 def delete_graph_node(session: Session, node_id: int) -> bool:
@@ -1303,7 +1401,7 @@ def _connect_insight_to_sources(
             ),
             evidence or [insight.title, target.label],
             source_note_ids,
-            "ai" if insight.provider else "system",
+            "system",
             "confirmed"
             if (
                 insight_node.status == "confirmed"
@@ -1673,47 +1771,27 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
 
 
 def set_node_status(session: Session, node_id: int, status: str) -> GraphNodeRecord:
-    node = session.get(GraphNodeRecord, node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail="Graph node not found")
-    node.status = status
-    node.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(node)
-    return node
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_node_status(node_id, status)
 
 
 def set_node_user_notes(session: Session, node_id: int, notes: str) -> GraphNodeRecord:
-    node = session.get(GraphNodeRecord, node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail="Graph node not found")
-    node.user_notes = notes
-    node.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(node)
-    return node
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_node_user_notes(node_id, notes)
 
 
 def set_edge_status(session: Session, edge_id: int, status: str) -> GraphEdgeRecord:
-    edge = session.get(GraphEdgeRecord, edge_id)
-    if edge is None:
-        raise HTTPException(status_code=404, detail="Graph edge not found")
-    edge.status = status
-    edge.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(edge)
-    return edge
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_edge_status(edge_id, status)
 
 
 def set_edge_user_notes(session: Session, edge_id: int, notes: str) -> GraphEdgeRecord:
-    edge = session.get(GraphEdgeRecord, edge_id)
-    if edge is None:
-        raise HTTPException(status_code=404, detail="Graph edge not found")
-    edge.user_notes = notes
-    edge.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(edge)
-    return edge
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_edge_user_notes(edge_id, notes)
 
 
 def normalize_concept_name(value: str) -> str:
@@ -1726,39 +1804,33 @@ def normalize_concept_name(value: str) -> str:
 
 
 def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
-    node = session.execute(
-        select(GraphNodeRecord).where(
-            GraphNodeRecord.type == "note",
-            GraphNodeRecord.source_id == note.id,
-        )
-    ).scalar_one_or_none()
     metadata = {
         "path": note.path,
         "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
         "status": note.status,
     }
-    if node is None:
-        node = GraphNodeRecord(type="note", label=note.title, source_id=note.id)
-        session.add(node)
-        session.flush()
-    node.label = note.title
-    node.title = note.title
-    node.summary = f"Nota do vault: {note.path}"
-    node.ai_notes = (
-        "Subagent graph-expander: vertex created from a real vault note; "
-        "the note path is the auditable source."
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).upsert_node(
+        node_type="note",
+        label=note.title,
+        title=note.title,
+        summary=f"Vault note: {note.path}",
+        ai_notes=(
+            "Subagent graph-expander: vertex created from a real vault note; "
+            "the note path is the auditable source."
+        ),
+        source="note",
+        source_id=note.id,
+        source_note_ids=[note.id],
+        source_evidence=[note.path, note.title],
+        confidence=1.0,
+        created_by="system",
+        status="confirmed",
+        source_quality="vault_note",
+        learning_value="source",
+        graph_metadata=metadata,
     )
-    node.source_evidence = _dump_json([note.path, note.title])
-    node.source_quality = "vault_note"
-    node.learning_value = node.learning_value or "source"
-    node.source = "note"
-    node.source_note_ids = _dump_json([note.id])
-    node.confidence = 1.0
-    node.created_by = "system"
-    node.status = "confirmed"
-    node.graph_metadata = _dump_json(metadata)
-    node.updated_at = datetime.now(UTC)
-    return node
 
 
 def _upsert_concept(
@@ -1792,71 +1864,35 @@ def _upsert_concept(
 
 def _upsert_concept_node(session: Session, concept: ConceptRecord) -> GraphNodeRecord:
     note_ids = _parse_json_list(concept.related_note_ids)
-    node = session.execute(
-        select(GraphNodeRecord).where(
-            GraphNodeRecord.type == "concept",
-            GraphNodeRecord.source_id == concept.id,
-        )
-    ).scalar_one_or_none()
-    if node is None:
-        normalized = concept.normalized_name or normalize_concept_name(concept.name)
-        existing = session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.type != "note",
-                GraphNodeRecord.type != "insight",
-                GraphNodeRecord.label == concept.name,
-            )
-        ).scalar_one_or_none()
-        if existing is None and normalized:
-            candidates = session.execute(
-                select(GraphNodeRecord).where(
-                    GraphNodeRecord.type != "note",
-                    GraphNodeRecord.type != "insight",
-                )
-            ).scalars()
-            existing = next(
-                (
-                    n
-                    for n in candidates
-                    if normalize_concept_name(n.label) == normalized
-                ),
-                None,
-            )
-        if existing is not None:
-            node = existing
-            node.source = node.source or "concept_extraction"
-        else:
-            node = GraphNodeRecord(
-                type="concept", label=concept.name, source_id=concept.id
-            )
-            session.add(node)
-            session.flush()
-    node.label = concept.name
-    node.title = concept.name
-    node.summary = concept.description
-    node.ai_notes = (
-        "Subagent concept-extractor: conceptual vertex created from metadata "
-        "and concepts extracted from related notes."
-    )
-    node.source = "concept_extraction"
-    node.source_note_ids = concept.related_note_ids
-    node.source_evidence = concept.source_evidence
-    node.source_quality = "extracted"
-    node.learning_value = node.learning_value or "concept"
-    node.confidence = concept.confidence
-    node.created_by = concept.extracted_by
-    node.created_by_model = concept.model
-    node.status = concept.status
-    node.graph_metadata = _dump_json(
-        {
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).upsert_node(
+        node_type="concept",
+        label=concept.name,
+        title=concept.name,
+        summary=concept.description,
+        ai_notes=(
+            "Subagent concept-extractor: conceptual vertex created from metadata "
+            "and concepts extracted from related notes."
+        ),
+        source="concept_extraction",
+        source_id=concept.id,
+        source_note_ids=[int(value) for value in note_ids if str(value).isdigit()],
+        source_evidence=concept.source_evidence,
+        source_quality="extracted",
+        learning_value="concept",
+        confidence=concept.confidence,
+        created_by=concept.extracted_by,
+        model=concept.model,
+        provider=concept.provider,
+        status=concept.status,
+        graph_metadata={
             "normalizedName": concept.normalized_name,
             "frequency": concept.frequency,
             "sourceEvidence": _parse_json_list(concept.source_evidence),
             "relatedNoteCount": len(note_ids),
-        }
+        },
     )
-    node.updated_at = datetime.now(UTC)
-    return node
 
 
 def _upsert_note_connection(
@@ -1919,42 +1955,30 @@ def _upsert_graph_edge(
 ) -> GraphEdgeRecord | None:
     if not reason or not evidence:
         return None
-    edge = session.execute(
-        select(GraphEdgeRecord).where(
-            GraphEdgeRecord.source_node_id == source_node_id,
-            GraphEdgeRecord.target_node_id == target_node_id,
-            GraphEdgeRecord.type == edge_type,
-        )
-    ).scalar_one_or_none()
-    if edge is None:
-        edge = GraphEdgeRecord(
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    try:
+        return GraphWriteService(session, autocommit=False).upsert_edge(
             source_node_id=source_node_id,
             target_node_id=target_node_id,
-            type=edge_type,
+            edge_type=edge_type,
+            label=label,
+            reason=reason,
+            evidence=evidence,
+            source_note_ids=source_note_ids,
+            confidence=(
+                confidence
+                if confidence is not None
+                else (1.0 if status == "confirmed" else 0.7)
+            ),
+            created_by=created_by,
+            provider=provider,
+            model=model,
+            prompt_version=prompt_version,
+            status=status,
         )
-        session.add(edge)
-        session.flush()
-    edge.label = label
-    edge.reason = reason
-    edge.evidence = _dump_json(evidence)
-    edge.ai_notes = (
-        f"Subagent graph-expander: {edge_type} edge created because persisted "
-        "evidence connects these vertices."
-    )
-    edge.source_note_ids = _dump_json(source_note_ids)
-    edge.confidence = (
-        confidence
-        if confidence is not None
-        else (1.0 if status == "confirmed" else 0.7)
-    )
-    edge.created_by = created_by
-    edge.created_by_model = model
-    edge.provider = provider
-    edge.model = model
-    edge.prompt_version = prompt_version
-    edge.status = status
-    edge.updated_at = datetime.now(UTC)
-    return edge
+    except HTTPException:
+        return None
 
 
 def _extract_note_concepts(
@@ -2253,9 +2277,12 @@ def _build_node_summary(
     if edge_types:
         type_names = {
             "backlink": "backlinks",
+            "explicit_link": "explicit links",
             "semantic": "semantic links",
+            "semantic_relation": "semantic relations",
             "shared_concept": "shared concepts",
             "related": "relations",
+            "derived_from": "derived evidence",
         }
         conn_list = [
             f"{edge_types[t]} {type_names.get(t, t)}"
@@ -2266,7 +2293,7 @@ def _build_node_summary(
         snippet = (getattr(notes[0], "content", "") or "")[:150].strip()
         if snippet:
             parts.append(f'Content: "{snippet}..."')
-    if node.type == "topico" and node.label:
+    if node.type in {"topic", "topico"} and node.label:
         parts.append(
             "This topic was extracted from notes. Enrich it with AI, turn it into a permanent note, or connect it to other concepts."
         )
@@ -2293,14 +2320,14 @@ def _why_node_exists(node: GraphNodeRecord, notes: list[NoteRecord]) -> str:
             if titles
             else "Extracted from system metadata."
         )
-    if node.type == "topico":
+    if node.type in {"topic", "topico"}:
         titles = ", ".join(note.title for note in notes[:3])
         return (
             f"Topic extracted from: {titles}."
             if titles
             else "Topic detected from note headings."
         )
-    if node.type == "entidade":
+    if node.type in {"entity", "entidade"}:
         return "Technical entity detected from metadata."
     return f"This node ({node.type}) was created by the knowledge pipeline."
 
@@ -2377,12 +2404,14 @@ def _upsert_typed_node(
     normalized_label = normalize_concept_name(label)
     if not normalized_label:
         return None
-    candidates = session.execute(
-        select(GraphNodeRecord).where(
-            GraphNodeRecord.type == node_type,
-            GraphNodeRecord.source == source,
-        )
-    ).scalars()
+    candidates = list(
+        session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.type != "note",
+                GraphNodeRecord.type != "insight",
+            )
+        ).scalars()
+    )
     existing = next(
         (
             node
@@ -2391,78 +2420,32 @@ def _upsert_typed_node(
         ),
         None,
     )
-    if existing is None:
-        all_candidates = session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.type != "note",
-                GraphNodeRecord.type != "insight",
-            )
-        ).scalars()
-        existing = next(
-            (
-                node
-                for node in all_candidates
-                if normalize_concept_name(node.label) == normalized_label
-            ),
-            None,
-        )
-    if existing is not None:
-        existing.label = label or existing.label
-        existing.title = title or existing.title
-        existing.summary = summary or existing.summary
-        existing.source_note_ids = _dump_json(
-            sorted(
-                {
-                    int(item)
-                    for item in _parse_json_list(existing.source_note_ids)
-                    + source_note_ids
-                    if str(item).isdigit()
-                }
-            )
-        )
-        metadata = _parse_json_object(existing.graph_metadata)
-        previous_evidence = metadata.get("evidence")
-        if not isinstance(previous_evidence, list):
-            previous_evidence = []
-        metadata["evidence"] = sorted(
-            {str(item) for item in previous_evidence + evidence if str(item)}
-        )
-        existing.graph_metadata = _dump_json(metadata)
-        merged_evidence = sorted(
-            {
-                str(item)
-                for item in _parse_json_list(existing.source_evidence)
-                + previous_evidence
-                + evidence
-                if str(item)
-            }
-        )
-        existing.source_evidence = _dump_json(merged_evidence[:12])
-        existing.source_quality = existing.source_quality or "extracted"
-        existing.learning_value = existing.learning_value or node_type
-        existing.confidence = max(existing.confidence, confidence)
-        existing.updated_at = datetime.now(UTC)
-        return None
-    node = GraphNodeRecord(
-        type=node_type,
+    previous_evidence = (
+        _parse_json_list(existing.source_evidence) if existing is not None else []
+    )
+    merged_evidence = sorted(
+        {str(item) for item in previous_evidence + evidence if str(item)}
+    )[:12]
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    node = GraphWriteService(session, autocommit=False).upsert_node(
+        node_type=node_type,
         label=label,
         title=title,
         summary=summary,
         source=source,
         source_id=source_id,
-        source_note_ids=_dump_json(source_note_ids),
+        source_note_ids=source_note_ids,
+        source_evidence=merged_evidence,
         confidence=confidence,
         created_by=created_by,
-        created_by_model=model or "deterministic",
+        model=model or "deterministic",
         status=status,
-        source_evidence=_dump_json(evidence[:12]),
         source_quality="extracted",
         learning_value=node_type[:20],
-        graph_metadata=_dump_json({"evidence": evidence}),
+        graph_metadata={"evidence": merged_evidence},
     )
-    session.add(node)
-    session.flush()
-    return node
+    return None if existing is not None else node
 
 
 def _extract_topics_from_metadata(

@@ -1,10 +1,26 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+def _discover_project_root() -> Path:
+    configured = os.getenv("BERRYBRAIN_PROJECT_ROOT", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    module_path = Path(__file__).resolve()
+    for candidate in module_path.parents:
+        if (candidate / "docker-compose.yml").is_file() and (
+            candidate / "apps"
+        ).is_dir():
+            return candidate
+    return Path.cwd().resolve()
+
+
+PROJECT_ROOT = _discover_project_root()
 
 
 class Settings(BaseSettings):
@@ -38,6 +54,14 @@ class Settings(BaseSettings):
     auth_otp_ttl_minutes: int = 10
     auth_otp_resend_cooldown_seconds: int = 60
     admin_email: str = "admin@local.berrybrain"
+    owner_username: str = "admin"
+    attachment_ocr_executable: str = "tesseract"
+    attachment_ocr_language: str = "eng"
+    attachment_transcription_executable: str = "faster-whisper"
+    attachment_transcription_model: str = (
+        "/opt/berrybrain/models/faster-whisper-tiny.en"
+    )
+    attachment_extractor_timeout_seconds: int = 300
 
     smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
     smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")

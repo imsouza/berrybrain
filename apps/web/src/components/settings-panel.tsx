@@ -65,10 +65,14 @@ type Settings = {
   cognitive_enrich_on_save: "true" | "false";
   cognitive_insights_on_save: "true" | "false";
   research_mode_enabled: "true" | "false";
+  remote_content_consent: "true" | "false";
   attachment_image_limit_mb: string;
   attachment_video_limit_mb: string;
   attachment_audio_limit_mb: string;
   attachment_other_limit_mb: string;
+  attachment_ocr_language: string;
+  attachment_transcription_executable: "faster-whisper" | "whisper";
+  attachment_transcription_model: string;
 };
 
 function defaults(): Settings {
@@ -80,12 +84,12 @@ function defaults(): Settings {
     ui_font: "inter",
     editor_font: "mono",
     nome: "Mateus",
-    ai_provider: "cloud",
+    ai_provider: "local",
     ai_api_url: NVIDIA_NIM_URL,
     ai_custom_url: "",
     ai_api_key: "",
     ai_model: "",
-    graph_ai_provider: "cloud",
+    graph_ai_provider: "local",
     graph_ai_api_url: NVIDIA_NIM_URL,
     graph_ai_api_key: "",
     graph_ai_model: "",
@@ -93,7 +97,7 @@ function defaults(): Settings {
     graph_auto_confirm_confidence: "0.9",
     graph_default_layout: "brain",
     kb_vector_store: "sqlite",
-    kb_embedding_provider: "cloud",
+    kb_embedding_provider: "local",
     kb_embedding_model: "",
     kb_chunk_size: "900",
     kb_chunk_overlap: "120",
@@ -106,10 +110,14 @@ function defaults(): Settings {
     cognitive_enrich_on_save: "true",
     cognitive_insights_on_save: "true",
     research_mode_enabled: "false",
+    remote_content_consent: "false",
     attachment_image_limit_mb: "10",
     attachment_video_limit_mb: "200",
     attachment_audio_limit_mb: "50",
     attachment_other_limit_mb: "25",
+    attachment_ocr_language: "eng",
+    attachment_transcription_executable: "faster-whisper",
+    attachment_transcription_model: "/opt/berrybrain/models/faster-whisper-tiny.en",
   };
 }
 
@@ -150,10 +158,14 @@ function loadSettings(): Settings {
     cognitive_enrich_on_save: (localStorage.getItem("bb_cognitive_enrich_on_save") as Settings["cognitive_enrich_on_save"]) || d.cognitive_enrich_on_save,
     cognitive_insights_on_save: (localStorage.getItem("bb_cognitive_insights_on_save") as Settings["cognitive_insights_on_save"]) || d.cognitive_insights_on_save,
     research_mode_enabled: (localStorage.getItem("bb_research_mode_enabled") as Settings["research_mode_enabled"]) || d.research_mode_enabled,
+    remote_content_consent: (localStorage.getItem("bb_remote_content_consent") as Settings["remote_content_consent"]) || d.remote_content_consent,
     attachment_image_limit_mb: localStorage.getItem("bb_attachment_image_limit_mb") || d.attachment_image_limit_mb,
     attachment_video_limit_mb: localStorage.getItem("bb_attachment_video_limit_mb") || d.attachment_video_limit_mb,
     attachment_audio_limit_mb: localStorage.getItem("bb_attachment_audio_limit_mb") || d.attachment_audio_limit_mb,
     attachment_other_limit_mb: localStorage.getItem("bb_attachment_other_limit_mb") || d.attachment_other_limit_mb,
+    attachment_ocr_language: localStorage.getItem("bb_attachment_ocr_language") || d.attachment_ocr_language,
+    attachment_transcription_executable: (localStorage.getItem("bb_attachment_transcription_executable") as Settings["attachment_transcription_executable"]) || d.attachment_transcription_executable,
+    attachment_transcription_model: localStorage.getItem("bb_attachment_transcription_model") || d.attachment_transcription_model,
   };
 }
 
@@ -214,10 +226,14 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "cognitive_enrich_on_save",
   "cognitive_insights_on_save",
   "research_mode_enabled",
+  "remote_content_consent",
   "attachment_image_limit_mb",
   "attachment_video_limit_mb",
   "attachment_audio_limit_mb",
   "attachment_other_limit_mb",
+  "attachment_ocr_language",
+  "attachment_transcription_executable",
+  "attachment_transcription_model",
 ];
 
 export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClose: () => void; apiUrl: string }) {
@@ -510,6 +526,21 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             <ReadOnlyValue value="Markdown toolbar and split preview are enabled." />
           </Section>
 
+          <Section title="Attachment processing" description="Local OCR and transcription used to turn files into evidence.">
+            <Field label="OCR language" description="Tesseract language code installed in the API image, such as eng.">
+              <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng" />
+            </Field>
+            <Field label="Transcription engine" description="Faster Whisper is bundled and local. Custom CLI requires a compatible executable in the API image.">
+              <Select value={s.attachment_transcription_executable} onChange={(value) => update("attachment_transcription_executable", value as Settings["attachment_transcription_executable"])}>
+                <option value="faster-whisper">Faster Whisper (bundled, local)</option>
+                <option value="whisper">Whisper CLI (custom)</option>
+              </Select>
+            </Field>
+            <Field label="Transcription model" description="Local Faster Whisper model path or model name used by the configured engine.">
+              <TextInput value={s.attachment_transcription_model} onChange={(value) => update("attachment_transcription_model", value)} placeholder="/opt/berrybrain/models/faster-whisper-tiny.en" />
+            </Field>
+          </Section>
+
           <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
             <Field label="AI provider" description="Cloud uses NVIDIA NIM or another compatible API. Local uses Ollama.">
               <Select value={s.ai_provider} onChange={(value) => update("ai_provider", value as Settings["ai_provider"])}>
@@ -523,6 +554,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <option value="">Select a graph provider</option>
                 <option value="cloud">Cloud provider</option>
                 <option value="local">Local Ollama</option>
+              </Select>
+            </Field>
+            <Field label="Remote content processing" description="Explicit consent to send note, attachment, graph, or embedding content to the configured cloud provider. Keep disabled for fully local processing.">
+              <Select value={s.remote_content_consent} onChange={(value) => update("remote_content_consent", value as Settings["remote_content_consent"])}>
+                <option value="false">Disabled — keep content local</option>
+                <option value="true">Enabled — allow configured cloud provider</option>
               </Select>
             </Field>
           </Section>

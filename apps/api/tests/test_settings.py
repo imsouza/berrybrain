@@ -1,9 +1,14 @@
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
+from berrybrain_api.config import _discover_project_root
 from berrybrain_api.settings_store import (
     get_setting,
     list_settings,
@@ -43,6 +48,13 @@ class SettingsStoreTest(unittest.TestCase):
         )
         self.assertEqual(serialized["key"], "automation.mode")
         self.assertEqual(serialized["value"], "autopilot")
+
+    def test_project_root_can_be_explicit_in_packaged_runtime(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.dict(os.environ, {"BERRYBRAIN_PROJECT_ROOT": tmp}),
+        ):
+            self.assertEqual(_discover_project_root(), Path(tmp).resolve())
 
 
 if __name__ == "__main__":

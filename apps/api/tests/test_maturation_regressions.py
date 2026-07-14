@@ -119,6 +119,22 @@ class MaturationRegressionTest(unittest.TestCase):
             self.assertTrue(node.prompt_version, node.label)
 
     def test_technical_insights_are_hidden_from_home_insights_and_graph(self) -> None:
+        source_notes = [
+            NoteRecord(
+                title="Docker Essentials",
+                slug="docker-essentials",
+                path="docker.md",
+                content_hash="docker",
+            ),
+            NoteRecord(
+                title="Linux Shell Scripting",
+                slug="linux-shell-scripting",
+                path="shell.md",
+                content_hash="shell",
+            ),
+        ]
+        self.session.add_all(source_notes)
+        self.session.flush()
         technical = InsightRecord(
             type="system_diagnostic",
             title="Pipeline Bottleneck in GENERATE_NOTE_TITLE",
@@ -134,6 +150,7 @@ class MaturationRegressionTest(unittest.TestCase):
             why_it_matters="This helps decide which practical systems notes should be studied together.",
             suggested_action="Create a bridge note about Docker plus shell automation.",
             graph_impact="Connects Docker and Linux Shell notes through a learning insight.",
+            related_notes=json.dumps([note.id for note in source_notes]),
             evidence=json.dumps(["Docker Essentials", "Linux Shell Scripting"]),
             status="suggested",
             priority=8,

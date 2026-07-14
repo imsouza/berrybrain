@@ -2,10 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
-import { t, tf } from "@/i18n";
+import { t } from "@/i18n";
 import { appPath } from "@/contexts/workspace-context";
 
 const EDGE_COLORS: Record<string, string> = {
+  explicit_link: "#3C8F5A",
+  semantic_relation: "#D98A00",
+  derived_from: "#4F7CCB",
+  mentions: "#96B55C",
+  supports: "#4A8F6A",
+  contradicts: "#B85C4A",
+  contrasts_with: "#8B6F9F",
+  duplicates: "#B85C4A",
+  example_of: "#4A8F6A",
+  applies_to: "#9F6B4A",
   semantic: "#D98A00",
   semantic_similarity: "#D98A00",
   shared_concept: "#C2185B",
@@ -242,6 +252,78 @@ function formatEvidenceLabel(item: unknown): string {
   return parts.join(": ") || "Evidence available in technical details.";
 }
 
+function GraphListView({
+  data,
+  selectedId,
+  onSelect,
+}: {
+  data: { nodes: GraphNode[]; edges: GraphEdge[] };
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const nodeById = new Map(data.nodes.map((node) => [node.id, node]));
+  const degree = new Map(data.nodes.map((node) => [node.id, 0]));
+  for (const edge of data.edges) {
+    degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
+    degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
+  }
+  const nodes = [...data.nodes].sort((left, right) =>
+    `${left.type}:${left.label}`.localeCompare(`${right.type}:${right.label}`),
+  );
+
+  return (
+    <div className="h-full overflow-y-auto bg-background px-4 py-4" aria-label="Knowledge graph list view">
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <section aria-labelledby="graph-list-nodes">
+          <h2 id="graph-list-nodes" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Nodes</h2>
+          <div className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border/60 bg-panel" role="list">
+            {nodes.map((node) => (
+              <button
+                key={node.id}
+                type="button"
+                role="listitem"
+                aria-current={selectedId === node.id ? "true" : undefined}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-surface ${selectedId === node.id ? "bg-surface" : ""}`}
+                onClick={() => onSelect(node.id)}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-foreground">{node.label}</span>
+                  <span className="block text-[10px] uppercase text-muted">{node.type} · {node.status || "suggested"}</span>
+                </span>
+                <span className="text-xs tabular-nums text-muted" aria-label={`${degree.get(node.id) || 0} connections`}>
+                  {degree.get(node.id) || 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+        <section aria-labelledby="graph-list-connections">
+          <h2 id="graph-list-connections" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Connections</h2>
+          <div className="divide-y divide-border/50 overflow-hidden rounded-lg border border-border/60 bg-panel" role="list">
+            {data.edges.map((edge, index) => {
+              const source = nodeById.get(edge.source);
+              const target = nodeById.get(edge.target);
+              return (
+                <button
+                  key={edge.id || `${edge.source}:${edge.target}:${edge.type}:${index}`}
+                  type="button"
+                  role="listitem"
+                  className="block w-full px-3 py-2.5 text-left hover:bg-surface"
+                  onClick={() => onSelect(edge.source)}
+                >
+                  <span className="block text-sm text-foreground">{source?.label || edge.source} → {target?.label || edge.target}</span>
+                  <span className="block text-[10px] uppercase text-muted">{edge.type} · {edge.status || "suggested"} · {Math.round((edge.confidence || 0) * 100)}%</span>
+                  {edge.reason && <span className="mt-1 block text-xs text-muted">{edge.reason}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export function GraphScreen({
   apiUrl,
   onClose,
@@ -256,6 +338,10 @@ export function GraphScreen({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
+  const [viewMode, setViewMode] = useState<"visual" | "list">(() => {
+    if (typeof window === "undefined") return "visual";
+    return localStorage.getItem("bb_graph_view_mode") === "list" ? "list" : "visual";
+  });
   const [showDetail, setShowDetail] = useState(false);
   const [query, setQuery] = useState("");
   const [filterType, setFilterType] = useState("brain_view");
@@ -295,16 +381,24 @@ export function GraphScreen({
     let nodes = graphData.nodes;
     let edges = graphData.edges;
     if (filterType === "brain_view") {
-      const base = ["note", "concept", "topico", "entidade"];
-      const cognitivos = showCognitivos ? ["contexto", "lacuna", "insight", "context"] : [];
+      const base = ["note", "concept", "topic", "topico", "entity", "entidade"];
+      const cognitivos = showCognitivos ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
       nodes = nodes.filter((n) => [...base, ...cognitivos].includes(n.type));
     } else if (filterType === "topicos") {
-      nodes = nodes.filter((n) => n.type === "topico");
+      nodes = nodes.filter((n) => n.type === "topic" || n.type === "topico");
     } else if (filterType !== "all") {
-      nodes = nodes.filter((n) => n.type === filterType);
+      const typeAliases: Record<string, string[]> = {
+        entidade: ["entity", "entidade"],
+        contexto: ["context", "contexto"],
+        lacuna: ["gap", "lacuna"],
+        anexo: ["attachment", "anexo"],
+        trilha: ["study_path", "trilha"],
+        fonte: ["source", "fonte", "web_source"],
+      };
+      nodes = nodes.filter((n) => (typeAliases[filterType] || [filterType]).includes(n.type));
     } else if (layoutMode === "brain") {
-      const base = ["note", "concept", "topico", "entidade"];
-      const cognitivos = showCognitivos ? ["contexto", "lacuna", "insight", "context"] : [];
+      const base = ["note", "concept", "topic", "topico", "entity", "entidade"];
+      const cognitivos = showCognitivos ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
       nodes = nodes.filter((n) => [...base, ...cognitivos].includes(n.type));
     }
     if (filterStatus !== "all") nodes = nodes.filter((n) => (n.status || "suggested") === filterStatus);
@@ -754,6 +848,17 @@ export function GraphScreen({
           <option value="type">{t("layoutType")}</option>
           <option value="connections">{t("layoutConnections")}</option>
         </select>
+        <button
+          className={`h-8 rounded-lg px-2.5 text-[11px] ${viewMode === "list" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}
+          aria-pressed={viewMode === "list"}
+          onClick={() => {
+            const next = viewMode === "visual" ? "list" : "visual";
+            setViewMode(next);
+            localStorage.setItem("bb_graph_view_mode", next);
+          }}
+        >
+          {viewMode === "visual" ? "List view" : "Visual view"}
+        </button>
         <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
         <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={expandGraph}>{t("expand")}</button>
         <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showInsightNodes ? "bg-surface text-muted hover:text-foreground" : "bg-accent text-white"}`} onClick={toggleInsightNodes}>
@@ -837,33 +942,44 @@ export function GraphScreen({
               )}
             </div>
           ) : (
-          <GraphCanvas
-            data={filtered}
-            onNavigate={(path) => {
-              onClose();
-              setTimeout(() => onNavigate(path), 100);
-            }}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setShowDetail(Boolean(id));
-            }}
-            selectedId={selectedId}
-            highlightedIds={highlightedIds}
-            zoom={zoom}
-            setZoom={setZoom}
-            pan={pan}
-            setPan={setPan}
-            layoutMode={layoutMode}
-          />
+          viewMode === "list" ? (
+            <GraphListView
+              data={filtered}
+              selectedId={selectedId}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setShowDetail(true);
+              }}
+            />
+          ) : (
+            <GraphCanvas
+              data={filtered}
+              onNavigate={(path) => {
+                onClose();
+                setTimeout(() => onNavigate(path), 100);
+              }}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setShowDetail(Boolean(id));
+              }}
+              selectedId={selectedId}
+              highlightedIds={highlightedIds}
+              zoom={zoom}
+              setZoom={setZoom}
+              pan={pan}
+              setPan={setPan}
+              layoutMode={layoutMode}
+            />
+          )
           )
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted">{t("loadingGraph")}</div>
         )}
 
-        <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
+        {viewMode === "visual" && <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-1">
           <button className="size-8 rounded-lg bg-panel/90 backdrop-blur flex items-center justify-center text-muted hover:text-foreground shadow-sm ring-1 ring-border/30 text-xs" onClick={() => setZoom((z) => Math.min(3, z * 1.3))}>+</button>
           <button className="size-8 rounded-lg bg-panel/90 backdrop-blur flex items-center justify-center text-muted hover:text-foreground shadow-sm ring-1 ring-border/30 text-xs" onClick={() => setZoom((z) => Math.max(0.2, z / 1.3))}>-</button>
-        </div>
+        </div>}
 
         {showLegend && (
           <div className="absolute top-3 right-4 z-20 w-56 rounded-xl bg-panel/95 backdrop-blur shadow-lg ring-1 ring-border/30 p-3">

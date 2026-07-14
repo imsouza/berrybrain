@@ -25,6 +25,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
+- [Current Maturity](#current-maturity)
 - [Architecture](#architecture)
 - [Cognitive Layer](#cognitive-layer)
 - [Knowledge Graph](#knowledge-graph)
@@ -74,7 +75,28 @@ The system is designed around one rule:
 | Graph Inference | Ask questions about the graph with evidence-backed answers |
 | Activity and Monitor | Human-readable activity timeline plus technical job diagnostics |
 | Settings | Theme, editor, provider/model configuration, graph/cognitive settings, attachment limits |
-| Privacy Direction | Local-first storage, explicit cloud provider configuration, future LGPD/GDPR workflows |
+| Owner Access | One-time local setup, configurable username alias, strong password, session/CSRF protection, rate limits and lockout |
+| Privacy and security | Local-first storage, explicit cloud providers, owner-only setup, CSRF, rate limits, lockout, backup/export controls |
+
+---
+
+## Current Maturity
+
+The current worktree implements the complete local product foundation. Release governance remains separate and must not be confused with feature completeness.
+
+| Foundation | Current state |
+| --- | --- |
+| Markdown lifecycle | Real files, watcher/scan, optimistic concurrency, autosave recovery, version-aware processing |
+| Job engine | Structured runs/dependencies, idempotency, leases, heartbeat, backoff, dead-letter, stale recovery |
+| Semantic memory | Chunked indexing, hybrid lexical/vector/graph retrieval, optional Qdrant or Chroma |
+| Knowledge graph | Canonical typed nodes/edges, source evidence, confidence, lifecycle actions, provenance |
+| Insights and review | Knowledge-only insight policy, evidence-backed actions, persisted review scheduling |
+| Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
+| Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
+| Owner security | Local single-owner setup, configurable `admin` alias, no default password, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
+| Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, static gates, container scans, SBOM workflow |
+
+Still external: protected `main`, required remote checks/review, ten consecutive green runs, signed registry artifacts, published SBOM attestation, release tag, and independent clean-machine validation.
 
 ---
 
@@ -160,21 +182,21 @@ flowchart TB
 
 Purpose: semantic retrieval over unstructured knowledge.
 
-Current direction:
+Implemented foundation:
 
 - Markdown note indexing;
 - chunking;
 - embeddings;
-- semantic retrieval;
-- future Qdrant/Chroma support.
+- hybrid lexical, graph, chunk, and vector retrieval;
+- optional Qdrant or Chroma synchronization and retrieval.
 
-Future expansion:
+Attachment knowledge sources:
 
-- OCR text from images;
-- PDF extraction;
-- audio/video transcription;
-- document parsing;
-- attachment evidence.
+- Tesseract OCR for supported images;
+- page-aware PDF extraction;
+- local Faster Whisper audio/video transcription;
+- plain-text and DOCX extraction;
+- attachment chunks, graph nodes, edges, and traceable evidence.
 
 ### Knowledge Graph
 
@@ -191,7 +213,7 @@ Graph nodes can represent:
 - insight;
 - attachment;
 - source/reference;
-- future study path/cluster.
+- study path/cluster when produced by the cognitive pipeline.
 
 Graph edges must have:
 
@@ -261,7 +283,7 @@ graph TD
 | `contexto` / `context` | A broader context connecting multiple notes |
 | `lacuna` / `gap` | A detected missing piece of knowledge |
 | `insight` | A knowledge insight with evidence and action |
-| `attachment` | Future node for processed files such as PDFs, images, audio, video |
+| `attachment` | Processed PDF, image, audio, video, text, or document source |
 
 ### Edge Types
 
@@ -271,7 +293,7 @@ graph TD
 | `shared_concept` | Notes or nodes share a concept |
 | `semantic_similarity` | Similarity from embeddings/model inference |
 | `insight_suggested` | An insight cites or suggests a relationship |
-| `attachment_related` | Future edge from processed attachment to note/concept/insight |
+| `attachment_related` | Evidence-backed edge from an attachment to its note or derived knowledge |
 | `prerequisite` | One topic should be understood before another |
 | `example_of` | One note/example illustrates a concept |
 | `application_of` | A note applies a broader concept |
@@ -325,7 +347,7 @@ Jobs are persisted and claimed by the worker. This makes the system resilient to
 | Graph expansion | Create/update nodes and edges |
 | Insight generation | Produce useful knowledge insights |
 | Graph quality | Stats, cleanup, duplicate detection, enrichment |
-| Future attachment processing | OCR, PDF parsing, transcription, attachment graph expansion |
+| Attachment processing | OCR, PDF parsing, transcription, attachment graph expansion |
 
 ---
 
@@ -465,7 +487,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-This starts Web, API, and Worker. Then open `http://localhost:3000/setup` and create the local owner account. Public signup is intentionally disabled.
+This starts Web, API, and Worker. Open `http://localhost:3000`; the landing page exposes a **Login** action. On an unconfigured instance, login directs the owner to the one-time setup flow.
 
 | Service | URL |
 | --- | --- |
@@ -525,7 +547,7 @@ The editor supports attaching files to notes, with limits configured in Settings
 - audio MB limit;
 - other MB limit.
 
-Current state: attachments are stored and linked to notes. Future state: attachments become cognitive sources through OCR/transcription. See [OCR Roadmap](#ocr-and-attachment-roadmap).
+Attachments are persisted, queued, extracted, indexed as chunks, and represented as evidence-backed graph nodes. PDF/document parsing, Tesseract OCR, and local Faster Whisper transcription run in a constrained extractor process with configurable timeout and file-size limits.
 
 ---
 
@@ -546,6 +568,9 @@ Edit `.env` and set at minimum:
 | `BERRYBRAIN_SESSION_SECRET` | HMAC pepper for sessions **and** password hashing. Use a long random value. Changing it later invalidates existing password hashes (re-seed the owner account). |
 | `BERRYBRAIN_API_TOKEN` | Bearer token for service-to-service automation. Generate a random value. |
 | `BERRYBRAIN_ADMIN_EMAIL` | Legacy environment name for the single local owner email. |
+| `BERRYBRAIN_OWNER_USERNAME` | Login alias for the local owner. Defaults to `admin`; set it before startup to change it. |
+| `BERRYBRAIN_INTERNAL_API_URL` | Server-side API origin used by the web proxy. Defaults to `http://api:8000`; use `http://127.0.0.1:8000` when running Web outside Docker. |
+| `BERRYBRAIN_ENV_FILE` | Optional Compose environment file path. Defaults to `.env`; useful for isolated smoke tests or multiple self-hosted instances. |
 | `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
@@ -567,7 +592,7 @@ Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the W
 
 ### 3. Create the local owner account
 
-Open `http://localhost:3000/setup` and create the local owner password. This creates the only account for this self-hosted instance.
+Open `http://localhost:3000`, choose **Login**, then complete the one-time setup. The default username alias is `admin`, but **there is no default password**: the owner must create a strong password of at least 12 characters. Change the alias with `BERRYBRAIN_OWNER_USERNAME` before startup.
 
 For headless recovery, the owner account can still be created/updated by `scripts/seed_admin.py` inside the api container. Pass the password through `SEED_ADMIN_PASSWORD` (never as a CLI argument in shared environments):
 
@@ -609,7 +634,7 @@ NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain
 NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain
 BERRYBRAIN_PUBLIC_APP_URL=https://optlabs.com.br/berrybrain
 BERRYBRAIN_CORS_ORIGINS=https://optlabs.com.br
-BERRYBRAIN_ALLOWED_HOSTS=localhost,127.0.0.1,testserver,optlabs.com.br
+BERRYBRAIN_ALLOWED_HOSTS=localhost,127.0.0.1,testserver,api,optlabs.com.br
 ```
 
 Recommended reverse-proxy behavior:
@@ -665,7 +690,25 @@ Before merging significant changes:
 - Frontend typecheck/build pass when dependencies are installed.
 - No hardcoded secrets.
 - No raw JSON or internal job names in primary knowledge UI.
+
+### Repository Governance
+
+The repository includes `CODEOWNERS`, a structured epic form, CI workflows, and an idempotent governance bootstrap script. After authenticating GitHub CLI as the repository owner, run:
+
+```bash
+./scripts/bootstrap-github-governance.sh
+```
+
+The script creates the release epics and protects `main` with required CI checks, one approving code-owner review, stale-review dismissal, conversation resolution, and force-push/deletion protection. It never accepts or stores a token in the repository; authentication remains managed by `gh auth login`.
 - No flashcard surface; study suggestions should be insight/review oriented, not legacy flashcard UI.
+
+Latest local verification evidence (13 July 2026):
+
+- 156 API tests pass with a 60% total coverage gate and critical-module ratchets;
+- 34 Worker tests pass, including disposable-database integration coverage;
+- 13 production-browser Playwright checks pass against an isolated authenticated stack, including landing-to-login owner entry with no default password;
+- API, Worker, and Web images pass the local zero-fixable-HIGH/CRITICAL Trivy gate;
+- SPDX SBOM generation is wired into CI and signed release publication is defined in `.github/workflows/release.yml`.
 
 ### Error Handling
 
@@ -687,7 +730,7 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 
 - Argon2id password hashing (PBKDF2 fallback) with the session secret as pepper.
 - Session and CSRF cookies signed with HMAC; `SameSite=Lax`.
-- First-run local owner setup, session login/logout, and owner provisioning.
+- First-run local owner setup with configurable username alias, session login/logout, and owner provisioning.
 - Progressive rate limiting and account lockout on repeated failures.
 - Authenticated owner gate on maintenance, settings danger, backups, system reset, and legacy maintenance endpoints.
 - Fail-closed auth middleware: missing/invalid credentials are denied, not allowed.
@@ -708,25 +751,27 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 
 | Version | Status | Focus |
 | --- | --- | --- |
-| `1.0.x` | Current | Local vault, editor, jobs, graph, insights, activity, settings |
-| `1.1.x` | In progress/planned | Cognitive quality, graph action cleanup, stronger inference, better Home observability |
-| `1.2.x` | Planned | Attachment OCR/transcription and attachment graph nodes |
-| `1.3.x` | Planned | Self-hosting hardening, backup/export polish, attachment ingestion |
+| `1.0.x` | Release candidate | Local vault, resilient jobs, hybrid retrieval, graph, insights, reviews, cognitive attachments, activity, settings |
+| `1.1.x` | Planned | Evaluation datasets, stronger reranking/inference, graph quality tuning, broader accessibility |
+| `1.2.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
+| `1.3.x` | Planned | Optional external vector-store operations and backup/export polish |
 | `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
-### OCR and Attachment Roadmap
+### Attachment Processing Status
 
-Planned capabilities:
+Implemented capabilities:
 
 - `PROCESS_ATTACHMENT` job;
 - PDF text extraction;
 - OCR for images/scanned PDFs;
 - audio transcription;
-- video audio extraction/transcription;
+- audio/video transcription through the bundled local Faster Whisper model;
 - attachment extraction records;
 - attachment chunks in Knowledge Base;
 - `attachment` graph nodes;
 - attachment-backed insights and graph answers.
+
+Remaining maturity work includes broader real-world fixtures, more OCR languages, larger transcription model choices, and public quality benchmarks.
 
 ### Security and Self-Hosting Roadmap
 

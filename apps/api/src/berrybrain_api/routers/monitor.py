@@ -1,12 +1,11 @@
-import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from berrybrain_api.database import SessionLocal
-from berrybrain_api.jobs import list_jobs, parse_json
+from berrybrain_api.database import SessionLocal, engine
+from berrybrain_api.jobs import list_jobs, parse_json, serialize_datetime
 from berrybrain_api.models import (
     ConnectionRecord,
     EmbeddingRecord,
@@ -15,7 +14,13 @@ from berrybrain_api.models import (
     NoteRecord,
     WorkerStatus,
 )
-from berrybrain_api.services import find_similar_notes, store_embedding
+from berrybrain_api.services import (
+    decode_embedding_vector,
+    find_similar_chunk_notes,
+    find_similar_notes,
+    store_embedding,
+)
+from berrybrain_api.schema_migrations import schema_diagnostic
 
 router = APIRouter(prefix="/api/v1", tags=["monitor"])
 
@@ -38,6 +43,7 @@ def monitor_stats() -> dict:
             types[j.type] = types.get(j.type, 0) + 1
         running = [j for j in jobs if j.status == "running"]
         return {
+            "schema": schema_diagnostic(engine),
             "notes": session.query(NoteRecord).count(),
             "connections": session.query(ConnectionRecord).count(),
             "insights": session.query(InsightRecord).count(),
@@ -104,7 +110,7 @@ def worker_heartbeat(payload: HeartbeatRequest) -> dict:
         return {
             "worker": {
                 "status": ws.status,
-                "last_heartbeat": ws.last_heartbeat.isoformat(),
+                "last_heartbeat": serialize_datetime(ws.last_heartbeat),
                 "jobs_processed": ws.jobs_processed,
                 "errors": ws.errors,
                 "ollama_healthy": ws.ollama_healthy,
@@ -123,7 +129,7 @@ def worker_status() -> dict:
         return {
             "worker": {
                 "status": ws.status,
-                "last_heartbeat": ws.last_heartbeat.isoformat(),
+                "last_heartbeat": serialize_datetime(ws.last_heartbeat),
                 "jobs_processed": ws.jobs_processed,
                 "errors": ws.errors,
                 "ollama_healthy": ws.ollama_healthy,
@@ -136,6 +142,17 @@ class EmbeddingRequest(BaseModel):
     content_hash: str = ""
     vector: list[float]
     model: str = "bge-m3"
+    provider: str = ""
+    chunk_index: int = -1
+    chunk_text: str = ""
+    heading_path: str = ""
+    start_line: int = 0
+    end_line: int = 0
+    token_count: int = 0
+
+
+class EmbeddingBatchRequest(BaseModel):
+    embeddings: list[EmbeddingRequest]
 
 
 @router.post("/embeddings")
@@ -147,14 +164,51 @@ def create_embedding(payload: EmbeddingRequest) -> dict:
             payload.content_hash,
             payload.vector,
             payload.model,
+            chunk_index=payload.chunk_index,
+            chunk_text=payload.chunk_text,
+            heading_path=payload.heading_path,
+            start_line=payload.start_line,
+            end_line=payload.end_line,
+            token_count=payload.token_count,
+            provider=payload.provider,
         )
         return {
             "embedding": {
                 "id": emb.id,
                 "note_id": emb.note_id,
+                "chunk_index": emb.chunk_index,
                 "created_at": emb.created_at.isoformat(),
             }
         }
+
+
+@router.post("/embeddings/batch")
+def create_embeddings_batch(payload: EmbeddingBatchRequest) -> dict:
+    with SessionLocal() as session:
+        created = []
+        for item in payload.embeddings[:128]:
+            emb = store_embedding(
+                session,
+                item.note_id,
+                item.content_hash,
+                item.vector,
+                item.model,
+                chunk_index=item.chunk_index,
+                chunk_text=item.chunk_text,
+                heading_path=item.heading_path,
+                start_line=item.start_line,
+                end_line=item.end_line,
+                token_count=item.token_count,
+                provider=item.provider,
+            )
+            created.append(
+                {
+                    "id": emb.id,
+                    "note_id": emb.note_id,
+                    "chunk_index": emb.chunk_index,
+                }
+            )
+        return {"embeddings": created, "count": len(created)}
 
 
 @router.get("/embeddings/similar/{note_id}")
@@ -167,8 +221,18 @@ def similar_notes(note_id: int, limit: int = 10) -> dict:
         ).scalar_one_or_none()
         if not emb:
             return {"similar": []}
-        vector = json.loads(emb.vector) if isinstance(emb.vector, str) else emb.vector
+        vector = decode_embedding_vector(emb)
         results = find_similar_notes(
             session, vector, exclude_note_id=note_id, limit=limit
         )
         return {"similar": results}
+
+
+@router.get("/embeddings/similar-chunks/{note_id}")
+def similar_chunk_notes(note_id: int, limit: int = 10) -> dict:
+    with SessionLocal() as session:
+        return {
+            "similar": find_similar_chunk_notes(
+                session, source_note_id=note_id, limit=limit
+            )
+        }

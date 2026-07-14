@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from berrybrain_api.database import Base
@@ -38,6 +38,15 @@ class NoteAttachmentRecord(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    declared_mime_type: Mapped[str] = mapped_column(
+        String(160), nullable=False, default=""
+    )
+    checksum: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", index=True
+    )
+    validation_status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="validated"
+    )
     category: Mapped[str] = mapped_column(String(40), nullable=False, default="other")
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -62,6 +71,12 @@ class AttachmentExtractionRecord(Base):
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    stage: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    extractor: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="attachment-text.v1"
+    )
+    location_metadata: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -158,6 +173,23 @@ class UserSessionRecord(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ServiceTokenRecord(Base):
+    __tablename__ = "service_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, default="worker")
+    token_hash: Mapped[str] = mapped_column(
+        String(128), unique=True, nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="active", index=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class AuthOtpRecord(Base):
@@ -291,11 +323,54 @@ class InsightRecord(Base):
     )
     reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_context: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    feedback_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_recalculated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ignored_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ReviewItemRecord(Base):
+    __tablename__ = "review_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    source_insight_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source_note_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    source_chunk_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    source_content_hashes: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}"
+    )
+    review_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_points: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    perceived_difficulty: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    last_performance: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=""
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    due_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    interval_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ease_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.5)
+    repetitions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stability: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    scheduler_version: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="sm2.berrybrain.v1"
+    )
+    fingerprint: Mapped[str] = mapped_column(
+        String(128), unique=True, nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class AutomationLogRecord(Base):
@@ -309,6 +384,8 @@ class AutomationLogRecord(Base):
     before_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     after_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     reversible: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reverted_by_log_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
@@ -339,9 +416,31 @@ class EmbeddingRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=-1)
     vector: Mapped[str] = mapped_column(Text, nullable=False)
+    vector_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     model: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    vector_dimensions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ChunkRecord(Base):
+    __tablename__ = "chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    heading_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    start_line: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    end_line: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedding_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class GraphNodeRecord(Base):

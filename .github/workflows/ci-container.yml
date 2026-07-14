@@ -35,18 +35,61 @@ jobs:
           sed -i 's#^NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=.*#NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=#' .env
       - name: Compose config
         run: docker compose config --quiet
+      - name: Build application images
+        run: |
+          started=$(date +%s)
+          docker compose build --pull
+          echo "metric=image_build_seconds value=$(($(date +%s) - started))" | tee container-metrics.txt
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: berrybrain-api:local
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Scan Worker image
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: berrybrain-worker:local
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Scan Web image
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: berrybrain-web:local
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
       - name: Start Compose
-        run: docker compose up -d
+        run: |
+          started=$(date +%s)
+          docker compose up -d
+          echo "metric=compose_start_seconds value=$(($(date +%s) - started))" | tee -a container-metrics.txt
       - name: Smoke baseline
         run: |
           timeout 180 bash -c 'until curl -fsS http://127.0.0.1:8000/health; do sleep 5; done'
           timeout 240 bash -c 'until curl -fsS http://127.0.0.1:3000; do sleep 5; done'
-          ./scripts/baseline.sh
+          ./scripts/baseline.sh | tee baseline-report.txt
+      - name: Upload baseline metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-baseline
+          path: |
+            container-metrics.txt
+            baseline-report.txt
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
         with:
           path: .
           format: spdx-json
+          output-file: berrybrain-source.spdx.json
+          artifact-name: berrybrain-source-sbom.spdx.json
+          upload-artifact-retention: 30
       - name: Show logs on failure
         if: failure()
         run: docker compose logs --tail=120

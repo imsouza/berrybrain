@@ -1,0 +1,43 @@
+name: Product epic
+description: Track a BerryBrain product, architecture, quality, or release objective.
+title: "[Epic]: "
+labels:
+  - epic
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: Describe the user or operational outcome, not only implementation tasks.
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      placeholder: "@github-user"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use objective, testable criteria.
+      placeholder: |
+        - [ ] Behavior is implemented with real persisted data
+        - [ ] Automated tests cover success and failure states
+        - [ ] Documentation is updated
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: List tests, metrics, screenshots, audit records, or release artifacts required to close this epic.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+      description: Link dependent issues and record migration, security, data, provider, or rollout risks.

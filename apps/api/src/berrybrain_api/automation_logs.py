@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.models import AutomationLogRecord
+from berrybrain_api.redaction import redact_text, redact_value
 
 
 def create_automation_log(
@@ -23,9 +24,9 @@ def create_automation_log(
         action_type=action_type,
         target_type=target_type,
         target_id=target_id,
-        description=description,
-        before_state=compact_json(before_state),
-        after_state=compact_json(after_state),
+        description=redact_text(description),
+        before_state=compact_json(redact_value(before_state)),
+        after_state=compact_json(redact_value(after_state)),
         reversible=1 if reversible else 0,
     )
     session.add(log)
@@ -58,6 +59,8 @@ def serialize_automation_log(log: AutomationLogRecord) -> dict[str, Any]:
         "before_state": parse_json(log.before_state),
         "after_state": parse_json(log.after_state),
         "reversible": bool(log.reversible),
+        "reverted_at": log.reverted_at.isoformat() if log.reverted_at else None,
+        "reverted_by_log_id": log.reverted_by_log_id,
         "created_at": log.created_at.isoformat() if log.created_at else None,
     }
 

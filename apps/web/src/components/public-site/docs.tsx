@@ -18,9 +18,9 @@ Welcome to the **BerryBrain** documentation. BerryBrain is a local-first, eviden
 **second brain**: it turns the notes you already write into a connected knowledge system
 with a graph, AI-assisted insights, and a full audit trail of every automated decision.
 
-BerryBrain is **free and open source**. There is no central BerryBrain account, SaaS tenant,
-or paid feature gate. This public page is only a visual/informational project page; the
-source code and installation path live on GitHub.
+BerryBrain is **free and source-available for non-commercial use**. There is no central
+BerryBrain account, SaaS tenant, or paid feature gate. The source code, license, and
+installation path live on GitHub.
 
 This guide covers the project idea, architecture, self-hosting model, AI providers, vault
 workflow, and operational notes. Use the table of contents on the left to jump to any topic.`,
@@ -44,8 +44,9 @@ Open:
 - API health: \`http://localhost:8000/health\`
 
 ### Public page behavior
-\`optlabs.com.br/berrybrain\` is informational only. It should explain the project and send
-people to GitHub. It should not ask visitors to create accounts or configure an instance.
+The landing page explains the project, links to GitHub, and provides **Login** for the owner
+of that self-hosted instance. Public signup is disabled; an unconfigured deployment directs
+the owner to the one-time local setup.
 
 ### Production URL
 The public landing/app can be served at:
@@ -65,17 +66,19 @@ NEXT_PUBLIC_BERRYBRAIN_API_URL=/berrybrain
 Expose only the web/reverse-proxy entrypoint. Keep the raw API port private.`,
   },
   {
-    id: "open-source",
-    title: "Open source model",
-    md: `## Open source model
+    id: "source-model",
+    title: "Source and license model",
+    md: `## Source and license model
 
-BerryBrain is an open source, self-hosted product.
+BerryBrain is a source-available, self-hosted product. The core is free for personal,
+educational, research, and internal non-commercial use; commercial use requires written
+permission under the repository license.
 
 - **No hosted account required**: setup creates one local owner account for the instance.
 - **No billing system in core**: all features are available in the codebase.
 - **Donations are optional**: operators can link PayPal, card, Pix, or another donation page
   outside the core app.
-- **Fork-friendly**: Markdown files remain portable and the stack is Docker-friendly.
+- **Portable knowledge**: Markdown files remain inspectable and the stack is Docker-friendly.
 - **GitHub-first distribution**: source, issues, and releases live in the repository.
 
 Repository:
@@ -179,6 +182,7 @@ Edit \`.env\` and set at least:
 - \`BERRYBRAIN_SESSION_SECRET\` — long random secret for sessions and password hashing.
 - \`BERRYBRAIN_API_TOKEN\` — random bearer token for service-to-service automation.
 - \`BERRYBRAIN_ADMIN_EMAIL\` — legacy environment name for the single local owner email.
+- \`BERRYBRAIN_OWNER_USERNAME\` — owner login alias; defaults to \`admin\`.
 - \`BERRYBRAIN_CORS_ORIGINS\` — the exact public web origins.
 - \`BERRYBRAIN_ALLOWED_HOSTS\` — hostnames accepted by the API.
 - \`BERRYBRAIN_DONATION_URL\` — optional external donation link.
@@ -193,11 +197,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 \`\`\`bash
 docker compose up -d
 \`\`\`
-This starts the API and web app. Add the worker profile when you want background AI jobs:
-
-\`\`\`bash
-docker compose --profile worker up -d
-\`\`\`
+This starts the web app, API, and Worker. The Worker is mandatory because it executes the
+background cognitive pipeline.
 
 ### Step 4 — TLS (production)
 \`\`\`bash
@@ -217,11 +218,15 @@ Expose **only** the web entrypoint. Do **not** expose the API port publicly.`,
 1. Clone the repository from GitHub.
 2. Configure \`.env\`.
 3. Start the Docker stack.
-4. Create the local owner account inside your own deployment.
+4. Choose **Login** on the landing page and create the local owner account when prompted.
 5. Open the workspace and configure AI providers, vault settings, and privacy preferences.
 
 The setup endpoint is one-shot. After the configured owner exists, setup returns
 \`Instance already configured\`.
+
+The default username alias is \`admin\`, configurable with \`BERRYBRAIN_OWNER_USERNAME\`.
+BerryBrain deliberately ships with **no default password**. Setup requires the owner to create
+a strong password so an exposed fresh instance cannot be taken over with a published credential.
 
 ### AI setup (mandatory until configured)
 On first login the **AI setup** modal opens automatically. Choose:
@@ -278,8 +283,30 @@ Whenever you create or edit a note, the pipeline runs:
 8. **GENERATE_GRAPH_INSIGHTS** — gaps, contradictions, study paths.
 9. **UPDATE_GRAPH_STATS** — refresh counts and health.
 
+Attachments use their own \`PROCESS_ATTACHMENT\` job. Supported paths include PDF/document
+text extraction, Tesseract image OCR, and local Faster Whisper audio/video transcription.
+Successful extraction becomes searchable chunks and traceable graph evidence.
+
 Follow each step in **Activity** (sidebar) and **Monitor / Jobs**. Use **Scan vault** after
 importing files externally.`,
+  },
+  {
+    id: "cognitive-attachments",
+    title: "Cognitive attachments",
+    md: `## Cognitive attachments
+
+Attachments are knowledge sources, not passive downloads.
+
+- **PDF and documents**: page-aware text extraction for searchable evidence.
+- **Images**: local Tesseract OCR with configurable language and timeout.
+- **Audio and video**: local Faster Whisper transcription with timestamps and confidence.
+- **Knowledge Base**: extracted text is chunked and included in hybrid retrieval.
+- **Knowledge Graph**: processed files become attachment nodes linked to their source note.
+- **Provenance**: evidence keeps attachment ID, extractor, model, page or timestamp, and status.
+
+Extraction runs in a constrained subprocess with fixed arguments, bounded resources,
+\`no_new_privs\`, limited output, and no shell interpolation. File-size limits are configured
+separately for image, audio, video, and other attachments in **Settings**.`,
   },
   {
     id: "notes",
@@ -375,6 +402,8 @@ Editor modes: **Edit**, **Preview**, **Split**.`,
 - **Abuse controls**: rate limits, progressive lockout, and audit events.
 - **Sessions**: session cookies can be revoked by the local owner.
 - **Danger operations**: backup, maintenance, settings danger, and system reset require authentication.
+- **Setup protection**: one-shot owner creation is rate-limited and concurrency-safe.
+- **Owner alias**: sign in as \`admin\` by default or configure another alias before startup.
 
 Security controls block behavior, not tool names — they resist high-rate and replayed
 requests from any interception tool.`,
@@ -428,6 +457,23 @@ or logs.`,
 Use these to observe the pipeline and recover from failures without losing data.`,
   },
   {
+    id: "reliability",
+    title: "Reliability & recovery",
+    md: `## Reliability & recovery
+
+The Autopilot persists work before execution and treats each note version as immutable input.
+
+- Structured pipeline runs, job dependencies, note version, content hash, and idempotency key.
+- Atomic claim, lease, heartbeat, timeout, retry with backoff, circuit breaker, and dead-letter state.
+- Superseded pipelines cannot overwrite results from a newer note version.
+- AI failures remain visible failures; they do not become empty successful results.
+- Canonical graph writes prevent duplicate nodes and edges during retry or reprocessing.
+- Suggested graph artifacts can be confirmed, ignored, reprocessed, or reverted.
+
+Technical failures belong in **Monitor** and **Activity**. Knowledge insights remain limited to
+claims supported by notes, concepts, connections, or processed attachments.`,
+  },
+  {
     id: "settings",
     title: "Settings",
     md: `## Settings
@@ -436,9 +482,12 @@ Use these to observe the pipeline and recover from failures without losing data.
 - **Language**: interface in pt-BR or en (notes unchanged).
 - **Fonts**: UI and editor font families and sizes.
 - **AI**: switch between Local (Ollama) and Cloud (API), manage keys and models.
+- **Cognitive layer**: retrieval mode, chunks, graph inference, confidence, and external vector stores.
+- **Attachments**: size limits, OCR language, transcription executable/model, and extractor timeout.
 - **Vault**: manage folders (create, rename, delete).
 
-Settings are per-browser and stored locally; your notes remain in the vault.`,
+Settings are persisted by the authenticated local API; display preferences may also use browser
+storage. Your notes remain in the vault.`,
   },
   {
     id: "operations",
@@ -448,12 +497,32 @@ Settings are per-browser and stored locally; your notes remain in the vault.`,
 - **Logs**: \`docker compose logs -f api web worker\`.
 - **Status**: \`docker compose ps\`.
 - **Updates**: pull the latest code, then rebuild/restart Docker Compose.
-- **Backups**: copy the vault directory and the database volume.
+- **Backups**: create manifest-backed backups that include checksums and can validate before restore.
+- **Restore**: use the authenticated maintenance flow; corrupted or path-traversing archives are rejected.
+- **Migrations**: startup applies versioned schema migrations before serving workspace data.
 - **Secrets**: keep \`BERRYBRAIN_SESSION_SECRET\`, \`BERRYBRAIN_API_TOKEN\`, and provider keys outside git.
 - **TLS**: terminate HTTPS at your reverse proxy.
 - **Subpath hosting**: set the Next public base path/asset prefix to \`/berrybrain\`.
 
 Expose only the web entrypoint; keep the API internal.`,
+  },
+  {
+    id: "verification",
+    title: "Verification & release status",
+    md: `## Verification & release status
+
+Current local verification evidence from 13 July 2026:
+
+- **API**: 156 unit and integration tests pass.
+- **Worker**: 34 tests pass, including disposable-database integration paths.
+- **Browser**: 13 production Playwright checks pass, including owner login, keyboard flow, mobile layout, and degraded Home behavior.
+- **Static gates**: Ruff, formatting, MyPy, TypeScript, lint, and production build pass.
+- **Containers**: local Trivy policy reports zero fixable HIGH/CRITICAL findings.
+- **Supply chain**: SPDX SBOM generation and a signed immutable release workflow are defined.
+
+This evidence validates the local worktree. It is not a published release certificate. Branch
+protection, required remote checks, signed registry artifacts, ten consecutive green \`main\`
+runs, and an external clean-machine audit remain release governance gates.`,
   },
   {
     id: "troubleshooting",

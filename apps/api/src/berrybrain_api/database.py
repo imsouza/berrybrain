@@ -15,10 +15,16 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_database() -> None:
     from berrybrain_api import models  # noqa: F401
+    from berrybrain_api.schema_migrations import (
+        apply_schema_migrations,
+        assert_schema_compatible,
+    )
     from berrybrain_api.search import init_fts
 
+    assert_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_columns()
+    apply_schema_migrations(engine)
     ensure_default_profile()
 
     with SessionLocal() as session:
@@ -47,8 +53,9 @@ def ensure_default_profile() -> None:
             session.commit()
 
 
-def ensure_sqlite_columns() -> None:
-    inspector = inspect(engine)
+def ensure_sqlite_columns(bind=None) -> None:
+    database_engine = bind or engine
+    inspector = inspect(database_engine)
     if "notes" not in inspector.get_table_names():
         return
 
@@ -57,7 +64,7 @@ def ensure_sqlite_columns() -> None:
         "frontmatter": "TEXT NOT NULL DEFAULT '{}'",
         "links": "TEXT NOT NULL DEFAULT '[]'",
     }
-    with engine.begin() as connection:
+    with database_engine.begin() as connection:
         for name, definition in required_columns.items():
             if name not in existing:
                 connection.execute(
@@ -76,7 +83,7 @@ def ensure_sqlite_columns() -> None:
             "claimed_by": "TEXT NOT NULL DEFAULT ''",
             "lease_expires_at": "DATETIME",
         }
-        with engine.begin() as connection:
+        with database_engine.begin() as connection:
             for name, definition in required_job_columns.items():
                 if name not in existing_jobs:
                     connection.execute(
@@ -113,18 +120,96 @@ def ensure_sqlite_columns() -> None:
                     "ON jobs(idempotency_key)"
                 )
             )
+            connection.execute(
+                text(
+                    """
+                    UPDATE jobs
+                    SET status = 'superseded',
+                        error_message = 'Duplicate active job superseded during migration'
+                    WHERE id IN (
+                      SELECT id FROM (
+                        SELECT id,
+                               ROW_NUMBER() OVER (
+                                 PARTITION BY idempotency_key
+                                 ORDER BY created_at DESC, id DESC
+                               ) AS rn
+                        FROM jobs
+                        WHERE idempotency_key != ''
+                          AND status IN ('pending', 'running')
+                      )
+                      WHERE rn > 1
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_active_idempotency_key "
+                    "ON jobs(idempotency_key) "
+                    "WHERE idempotency_key != '' AND status IN ('pending', 'running')"
+                )
+            )
 
     if "worker_status" in inspector.get_table_names():
         existing_ws = {
             column["name"] for column in inspector.get_columns("worker_status")
         }
         if "ollama_healthy" not in existing_ws:
-            with engine.begin() as connection:
+            with database_engine.begin() as connection:
                 connection.execute(
                     text(
                         "ALTER TABLE worker_status ADD COLUMN ollama_healthy BOOLEAN NOT NULL DEFAULT 0"
                     )
                 )
+
+    if "embeddings" in inspector.get_table_names():
+        existing_embeddings = {
+            column["name"] for column in inspector.get_columns("embeddings")
+        }
+        required_embedding_columns = {
+            "chunk_index": "INTEGER NOT NULL DEFAULT -1",
+            "provider": "TEXT NOT NULL DEFAULT ''",
+            "vector_dimensions": "INTEGER NOT NULL DEFAULT 0",
+            "vector_blob": "BLOB",
+        }
+        with database_engine.begin() as connection:
+            for name, definition in required_embedding_columns.items():
+                if name not in existing_embeddings:
+                    connection.execute(
+                        text(f"ALTER TABLE embeddings ADD COLUMN {name} {definition}")
+                    )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_embeddings_note_chunk "
+                    "ON embeddings(note_id, content_hash, chunk_index)"
+                )
+            )
+
+    if "chunks" in inspector.get_table_names():
+        with database_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_note_hash_index "
+                    "ON chunks(note_id, content_hash, chunk_index)"
+                )
+            )
+
+    if "automation_logs" in inspector.get_table_names():
+        existing_logs = {
+            column["name"] for column in inspector.get_columns("automation_logs")
+        }
+        required_log_columns = {
+            "reverted_at": "DATETIME",
+            "reverted_by_log_id": "INTEGER",
+        }
+        with database_engine.begin() as connection:
+            for name, definition in required_log_columns.items():
+                if name not in existing_logs:
+                    connection.execute(
+                        text(
+                            f"ALTER TABLE automation_logs ADD COLUMN {name} {definition}"
+                        )
+                    )
 
     sqlite_columns = {
         "concepts": {
@@ -157,6 +242,11 @@ def ensure_sqlite_columns() -> None:
             "status": "VARCHAR(50) NOT NULL DEFAULT 'suggested'",
             "provider": "VARCHAR(80) NOT NULL DEFAULT ''",
             "model": "VARCHAR(160) NOT NULL DEFAULT ''",
+            "fingerprint": "VARCHAR(128) NOT NULL DEFAULT ''",
+            "quality_score": "FLOAT NOT NULL DEFAULT 0.0",
+            "feedback_score": "INTEGER NOT NULL DEFAULT 0",
+            "expires_at": "DATETIME",
+            "last_recalculated_at": "DATETIME",
             "updated_at": "DATETIME",
         },
         "graph_nodes": {
@@ -197,10 +287,21 @@ def ensure_sqlite_columns() -> None:
             "created_at": "DATETIME",
             "updated_at": "DATETIME",
         },
+        "note_attachments": {
+            "declared_mime_type": "VARCHAR(160) NOT NULL DEFAULT ''",
+            "checksum": "VARCHAR(64) NOT NULL DEFAULT ''",
+            "validation_status": "VARCHAR(40) NOT NULL DEFAULT 'validated'",
+        },
+        "attachment_extractions": {
+            "stage": "VARCHAR(50) NOT NULL DEFAULT 'pending'",
+            "progress": "INTEGER NOT NULL DEFAULT 0",
+            "extractor": "VARCHAR(80) NOT NULL DEFAULT 'attachment-text.v1'",
+            "location_metadata": "TEXT NOT NULL DEFAULT '{}'",
+        },
     }
 
     table_names = set(inspector.get_table_names())
-    with engine.begin() as connection:
+    with database_engine.begin() as connection:
         for table_name, columns in sqlite_columns.items():
             if table_name not in table_names:
                 continue

@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from berrybrain_api.database import Base
 from berrybrain_api.generated_metadata import upsert_generated_metadata
 from berrybrain_api.models import (
+    ChunkRecord,
     ConceptRecord,
     ConnectionRecord,
     GraphEdgeRecord,
@@ -81,7 +82,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
         self.assertGreaterEqual(result["concepts"], 3)
         self.assertTrue(any(c.name == "observabilidade" for c in concepts))
         self.assertTrue(any(n.type == "concept" for n in nodes))
-        self.assertTrue(any(e.type == "shared_concept" for e in edges))
+        self.assertTrue(any(e.type == "semantic_relation" for e in edges))
         self.assertTrue(any(c.connection_type == "shared_concept" for c in connections))
         self.assertEqual(backlink.status, "confirmed")
         self.assertIn("Edge Computing", backlink.evidence)
@@ -162,6 +163,149 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
         self.assertEqual(confirmed_status, "confirmed")
         self.assertEqual(ignored.status, "ignored")
+
+    def test_inferred_connections_use_real_chunks_and_typed_relations(self) -> None:
+        from berrybrain_api.graph_write_service import GraphWriteService
+        from berrybrain_api.services import store_embedding
+
+        fixtures = [
+            (
+                "Async Python",
+                "async-python",
+                "Coroutines schedule I/O without blocking.",
+            ),
+            (
+                "Event Loop",
+                "event-loop",
+                "The event loop schedules coroutine execution.",
+            ),
+            (
+                "Coroutine Task",
+                "coroutine-task",
+                "A task is a practical coroutine example.",
+            ),
+            (
+                "Blocking I/O",
+                "blocking-io",
+                "Blocking calls stop cooperative scheduling.",
+            ),
+            ("Garden Soil", "garden-soil", "Soil acidity affects vegetable growth."),
+        ]
+        notes = []
+        for index, (title, slug, content) in enumerate(fixtures):
+            note = NoteRecord(
+                title=title,
+                slug=slug,
+                path=f"fixture/{slug}.md",
+                content=content,
+                content_hash=f"hash-{index}",
+            )
+            self.session.add(note)
+            self.session.flush()
+            notes.append(note)
+        self.session.commit()
+        writer = GraphWriteService(self.session)
+        for index, note in enumerate(notes):
+            store_embedding(
+                self.session,
+                note_id=note.id,
+                content_hash=note.content_hash,
+                vector=[float(index + 1), 1.0],
+                model="fixture",
+                chunk_index=0,
+                chunk_text=note.content,
+                start_line=1,
+                end_line=1,
+            )
+            writer.upsert_node(
+                node_type="note",
+                label=note.title,
+                source="note",
+                source_id=note.id,
+                source_note_ids=[note.id],
+                status="confirmed",
+            )
+
+        from berrybrain_api import second_brain
+
+        original_generate = second_brain.generate_graph_answer
+        original_config = second_brain.get_ai_config
+
+        async def fake_generate(config, prompt, system):
+            return {
+                "connections": [
+                    {
+                        "source": "Event Loop",
+                        "target": "Async Python",
+                        "type": "prerequisite",
+                        "reason": "Understanding the event loop precedes async scheduling.",
+                        "confidence": 0.91,
+                    },
+                    {
+                        "source": "Coroutine Task",
+                        "target": "Async Python",
+                        "type": "example_of",
+                        "reason": "A coroutine task is a concrete async Python example.",
+                        "confidence": 0.88,
+                    },
+                    {
+                        "source": "Async Python",
+                        "target": "Blocking I/O",
+                        "type": "contrasts_with",
+                        "reason": "Cooperative scheduling contrasts with blocking calls.",
+                        "confidence": 0.86,
+                    },
+                    {
+                        "source": "Missing node",
+                        "target": "Garden Soil",
+                        "type": "semantic_relation",
+                        "reason": "Unsupported fixture relation.",
+                        "confidence": 0.99,
+                    },
+                ]
+            }
+
+        try:
+            second_brain.generate_graph_answer = fake_generate
+            second_brain.get_ai_config = lambda session: {
+                "provider": "nvidia-nim",
+                "cloud_model": "qwen",
+                "auto_confirm_confidence": "0.9",
+            }
+            result = asyncio.run(
+                second_brain.generate_inferred_graph_connections(self.session)
+            )
+            repeated = asyncio.run(
+                second_brain.generate_inferred_graph_connections(self.session)
+            )
+        finally:
+            second_brain.generate_graph_answer = original_generate
+            second_brain.get_ai_config = original_config
+
+        self.assertEqual(result, {"connections": 3, "rejected": 1})
+        self.assertEqual(repeated, {"connections": 3, "rejected": 1})
+        edges = list(self.session.query(GraphEdgeRecord).all())
+        self.assertEqual(
+            {edge.type for edge in edges},
+            {"prerequisite", "example_of", "contrasts_with"},
+        )
+        self.assertTrue(all(edge.reason and edge.evidence for edge in edges))
+        self.assertTrue(all(edge.provider == "nvidia-nim" for edge in edges))
+        evidence = json.loads(edges[0].evidence)[0]
+        self.assertIn("sourceChunkId", evidence)
+        self.assertIn("targetChunkId", evidence)
+        garden_node = next(
+            node
+            for node in self.session.query(GraphNodeRecord)
+            if node.label == "Garden Soil"
+        )
+        self.assertFalse(
+            any(
+                edge.source_node_id == garden_node.id
+                or edge.target_node_id == garden_node.id
+                for edge in edges
+            )
+        )
 
     def test_graph_inference_calls_configured_ai_with_graph_context(self) -> None:
         note = NoteRecord(
@@ -312,7 +456,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
         topics = [
             node.label
             for node in self.session.query(GraphNodeRecord)
-            .filter_by(type="topico")
+            .filter_by(type="topic")
             .all()
         ]
 
@@ -368,10 +512,85 @@ class SecondBrainPhase1Test(unittest.TestCase):
             any(
                 edge.source_node_id == note_nodes[0].id
                 and edge.target_node_id == concept.id
-                and edge.type == "shared_concept"
+                and edge.type == "semantic_relation"
                 for edge in edges
             )
         )
+
+    def test_legacy_ai_edges_recover_chunk_evidence_or_become_stale(self) -> None:
+        notes = [
+            NoteRecord(
+                title="Docker", slug="docker", path="docker.md", content_hash="a"
+            ),
+            NoteRecord(title="Shell", slug="shell", path="shell.md", content_hash="b"),
+        ]
+        self.session.add_all(notes)
+        self.session.flush()
+        nodes = [
+            GraphNodeRecord(
+                type="note",
+                label=note.title,
+                source_id=note.id,
+                source_note_ids=json.dumps([note.id]),
+            )
+            for note in notes
+        ]
+        orphan = GraphNodeRecord(type="concept", label="No source")
+        self.session.add_all([*nodes, orphan])
+        self.session.flush()
+        self.session.add_all(
+            [
+                ChunkRecord(
+                    note_id=notes[0].id,
+                    note_version="a",
+                    content_hash="a",
+                    text="Docker containers run Linux processes.",
+                    start_line=1,
+                    end_line=2,
+                ),
+                ChunkRecord(
+                    note_id=notes[1].id,
+                    note_version="b",
+                    content_hash="b",
+                    text="Shell scripts automate Linux processes.",
+                    start_line=1,
+                    end_line=2,
+                ),
+            ]
+        )
+        recoverable = GraphEdgeRecord(
+            source_node_id=nodes[0].id,
+            target_node_id=nodes[1].id,
+            type="semantic_relation",
+            reason="Legacy AI relation",
+            evidence='["legacy"]',
+            source_note_ids=json.dumps([notes[0].id, notes[1].id]),
+            created_by="ai",
+            status="suggested",
+        )
+        unsupported = GraphEdgeRecord(
+            source_node_id=nodes[0].id,
+            target_node_id=orphan.id,
+            type="semantic_relation",
+            reason="Unsupported legacy relation",
+            evidence='["legacy"]',
+            created_by="ai",
+            status="suggested",
+        )
+        self.session.add_all([recoverable, unsupported])
+        self.session.commit()
+
+        from berrybrain_api.graph_write_service import has_traceable_ai_evidence
+        from berrybrain_api.second_brain import _migrate_active_ai_edge_evidence
+
+        result = _migrate_active_ai_edge_evidence(self.session)
+        self.session.commit()
+        self.session.refresh(recoverable)
+        self.session.refresh(unsupported)
+
+        self.assertEqual(result, {"recovered": 1, "stale": 1})
+        self.assertTrue(has_traceable_ai_evidence(recoverable))
+        self.assertEqual(unsupported.status, "stale")
 
     def test_expand_does_not_duplicate_note_title_slug_and_path_as_concepts(
         self,

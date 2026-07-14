@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.models import JobRecord, NoteRecord
+from berrybrain_api.redaction import redact_text
 
 PENDING = "pending"
 RUNNING = "running"
@@ -43,6 +46,8 @@ PRUNE_LOW_VALUE_GRAPH_NODES = "PRUNE_LOW_VALUE_GRAPH_NODES"
 MERGE_DUPLICATE_GRAPH_NODES = "MERGE_DUPLICATE_GRAPH_NODES"
 UPDATE_GRAPH_QUALITY = "UPDATE_GRAPH_QUALITY"
 PROCESS_ATTACHMENT = "PROCESS_ATTACHMENT"
+CREATE_NOTE_FROM_INSIGHT = "CREATE_NOTE_FROM_INSIGHT"
+CREATE_REVIEW_FROM_INSIGHT = "CREATE_REVIEW_FROM_INSIGHT"
 NOTE_PIPELINE_ORDER = [
     PARSE_NOTE,
     CLASSIFY_NOTE,
@@ -63,6 +68,144 @@ NOTE_PIPELINE_ORDER = [
 ]
 NOTE_PIPELINE_RANK = {
     job_type: rank for rank, job_type in enumerate(NOTE_PIPELINE_ORDER)
+}
+
+
+def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]]:
+    """Calculate progress from the stages actually queued for each note."""
+    by_note: dict[str, dict[str, object]] = {}
+    for job in jobs:
+        payload = parse_json(job.payload)
+        note_path = payload.get("note_path", "")
+        if not note_path or job.type not in NOTE_PIPELINE_RANK:
+            continue
+        run_key = (
+            job.pipeline_run_id
+            or payload.get("pipeline_run_id")
+            or job.content_hash
+            or payload.get("content_hash")
+            or f"legacy:{note_path}"
+        )
+        note_state = by_note.setdefault(note_path, {"runKey": run_key, "jobs": {}})
+        if note_state["runKey"] != run_key:
+            continue
+        latest_jobs = note_state["jobs"]
+        if isinstance(latest_jobs, dict) and job.type not in latest_jobs:
+            latest_jobs[job.type] = job
+    result: list[dict[str, object]] = []
+    for note_path, note_state in by_note.items():
+        latest_jobs = note_state["jobs"]
+        if not isinstance(latest_jobs, dict):
+            continue
+        statuses = {job_type: job.status for job_type, job in latest_jobs.items()}
+        total = len(latest_jobs)
+        completed = sum(status == COMPLETED for status in statuses.values())
+        failed_jobs = [
+            job for job in latest_jobs.values() if job.status in {FAILED, DEAD_LETTER}
+        ]
+        running_type = next(
+            (
+                job_type
+                for job_type in NOTE_PIPELINE_ORDER
+                if statuses.get(job_type) == RUNNING
+            ),
+            None,
+        )
+        pending_type = next(
+            (
+                job_type
+                for job_type in NOTE_PIPELINE_ORDER
+                if statuses.get(job_type) == PENDING
+            ),
+            None,
+        )
+        if failed_jobs:
+            state = "failed"
+        elif running_type:
+            state = "processing"
+        elif pending_type:
+            state = "waiting"
+        elif total and completed == total:
+            state = "completed"
+        else:
+            state = "degraded"
+        current_step = running_type or pending_type
+        result.append(
+            {
+                "notePath": note_path,
+                "pipelineRunId": note_state["runKey"],
+                "completed": completed,
+                "total": total,
+                "percent": round(completed / total * 100) if total else 0,
+                "state": state,
+                "currentStep": current_step.replace("_", " ").title()
+                if current_step
+                else None,
+                "errors": [_pipeline_error(job) for job in failed_jobs[:3]],
+            }
+        )
+    result.sort(
+        key=lambda item: (
+            item["state"] == "completed",
+            cast(int, item["percent"]),
+        ),
+        reverse=True,
+    )
+    return result
+
+
+def _pipeline_error(job: JobRecord) -> dict[str, object]:
+    impacts = {
+        GENERATE_EMBEDDING: "The note is saved, but semantic search may not find this version yet.",
+        FIND_CONNECTIONS: "The note is saved, but graph connections may be incomplete.",
+        GENERATE_GRAPH_INSIGHTS: "The note is saved, but new knowledge insights are unavailable.",
+        EXPAND_KNOWLEDGE_GRAPH: "The note is saved, but its graph neighborhood may be stale.",
+    }
+    return {
+        "jobId": job.id,
+        "type": job.type,
+        "message": job.error_message or f"{job.type.replace('_', ' ').title()} failed.",
+        "impact": impacts.get(
+            job.type,
+            "The note is saved, but this cognitive stage did not complete.",
+        ),
+        "action": "Retry this job in Monitor or review the configured provider.",
+    }
+
+
+NOTE_CHANGED_PIPELINE_ORDER = [
+    PARSE_NOTE,
+    CLASSIFY_NOTE,
+    ASSIMILATE_NOTE,
+    EXTRACT_CONCEPTS,
+    EXTRACT_ENTITIES,
+    DETECT_TOPICS,
+    EXTRACT_CONTEXT,
+    GENERATE_EMBEDDING,
+    FIND_CONNECTIONS,
+    EXPAND_KNOWLEDGE_GRAPH,
+    GENERATE_INFERRED_CONNECTIONS,
+    EXPAND_CONCEPT_TO_NOTE,
+    GENERATE_GRAPH_INSIGHTS,
+    UPDATE_GRAPH_STATS,
+    GENERATE_NOTE_TITLE,
+]
+NOTE_PIPELINE_ATTEMPTS = {
+    PARSE_NOTE: 3,
+    CLASSIFY_NOTE: 2,
+    ASSIMILATE_NOTE: 2,
+    EXTRACT_CONCEPTS: 2,
+    EXTRACT_ENTITIES: 2,
+    DETECT_TOPICS: 2,
+    EXTRACT_CONTEXT: 2,
+    GENERATE_EMBEDDING: 2,
+    FIND_CONNECTIONS: 2,
+    EXPAND_KNOWLEDGE_GRAPH: 2,
+    GENERATE_INFERRED_CONNECTIONS: 2,
+    EXPAND_CONCEPT_TO_NOTE: 2,
+    GENERATE_GRAPH_INSIGHTS: 2,
+    UPDATE_GRAPH_STATS: 1,
+    GENERATE_NOTE_TITLE: 2,
 }
 GRAPH_MUTATION_JOB_TYPES = {
     EXPAND_KNOWLEDGE_GRAPH,
@@ -98,6 +241,19 @@ def create_job(
             else ""
         )
     )
+    if idempotency_key:
+        existing = (
+            session.execute(
+                select(JobRecord).where(
+                    JobRecord.idempotency_key == idempotency_key,
+                    JobRecord.status.in_([PENDING, RUNNING]),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing is not None:
+            return existing
     job = JobRecord(
         type=job_type,
         payload=compact_json(payload),
@@ -120,34 +276,34 @@ def enqueue_note_changed_jobs(
     note_path: str,
     event_type: str,
     content_hash: str,
+    affected_job_types: set[str] | None = None,
 ) -> list[JobRecord]:
     if event_type == "NOTE_DELETED":
         return []
 
+    pipeline_types = list(NOTE_CHANGED_PIPELINE_ORDER)
+    if not _needs_generated_title(note_path):
+        pipeline_types = [
+            job_type for job_type in pipeline_types if job_type != GENERATE_NOTE_TITLE
+        ]
+    if affected_job_types is not None:
+        pipeline_types = [
+            job_type for job_type in pipeline_types if job_type in affected_job_types
+        ]
     pipeline = [
-        (PARSE_NOTE, 3),
-        (CLASSIFY_NOTE, 2),
-        (ASSIMILATE_NOTE, 2),
-        (EXTRACT_CONCEPTS, 2),
-        (EXTRACT_ENTITIES, 2),
-        (DETECT_TOPICS, 2),
-        (EXTRACT_CONTEXT, 2),
-        (GENERATE_EMBEDDING, 2),
-        (FIND_CONNECTIONS, 2),
-        (EXPAND_KNOWLEDGE_GRAPH, 2),
-        (GENERATE_INFERRED_CONNECTIONS, 2),
-        (EXPAND_CONCEPT_TO_NOTE, 2),
-        (GENERATE_GRAPH_INSIGHTS, 2),
-        (UPDATE_GRAPH_STATS, 1),
+        (job_type, NOTE_PIPELINE_ATTEMPTS.get(job_type, 2))
+        for job_type in pipeline_types
     ]
-    if _needs_generated_title(note_path):
-        pipeline.append((GENERATE_NOTE_TITLE, 2))
 
     jobs: list[JobRecord] = []
     note = session.execute(
         select(NoteRecord).where(NoteRecord.path == note_path)
     ).scalar_one_or_none()
     note_id = note.id if note is not None else 0
+    if note_id:
+        from berrybrain_api.review_service import mark_reviews_stale_for_note
+
+        mark_reviews_stale_for_note(session, note_id, content_hash)
     superseded = list(
         session.execute(
             select(JobRecord).where(
@@ -181,6 +337,9 @@ def enqueue_note_changed_jobs(
             continue
 
         payload = {
+            "affected_job_types": sorted(affected_job_types)
+            if affected_job_types is not None
+            else "full",
             "content_hash": content_hash,
             "event_type": event_type,
             "note_id": note_id,
@@ -205,6 +364,45 @@ def enqueue_note_changed_jobs(
 def _needs_generated_title(note_path: str) -> bool:
     filename = note_path.rsplit("/", 1)[-1].lower()
     return filename.startswith("rascunho") or filename.startswith("nota-sem-titulo")
+
+
+def affected_job_types_for_note_update(
+    old_content: str, new_content: str, note_path: str
+) -> set[str]:
+    if old_content == new_content:
+        return set()
+
+    old_body = _markdown_body(old_content)
+    new_body = _markdown_body(new_content)
+
+    if _normalized_text(old_content) == _normalized_text(new_content):
+        return {PARSE_NOTE, UPDATE_GRAPH_STATS}
+
+    if old_body == new_body:
+        return {
+            PARSE_NOTE,
+            ASSIMILATE_NOTE,
+            EXTRACT_CONTEXT,
+            EXPAND_KNOWLEDGE_GRAPH,
+            GENERATE_GRAPH_INSIGHTS,
+            UPDATE_GRAPH_STATS,
+        }
+
+    affected = set(NOTE_CHANGED_PIPELINE_ORDER)
+    if not _needs_generated_title(note_path):
+        affected.discard(GENERATE_NOTE_TITLE)
+    return affected
+
+
+def _markdown_body(content: str) -> str:
+    match = re.match(r"^---\s*\n.*?\n---\s*\n", content or "", re.DOTALL)
+    if match:
+        return content[match.end() :]
+    return content or ""
+
+
+def _normalized_text(content: str) -> str:
+    return " ".join((content or "").split())
 
 
 def claim_next_job(
@@ -239,20 +437,23 @@ def claim_next_job(
 
     now = utc_now()
     lease_expires_at = now + timedelta(minutes=lease_minutes)
-    result = session.execute(
-        update(JobRecord)
-        .where(
-            JobRecord.id == job.id,
-            JobRecord.status == PENDING,
-            JobRecord.attempts < JobRecord.max_attempts,
-        )
-        .values(
-            status=RUNNING,
-            attempts=JobRecord.attempts + 1,
-            started_at=now,
-            lease_expires_at=lease_expires_at,
-            claimed_by=claimed_by[:120],
-        )
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            update(JobRecord)
+            .where(
+                JobRecord.id == job.id,
+                JobRecord.status == PENDING,
+                JobRecord.attempts < JobRecord.max_attempts,
+            )
+            .values(
+                status=RUNNING,
+                attempts=JobRecord.attempts + 1,
+                started_at=now,
+                lease_expires_at=lease_expires_at,
+                claimed_by=claimed_by[:120],
+            )
+        ),
     )
     if result.rowcount != 1:
         session.rollback()
@@ -377,7 +578,7 @@ def complete_job(session: Session, job_id: int) -> JobRecord:
 
 def fail_job(session: Session, job_id: int, error_message: str) -> JobRecord:
     job = get_job_or_404(session, job_id)
-    job.error_message = error_message
+    job.error_message = redact_text(error_message)[:4000]
     job.completed_at = utc_now()
 
     if job.attempts >= job.max_attempts:
@@ -399,6 +600,8 @@ def retry_job(session: Session, job_id: int) -> JobRecord:
     job = get_job_or_404(session, job_id)
     if job.status not in {FAILED, DEAD_LETTER}:
         raise HTTPException(status_code=409, detail="Only failed jobs can be retried")
+    previous_status = job.status
+    previous_error = job.error_message
     job.status = PENDING
     job.attempts = 0
     job.error_message = None
@@ -406,6 +609,16 @@ def retry_job(session: Session, job_id: int) -> JobRecord:
     job.completed_at = None
     job.claimed_by = ""
     job.lease_expires_at = None
+    create_automation_log(
+        session,
+        action_type="RETRY_JOB",
+        target_type="job",
+        target_id=str(job.id),
+        description=f"Retried job {job.type}",
+        before_state={"status": previous_status, "error_message": previous_error},
+        after_state={"status": PENDING, "attempts": 0},
+        reversible=False,
+    )
     session.commit()
     session.refresh(job)
     return job
@@ -470,7 +683,9 @@ def parse_json(value: str) -> Any:
 
 
 def serialize_datetime(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
+    if value is None:
+        return None
+    return normalize_utc(value).isoformat().replace("+00:00", "Z")
 
 
 def utc_now() -> datetime:

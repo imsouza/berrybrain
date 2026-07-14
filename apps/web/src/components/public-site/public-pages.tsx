@@ -63,7 +63,9 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
 };
 
 const nav = [
-  ["Home", "/"],
+  ["Product", "/#product"],
+  ["Architecture", "/#architecture"],
+  ["Reliability", "/#reliability"],
   ["Docs", "/docs"],
   ["FAQ", "/faq"],
 ] as const;
@@ -73,7 +75,10 @@ const footerGroups = [
     title: "Product",
     links: [
       ["Overview", "/"],
+      ["Architecture", "/#architecture"],
+      ["Reliability", "/#reliability"],
       ["Docs", "/docs"],
+      ["Login", "/login"],
       ["GitHub", GITHUB_URL],
     ],
   },
@@ -144,6 +149,7 @@ function LegalModal({ open, onClose }: { open: string | null; onClose: () => voi
 
 const mobileNavLinks = [
   ...nav,
+  ["Login", "/login"],
   ["Security", "legal:security"],
   ["Privacy", "legal:privacy"],
   ["GDPR/LGPD", "legal:gdpr-lgpd"],
@@ -184,6 +190,12 @@ export function PublicShell({
             )}
           </nav>
           <div className="flex items-center gap-2">
+            <a
+              href={appPath("/login")}
+              className="hidden rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-surface sm:inline-flex"
+            >
+              Login
+            </a>
             <a
               href={GITHUB_URL}
               target="_blank"
@@ -334,7 +346,9 @@ function LandingContent() {
     { title: "Markdown vault", body: "Real files remain portable, inspectable, and easy to back up.", icon: DocsIcon },
     { title: "Explainable graph", body: "Connections keep evidence, confidence, status, provider, and model trace.", icon: GraphIcon },
     { title: "Docker self-hosting", body: "Run web, API, and worker locally or behind your own reverse proxy.", icon: DockerIcon },
-    { title: "GitHub-first", body: "Source, issues, deployment notes, and roadmap stay in the public repository.", icon: GithubIcon },
+    { title: "Cognitive attachments", body: "PDFs, images, audio, and video become searchable chunks and graph evidence.", icon: DocsIcon },
+    { title: "Resilient autopilot", body: "Leases, retries, recovery, and idempotency keep background work observable.", icon: GraphIcon },
+    { title: "Auditable delivery", body: "Automated tests, container scans, SBOMs, and signed-release workflows support self-hosting.", icon: GithubIcon },
   ];
   const pipeline = [
     ["Capture", "Write Markdown notes and keep source files portable."],
@@ -342,6 +356,14 @@ function LandingContent() {
     ["Assimilate", "Generate concepts, summaries, and retrieval chunks."],
     ["Connect", "Create explainable graph edges with evidence."],
     ["Review", "Turn gaps and insights into next study actions."],
+  ];
+  const maturityItems = [
+    ["Hybrid memory", "Markdown chunks, lexical signals, vectors, and graph context work together during retrieval."],
+    ["Graph integrity", "Canonical nodes and edges require source evidence, confidence, status, provider, and prompt trace."],
+    ["Cognitive sources", "PDFs, documents, images, audio, and video become searchable evidence with page or timestamp provenance."],
+    ["Recoverable jobs", "Leases, heartbeats, idempotency, retries, dead-letter handling, and stale-job recovery protect the pipeline."],
+    ["Portable recovery", "Manifest-backed backups verify checksums and restore the vault, database, settings, and derived knowledge."],
+    ["Owner security", "One-time setup, Argon2id, signed sessions, CSRF checks, rate limits, lockout, and audit events protect access."],
   ];
   const comparisonColumns = [
     { label: "BerryBrain", note: "Source-available cognitive layer" },
@@ -391,22 +413,28 @@ function LandingContent() {
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
+                href={appPath("/login")}
+                className="inline-flex items-center justify-center rounded-md bg-accent px-5 py-3 text-sm font-semibold text-black shadow-sm transition hover:opacity-90"
+              >
+                Login to your brain
+              </a>
+              <a
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-black shadow-sm transition hover:opacity-90"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-panel px-5 py-3 text-sm font-medium text-foreground transition hover:bg-surface"
               >
                 <GithubIcon />
                 View on GitHub
               </a>
-              <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-panel px-5 py-3 text-sm font-medium text-foreground hover:bg-surface">
+              <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm font-medium text-muted transition hover:text-foreground">
                 <DocsIcon className="size-4" />
                 Read docs
               </a>
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["License", "MIT"],
+                ["License", "Non-commercial"],
                 ["Runtime", "Docker"],
                 ["Vault", "Markdown"],
                 ["Model", "Local/cloud"],
@@ -454,8 +482,8 @@ function LandingContent() {
         </div>
       </section>
 
-      <section className="bg-background">
-        <div className="mx-auto grid w-full max-w-6xl gap-4 px-5 py-12 md:grid-cols-4 md:px-6">
+      <section id="product" className="scroll-mt-24 bg-background">
+        <div className="mx-auto grid w-full max-w-6xl gap-4 px-5 py-12 sm:grid-cols-2 md:px-6 lg:grid-cols-3">
           {featureCards.map((item) => {
             const Icon = item.icon;
             return (
@@ -502,15 +530,15 @@ function LandingContent() {
         </div>
       </section>
 
-      <section className="bg-panel/45">
+      <section id="architecture" className="scroll-mt-24 bg-panel/45">
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1.08fr_0.92fr] md:px-6">
           <div className="rounded-lg border border-border bg-background p-5">
             <div className="grid gap-4 text-sm">
-              <DiagramBox title="Markdown vault" body="Local files, links, attachments" />
+              <DiagramBox title="Knowledge sources" body="Markdown, links, PDFs, images, audio, video" />
               <DiagramArrow />
               <div className="grid gap-3 sm:grid-cols-3">
                 <DiagramBox title="API" body="Auth, notes, settings" />
-                <DiagramBox title="Worker" body="Jobs, parsing, AI tasks" />
+                <DiagramBox title="Worker" body="Leased jobs, extraction, AI tasks" />
                 <DiagramBox title="Models" body="Ollama or cloud provider" />
               </div>
               <DiagramArrow />
@@ -530,7 +558,8 @@ function LandingContent() {
               {[
                 ["Next.js web", "Public project pages and the self-hosted workspace UI."],
                 ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
-                ["Worker pipeline", "Background parsing, assimilation, embeddings, graph expansion, and insights."],
+                ["Worker pipeline", "Recoverable parsing, attachment extraction, embeddings, graph expansion, and insights."],
+                ["Owner security", "One-time setup, configurable login alias, strong password, CSRF, rate limits, and lockout."],
               ].map(([title, body]) => (
                 <div key={title} className="border-t border-border pt-4">
                   <h3 className="text-sm font-semibold">{title}</h3>
@@ -538,6 +567,35 @@ function LandingContent() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="reliability" className="scroll-mt-24 border-y border-border/70 bg-background">
+        <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[0.72fr_1.28fr] md:px-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Current foundation</p>
+            <h2 className="mt-3 text-3xl font-semibold">Knowledge that remains inspectable after the model answers.</h2>
+            <p className="mt-4 max-w-md text-sm leading-7 text-muted">
+              BerryBrain treats generated knowledge as durable data with provenance, lifecycle, and recovery paths. AI output never replaces the Markdown source.
+            </p>
+            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline">
+              Read the technical documentation
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+          <div className="grid gap-x-8 sm:grid-cols-2">
+            {maturityItems.map(([title, body], index) => (
+              <article key={title} className="border-t border-border py-5">
+                <div className="flex items-start gap-4">
+                  <span className="mt-0.5 text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <h3 className="text-sm font-semibold">{title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
@@ -623,7 +681,7 @@ function passwordErrors(p: string): string[] {
   return errs;
 }
 
-export function AuthPage({ mode: _mode }: { mode: "login" | "signup" }) {
+export function AuthPage() {
   const isSignup = false;
   const apiUrl = getApiUrl();
   const [view, setView] = useState<"auth" | "forgot-request" | "forgot-confirm">("auth");
@@ -660,6 +718,7 @@ export function AuthPage({ mode: _mode }: { mode: "login" | "signup" }) {
         return;
       }
       if (data.challengeId) setChallengeId(data.challengeId);
+      if (data.email) setEmail(data.email);
       if (data.status === "verification_required" || data.status === "2fa_required" || data.challengeId) {
         setAwaitingCode(true);
       }
@@ -768,16 +827,16 @@ export function AuthPage({ mode: _mode }: { mode: "login" | "signup" }) {
         <form className="rounded-lg border border-border bg-panel p-6" onSubmit={(event) => event.preventDefault()}>
           {view === "auth" && (
             <>
-              <label className="block text-xs font-medium text-muted">Email</label>
-              <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
+              <label htmlFor="owner-identifier" className="block text-xs font-medium text-muted">Username or owner email</label>
+              <input id="owner-identifier" required autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="admin" type="text" />
               {isSignup && (
                 <>
                   <label className="mt-4 block text-xs font-medium text-muted">Display name</label>
                   <input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Your name" />
                 </>
               )}
-              <label className="mt-4 block text-xs font-medium text-muted">Password</label>
-              <input required minLength={12} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="At least 12 characters" type="password" />
+              <label htmlFor="owner-password" className="mt-4 block text-xs font-medium text-muted">Password</label>
+              <input id="owner-password" required minLength={12} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="At least 12 characters" type="password" />
               <p className="mt-2 text-[11px] leading-5 text-muted">Use at least 12 characters with mixed letter case and a number.</p>
               {!isSignup && (
                 <label className="mt-4 flex items-center gap-2 text-xs text-muted">

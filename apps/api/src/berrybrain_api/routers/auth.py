@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from berrybrain_api.config import get_settings
@@ -51,7 +52,7 @@ class SetupAdminRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: str = Field(min_length=1, max_length=255)
     password: str
     remember_me: bool = True
 
@@ -236,9 +237,11 @@ def setup_status() -> dict:
             select(UserRecord).where(UserRecord.email == admin_email)
         ).scalar_one_or_none()
         user_count = session.execute(select(UserRecord.id)).first() is not None
+        needs_setup = admin is None
         return {
-            "needsSetup": admin is None,
-            "adminEmail": admin_email,
+            "needsSetup": needs_setup,
+            "adminEmail": admin_email if needs_setup else "",
+            "ownerUsername": settings.owner_username.strip() or "admin",
             "hasUsers": user_count,
         }
 
@@ -251,10 +254,14 @@ def setup_admin(
     admin_email = validate_email(settings.admin_email)
     validate_password(payload.password)
     with SessionLocal() as session:
+        assert_rate_limit(session, request, settings, "setup", admin_email)
         existing = session.execute(
             select(UserRecord).where(UserRecord.email == admin_email)
         ).scalar_one_or_none()
         if existing is not None:
+            record_attempt(
+                session, request, "setup", admin_email, False, "already_configured"
+            )
             raise HTTPException(status_code=409, detail="Instance already configured")
         user = UserRecord(
             email=admin_email,
@@ -264,7 +271,16 @@ def setup_admin(
             two_factor_enabled=False,
         )
         session.add(user)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError as error:
+            session.rollback()
+            record_attempt(
+                session, request, "setup", admin_email, False, "concurrent_setup"
+            )
+            raise HTTPException(
+                status_code=409, detail="Instance already configured"
+            ) from error
         session.refresh(user)
         audit_event(
             session,
@@ -279,6 +295,7 @@ def setup_admin(
             session, settings, request, user, remember_me=True
         )
         _set_auth_cookies(response, session_token, csrf_token, remember_me=True)
+        record_attempt(session, request, "setup", admin_email, True)
         return {
             "status": "configured",
             "user": _serialize_user(user),
@@ -332,11 +349,17 @@ def verify_email(
 @router.post("/auth/login")
 def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     settings = get_settings()
-    email = normalize_email(payload.email)
+    identifier = payload.email.strip().lower()
+    owner_username = settings.owner_username.strip().lower() or "admin"
+    email = (
+        normalize_email(settings.admin_email)
+        if identifier == owner_username
+        else normalize_email(identifier)
+    )
     with SessionLocal() as session:
         assert_rate_limit(session, request, settings, "login", email)
         generic_error = HTTPException(
-            status_code=401, detail="Invalid email or password"
+            status_code=401, detail="Invalid username/email or password"
         )
         user = session.execute(
             select(UserRecord).where(UserRecord.email == email)
@@ -365,7 +388,11 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
             )
             delivery = send_otp_email(settings, email, code, "email_verification")
             record_attempt(session, request, "login", email, False, "email_unverified")
-            return {"status": "verification_required", "delivery": delivery["status"]}
+            return {
+                "status": "verification_required",
+                "delivery": delivery["status"],
+                "email": email,
+            }
         if user.two_factor_enabled:
             code, challenge = create_otp(session, settings, user, email, "login_2fa")
             delivery = send_otp_email(settings, email, code, "login_2fa")
@@ -383,11 +410,17 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
                 "status": "2fa_required",
                 "challengeId": challenge,
                 "delivery": delivery["status"],
+                "email": email,
             }
         session_token, csrf_token, _session = create_user_session(
-            session, settings, request, user, remember_me=True
+            session, settings, request, user, remember_me=payload.remember_me
         )
-        _set_auth_cookies(response, session_token, csrf_token, remember_me=True)
+        _set_auth_cookies(
+            response,
+            session_token,
+            csrf_token,
+            remember_me=payload.remember_me,
+        )
         record_attempt(session, request, "login", email, True)
         audit_event(session, request, "LOGIN_COMPLETED", user, "user", str(user.id))
         return {

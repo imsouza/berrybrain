@@ -199,9 +199,9 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 json={"error_message": "test failure"},
             )
             self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["job"]["status"], "failed")
+            self.assertEqual(resp.json()["job"]["status"], "dead_letter")
 
-            resp = await client.get("/api/v1/jobs", params={"status": "failed"})
+            resp = await client.get("/api/v1/jobs", params={"status": "dead_letter"})
             failed = resp.json()["jobs"]
             self.assertTrue(any(j["id"] == job_id for j in failed))
 

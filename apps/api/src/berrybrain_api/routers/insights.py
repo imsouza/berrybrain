@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
@@ -504,8 +505,11 @@ def apply_insight_endpoint(insight_id: int) -> dict:
         insight = session.get(InsightRecord, insight_id)
         if insight is None:
             return {"status": "insight_not_found"}
-        insight.status = "applied"
+        insight.status = "accepted"
         insight.applied_at = utc_now()
+        insight.feedback_score += 1
+        insight.expires_at = None
+        insight.updated_at = utc_now()
         session.commit()
         session.refresh(insight)
         create_automation_log(
@@ -518,7 +522,36 @@ def apply_insight_endpoint(insight_id: int) -> dict:
             {"status": insight.status},
             False,
         )
-        return {"status": "applied", "insight": serialize_insight(insight)}
+        return {"status": "accepted", "insight": serialize_insight(insight)}
+
+
+@router.post("/{insight_id}/reviewed")
+def reviewed_insight_endpoint(insight_id: int) -> dict:
+    with SessionLocal() as session:
+        insight = session.get(InsightRecord, insight_id)
+        if insight is None:
+            return {"status": "insight_not_found"}
+        if insight.status == "suggested":
+            insight.status = "reviewed"
+            insight.updated_at = datetime.now(UTC)
+            session.commit()
+            session.refresh(insight)
+        return {"status": insight.status, "insight": serialize_insight(insight)}
+
+
+@router.post("/{insight_id}/converted-to-note")
+def converted_to_note_endpoint(insight_id: int) -> dict:
+    with SessionLocal() as session:
+        insight = session.get(InsightRecord, insight_id)
+        if insight is None:
+            return {"status": "insight_not_found"}
+        insight.status = "converted_to_note"
+        insight.feedback_score += 1
+        insight.expires_at = None
+        insight.updated_at = datetime.now(UTC)
+        session.commit()
+        session.refresh(insight)
+        return {"status": insight.status, "insight": serialize_insight(insight)}
 
 
 @router.post("/{insight_id}/create-note")

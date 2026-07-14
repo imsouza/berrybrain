@@ -35,10 +35,12 @@ type HomeSummary = {
     notes: { total: number; createdToday: number; unassimilated: number };
     connections: { total: number; createdToday: number; averageConfidence: number };
     concepts: { total: number; newToday: number; withoutPermanentNote: number };
+    study: { dueReviews: number; activeReviews: number; suggestedReviews: number; weakConcepts: number; openGaps: number };
     jobs: { pending: number; active: number; failed: number; completedToday: number; total: number };
     ai: { provider: string; model: string; metadata: number; embeddings: number; jobsProcessed: number; errors: number };
   };
   recentNotes: NoteItem[];
+  dueReviews: ReviewItem[];
   activeJobs: ActiveJob[];
   recentlyCompleted: CompletionItem[];
   recentActivity: ActivityItem[];
@@ -64,6 +66,7 @@ type InsightItem = { id: number; type: string; title: string; description: strin
 type ConnectionItem = { id: number; type: string; confidence: number; confidencePercent: number; reason: string; source?: NoteRef | null; target?: NoteRef | null; status?: string };
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
+type ReviewItem = { id: number; reviewType: string; prompt: string; dueAt?: string | null; intervalDays: number };
 
 const DEMO_HOME_SUMMARY: HomeSummary = {
   status: {
@@ -92,10 +95,12 @@ const DEMO_HOME_SUMMARY: HomeSummary = {
     notes: { total: 3, createdToday: 3, unassimilated: 0 },
     connections: { total: 4, createdToday: 4, averageConfidence: 0.82 },
     concepts: { total: 8, newToday: 8, withoutPermanentNote: 2 },
+    study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
     jobs: { pending: 0, active: 0, failed: 0, completedToday: 2, total: 2 },
     ai: { provider: "local-demo", model: "demo", metadata: 3, embeddings: 3, jobsProcessed: 2, errors: 0 },
   },
   recentNotes: [],
+  dueReviews: [],
   activeJobs: [],
   recentlyCompleted: [],
   recentActivity: [],
@@ -239,6 +244,7 @@ export function HomeView() {
             <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
           </div>
           <aside className="space-y-6">
+            <ReviewTodayCard reviews={summary.dueReviews || []} total={summary.stats.study?.dueReviews || 0} />
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
             <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
             {summary.needsAttention.length > 0 && (
@@ -252,11 +258,44 @@ export function HomeView() {
 
         <div className="mt-8 flex flex-wrap gap-2">
           <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
+          <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => (window.location.href = appPath("/reviews"))}>Review today</button>
           <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
           <button className="h-9 rounded-xl bg-surface px-3 text-xs font-medium text-muted hover:bg-border/50" onClick={w.scanVault}>{t("scanVault")}</button>
         </div>
       </div>
     </div>
+  );
+}
+
+function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: number }) {
+  return (
+    <section className="rounded-2xl bg-surface p-5 ring-1 ring-border/40">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted/50">Review today</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums">{total}</p>
+        </div>
+        <button
+          className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-45"
+          disabled={total === 0}
+          onClick={() => (window.location.href = appPath("/reviews"))}
+        >
+          Start review
+        </button>
+      </div>
+      {reviews.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {reviews.slice(0, 2).map((review) => (
+            <div key={review.id} className="rounded-lg bg-panel px-3 py-2 ring-1 ring-border/30">
+              <p className="line-clamp-2 text-xs text-foreground/85">{review.prompt}</p>
+              <p className="mt-1 text-[10px] uppercase tracking-wide text-muted/45">{review.reviewType.replaceAll("_", " ")}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-muted/55">Nothing due. Your active review schedule is up to date.</p>
+      )}
+    </section>
   );
 }
 

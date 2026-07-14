@@ -9,6 +9,8 @@ data/
 .codex/
 .DS_Store
 *.egg-info/
+.coverage
+coverage.json
 build/
 dist/
 docs/

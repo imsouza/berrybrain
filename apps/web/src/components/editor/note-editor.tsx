@@ -13,6 +13,17 @@ type AttachmentItem = {
   sizeBytes: number;
   downloadUrl: string;
   createdAt?: string;
+  extraction?: { status?: string; extractor?: string; confidence?: number };
+};
+
+type NotePipelineProgress = {
+  notePath: string;
+  completed: number;
+  total: number;
+  percent: number;
+  state: "waiting" | "processing" | "completed" | "degraded" | "failed";
+  currentStep?: string | null;
+  errors?: { jobId: number; message: string; impact: string; action: string }[];
 };
 
 function Backlinks({ notePath }: { notePath: string }) {
@@ -53,6 +64,7 @@ export function NoteEditor() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
+  const [pipelineProgress, setPipelineProgress] = useState<NotePipelineProgress | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,6 +78,33 @@ export function NoteEditor() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setAttachments(data?.attachments || []))
       .catch(() => setAttachments([]));
+  }, [w.active?.path, w.api, w.demo]);
+
+  useEffect(() => {
+    if (!w.active || w.demo) {
+      setPipelineProgress(null);
+      return;
+    }
+    let cancelled = false;
+    const notePath = w.active.path;
+    const load = () => {
+      fetch(`${w.api}/api/v1/jobs/pipeline-progress`)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((payload) => {
+          if (cancelled) return;
+          const progress = (payload?.notes || []).find((item: NotePipelineProgress) => item.notePath === notePath);
+          setPipelineProgress(progress || null);
+        })
+        .catch(() => {
+          if (!cancelled) setPipelineProgress(null);
+        });
+    };
+    load();
+    const interval = window.setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [w.active?.path, w.api, w.demo]);
 
   if (!w.active) return null;
@@ -208,6 +247,19 @@ export function NoteEditor() {
     if (response.ok) setAttachments((current) => current.filter((item) => item.id !== id));
   }
 
+  async function reprocessAttachment(id: number, extractor: string) {
+    if (w.demo) return;
+    setAttachmentStatus("Queueing attachment reprocessing...");
+    const response = await fetch(`${w.api}/api/v1/notes/attachments/${id}/reprocess`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ extractor }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setAttachmentStatus(response.ok ? `Reprocessing queued with ${extractor}.` : payload.detail || "Could not reprocess attachment.");
+    window.setTimeout(() => setAttachmentStatus(""), 4000);
+  }
+
   function prefixLines(prefix: string, numbered = false) {
     const el = textareaRef.current;
     const start = el?.selectionStart ?? w.draft.length;
@@ -249,8 +301,8 @@ export function NoteEditor() {
             <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <h1 className="truncate text-sm font-medium min-w-0">{w.active.title}</h1>
-          <span className={`shrink-0 text-[10px] ${w.autosave === "saving" ? "text-amber-500 animate-pulse-soft" : w.autosave === "unsaved" ? "text-muted/40" : "text-emerald-500"}`}>
-            {w.autosave === "saving" ? t("saving") : w.autosave === "unsaved" ? t("notSaved") : t("saved")}
+          <span className={`shrink-0 text-[10px] ${w.autosave === "saving" ? "text-amber-500 animate-pulse-soft" : w.autosave === "conflict" ? "text-red-500" : w.autosave === "unsaved" ? "text-muted/40" : "text-emerald-500"}`}>
+            {w.autosave === "saving" ? t("saving") : w.autosave === "conflict" ? "Conflict" : w.autosave === "unsaved" ? t("notSaved") : t("saved")}
           </span>
         </div>
 
@@ -304,6 +356,34 @@ export function NoteEditor() {
         </div>
       </div>
 
+      {w.saveConflict && (
+        <div
+          className="flex flex-wrap items-center gap-3 border-b border-red-500/25 bg-red-500/10 px-3 py-2 text-xs lg:px-5"
+          role="alert"
+        >
+          <div className="min-w-0 flex-1">
+            <strong className="text-foreground">This note changed elsewhere.</strong>{" "}
+            <span className="text-muted">Your local draft was not overwritten.</span>
+          </div>
+          <button
+            className="rounded-md border border-border bg-panel px-3 py-1.5 font-medium text-foreground hover:bg-surface"
+            onClick={() => w.resolveSaveConflict("reload")}
+          >
+            Load latest
+          </button>
+          <button
+            className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-white hover:bg-red-700"
+            onClick={() => {
+              if (window.confirm("Overwrite the newer note with your local draft?")) {
+                void w.resolveSaveConflict("overwrite");
+              }
+            }}
+          >
+            Overwrite latest
+          </button>
+        </div>
+      )}
+
       {(w.viewMode === "edit" || w.viewMode === "split") && (
         <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-panel/70 px-3 py-2 lg:px-5">
           <ToolbarButton label="B" title="Bold" onClick={() => toggleMarker("**")} />
@@ -351,16 +431,66 @@ export function NoteEditor() {
         )}
       </div>
 
+      <NotePipelineStatus
+        progress={pipelineProgress}
+        onOpenMonitor={() => w.setMonitorOpen(true)}
+      />
+
       <AttachmentsPanel
         attachments={attachments}
         apiUrl={w.api}
         status={attachmentStatus}
         onInsert={insertAttachmentMarkdown}
         onDelete={deleteAttachment}
+        onReprocess={reprocessAttachment}
       />
 
       <Backlinks notePath={w.active.path} />
     </>
+  );
+}
+
+function NotePipelineStatus({
+  progress,
+  onOpenMonitor,
+}: {
+  progress: NotePipelineProgress | null;
+  onOpenMonitor: () => void;
+}) {
+  if (!progress) return null;
+  const label = progress.state === "completed"
+    ? "Assimilation complete"
+    : progress.state === "failed"
+      ? "Assimilation needs attention"
+      : progress.currentStep || "Waiting for cognitive processing";
+  const error = progress.errors?.[0];
+  return (
+    <section className="border-t border-border/50 px-6 py-3 lg:px-10" aria-label="Note assimilation progress">
+      <div className="flex items-center justify-between gap-4 text-[11px]">
+        <div>
+          <p className="font-medium text-foreground">{label}</p>
+          <p className="text-muted">{progress.completed}/{progress.total} stages · {progress.percent}%</p>
+        </div>
+        {error && (
+          <button className="rounded-md bg-danger/10 px-2.5 py-1 font-medium text-danger hover:bg-danger/15" onClick={onOpenMonitor}>
+            Open Monitor
+          </button>
+        )}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-accent/15" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}>
+        <div
+          className={`h-full rounded-full transition-[width] duration-500 ${progress.state === "failed" ? "bg-danger" : progress.state === "completed" ? "bg-success" : "bg-accent"}`}
+          style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }}
+        />
+      </div>
+      {error && (
+        <div className="mt-2 text-[11px] text-muted">
+          <p className="font-medium text-danger">{error.message}</p>
+          <p>{error.impact}</p>
+          <p>{error.action}</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -370,13 +500,16 @@ function AttachmentsPanel({
   status,
   onInsert,
   onDelete,
+  onReprocess,
 }: {
   attachments: AttachmentItem[];
   apiUrl: string;
   status: string;
   onInsert: (attachment: AttachmentItem) => void;
   onDelete: (id: number) => void;
+  onReprocess: (id: number, extractor: string) => void;
 }) {
+  const [extractors, setExtractors] = useState<Record<number, string>>({});
   if (!attachments.length && !status) return null;
   return (
     <div className="border-t border-border/50 px-6 py-3 lg:px-10">
@@ -392,6 +525,19 @@ function AttachmentsPanel({
             </a>
             <span className="text-muted/45">{attachment.category}</span>
             <span className="text-muted/45">{formatBytes(attachment.sizeBytes)}</span>
+            <select
+              aria-label={`Extractor for ${attachment.filename}`}
+              className="rounded border border-border/60 bg-panel px-1 py-0.5 text-[10px] text-foreground"
+              value={extractors[attachment.id] || "auto"}
+              onChange={(event) => setExtractors((current) => ({ ...current, [attachment.id]: event.target.value }))}
+            >
+              <option value="auto">Auto extractor</option>
+              {attachment.category === "image" && <option value="tesseract">Tesseract OCR</option>}
+              {(attachment.category === "audio" || attachment.category === "video") && <option value="faster-whisper">Faster Whisper (local)</option>}
+              {(attachment.category === "audio" || attachment.category === "video") && <option value="whisper-cli">Whisper CLI (custom)</option>}
+              {attachment.category === "other" && <option value="attachment-text.v1">Text / document</option>}
+            </select>
+            <button className="text-accent hover:underline" onClick={() => onReprocess(attachment.id, extractors[attachment.id] || "auto")}>Reprocess</button>
             <button className="text-accent hover:underline" onClick={() => onInsert(attachment)}>Insert</button>
             <button className="text-muted/55 hover:text-danger" onClick={() => onDelete(attachment.id)}>Remove</button>
           </div>

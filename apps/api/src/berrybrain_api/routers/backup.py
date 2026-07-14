@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from berrybrain_api.backup import (
     create_backup,
@@ -33,8 +33,12 @@ def delete_backup_endpoint(backup_id: str) -> dict:
 
 @router.post("/{backup_id}/restore")
 def restore_backup_endpoint(backup_id: str) -> dict:
-    restore_backup(backup_id)
-    return {"status": "restored"}
+    try:
+        return restore_backup(backup_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/export")

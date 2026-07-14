@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -16,7 +15,14 @@ from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
-from berrybrain_api.jobs import ENRICH_GRAPH_NODE, PENDING, RUNNING, create_job
+from berrybrain_api.jobs import (
+    ENRICH_GRAPH_NODE,
+    PENDING,
+    RUNNING,
+    UPDATE_GRAPH_STATS,
+    create_job,
+)
+from berrybrain_api.graph_write_service import GraphWriteService
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -29,12 +35,7 @@ from berrybrain_api.second_brain import (
     expand_knowledge_graph,
     generate_inferred_graph_connections,
     get_node_summary,
-    set_edge_status,
-    set_edge_user_notes,
-    set_node_status,
-    set_node_user_notes,
     summarize_graph,
-    delete_graph_node,
 )
 from berrybrain_api.services import (
     build_graph,
@@ -54,6 +55,15 @@ class GraphInferRequest(BaseModel):
 
 class ManualNotesRequest(BaseModel):
     notes: str = ""
+
+
+class EdgeTypeRequest(BaseModel):
+    type: str
+
+
+class ManualEvidenceRequest(BaseModel):
+    excerpt: str
+    source_note_id: int | None = None
 
 
 class EnrichNodeRequest(BaseModel):
@@ -185,54 +195,29 @@ def graph_node_summary(node_id: int) -> dict:
 @router.post("/nodes/{node_id}/confirm")
 def confirm_graph_node(node_id: int) -> dict:
     with SessionLocal() as session:
-        node = set_node_status(session, node_id, "confirmed")
-        create_automation_log(
-            session,
-            "GRAPH_NODE_CONFIRMED",
-            "graph_node",
-            str(node.id),
-            f'Node confirmed: "{node.label}"',
-            {"status": "suggested"},
-            {"status": node.status},
-            False,
-        )
-        return {"id": node.id, "status": node.status}
+        node = GraphWriteService(session).set_node_status(node_id, "confirmed")
+        return {
+            "id": node.id,
+            "status": node.status,
+            "mutationLogId": getattr(node, "mutation_log_id", None),
+        }
 
 
 @router.post("/nodes/{node_id}/ignore")
 def ignore_graph_node(node_id: int) -> dict:
     with SessionLocal() as session:
-        node = set_node_status(session, node_id, "ignored")
-        create_automation_log(
-            session,
-            "GRAPH_NODE_IGNORED",
-            "graph_node",
-            str(node.id),
-            f'Node ignored: "{node.label}"',
-            {"status": "suggested"},
-            {"status": node.status},
-            False,
-        )
-        return {"id": node.id, "status": node.status}
+        node = GraphWriteService(session).set_node_status(node_id, "ignored")
+        return {
+            "id": node.id,
+            "status": node.status,
+            "mutationLogId": getattr(node, "mutation_log_id", None),
+        }
 
 
 @router.delete("/nodes/{node_id}")
 def delete_graph_node_endpoint(node_id: int) -> dict:
     with SessionLocal() as session:
-        node = session.get(GraphNodeRecord, node_id)
-        removed = delete_graph_node(session, node_id)
-        if not removed:
-            raise HTTPException(status_code=404, detail="node not found")
-        create_automation_log(
-            session,
-            "GRAPH_NODE_DELETED",
-            "graph_node",
-            str(node_id),
-            f'Node deleted from graph: "{node.label if node else node_id}"',
-            {"id": node_id, "label": node.label if node else ""},
-            {"deleted": True},
-            False,
-        )
+        GraphWriteService(session).delete_node(node_id)
         return {"id": node_id, "status": "deleted"}
 
 
@@ -261,49 +246,127 @@ def reprocess_graph_node(node_id: int) -> dict:
 @router.put("/nodes/{node_id}/notes")
 def update_graph_node_notes(node_id: int, payload: ManualNotesRequest) -> dict:
     with SessionLocal() as session:
-        node = set_node_user_notes(session, node_id, payload.notes)
+        node = GraphWriteService(session).set_node_user_notes(node_id, payload.notes)
         return {"id": node.id, "userNotes": node.user_notes}
 
 
 @router.post("/connections/{edge_id}/confirm")
 def confirm_graph_edge(edge_id: int) -> dict:
     with SessionLocal() as session:
-        edge = set_edge_status(session, edge_id, "confirmed")
-        create_automation_log(
-            session,
-            "GRAPH_CONNECTION_CONFIRMED",
-            "graph_edge",
-            str(edge.id),
-            f"Connection confirmed: {edge.label or edge.type}",
-            {"status": "suggested"},
-            {"status": edge.status},
-            False,
-        )
-        return {"id": edge.id, "status": edge.status}
+        edge = GraphWriteService(session).set_edge_status(edge_id, "confirmed")
+        return {
+            "id": edge.id,
+            "status": edge.status,
+            "mutationLogId": getattr(edge, "mutation_log_id", None),
+        }
 
 
 @router.put("/connections/{edge_id}/notes")
 def update_graph_edge_notes(edge_id: int, payload: ManualNotesRequest) -> dict:
     with SessionLocal() as session:
-        edge = set_edge_user_notes(session, edge_id, payload.notes)
+        edge = GraphWriteService(session).set_edge_user_notes(edge_id, payload.notes)
         return {"id": edge.id, "userNotes": edge.user_notes}
 
 
 @router.post("/connections/{edge_id}/ignore")
 def ignore_graph_edge(edge_id: int) -> dict:
     with SessionLocal() as session:
-        edge = set_edge_status(session, edge_id, "ignored")
-        create_automation_log(
-            session,
-            "GRAPH_CONNECTION_IGNORED",
-            "graph_edge",
-            str(edge.id),
-            f"Connection ignored: {edge.label or edge.type}",
-            {"status": "suggested"},
-            {"status": edge.status},
-            False,
+        edge = GraphWriteService(session).set_edge_status(edge_id, "ignored")
+        return {
+            "id": edge.id,
+            "status": edge.status,
+            "mutationLogId": getattr(edge, "mutation_log_id", None),
+        }
+
+
+@router.post("/connections/{edge_id}/restore")
+def restore_graph_edge(edge_id: int) -> dict:
+    with SessionLocal() as session:
+        edge = GraphWriteService(session).set_edge_status(edge_id, "suggested")
+        return {
+            "id": edge.id,
+            "status": edge.status,
+            "mutationLogId": getattr(edge, "mutation_log_id", None),
+        }
+
+
+@router.patch("/connections/{edge_id}/type")
+def update_graph_edge_type(edge_id: int, payload: EdgeTypeRequest) -> dict:
+    with SessionLocal() as session:
+        edge = GraphWriteService(session).update_edge_type(edge_id, payload.type)
+        return {"id": edge.id, "type": edge.type}
+
+
+@router.post("/connections/{edge_id}/evidence")
+def add_graph_edge_evidence(edge_id: int, payload: ManualEvidenceRequest) -> dict:
+    with SessionLocal() as session:
+        edge = GraphWriteService(session).add_manual_evidence(
+            edge_id, payload.excerpt, payload.source_note_id
         )
-        return {"id": edge.id, "status": edge.status}
+        return {"id": edge.id, "evidence": _parse_json_list(edge.evidence)}
+
+
+@router.get("/connections/{edge_id}/explanation")
+def explain_graph_edge(edge_id: int) -> dict:
+    with SessionLocal() as session:
+        edge = session.get(GraphEdgeRecord, edge_id)
+        if edge is None:
+            raise HTTPException(status_code=404, detail="Graph edge not found")
+        source = session.get(GraphNodeRecord, edge.source_node_id)
+        target = session.get(GraphNodeRecord, edge.target_node_id)
+        return {
+            "id": edge.id,
+            "type": edge.type,
+            "reason": edge.reason,
+            "confidence": edge.confidence,
+            "evidence": _parse_json_list(edge.evidence),
+            "source": {"id": source.id, "label": source.label} if source else None,
+            "target": {"id": target.id, "label": target.label} if target else None,
+            "provider": edge.provider,
+            "model": edge.model,
+            "promptVersion": edge.prompt_version,
+        }
+
+
+@router.post("/mutations/{mutation_log_id}/undo")
+def undo_graph_mutation(mutation_log_id: int) -> dict:
+    with SessionLocal() as session:
+        mutation = GraphWriteService(session).undo(mutation_log_id)
+        return {
+            "id": mutation.id,
+            "status": "undone",
+            "revertedAt": mutation.reverted_at.isoformat()
+            if mutation.reverted_at
+            else None,
+            "revertedByLogId": mutation.reverted_by_log_id,
+        }
+
+
+@router.post("/nodes/{survivor_id}/merge/{merged_node_id}")
+def merge_graph_nodes(survivor_id: int, merged_node_id: int) -> dict:
+    with SessionLocal() as session:
+        node, mutation = GraphWriteService(session).merge_nodes(
+            survivor_id, merged_node_id
+        )
+        return {
+            "id": node.id,
+            "status": node.status,
+            "mutationLogId": mutation.id,
+            "mergedNodeId": merged_node_id,
+        }
+
+
+@router.post("/merges/{mutation_log_id}/split")
+def split_merged_graph_nodes(mutation_log_id: int) -> dict:
+    with SessionLocal() as session:
+        mutation = GraphWriteService(session).undo(mutation_log_id)
+        return {
+            "id": mutation.id,
+            "status": "split",
+            "revertedAt": mutation.reverted_at.isoformat()
+            if mutation.reverted_at
+            else None,
+        }
 
 
 # --- Enrichment & Validation endpoints ---
@@ -312,9 +375,6 @@ def ignore_graph_edge(edge_id: int) -> dict:
 @router.post("/nodes/{node_id}/enrich")
 def enrich_graph_node(node_id: int, payload: EnrichNodeRequest) -> dict:
     with SessionLocal() as session:
-        node = session.get(GraphNodeRecord, node_id)
-        if not node:
-            return {"error": "Node not found"}
         has_content = any(
             [
                 payload.ai_summary.strip(),
@@ -329,29 +389,21 @@ def enrich_graph_node(node_id: int, payload: EnrichNodeRequest) -> dict:
                 status_code=422,
                 detail="Enrichment payload has no semantic content.",
             )
-        if payload.ai_summary:
-            node.ai_summary = payload.ai_summary
-        if payload.ai_context:
-            node.ai_context = payload.ai_context
-        if payload.source_evidence:
-            node.source_evidence = payload.source_evidence
-        if payload.learning_value:
-            node.learning_value = payload.learning_value
-        if payload.source_quality:
-            node.source_quality = payload.source_quality
-        if payload.provider:
-            node.provider = payload.provider
-        if payload.model:
-            node.model = payload.model
-        if payload.provider or payload.model:
-            node.prompt_version = "enrich-node.v1"
-            from datetime import UTC, datetime
-
-            node.generated_at = datetime.now(UTC)
-        from datetime import UTC, datetime
-
-        node.updated_at = datetime.now(UTC)
-        session.commit()
+        node = GraphWriteService(session).update_node_enrichment(
+            node_id,
+            {
+                "ai_summary": payload.ai_summary,
+                "ai_context": payload.ai_context,
+                "source_evidence": payload.source_evidence,
+                "learning_value": payload.learning_value,
+                "source_quality": payload.source_quality,
+                "provider": payload.provider,
+                "model": payload.model,
+                "prompt_version": "enrich-node.v1"
+                if payload.provider or payload.model
+                else "",
+            },
+        )
         return {"id": node.id, "enriched": True}
 
 
@@ -475,30 +527,20 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
                 detail="AI did not return source evidence for this node.",
             )
 
-        node.ai_summary = str(result.get("ai_summary") or "").strip()
-        node.ai_context = str(result.get("ai_context") or "").strip()
-        node.learning_value = str(result.get("learning_value") or "").strip()[:20]
-        node.source_quality = str(result.get("source_quality") or "ai_enriched")[:20]
-        node.source_evidence = json.dumps(evidence[:8], ensure_ascii=False)
-        node.provider = config.get("provider", "")
-        node.model = model
-        node.prompt_version = "node-enrich.v2"
-        node.generated_at = datetime.now(UTC)
-        node.updated_at = datetime.now(UTC)
-        session.commit()
-        session.refresh(node)
-        create_automation_log(
-            session,
-            "GRAPH_NODE_ENRICHED",
-            "graph_node",
-            str(node.id),
-            f'Node enriched with AI: "{node.label}"',
-            {"provider": node.provider, "model": node.model},
+        node = GraphWriteService(session).update_node_enrichment(
+            node.id,
             {
-                "promptVersion": node.prompt_version,
-                "sourceQuality": node.source_quality,
+                "ai_summary": str(result.get("ai_summary") or "").strip(),
+                "ai_context": str(result.get("ai_context") or "").strip(),
+                "learning_value": str(result.get("learning_value") or "").strip()[:20],
+                "source_quality": str(result.get("source_quality") or "ai_enriched")[
+                    :20
+                ],
+                "source_evidence": json.dumps(evidence[:8], ensure_ascii=False),
+                "provider": config.get("provider", ""),
+                "model": model,
+                "prompt_version": "node-enrich.v2",
             },
-            False,
         )
         return get_node_summary(session, node.id)
 
@@ -697,3 +739,15 @@ async def generate_connection_insight(edge_id: int) -> dict:
 def quality_report() -> dict:
     with SessionLocal() as session:
         return graph_quality_report(session)
+
+
+@router.post("/quality-report/recalculate")
+def recalculate_quality_report() -> dict:
+    with SessionLocal() as session:
+        job = create_job(
+            session,
+            UPDATE_GRAPH_STATS,
+            {"scope": "graph_quality"},
+            max_attempts=2,
+        )
+        return {"status": "queued", "jobId": job.id}

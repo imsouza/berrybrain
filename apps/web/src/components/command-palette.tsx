@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { t } from "@/i18n";
 
 type CommandResult = {
@@ -91,28 +91,28 @@ export function CommandPalette({
     return () => { cancelled = true; };
   }, [query, open]);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (!open) return;
-      if (event.key === "Escape") { onClose(); return; }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        results[selectedIndex]?.action();
-      }
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
     }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, results, selectedIndex]);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedIndex((i) => Math.max(i - 1, 0));
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      results[selectedIndex]?.action();
+    }
+  }
 
   if (!open) return null;
 
@@ -122,6 +122,7 @@ export function CommandPalette({
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
+      onKeyDown={handleKeyDown}
     >
       <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div className="relative w-full max-w-lg overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5">
@@ -136,6 +137,7 @@ export function CommandPalette({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label={t("search")}
+            autoFocus
             autoComplete="off"
             spellCheck={false}
           />

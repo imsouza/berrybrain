@@ -29,9 +29,11 @@ from berrybrain_api.models import (
     InsightRecord,
     JobRecord,
     NoteRecord,
+    ReviewItemRecord,
     SettingRecord,
     WorkerStatus,
 )
+from berrybrain_api.review_service import serialize_review
 from berrybrain_api.services import _is_visible_insight
 
 
@@ -108,6 +110,25 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         ).scalars()
     )
     insights = [insight for insight in raw_insights if _is_visible_insight(insight)][:5]
+    reviews = list(
+        session.execute(
+            select(ReviewItemRecord)
+            .where(ReviewItemRecord.status == "active")
+            .order_by(ReviewItemRecord.due_at.asc())
+            .limit(20)
+        ).scalars()
+    )
+    due_reviews = [
+        review
+        for review in reviews
+        if review.due_at
+        and (
+            review.due_at.replace(tzinfo=UTC)
+            if review.due_at.tzinfo is None
+            else review.due_at
+        )
+        <= now
+    ]
     embeddings = session.query(EmbeddingRecord).count()
     metadata_count = session.query(GeneratedMetadataRecord).count()
 
@@ -202,6 +223,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 "withoutPermanentNote": _concepts_without_notes(concepts, notes),
             },
             "study": {
+                "dueReviews": len(due_reviews),
+                "activeReviews": len(reviews),
                 "suggestedReviews": sum(
                     1 for insight in insights if insight.type == "review_opportunity"
                 ),
@@ -233,6 +256,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             },
         },
         "recentNotes": recent_notes,
+        "dueReviews": [serialize_review(review) for review in due_reviews[:3]],
         "activeJobs": active_jobs,
         "recentlyCompleted": recently_completed,
         "recentActivity": recent_activity,

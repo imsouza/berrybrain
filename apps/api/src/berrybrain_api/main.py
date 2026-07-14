@@ -11,11 +11,16 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
-from berrybrain_api.security import get_session_user, require_admin
+from berrybrain_api.ai_gateway import get_ai_config, generate_query_embedding
+from berrybrain_api.security import (
+    get_session_user,
+    require_admin,
+    verify_service_token,
+)
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import serialize_datetime
 from berrybrain_api.models import JobRecord, NoteRecord
-from berrybrain_api.search import text_search
+from berrybrain_api.search import hybrid_search
 from berrybrain_api.vault_watcher import VaultWatcher
 
 from berrybrain_api.routers import (
@@ -33,6 +38,8 @@ from berrybrain_api.routers import (
     monitor,
     notes,
     notifications,
+    reviews,
+    security_tokens,
     settings as settings_router,
     vault,
 )
@@ -121,11 +128,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
         if is_exempt:
             return await call_next(request)
-        token = settings.api_token
-        authorized = (
-            bool(token)
-            and request.headers.get("Authorization", "") == f"Bearer {token}"
+        authorization = request.headers.get("Authorization", "")
+        bearer = (
+            authorization.removeprefix("Bearer ")
+            if authorization.startswith("Bearer ")
+            else ""
         )
+        authorized = False
+        if bearer:
+            with SessionLocal() as session:
+                authorized = verify_service_token(session, settings, bearer)
         if not authorized and request.cookies.get(settings.session_cookie_name):
             with SessionLocal() as session:
                 authorized = get_session_user(session, settings, request) is not None
@@ -180,6 +192,8 @@ app.include_router(folders.router)
 app.include_router(graph.router)
 app.include_router(monitor.router)
 app.include_router(notifications.router)
+app.include_router(reviews.router)
+app.include_router(security_tokens.router)
 app.include_router(vault.router)
 app.include_router(settings_router.router)
 app.include_router(backup.router)
@@ -194,7 +208,10 @@ class ResetRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    from berrybrain_api.database import engine
+    from berrybrain_api.schema_migrations import schema_diagnostic
+
+    return {"status": "ok", "schema": schema_diagnostic(engine)}
 
 
 @app.get("/api/v1/status")
@@ -213,45 +230,12 @@ def status():
 @app.get("/api/v1/search")
 def search(q: str, limit: int = 10):
     with SessionLocal() as session:
-        results = text_search(session, q, limit=max(limit, 50))
-        note_ids = [r["id"] for r in results]
-        backlinks: dict[int, list[dict]] = {}
-        if note_ids:
-            from berrybrain_api.models import ConnectionRecord, NoteRecord
-
-            rows = (
-                session.query(
-                    ConnectionRecord.source_note_id,
-                    ConnectionRecord.target_note_id,
-                    ConnectionRecord.connection_type,
-                    ConnectionRecord.reason,
-                    NoteRecord.path.label("source_path"),
-                    NoteRecord.title.label("source_title"),
-                )
-                .join(NoteRecord, ConnectionRecord.source_note_id == NoteRecord.id)
-                .filter(ConnectionRecord.target_note_id.in_(note_ids))
-                .all()
-            )
-            for row in rows:
-                backlinks.setdefault(row.target_note_id, []).append(
-                    {
-                        "note_path": row.source_path,
-                        "note_title": row.source_title,
-                        "connection_type": row.connection_type,
-                        "reason": row.reason,
-                    }
-                )
-        enriched = [
-            {
-                "title": r["title"],
-                "path": r["path"],
-                "score": r["score"],
-                "snippet": r.get("snippet", ""),
-                "backlinks": backlinks.get(r["id"], []),
-            }
-            for r in results
-        ]
-        return {"results": enriched}
+        query_vector = None
+        try:
+            query_vector = generate_query_embedding(get_ai_config(session), q)
+        except Exception:
+            pass
+        return {"results": hybrid_search(session, q, limit, query_vector)}
 
 
 @app.get("/api/v1/home/summary")

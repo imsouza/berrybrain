@@ -136,11 +136,13 @@ type Ctx = {
   sidebarWidth: number; rightOpen: boolean;
   cmdOpen: boolean; monitorOpen: boolean; settingsOpen: boolean; graphOpen: boolean; guideOpen: boolean; notificationsOpen: boolean;
   creatingDraft: boolean;
+  saveConflict: { currentContent: string; currentContentHash: string } | null;
   toasts: Toast[];
   setDraft: (v: string) => void; setViewMode: (v: "edit" | "preview" | "split") => void;
   setSidebarWidth: (w: number) => void; setRightOpen: (v: boolean) => void;
   setCmdOpen: (v: boolean) => void; setMonitorOpen: (v: boolean) => void; setSettingsOpen: (v: boolean) => void; setGraphOpen: (v: boolean) => void; setGuideOpen: (v: boolean) => void; setNotificationsOpen: (v: boolean) => void;
   openNote: (p: string) => Promise<void>; closeNote: () => void; save: () => Promise<void>; download: () => void; renameNote: () => Promise<void>;
+  resolveSaveConflict: (strategy: "reload" | "overwrite") => Promise<void>;
   createDraft: (content?: string) => Promise<void>; deleteActive: () => Promise<void>; scanVault: () => Promise<void>;
   loadAll: () => Promise<void>; toast: (t: string, k?: Toast["kind"]) => void;
 };
@@ -169,7 +171,12 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const [guideOpen, setGuideOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [saveConflict, setSaveConflict] = useState<{
+    currentContent: string;
+    currentContentHash: string;
+  } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftRef = useRef(draft);
 
   const toast = useCallback((text: string, kind: Toast["kind"] = "info") => {
     const id = ++_tid;
@@ -197,29 +204,89 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       const note = notes.find((item) => item.path === path);
       if (!note) { toast("Demo note not found.", "error"); return; }
       const detail = { ...note, content: demoContents[path] || "" };
-      setActive(detail); setDraft(detail.content); setRightOpen(false); setAutosave("saved");
+      setActive(detail); setDraft(detail.content); draftRef.current = detail.content; setSaveConflict(null); setRightOpen(false); setAutosave("saved");
       return;
     }
     const r = await apiFetch(`${api}/api/v1/notes/${encode(path)}`);
     if (!r.ok) { toast("Failed to open note.", "error"); return; }
     const n = await r.json();
-    setActive(n); setDraft(n.content); setRightOpen(false); setAutosave("saved");
+    setActive(n); setDraft(n.content); draftRef.current = n.content; setSaveConflict(null); setRightOpen(false); setAutosave("saved");
   }
 
-  async function save() {
+  async function persistDraft(baseContentHash?: string) {
     if (!active) return;
     if (demo) {
       setDemoContents((current) => ({ ...current, [active.path]: draft }));
       setActive({ ...active, content: draft });
+      setSaveConflict(null);
       setAutosave("saved");
       return;
     }
+    const expectedHash = baseContentHash || active.content_hash;
+    if (!expectedHash) {
+      toast("Reload this note before saving so BerryBrain can verify its version.", "error");
+      setAutosave("conflict");
+      return;
+    }
+    const contentToSave = draftRef.current;
     setAutosave("saving");
-    const r = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: draft }),
-    });
-    if (r.ok) { setActive(await r.json()); setAutosave("saved"); }
-    else { toast("Failed to save note.", "error"); setAutosave("unsaved"); }
+    try {
+      const r = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: contentToSave,
+          base_content_hash: expectedHash,
+        }),
+      });
+      if (r.ok) {
+        const updated = await r.json();
+        setActive(updated);
+        setSaveConflict(null);
+        setAutosave(draftRef.current === contentToSave ? "saved" : "unsaved");
+        return;
+      }
+      if (r.status === 409) {
+        const payload = await r.json().catch(() => null);
+        const detail = payload?.detail;
+        if (detail?.code === "note_content_conflict") {
+          setSaveConflict({
+            currentContent: String(detail.currentContent || ""),
+            currentContentHash: String(detail.currentContentHash || ""),
+          });
+          setAutosave("conflict");
+          toast("Save blocked: this note changed elsewhere. Your draft is preserved.", "error");
+          return;
+        }
+      }
+      toast("Failed to save note. Your draft is still available.", "error");
+      setAutosave("unsaved");
+    } catch {
+      toast("The API is unavailable. Your draft is still available.", "error");
+      setAutosave("unsaved");
+    }
+  }
+
+  async function save() {
+    await persistDraft();
+  }
+
+  async function resolveSaveConflict(strategy: "reload" | "overwrite") {
+    if (!active || !saveConflict) return;
+    if (strategy === "reload") {
+      setActive({
+        ...active,
+        content: saveConflict.currentContent,
+        content_hash: saveConflict.currentContentHash,
+      });
+      setDraft(saveConflict.currentContent);
+      draftRef.current = saveConflict.currentContent;
+      setSaveConflict(null);
+      setAutosave("saved");
+      toast("Latest note version loaded.", "success");
+      return;
+    }
+    await persistDraft(saveConflict.currentContentHash);
   }
 
   async function createDraft(content = "") {
@@ -235,7 +302,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         };
         setNotes((prev) => [{ title: note.title, path: note.path, folder: note.folder }, ...prev]);
         setDemoContents((current) => ({ ...current, [note.path]: note.content }));
-        setActive(note); setDraft(note.content); setAutosave("saved");
+        setActive(note); setDraft(note.content); draftRef.current = note.content; setSaveConflict(null); setAutosave("saved");
         return;
       }
       const r = await apiFetch(`${api}/api/v1/notes`, {
@@ -245,7 +312,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       if (!r.ok) { toast("Failed to create note.", "error"); return; }
       const n = await r.json();
       setNotes((prev) => [n, ...prev]);
-      setActive(n); setDraft(n.content || content); setAutosave("saved");
+      setActive(n); setDraft(n.content || content); draftRef.current = n.content || content; setSaveConflict(null); setAutosave("saved");
     } catch {
       toast("API unavailable.", "error");
     } finally {
@@ -263,11 +330,11 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         delete next[path];
         return next;
       });
-      setActive(null); setDraft(""); toast("Demo note deleted.", "success");
+      setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Demo note deleted.", "success");
       return;
     }
     await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
-    setActive(null); setDraft(""); toast("Deleted.", "success"); await loadAll();
+    setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Deleted.", "success"); await loadAll();
   }
 
   async function scanVault() {
@@ -279,7 +346,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     if (r.ok) { await loadAll(); toast("Vault scanned."); }
   }
 
-  async function closeNote() { setActive(null); setDraft(""); loadAll(); }
+  async function closeNote() { setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); loadAll(); }
 
   async function download() {
     if (!active) return;
@@ -325,7 +392,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const renameSent = useRef(false);
   const handleDraft = useCallback((val: string) => {
     setDraft(val);
-    setAutosave("unsaved");
+    draftRef.current = val;
+    setAutosave((current) => current === "conflict" ? "conflict" : "unsaved");
     if (val.length > 50 && active && /^(rascunho|nota-sem-titulo)/i.test(active.title) && !renameSent.current) {
       renameSent.current = true;
       aiRename(active.path);
@@ -369,7 +437,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [draft, active]);
 
   return (
-    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
+    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
       {children}
       {creatingDraft && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-background/60 backdrop-blur-sm">

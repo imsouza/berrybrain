@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+import hashlib
+import math
+import re
+import struct
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -9,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.models import (
+    ChunkRecord,
     ConceptRecord,
     ConnectionRecord,
     EmbeddingRecord,
@@ -17,6 +22,7 @@ from berrybrain_api.models import (
     InsightRecord,
     NoteRecord,
 )
+from berrybrain_api.graph_write_service import GraphWriteService
 
 VALID_CONNECTION_TYPES = {
     "backlink",
@@ -173,23 +179,98 @@ def create_insight(
     reasoning: str = "",
     source_context: str = "",
 ) -> InsightRecord:
+    related = related_notes or []
+    source_evidence = evidence or []
+    diagnostic_types = {
+        "system_diagnostic",
+        "pipeline_bottleneck",
+        "provider_issue",
+        "job_backlog",
+        "worker_status",
+    }
+    if insight_type not in diagnostic_types:
+        missing = []
+        if not source_evidence:
+            missing.append("evidence")
+        if not why_it_matters.strip():
+            missing.append("why_it_matters")
+        if not suggested_action.strip():
+            missing.append("suggested_action")
+        if not graph_impact.strip():
+            missing.append("graph_impact")
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Knowledge insight is incomplete: " + ", ".join(missing),
+            )
+    fingerprint = insight_fingerprint(
+        insight_type,
+        title,
+        related,
+        source_evidence,
+    )
+    existing = session.execute(
+        select(InsightRecord).where(
+            InsightRecord.fingerprint == fingerprint,
+            InsightRecord.status.not_in(("dismissed", "expired")),
+        )
+    ).scalar_one_or_none()
+    quality_score = score_insight_quality(
+        title=title,
+        description=description,
+        why_it_matters=why_it_matters,
+        evidence=source_evidence,
+        suggested_action=suggested_action,
+        graph_impact=graph_impact,
+        confidence=confidence,
+    )
+    adjusted_priority = max(0, priority - (2 if quality_score < 0.5 else 0))
+    adjusted_confidence = min(confidence, max(0.2, quality_score + 0.15))
+    now = datetime.now(UTC)
+    if existing is not None:
+        existing.title = title
+        existing.description = description
+        existing.related_notes = json.dumps(related, ensure_ascii=False)
+        existing.priority = max(existing.priority, adjusted_priority)
+        existing.why_it_matters = why_it_matters
+        existing.evidence = json.dumps(source_evidence, ensure_ascii=False)
+        existing.suggested_action = suggested_action
+        existing.graph_impact = graph_impact
+        existing.confidence = max(existing.confidence, adjusted_confidence)
+        existing.provider = provider or existing.provider
+        existing.model = model or existing.model
+        existing.prompt_version = prompt_version or existing.prompt_version
+        existing.reasoning = reasoning or existing.reasoning
+        existing.source_context = source_context or existing.source_context
+        existing.quality_score = max(existing.quality_score, quality_score)
+        existing.last_recalculated_at = now
+        existing.expires_at = now + timedelta(days=30)
+        existing.updated_at = now
+        session.commit()
+        session.refresh(existing)
+        return existing
+
     insight = InsightRecord(
         type=insight_type,
         title=title,
         description=description,
-        related_notes=json.dumps(related_notes or [], ensure_ascii=False),
-        priority=priority,
+        related_notes=json.dumps(related, ensure_ascii=False),
+        priority=adjusted_priority,
         why_it_matters=why_it_matters,
-        evidence=json.dumps(evidence or [], ensure_ascii=False),
+        evidence=json.dumps(source_evidence, ensure_ascii=False),
         suggested_action=suggested_action,
         graph_impact=graph_impact,
-        confidence=confidence,
+        confidence=adjusted_confidence,
         status=status,
         provider=provider,
         model=model,
         prompt_version=prompt_version,
         reasoning=reasoning,
         source_context=source_context,
+        fingerprint=fingerprint,
+        quality_score=quality_score,
+        expires_at=now + timedelta(days=30),
+        last_recalculated_at=now,
     )
     session.add(insight)
     session.commit()
@@ -197,15 +278,170 @@ def create_insight(
     return insight
 
 
+def insight_fingerprint(
+    insight_type: str,
+    title: str,
+    related_notes: list[int],
+    evidence: list[Any],
+) -> str:
+    normalized_evidence = sorted(
+        {
+            json.dumps(item, ensure_ascii=False, sort_keys=True).strip().lower()
+            for item in evidence
+            if str(item).strip()
+        }
+    )
+    title_tokens = sorted(
+        {
+            token
+            for token in re.findall(r"[\w-]+", title.lower(), flags=re.UNICODE)
+            if len(token) > 2
+        }
+    )
+    payload = {
+        "type": insight_type.strip().lower(),
+        "notes": sorted(set(related_notes)),
+        "evidence": normalized_evidence,
+        "title": [] if normalized_evidence else title_tokens,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def score_insight_quality(
+    *,
+    title: str,
+    description: str,
+    why_it_matters: str,
+    evidence: list[Any],
+    suggested_action: str,
+    graph_impact: str,
+    confidence: float,
+) -> float:
+    score = 0.0
+    score += 0.15 if len(title.strip()) >= 12 else 0.03
+    score += 0.15 if len(description.strip()) >= 50 else 0.04
+    score += 0.15 if len(why_it_matters.strip()) >= 30 else 0.0
+    score += 0.20 if len(evidence) >= 2 else (0.10 if evidence else 0.0)
+    score += 0.10 if len(suggested_action.strip()) >= 15 else 0.0
+    score += 0.10 if len(graph_impact.strip()) >= 15 else 0.0
+    score += 0.15 * max(0.0, min(1.0, confidence))
+    generic = {
+        "connection found",
+        "new insight",
+        "interesting concept",
+        "knowledge gap",
+        "related notes",
+    }
+    if title.strip().lower() in generic:
+        score -= 0.40
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+def migrate_legacy_insights(session: Session) -> dict[str, int]:
+    """Archive unsupported legacy insights and backfill metadata on grounded ones."""
+    now = datetime.now(UTC)
+    archived = 0
+    upgraded = 0
+    for insight in session.execute(select(InsightRecord)).scalars():
+        if insight.status in {"archived", "dismissed", "expired"}:
+            continue
+        evidence = _parse_json_list(insight.evidence)
+        related_notes = [
+            int(value)
+            for value in _parse_json_list(insight.related_notes)
+            if str(value).isdigit()
+        ]
+        has_cognitive_fields = all(
+            str(value or "").strip()
+            for value in (
+                insight.description,
+                insight.why_it_matters,
+                insight.suggested_action,
+                insight.graph_impact,
+            )
+        )
+        if (
+            not evidence
+            or not related_notes
+            or not has_cognitive_fields
+            or not _is_visible_insight(insight)
+        ):
+            insight.status = "archived"
+            insight.dismissed_at = insight.dismissed_at or now
+            insight.updated_at = now
+            archived += 1
+            continue
+        fingerprint = insight_fingerprint(
+            insight.type,
+            insight.title,
+            related_notes,
+            evidence,
+        )
+        quality = score_insight_quality(
+            title=insight.title,
+            description=insight.description,
+            why_it_matters=insight.why_it_matters,
+            evidence=evidence,
+            suggested_action=insight.suggested_action,
+            graph_impact=insight.graph_impact,
+            confidence=insight.confidence,
+        )
+        changed = False
+        if not insight.fingerprint:
+            insight.fingerprint = fingerprint
+            changed = True
+        if not insight.quality_score:
+            insight.quality_score = quality
+            changed = True
+        if insight.expires_at is None and insight.status in {"suggested", "reviewed"}:
+            insight.expires_at = now + timedelta(days=30)
+            changed = True
+        if changed:
+            insight.last_recalculated_at = now
+            insight.updated_at = now
+            upgraded += 1
+    if archived or upgraded:
+        session.commit()
+    return {"archived": archived, "upgraded": upgraded}
+
+
 def get_active_insights(
     session: Session,
     limit: int = 20,
 ) -> list[InsightRecord]:
+    migrate_legacy_insights(session)
+    now = datetime.now(UTC)
+    expired = list(
+        session.execute(
+            select(InsightRecord).where(
+                InsightRecord.expires_at.is_not(None),
+                InsightRecord.expires_at <= now,
+                InsightRecord.status.in_(("suggested", "reviewed")),
+            )
+        ).scalars()
+    )
+    for insight in expired:
+        insight.status = "expired"
+        insight.updated_at = now
+    if expired:
+        session.commit()
     insights = list(
         session.execute(
             select(InsightRecord)
             .where(InsightRecord.dismissed_at.is_(None))
-            .order_by(InsightRecord.priority.desc(), InsightRecord.created_at.desc())
+            .where(
+                InsightRecord.status.not_in(
+                    ("expired", "archived", "dismissed", "ignored")
+                )
+            )
+            .order_by(
+                InsightRecord.feedback_score.desc(),
+                InsightRecord.quality_score.desc(),
+                InsightRecord.priority.desc(),
+                InsightRecord.created_at.desc(),
+            )
             .limit(limit * 3)
         ).scalars()
     )
@@ -289,6 +525,10 @@ def dismiss_insight(session: Session, insight_id: int) -> InsightRecord:
     if insight is None:
         raise HTTPException(status_code=404, detail="Insight not found")
     insight.dismissed_at = datetime.now(UTC)
+    insight.ignored_at = datetime.now(UTC)
+    insight.status = "dismissed"
+    insight.feedback_score -= 1
+    insight.updated_at = datetime.now(UTC)
     session.commit()
     session.refresh(insight)
     return insight
@@ -317,6 +557,15 @@ def serialize_insight(insight: InsightRecord) -> dict[str, Any]:
         "promptVersion": getattr(insight, "prompt_version", "v1"),
         "reasoning": getattr(insight, "reasoning", ""),
         "sourceContext": getattr(insight, "source_context", ""),
+        "fingerprint": getattr(insight, "fingerprint", ""),
+        "qualityScore": getattr(insight, "quality_score", 0.0),
+        "feedbackScore": getattr(insight, "feedback_score", 0),
+        "expiresAt": insight.expires_at.isoformat()
+        if getattr(insight, "expires_at", None)
+        else None,
+        "lastRecalculatedAt": insight.last_recalculated_at.isoformat()
+        if getattr(insight, "last_recalculated_at", None)
+        else None,
         "appliedAt": insight.applied_at.isoformat() if insight.applied_at else None,
         "ignoredAt": insight.ignored_at.isoformat() if insight.ignored_at else None,
         "createdAt": insight.created_at.isoformat() if insight.created_at else None,
@@ -573,84 +822,51 @@ def build_graph(
 
 def sync_knowledge_graph(session: Session) -> dict[str, int]:
     notes = list(session.execute(select(NoteRecord)).scalars())
+    writer = GraphWriteService(session, autocommit=False)
 
     node_map: dict[str, int] = {}
     for note in notes:
-        existing = session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.type == "note",
-                GraphNodeRecord.source_id == note.id,
-            )
-        ).scalar_one_or_none()
-        if existing:
-            existing.label = note.title
-            node_map[f"note_{note.id}"] = existing.id
-        else:
-            node = GraphNodeRecord(
-                type="note",
-                label=note.title,
-                source_id=note.id,
-                graph_metadata=json.dumps(
-                    {
-                        "path": note.path,
-                        "folder": note.path.split("/")[0]
-                        if "/" in note.path
-                        else "inbox",
-                    }
-                ),
-            )
-            session.add(node)
-            session.flush()
-            node_map[f"note_{note.id}"] = node.id
+        node = writer.upsert_node(
+            node_type="note",
+            label=note.title,
+            title=note.title,
+            summary=f"Vault note: {note.path}",
+            source="note",
+            source_id=note.id,
+            source_note_ids=[note.id],
+            source_evidence=[note.path, note.title],
+            status="confirmed",
+            confidence=1.0,
+            graph_metadata={
+                "path": note.path,
+                "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
+            },
+        )
+        node_map[f"note_{note.id}"] = node.id
 
     concepts = list(session.execute(select(ConceptRecord)).scalars())
     for c in concepts:
-        existing = session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.type == "concept",
-                GraphNodeRecord.source_id == c.id,
-            )
-        ).scalar_one_or_none()
-        if existing is None:
-            cross = session.execute(
-                select(GraphNodeRecord).where(
-                    GraphNodeRecord.type != "note",
-                    GraphNodeRecord.type != "insight",
-                    GraphNodeRecord.label == c.name,
-                )
-            ).scalar_one_or_none()
-            if cross is None:
-                from berrybrain_api.second_brain import normalize_concept_name
-
-                all_nodes = session.execute(
-                    select(GraphNodeRecord).where(
-                        GraphNodeRecord.type != "note",
-                        GraphNodeRecord.type != "insight",
-                    )
-                ).scalars()
-                norm = normalize_concept_name(c.name)
-                cross = next(
-                    (
-                        n
-                        for n in all_nodes
-                        if normalize_concept_name(n.label or "") == norm
-                    ),
-                    None,
-                )
-            existing = cross
-        if existing:
-            existing.label = c.name or existing.label
-            node_map[f"concept_{c.id}"] = existing.id
-        else:
-            node = GraphNodeRecord(
-                type="concept",
-                label=c.name,
-                source_id=c.id,
-                graph_metadata=json.dumps({"description": c.description}),
-            )
-            session.add(node)
-            session.flush()
-            node_map[f"concept_{c.id}"] = node.id
+        node = writer.upsert_node(
+            node_type="concept",
+            label=c.name,
+            title=c.name,
+            summary=c.description,
+            source="concept_extraction",
+            source_id=c.id,
+            source_note_ids=[
+                int(value)
+                for value in _parse_json_list(c.related_note_ids)
+                if str(value).isdigit()
+            ],
+            source_evidence=_parse_json_list(c.source_evidence),
+            status=c.status if c.status in {"suggested", "confirmed"} else "suggested",
+            confidence=c.confidence,
+            created_by=c.extracted_by,
+            model=c.model,
+            provider=c.provider,
+            graph_metadata={"description": c.description},
+        )
+        node_map[f"concept_{c.id}"] = node.id
 
     conns = list(session.execute(select(ConnectionRecord)).scalars())
     edges_added = 0
@@ -659,24 +875,24 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
         tgt_key = f"note_{conn.target_note_id}"
         if src_key not in node_map or tgt_key not in node_map:
             continue
-        existing = session.execute(
-            select(GraphEdgeRecord).where(
-                GraphEdgeRecord.source_node_id == node_map[src_key],
-                GraphEdgeRecord.target_node_id == node_map[tgt_key],
-                GraphEdgeRecord.type == conn.connection_type,
-            )
-        ).scalar_one_or_none()
-        if not existing:
-            edge = GraphEdgeRecord(
-                source_node_id=node_map[src_key],
-                target_node_id=node_map[tgt_key],
-                type=conn.connection_type,
-                confidence=conn.confidence / 100 if conn.confidence else 0.5,
-                reason=conn.reason,
-                created_by=conn.created_by,
-            )
-            session.add(edge)
-            edges_added += 1
+        evidence = _parse_json_list(conn.evidence)
+        writer.upsert_edge(
+            source_node_id=node_map[src_key],
+            target_node_id=node_map[tgt_key],
+            edge_type=conn.connection_type,
+            reason=conn.reason or "Persisted relationship between the source notes.",
+            evidence=evidence or [f"notes:{conn.source_note_id},{conn.target_note_id}"],
+            confidence=conn.confidence / 100 if conn.confidence else 0.5,
+            source_note_ids=[conn.source_note_id, conn.target_note_id],
+            created_by="legacy_ai" if conn.created_by == "ai" else conn.created_by,
+            model=conn.model,
+            provider=conn.provider,
+            prompt_version=conn.prompt_version,
+            status=conn.status
+            if conn.status in {"suggested", "confirmed", "ignored"}
+            else "suggested",
+        )
+        edges_added += 1
 
     session.commit()
     return {"nodes": len(node_map), "edges_added": edges_added}
@@ -688,30 +904,87 @@ def store_embedding(
     content_hash: str,
     vector: list[float],
     model: str,
+    chunk_index: int = -1,
+    chunk_text: str = "",
+    heading_path: str = "",
+    start_line: int = 0,
+    end_line: int = 0,
+    token_count: int = 0,
+    provider: str = "",
 ) -> EmbeddingRecord:
-    import json
+    vector_blob = encode_vector_blob(vector)
+    if content_hash:
+        for old_chunk in session.execute(
+            select(ChunkRecord).where(
+                ChunkRecord.note_id == note_id,
+                ChunkRecord.content_hash != content_hash,
+            )
+        ).scalars():
+            session.delete(old_chunk)
+        for old_embedding in session.execute(
+            select(EmbeddingRecord).where(
+                EmbeddingRecord.note_id == note_id,
+                EmbeddingRecord.content_hash != content_hash,
+            )
+        ).scalars():
+            session.delete(old_embedding)
+        session.flush()
 
     existing = session.execute(
         select(EmbeddingRecord).where(
             EmbeddingRecord.note_id == note_id,
             EmbeddingRecord.content_hash == content_hash,
+            EmbeddingRecord.chunk_index == chunk_index,
         )
     ).scalar_one_or_none()
 
     if existing:
         existing.vector = json.dumps(vector)
+        existing.vector_blob = vector_blob
         existing.model = model
+        existing.provider = provider
+        existing.vector_dimensions = len(vector)
         existing.created_at = datetime.now(UTC)
     else:
         existing = EmbeddingRecord(
             note_id=note_id,
             content_hash=content_hash,
+            chunk_index=chunk_index,
             vector=json.dumps(vector),
+            vector_blob=vector_blob,
             model=model,
+            provider=provider,
+            vector_dimensions=len(vector),
         )
         session.add(existing)
+        session.flush()
+
+    if chunk_index >= 0:
+        chunk = session.execute(
+            select(ChunkRecord).where(
+                ChunkRecord.note_id == note_id,
+                ChunkRecord.content_hash == content_hash,
+                ChunkRecord.chunk_index == chunk_index,
+            )
+        ).scalar_one_or_none()
+        if chunk is None:
+            chunk = ChunkRecord(
+                note_id=note_id,
+                note_version=content_hash,
+                content_hash=content_hash,
+                chunk_index=chunk_index,
+            )
+            session.add(chunk)
+        chunk.heading_path = heading_path
+        chunk.text = chunk_text
+        chunk.token_count = token_count
+        chunk.start_line = start_line
+        chunk.end_line = end_line
+        chunk.embedding_id = existing.id
+        chunk.updated_at = datetime.now(UTC)
 
     session.commit()
+    session.refresh(existing)
     return existing
 
 
@@ -721,16 +994,14 @@ def find_similar_notes(
     exclude_note_id: int | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    import json
-
     embeddings = list(session.execute(select(EmbeddingRecord)).scalars())
     results = []
     for emb in embeddings:
         if exclude_note_id and emb.note_id == exclude_note_id:
             continue
         try:
-            v = json.loads(emb.vector)
-        except (json.JSONDecodeError, TypeError):
+            v = decode_embedding_vector(emb)
+        except (json.JSONDecodeError, TypeError, ValueError):
             continue
         if len(v) != len(vector):
             continue
@@ -761,6 +1032,153 @@ def find_similar_notes(
         }
         for nid, sim in results[:limit]
     ]
+
+
+def find_similar_chunk_notes(
+    session: Session,
+    source_note_id: int,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    source_embeddings = list(
+        session.execute(
+            select(EmbeddingRecord).where(EmbeddingRecord.note_id == source_note_id)
+        ).scalars()
+    )
+    if not source_embeddings:
+        return []
+
+    source_vectors = []
+    for emb in source_embeddings:
+        try:
+            source_vectors.append(decode_embedding_vector(emb))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    if not source_vectors:
+        return []
+
+    rows = session.execute(
+        select(EmbeddingRecord, ChunkRecord, NoteRecord)
+        .join(
+            ChunkRecord,
+            (ChunkRecord.note_id == EmbeddingRecord.note_id)
+            & (ChunkRecord.content_hash == EmbeddingRecord.content_hash)
+            & (ChunkRecord.chunk_index == EmbeddingRecord.chunk_index),
+        )
+        .join(NoteRecord, NoteRecord.id == EmbeddingRecord.note_id)
+        .where(EmbeddingRecord.note_id != source_note_id)
+    ).all()
+
+    best_by_note: dict[int, dict[str, Any]] = {}
+    for emb, chunk, note in rows:
+        try:
+            target_vector = decode_embedding_vector(emb)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        similarities = [
+            _cosine_similarity(source_vector, target_vector)
+            for source_vector in source_vectors
+            if len(source_vector) == len(target_vector)
+        ]
+        if not similarities:
+            continue
+        similarity = max(similarities)
+        current = best_by_note.get(note.id)
+        if current is not None and similarity <= current["similarity"]:
+            continue
+        best_by_note[note.id] = {
+            "note_id": note.id,
+            "title": note.title,
+            "path": note.path,
+            "similarity": round(similarity, 4),
+            "updatedAt": note.updated_at.isoformat() if note.updated_at else None,
+            "evidence": {
+                "chunkIndex": chunk.chunk_index,
+                "headingPath": chunk.heading_path,
+                "startLine": chunk.start_line,
+                "endLine": chunk.end_line,
+                "text": chunk.text[:360],
+            },
+        }
+
+    return sorted(
+        best_by_note.values(), key=lambda item: item["similarity"], reverse=True
+    )[:limit]
+
+
+def find_similar_chunks_by_vector(
+    session: Session,
+    query_vector: list[float],
+    limit: int = 10,
+    min_similarity: float = 0.15,
+) -> list[dict[str, Any]]:
+    rows = session.execute(
+        select(EmbeddingRecord, ChunkRecord, NoteRecord)
+        .join(
+            ChunkRecord,
+            (ChunkRecord.note_id == EmbeddingRecord.note_id)
+            & (ChunkRecord.content_hash == EmbeddingRecord.content_hash)
+            & (ChunkRecord.chunk_index == EmbeddingRecord.chunk_index),
+        )
+        .join(NoteRecord, NoteRecord.id == EmbeddingRecord.note_id)
+        .where(NoteRecord.content_hash == EmbeddingRecord.content_hash)
+    ).all()
+
+    best_by_note: dict[int, dict[str, Any]] = {}
+    for emb, chunk, note in rows:
+        try:
+            vector = decode_embedding_vector(emb)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if len(vector) != len(query_vector):
+            continue
+        similarity = _cosine_similarity(query_vector, vector)
+        if similarity < min_similarity:
+            continue
+        current = best_by_note.get(note.id)
+        if current is not None and similarity <= current["similarity"]:
+            continue
+        best_by_note[note.id] = {
+            "id": note.id,
+            "title": note.title,
+            "path": note.path,
+            "score": round(1 - similarity, 4),
+            "source": "vector_chunk",
+            "snippet": chunk.text[:240].replace("\n", " ").strip(),
+            "similarity": round(similarity, 4),
+            "evidence": {
+                "chunkIndex": chunk.chunk_index,
+                "contentHash": chunk.content_hash,
+                "noteVersion": chunk.note_version,
+                "headingPath": chunk.heading_path,
+                "startLine": chunk.start_line,
+                "endLine": chunk.end_line,
+                "text": chunk.text[:360],
+            },
+        }
+
+    return sorted(best_by_note.values(), key=lambda item: item["score"])[:limit]
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right))
+    norm_left = sum(a * a for a in left) ** 0.5
+    norm_right = sum(a * a for a in right) ** 0.5
+    if norm_left == 0 or norm_right == 0:
+        return 0.0
+    return dot / (norm_left * norm_right)
+
+
+def encode_vector_blob(vector: list[float]) -> bytes:
+    return struct.pack(f"<{len(vector)}f", *[float(value) for value in vector])
+
+
+def decode_embedding_vector(embedding: EmbeddingRecord) -> list[float]:
+    if embedding.vector_blob:
+        if len(embedding.vector_blob) % 4 != 0:
+            raise ValueError("Invalid vector blob length")
+        dimensions = len(embedding.vector_blob) // 4
+        return list(struct.unpack(f"<{dimensions}f", embedding.vector_blob))
+    return json.loads(embedding.vector)
 
 
 # ---------------------------------------------------------------------------
@@ -803,7 +1221,7 @@ def validate_node_with_web(
     Creates web source nodes and edges (source_supports, source_contradicts, source_expands).
     Never overwrites local data without recording origin.
     """
-    from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
+    from berrybrain_api.models import GraphNodeRecord
 
     node = session.get(GraphNodeRecord, node_id)
     if not node:
@@ -813,10 +1231,10 @@ def validate_node_with_web(
     if not query:
         return {"node_id": node_id, "status": "no_query", "results": []}
 
+    writer = GraphWriteService(session, autocommit=False)
     results = searxng_search(query, searxng_url)
     if not results:
-        node.validation_status = "unvalidated"
-        node.updated_at = datetime.now(UTC)
+        writer.update_node_enrichment(node.id, {"validation_status": "unvalidated"})
         session.commit()
         return {"node_id": node_id, "status": "no_results", "web_results": 0}
 
@@ -827,19 +1245,22 @@ def validate_node_with_web(
         url = r.get("url", "")
         if not url:
             continue
-        web_node = (
-            session.execute(
-                select(GraphNodeRecord).where(
-                    GraphNodeRecord.type == "web_source",
-                    GraphNodeRecord.source_evidence == url,
-                )
-            )
-            .scalars()
-            .first()
+        web_node = next(
+            (
+                candidate
+                for candidate in session.execute(
+                    select(GraphNodeRecord).where(
+                        GraphNodeRecord.type.in_(("source", "web_source"))
+                    )
+                ).scalars()
+                if url in _parse_json_list(candidate.source_evidence)
+                or candidate.source_evidence == url
+            ),
+            None,
         )
         if web_node is None:
-            web_node = GraphNodeRecord(
-                type="web_source",
+            web_node = writer.upsert_node(
+                node_type="source",
                 label=r["title"][:255] or url[:255],
                 title=r["title"][:255],
                 summary=r.get("content", "")[:2000],
@@ -848,14 +1269,12 @@ def validate_node_with_web(
                 status="suggested",
                 confidence=0.6,
                 created_by="system",
-                created_by_model="searxng",
+                model="searxng",
                 provider="searxng",
-                source_evidence=url,
+                source_evidence=[url],
                 source_quality="web_validated",
-                graph_metadata=json.dumps({"url": url}, ensure_ascii=False),
+                graph_metadata={"url": url},
             )
-            session.add(web_node)
-            session.flush()
 
         # Determine edge type based on content overlap
         web_content = (r.get("content", "") + " " + r.get("title", "")).lower()
@@ -873,36 +1292,28 @@ def validate_node_with_web(
         else:
             edge_type = "source_expands"
 
-        edge = (
-            session.execute(
-                select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.source_node_id == node.id,
-                    GraphEdgeRecord.target_node_id == web_node.id,
-                    GraphEdgeRecord.type == edge_type,
-                )
-            )
-            .scalars()
-            .first()
+        writer.upsert_edge(
+            source_node_id=node.id,
+            target_node_id=web_node.id,
+            edge_type=edge_type,
+            label=f"Web: {r['title'][:100]}",
+            reason=(
+                f'Web source "{r["title"][:120] or url}" was found for "{query}" '
+                f"and classified as {edge_type.replace('_', ' ')}."
+            ),
+            evidence=[url],
+            confidence=min(0.95, 0.5 + overlap * 0.4),
+            source_note_ids=[
+                int(value)
+                for value in _parse_json_list(node.source_note_ids)
+                if str(value).isdigit()
+            ],
+            status="suggested",
+            created_by="system",
+            model="searxng",
+            provider="searxng",
+            prompt_version="web-validation.v1",
         )
-        if edge is None:
-            edge = GraphEdgeRecord(
-                source_node_id=node.id,
-                target_node_id=web_node.id,
-                type=edge_type,
-            )
-            session.add(edge)
-            session.flush()
-        edge.label = f"Web: {r['title'][:100]}"
-        edge.reason = (
-            f'Web source "{r["title"][:120] or url}" was found for "{query}" '
-            f"and classified as {edge_type.replace('_', ' ')}."
-        )
-        edge.evidence = json.dumps([url], ensure_ascii=False)
-        edge.confidence = min(0.95, 0.5 + overlap * 0.4)
-        edge.status = "suggested"
-        edge.created_by = "system"
-        edge.created_by_model = "searxng"
-        edge.provider = "searxng"
         web_node_ids.append(web_node.id)
         edge_types_created.append(edge_type)
 
@@ -910,19 +1321,19 @@ def validate_node_with_web(
     has_supports = "source_supports" in edge_types_created
     has_contradicts = "source_contradicts" in edge_types_created
 
-    if has_contradicts:
-        node.validation_status = "conflict_found"
-    elif has_supports:
-        node.validation_status = "validated"
-    else:
-        node.validation_status = "needs_review"
-
-    node.updated_at = datetime.now(UTC)
+    validation_status = (
+        "conflict_found"
+        if has_contradicts
+        else "validated"
+        if has_supports
+        else "needs_review"
+    )
+    writer.update_node_enrichment(node.id, {"validation_status": validation_status})
     session.commit()
 
     return {
         "node_id": node_id,
-        "validation_status": node.validation_status,
+        "validation_status": validation_status,
         "web_results": len(results),
         "web_nodes_created": len(web_node_ids),
         "edge_types": edge_types_created,
@@ -1038,6 +1449,138 @@ def graph_quality_report(session: Session) -> dict:
         or 0
     )
 
+    visible_node_rows = list(
+        session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.status.not_in(("ignored", "archived"))
+            )
+        ).scalars()
+    )
+    visible_edge_rows = list(
+        session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.status.not_in(("ignored", "archived"))
+            )
+        ).scalars()
+    )
+    degree = {node.id: 0 for node in visible_node_rows}
+    for edge in visible_edge_rows:
+        if edge.source_node_id in degree:
+            degree[edge.source_node_id] += 1
+        if edge.target_node_id in degree:
+            degree[edge.target_node_id] += 1
+
+    from berrybrain_api.graph_write_service import (
+        SYMMETRIC_EDGE_TYPES,
+        canonical_edge_type,
+        has_traceable_ai_evidence,
+        normalize_graph_label,
+    )
+
+    node_groups: dict[tuple[str, str], list[GraphNodeRecord]] = {}
+    for node in visible_node_rows:
+        key = (node.type, normalize_graph_label(node.label or ""))
+        if key[1]:
+            node_groups.setdefault(key, []).append(node)
+    duplicate_nodes = [
+        {
+            "type": key[0],
+            "normalizedLabel": key[1],
+            "nodeIds": [node.id for node in group],
+            "labels": [node.label for node in group],
+        }
+        for key, group in node_groups.items()
+        if len(group) > 1
+    ]
+
+    edge_groups: dict[tuple[int, int, str], list[GraphEdgeRecord]] = {}
+    for edge in visible_edge_rows:
+        try:
+            edge_type = canonical_edge_type(edge.type)
+        except HTTPException:
+            edge_type = edge.type
+        source_id, target_id = edge.source_node_id, edge.target_node_id
+        if edge_type in SYMMETRIC_EDGE_TYPES and source_id > target_id:
+            source_id, target_id = target_id, source_id
+        edge_groups.setdefault((source_id, target_id, edge_type), []).append(edge)
+    duplicate_edges = [
+        {
+            "sourceNodeId": key[0],
+            "targetNodeId": key[1],
+            "type": key[2],
+            "edgeIds": [edge.id for edge in group],
+        }
+        for key, group in edge_groups.items()
+        if len(group) > 1
+    ]
+
+    generic_labels = {
+        "general",
+        "misc",
+        "notes",
+        "other",
+        "rascunho",
+        "study",
+        "topic",
+        "untitled",
+    }
+    generic_nodes = [
+        {"id": node.id, "label": node.label, "type": node.type}
+        for node in visible_node_rows
+        if len(normalize_graph_label(node.label or "")) < 3
+        or normalize_graph_label(node.label or "") in generic_labels
+    ]
+    orphan_nodes = [
+        {"id": node.id, "label": node.label, "type": node.type}
+        for node in visible_node_rows
+        if degree.get(node.id, 0) == 0
+    ]
+    hub_threshold = max(8, math.ceil(max(1, len(visible_node_rows)) * 0.25))
+    artificial_hubs = [
+        {
+            "id": node.id,
+            "label": node.label,
+            "type": node.type,
+            "degree": degree.get(node.id, 0),
+            "threshold": hub_threshold,
+        }
+        for node in visible_node_rows
+        if degree.get(node.id, 0) > hub_threshold
+        and (node.created_by in {"system", "ai"} or node.type != "note")
+    ]
+    edges_without_evidence = []
+    for edge in visible_edge_rows:
+        try:
+            evidence = json.loads(edge.evidence or "[]")
+        except (json.JSONDecodeError, TypeError):
+            evidence = []
+        if not edge.reason.strip() or not isinstance(evidence, list) or not evidence:
+            edges_without_evidence.append(
+                {
+                    "id": edge.id,
+                    "sourceNodeId": edge.source_node_id,
+                    "targetNodeId": edge.target_node_id,
+                    "type": edge.type,
+                    "missingReason": not edge.reason.strip(),
+                    "missingEvidence": not evidence,
+                }
+            )
+    ai_edges_without_traceable_evidence = [
+        {
+            "id": edge.id,
+            "sourceNodeId": edge.source_node_id,
+            "targetNodeId": edge.target_node_id,
+            "type": edge.type,
+        }
+        for edge in visible_edge_rows
+        if edge.created_by == "ai" and not has_traceable_ai_evidence(edge)
+    ]
+    unstable_clusters = [
+        {"id": node.id, "label": node.label, "degree": degree.get(node.id, 0)}
+        for node in visible_node_rows
+        if node.type == "cluster" and degree.get(node.id, 0) < 2
+    ]
+
     return {
         "total_nodes": total_nodes,
         "total_edges": total_edges,
@@ -1088,6 +1631,27 @@ def graph_quality_report(session: Session) -> dict:
         "pct_edges_with_reason": round(nodes_with_reason / total_edges * 100, 1)
         if total_edges
         else 0,
+        "issues": {
+            "orphans": orphan_nodes,
+            "duplicateNodes": duplicate_nodes,
+            "duplicateEdges": duplicate_edges,
+            "artificialHubs": artificial_hubs,
+            "genericNodes": generic_nodes,
+            "edgesWithoutEvidence": edges_without_evidence,
+            "aiEdgesWithoutTraceableEvidence": ai_edges_without_traceable_evidence,
+            "unstableClusters": unstable_clusters,
+            "mergeSuggestions": duplicate_nodes,
+        },
+        "issueCounts": {
+            "orphans": len(orphan_nodes),
+            "duplicateNodes": len(duplicate_nodes),
+            "duplicateEdges": len(duplicate_edges),
+            "artificialHubs": len(artificial_hubs),
+            "genericNodes": len(generic_nodes),
+            "edgesWithoutEvidence": len(edges_without_evidence),
+            "aiEdgesWithoutTraceableEvidence": len(ai_edges_without_traceable_evidence),
+            "unstableClusters": len(unstable_clusters),
+        },
     }
 
 

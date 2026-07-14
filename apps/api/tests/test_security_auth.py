@@ -34,6 +34,7 @@ class SecurityAuthTest(unittest.TestCase):
             "session_secure_cookie": cls.settings.session_secure_cookie,
             "smtp_host": cls.settings.smtp_host,
             "admin_email": cls.settings.admin_email,
+            "owner_username": cls.settings.owner_username,
         }
         cls.settings.database_url = f"sqlite:///{db_path}"
         cls.settings.vault_path = vault_path
@@ -43,6 +44,7 @@ class SecurityAuthTest(unittest.TestCase):
         cls.settings.session_secure_cookie = False
         cls.settings.smtp_host = ""
         cls.settings.admin_email = "admin@example.com"
+        cls.settings.owner_username = "admin"
 
         cls.original_engine = db_mod.engine
         cls.original_session_local = db_mod.SessionLocal
@@ -102,6 +104,8 @@ class SecurityAuthTest(unittest.TestCase):
             status = self.client.get("/api/v1/setup/status")
             self.assertEqual(status.status_code, 200)
             self.assertTrue(status.json()["needsSetup"])
+            self.assertEqual(status.json()["ownerUsername"], "admin")
+            self.assertEqual(status.json()["adminEmail"], "setup-admin@example.com")
 
             created = self.client.post(
                 "/api/v1/setup/admin",
@@ -113,6 +117,10 @@ class SecurityAuthTest(unittest.TestCase):
             self.assertEqual(created.status_code, 201)
             self.assertEqual(created.json()["status"], "configured")
             self.assertIn("bb_session", created.cookies)
+
+            configured_status = self.client.get("/api/v1/setup/status")
+            self.assertFalse(configured_status.json()["needsSetup"])
+            self.assertEqual(configured_status.json()["adminEmail"], "")
 
             duplicate = self.client.post(
                 "/api/v1/setup/admin",
@@ -131,7 +139,61 @@ class SecurityAuthTest(unittest.TestCase):
             json={"email": "missing@example.com", "password": "StrongPass123"},
         )
         self.assertEqual(response.status_code, 401)
-        self.assertEqual(response.json()["detail"], "Invalid email or password")
+        self.assertEqual(
+            response.json()["detail"], "Invalid username/email or password"
+        )
+
+    def test_owner_can_login_with_configured_username_alias(self) -> None:
+        app = import_module("berrybrain_api.main").app
+        self._create_user("admin@example.com")
+        previous = self.settings.owner_username
+        self.settings.owner_username = "brain-owner"
+        try:
+            client = TestClient(app)
+            response = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "brain-owner",
+                    "password": "StrongPass123",
+                    "remember_me": False,
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["status"], "authenticated")
+            self.assertEqual(response.json()["user"]["email"], "admin@example.com")
+        finally:
+            self.settings.owner_username = previous
+
+    def test_login_respects_remember_me_cookie_lifetime(self) -> None:
+        app = import_module("berrybrain_api.main").app
+        self._create_user("session-only@example.com")
+
+        session_client = TestClient(app)
+        session_login = session_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "session-only@example.com",
+                "password": "StrongPass123",
+                "remember_me": False,
+            },
+        )
+        self.assertEqual(session_login.status_code, 200)
+        session_cookies = session_login.headers.get_list("set-cookie")
+        self.assertTrue(any("bb_session=" in value for value in session_cookies))
+        self.assertFalse(any("Max-Age=" in value for value in session_cookies))
+
+        persistent_client = TestClient(app)
+        persistent_login = persistent_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "session-only@example.com",
+                "password": "StrongPass123",
+                "remember_me": True,
+            },
+        )
+        self.assertEqual(persistent_login.status_code, 200)
+        persistent_cookies = persistent_login.headers.get_list("set-cookie")
+        self.assertTrue(any("Max-Age=2592000" in value for value in persistent_cookies))
 
     def _create_user(
         self,

@@ -54,7 +54,7 @@ const FILTERS = [
   { key: "review_opportunity", label: "filterRevisao" },
   { key: "context", label: "filterContexto" },
   { key: "high", label: "filterAltaPrioridade" },
-  { key: "applied", label: "filterAplicados" },
+  { key: "accepted", label: "filterAplicados" },
   { key: "ignored", label: "filterIgnorados" },
 ];
 
@@ -133,7 +133,7 @@ export default function InsightsPage() {
   const filtered = insights.filter((i) => {
     if (filter === "all") return true;
     if (filter === "high") return i.priority === "high";
-    if (filter === "applied") return i.status === "applied";
+    if (filter === "accepted") return i.status === "accepted";
     if (filter === "ignored") return i.status === "ignored";
     return i.type === filter;
   });
@@ -312,7 +312,7 @@ function InsightCard({
           <span className="text-[10px] text-muted/50">{confidencePct}% {t("confidence")}</span>
         )}
         {insight.status !== "new" && (
-          <span className="text-[10px] text-muted/40 ml-auto">{insight.status === "applied" ? t("appliedLabel") : t("ignoredLabel")}</span>
+          <span className="text-[10px] text-muted/40 ml-auto">{insight.status === "accepted" ? t("appliedLabel") : t("ignoredLabel")}</span>
         )}
       </div>
 

@@ -19,9 +19,11 @@ from berrybrain_api.models import (
     AuthOtpRecord,
     LoginAttemptRecord,
     SecurityAuditRecord,
+    ServiceTokenRecord,
     UserRecord,
     UserSessionRecord,
 )
+from berrybrain_api.redaction import redact_value
 
 try:
     from argon2 import PasswordHasher
@@ -96,6 +98,97 @@ def token_hash(token: str, secret: str) -> str:
     return hmac.new(secret.encode(), token.encode(), hashlib.sha256).hexdigest()
 
 
+def verify_service_token(session: Session, settings: Settings, raw_token: str) -> bool:
+    if not raw_token:
+        return False
+    now = datetime.now(UTC)
+    managed_count = session.execute(
+        select(func.count(ServiceTokenRecord.id))
+    ).scalar_one()
+    if managed_count == 0:
+        return bool(settings.api_token) and hmac.compare_digest(
+            raw_token, settings.api_token
+        )
+    record = session.execute(
+        select(ServiceTokenRecord).where(
+            ServiceTokenRecord.token_hash
+            == token_hash(raw_token, settings.session_secret),
+            ServiceTokenRecord.revoked_at.is_(None),
+            ServiceTokenRecord.status.in_(("active", "grace")),
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        return False
+    if record.expires_at is not None:
+        expires_at = record.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at < now:
+            return False
+    record.last_used_at = now
+    session.commit()
+    return True
+
+
+def rotate_service_token(
+    session: Session,
+    settings: Settings,
+    *,
+    name: str = "worker",
+    grace_seconds: int = 900,
+) -> tuple[str, ServiceTokenRecord]:
+    now = datetime.now(UTC)
+    grace_until = now + timedelta(seconds=max(60, min(grace_seconds, 3600)))
+    existing = list(
+        session.execute(
+            select(ServiceTokenRecord).where(
+                ServiceTokenRecord.revoked_at.is_(None),
+                ServiceTokenRecord.status.in_(("active", "grace")),
+            )
+        ).scalars()
+    )
+    for record in existing:
+        record.status = "grace"
+        record.expires_at = grace_until
+    if settings.api_token:
+        environment_hash = token_hash(settings.api_token, settings.session_secret)
+        known_environment_token = session.execute(
+            select(ServiceTokenRecord).where(
+                ServiceTokenRecord.token_hash == environment_hash
+            )
+        ).scalar_one_or_none()
+        if known_environment_token is None:
+            session.add(
+                ServiceTokenRecord(
+                    name="legacy-environment-token",
+                    token_hash=environment_hash,
+                    status="grace",
+                    expires_at=grace_until,
+                )
+            )
+    raw_token = f"bbt_{secrets.token_urlsafe(48)}"
+    record = ServiceTokenRecord(
+        name=name.strip()[:120] or "worker",
+        token_hash=token_hash(raw_token, settings.session_secret),
+        status="active",
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return raw_token, record
+
+
+def revoke_service_token(session: Session, token_id: int) -> ServiceTokenRecord:
+    record = session.get(ServiceTokenRecord, token_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Service token not found")
+    record.status = "revoked"
+    record.revoked_at = datetime.now(UTC)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
 def client_ip(request: Request) -> str:
     settings = get_settings()
     forwarded = request.headers.get("x-forwarded-for", "")
@@ -126,7 +219,7 @@ def audit_event(
             target_id=target_id,
             ip_address=client_ip(request),
             user_agent=user_agent(request),
-            audit_metadata=json.dumps(metadata or {}, ensure_ascii=False),
+            audit_metadata=json.dumps(redact_value(metadata or {}), ensure_ascii=False),
         )
     )
     session.commit()

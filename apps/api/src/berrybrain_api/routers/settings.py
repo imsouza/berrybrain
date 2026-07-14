@@ -115,6 +115,7 @@ def get_ai_config(request: Request) -> dict:
             "kb_embedding_provider": _get("kb_embedding_provider")
             or _get("ai_provider")
             or "local",
+            "remote_content_consent": _get("remote_content_consent") or "false",
         }
 
 
@@ -141,6 +142,7 @@ def get_graph_config(request: Request) -> dict:
             "ollama_model": _get("graph_ollama_model") or _get("ollama_model"),
             "auto_confirm_confidence": _get("graph_auto_confirm_confidence") or "0.9",
             "default_layout": _get("graph_default_layout") or "brain",
+            "remote_content_consent": _get("remote_content_consent") or "false",
         }
 
 

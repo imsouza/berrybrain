@@ -39,6 +39,8 @@ export default function NotificationsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [failedJobs, setFailedJobs] = useState<JobBrief[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
+  const [actionStatus, setActionStatus] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,13 +55,29 @@ export default function NotificationsPage() {
       }
       if (jobsRes.ok) {
         const d = await jobsRes.json();
-        setFailedJobs((d.jobs || []).filter((j: JobBrief) => j.status === "failed"));
+        setFailedJobs((d.jobs || []).filter((j: JobBrief) => j.status === "failed" || j.status === "dead_letter"));
       }
     } catch {}
     setLoading(false);
   }, [api]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function retryJob(jobId: number) {
+    setRetryingJobId(jobId);
+    setActionStatus("");
+    try {
+      const response = await fetch(`${api}/api/v1/jobs/${jobId}/retry`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || "Retry failed.");
+      await load();
+      setActionStatus(`Job #${jobId} queued again.`);
+    } catch (error) {
+      setActionStatus(error instanceof Error ? error.message : "Retry failed.");
+    } finally {
+      setRetryingJobId(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -108,6 +126,11 @@ export default function NotificationsPage() {
             {failedJobs.length > 0 && (
               <section>
                 <h2 className="mb-3 text-sm font-semibold">{t("failedJobsSection")}</h2>
+                {actionStatus && (
+                  <div className="mb-3 rounded-lg bg-accent/10 px-3 py-2 text-xs text-foreground ring-1 ring-accent/20">
+                    {actionStatus}
+                  </div>
+                )}
                 <div className="space-y-1">
                   {failedJobs.map((j) => (
                     <div key={j.id} className="rounded-lg bg-red-500/5 px-3 py-2 text-xs ring-1 ring-red-500/15">
@@ -115,8 +138,20 @@ export default function NotificationsPage() {
                         <div>
                           <span className="font-medium text-red-500">{humanizeJobType(j.type)}</span>
                           <span className="text-muted/50 ml-1">· job #{j.id}</span>
+                          {j.status === "dead_letter" && (
+                            <span className="ml-2 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500 ring-1 ring-red-500/20">dead letter</span>
+                          )}
                         </div>
-                         <span className="text-muted/50">{new Date(j.created_at).toLocaleTimeString(locale())}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-muted/50">{new Date(j.created_at).toLocaleTimeString(locale())}</span>
+                          <button
+                            className="rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={retryingJobId === j.id}
+                            onClick={() => retryJob(j.id)}
+                          >
+                            {retryingJobId === j.id ? "Retrying..." : "Retry"}
+                          </button>
+                        </div>
                       </div>
                       {j.error_message && (
                         <div className="mt-0.5 text-red-500/70">{j.error_message}</div>

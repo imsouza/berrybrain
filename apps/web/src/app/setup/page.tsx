@@ -18,6 +18,7 @@ export default function SetupPage() {
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(true);
   const [ownerEmail, setOwnerEmail] = useState("owner@local.berrybrain");
+  const [ownerUsername, setOwnerUsername] = useState("admin");
   const [displayName, setDisplayName] = useState("Local Owner");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -32,6 +33,7 @@ export default function SetupPage() {
         if (!alive) return;
         setNeedsSetup(Boolean(data.needsSetup));
         setOwnerEmail(data.adminEmail || "owner@local.berrybrain");
+        setOwnerUsername(data.ownerUsername || "admin");
       })
       .catch(() => setStatus("API unavailable. Check the self-hosted backend."))
       .finally(() => {
@@ -91,6 +93,15 @@ export default function SetupPage() {
             </div>
           ) : (
             <form className="mt-6 space-y-4" onSubmit={(event) => event.preventDefault()}>
+              <div>
+                <label className="block text-xs font-medium text-muted">Login username</label>
+                <input
+                  readOnly
+                  value={ownerUsername}
+                  className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-muted outline-none"
+                />
+                <p className="mt-2 text-[11px] leading-5 text-muted">Change it with BERRYBRAIN_OWNER_USERNAME before setup or restart.</p>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-muted">Owner email</label>
                 <input

@@ -35,12 +35,15 @@ jobs:
           pip install -e .
           pip install coverage mypy ruff==0.6.9
       - name: Ruff check
-        run: ruff check src tests
+        run: ruff check src tests scripts
       - name: Ruff format check
-        run: ruff format --check src tests
+        run: ruff format --check src tests scripts
       - name: MyPy progressive check
         run: mypy --ignore-missing-imports src/berrybrain_api/config.py src/berrybrain_api/jobs.py src/berrybrain_api/settings_store.py
       - name: API tests
         run: PYTHONPATH=src coverage run -m unittest discover tests
       - name: API coverage
-        run: coverage report --fail-under=60
+        run: |
+          coverage report --fail-under=60
+          coverage json -o coverage.json
+          python scripts/check_critical_coverage.py coverage.json

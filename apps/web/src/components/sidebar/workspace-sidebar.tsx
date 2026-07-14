@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
@@ -28,7 +28,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [attentionCount, setAttentionCount] = useState(0);
-  const router = useRouter();
+  const [dueReviewCount, setDueReviewCount] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number>(0);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -41,6 +41,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   useEffect(() => {
     if (w.demo) {
       setAttentionCount(0);
+      setDueReviewCount(0);
       return;
     }
     let cancelled = false;
@@ -53,9 +54,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           const now = Date.now();
           const count = (payload.needsAttention || []).length;
           setAttentionCount(dismissedAt > now - 60000 ? 0 : count);
+          setDueReviewCount(payload.stats?.study?.dueReviews || 0);
         }
       } catch {
-        if (!cancelled) setAttentionCount(0);
+        if (!cancelled) {
+          setAttentionCount(0);
+          setDueReviewCount(0);
+        }
       }
     }
     loadAttention();
@@ -179,6 +184,14 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
         <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted transition hover:bg-surface hover:text-foreground" onClick={() => { onMobileClose?.(); w.createDraft(); }}>
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           {t("newNote")}
+        </button>
+        <button
+          className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted transition hover:bg-surface hover:text-foreground"
+          onClick={() => { onMobileClose?.(); window.location.href = appPath("/reviews"); }}
+        >
+          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11l3 3L22 4M5 4h7a2 2 0 012 2v1M5 4a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5" /></svg>
+          <span className="flex-1 text-left">Review today</span>
+          {dueReviewCount > 0 && <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">{dueReviewCount}</span>}
         </button>
       </div>
 

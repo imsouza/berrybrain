@@ -12,6 +12,7 @@ from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import index_knowledge_base
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.graph_write_service import GraphWriteService
 from berrybrain_api.jobs import enqueue_note_changed_jobs
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -101,6 +102,7 @@ def _cleanup_legacy_insights(session) -> dict[str, int]:
     ignored_nodes = 0
     ignored_edges = 0
     now = datetime.now(UTC)
+    writer = GraphWriteService(session, autocommit=False)
 
     for insight in session.execute(select(InsightRecord)).scalars():
         if not _is_technical_insight(insight):
@@ -116,7 +118,7 @@ def _cleanup_legacy_insights(session) -> dict[str, int]:
             continue
         technical_node_ids.add(node.id)
         if node.status != "ignored":
-            node.status = "ignored"
+            writer.set_node_status(node.id, "ignored")
             ignored_nodes += 1
 
     if technical_node_ids:
@@ -126,7 +128,7 @@ def _cleanup_legacy_insights(session) -> dict[str, int]:
                 or edge.target_node_id in technical_node_ids
             ):
                 if edge.status != "ignored":
-                    edge.status = "ignored"
+                    writer.set_edge_status(edge.id, "ignored")
                     ignored_edges += 1
 
     session.commit()
@@ -143,15 +145,18 @@ def _validate_graph(session) -> dict[str, int]:
     ignored_self_edges = 0
     ignored_duplicate_edges = 0
     seen_edges: set[tuple[int, int, str]] = set()
+    writer = GraphWriteService(session, autocommit=False)
 
     for edge in session.execute(select(GraphEdgeRecord)).scalars():
         if edge.source_node_id not in node_ids or edge.target_node_id not in node_ids:
-            session.delete(edge)
+            writer.delete_edge(
+                edge.id, reason="Orphan graph edge removed by validation"
+            )
             deleted_orphan_edges += 1
             continue
         if edge.source_node_id == edge.target_node_id:
             if edge.status != "ignored":
-                edge.status = "ignored"
+                writer.set_edge_status(edge.id, "ignored")
                 ignored_self_edges += 1
             continue
         key = (
@@ -161,7 +166,7 @@ def _validate_graph(session) -> dict[str, int]:
         )
         if key in seen_edges:
             if edge.status != "ignored":
-                edge.status = "ignored"
+                writer.set_edge_status(edge.id, "ignored")
                 ignored_duplicate_edges += 1
             continue
         seen_edges.add(key)

@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 import unittest
@@ -26,6 +27,7 @@ SESSIONLOCAL_MODULES = (
     "berrybrain_api.routers.monitor",
     "berrybrain_api.routers.notes",
     "berrybrain_api.routers.notifications",
+    "berrybrain_api.routers.reviews",
     "berrybrain_api.routers.settings",
     "berrybrain_api.routers.vault",
 )
@@ -132,6 +134,7 @@ class IntegrationTest(unittest.TestCase):
         resp = self.client.get("/health")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
+        self.assertTrue(resp.json()["schema"]["compatible"])
 
     def test_02_status_empty(self):
         resp = self.client.get("/api/v1/status")
@@ -182,13 +185,33 @@ class IntegrationTest(unittest.TestCase):
         resp = self.client.get(f"/api/v1/notes/{path}")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("Hello world", resp.json()["content"])
+        initial_hash = resp.json()["content_hash"]
 
         resp2 = self.client.put(
             f"/api/v1/notes/{path}",
-            json={"content": "# Updated\n\nUpdated content"},
+            json={
+                "content": "# Updated\n\nUpdated content",
+                "base_content_hash": initial_hash,
+            },
         )
         self.assertEqual(resp2.status_code, 200)
         self.assertIn("Updated content", resp2.json()["content"])
+
+        conflict = self.client.put(
+            f"/api/v1/notes/{path}",
+            json={
+                "content": "# Stale overwrite",
+                "base_content_hash": initial_hash,
+            },
+        )
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.json()["detail"]["code"], "note_content_conflict")
+        self.assertEqual(
+            conflict.json()["detail"]["currentContentHash"],
+            resp2.json()["content_hash"],
+        )
+        latest = self.client.get(f"/api/v1/notes/{path}").json()
+        self.assertIn("Updated content", latest["content"])
 
     def test_05_job_lifecycle(self):
         resp = self.client.post("/api/v1/jobs/claim")
@@ -213,6 +236,38 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(resp2.status_code, 200)
         failed_job = resp2.json()["job"]
         self.assertEqual(failed_job["status"], "pending")
+
+    def test_06b_embedding_batch_endpoint(self):
+        resp = self.client.post(
+            "/api/v1/embeddings/batch",
+            json={
+                "embeddings": [
+                    {
+                        "note_id": 999,
+                        "content_hash": "batch-hash",
+                        "vector": [0.1, 0.2],
+                        "model": "test-embedding",
+                        "provider": "test",
+                        "chunk_index": 0,
+                        "chunk_text": "First chunk",
+                        "token_count": 2,
+                    },
+                    {
+                        "note_id": 999,
+                        "content_hash": "batch-hash",
+                        "vector": [0.3, 0.4],
+                        "model": "test-embedding",
+                        "provider": "test",
+                        "chunk_index": 1,
+                        "chunk_text": "Second chunk",
+                        "token_count": 2,
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["count"], 2)
 
     def test_07_scan_vault(self):
         resp = self.client.post("/api/v1/vault/scan")
@@ -276,6 +331,130 @@ class IntegrationTest(unittest.TestCase):
             data["insight"]["title"], "Inference: How do Docker and shell connect?"
         )
 
+    def test_10c_attachment_security_deduplication_and_cleanup(self):
+        created_note = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Attachment source", "content": "# Attachment source"},
+        )
+        self.assertEqual(created_note.status_code, 201)
+        note_path = created_note.json()["path"]
+        content = b"Container rollout evidence from a text attachment."
+        payload = {
+            "filename": "evidence.txt",
+            "mime_type": "image/png",
+            "size_bytes": len(content),
+            "content_base64": base64.b64encode(content).decode(),
+        }
+
+        first = self.client.post(f"/api/v1/notes/{note_path}/attachments", json=payload)
+        self.assertEqual(first.status_code, 201)
+        attachment = first.json()["attachment"]
+        self.assertEqual(attachment["mimeType"], "text/plain")
+        self.assertEqual(len(attachment["checksum"]), 64)
+
+        duplicate = self.client.post(
+            f"/api/v1/notes/{note_path}/attachments", json=payload
+        )
+        self.assertEqual(duplicate.status_code, 201)
+        self.assertTrue(duplicate.json()["deduplicated"])
+        self.assertEqual(duplicate.json()["attachment"]["id"], attachment["id"])
+        self.assertIsNone(duplicate.json()["processingJobId"])
+
+        traversal = self.client.post(
+            f"/api/v1/notes/{note_path}/attachments",
+            json={**payload, "filename": "../evidence.txt"},
+        )
+        self.assertEqual(traversal.status_code, 400)
+
+        invalid_extractor = self.client.post(
+            f"/api/v1/notes/attachments/{attachment['id']}/reprocess",
+            json={"extractor": "shell-command"},
+        )
+        self.assertEqual(invalid_extractor.status_code, 400)
+        reprocess = self.client.post(
+            f"/api/v1/notes/attachments/{attachment['id']}/reprocess",
+            json={"extractor": "attachment-text.v1"},
+        )
+        self.assertEqual(reprocess.status_code, 200)
+        self.assertEqual(reprocess.json()["status"], "queued")
+
+        processed = self.client.post(
+            f"/api/v1/notes/attachments/{attachment['id']}/process",
+            json={"extractor": "attachment-text.v1"},
+        )
+        self.assertEqual(processed.status_code, 200)
+        self.assertEqual(processed.json()["extraction"]["status"], "completed")
+
+        deleted = self.client.delete(f"/api/v1/notes/attachments/{attachment['id']}")
+        self.assertEqual(deleted.status_code, 200)
+        listed = self.client.get(f"/api/v1/notes/{note_path}/attachments")
+        self.assertEqual(listed.json()["attachments"], [])
+
+    def test_10c_cognitive_review_lifecycle(self):
+        from berrybrain_api.database import SessionLocal
+        from berrybrain_api.models import NoteRecord
+        from berrybrain_api.services import create_insight
+
+        with SessionLocal() as session:
+            note = NoteRecord(
+                title="Review Integration Source",
+                slug="review-integration-source",
+                path="inbox/review-integration-source.md",
+                content="Grounded fixture",
+                content_hash="review-integration-v1",
+            )
+            session.add(note)
+            session.flush()
+            evidence = {"sourceNoteId": note.id, "excerpt": "Grounded fixture"}
+            insight = create_insight(
+                session,
+                "knowledge_gap",
+                "Integration review source",
+                "A grounded insight for the review lifecycle.",
+                related_notes=[note.id],
+                why_it_matters="The concept should be retrievable without rereading.",
+                evidence=[evidence],
+                suggested_action="Explain the concept from memory.",
+                graph_impact="Reinforces an existing knowledge node.",
+                confidence=0.85,
+                provider="deterministic",
+                model="integration",
+            )
+            insight_id = insight.id
+
+        created = self.client.post(
+            "/api/v1/reviews/from-insight",
+            json={
+                "source_insight_id": insight_id,
+                "review_type": "explain",
+                "prompt": "Explain the grounded integration concept.",
+                "expected_points": ["Grounded fixture"],
+                "evidence": [evidence],
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        review = created.json()["review"]
+        self.assertEqual(review["status"], "active")
+
+        due = self.client.get("/api/v1/reviews", params={"due": True})
+        self.assertEqual(due.status_code, 200)
+        self.assertTrue(
+            any(item["id"] == review["id"] for item in due.json()["reviews"])
+        )
+
+        graded = self.client.post(
+            f"/api/v1/reviews/{review['id']}/grade",
+            json={"rating": "good", "perceived_difficulty": 3},
+        )
+        self.assertEqual(graded.status_code, 200)
+        self.assertEqual(graded.json()["review"]["intervalDays"], 1)
+        paused = self.client.post(f"/api/v1/reviews/{review['id']}/pause")
+        self.assertEqual(paused.json()["review"]["status"], "paused")
+        resumed = self.client.post(f"/api/v1/reviews/{review['id']}/resume")
+        self.assertEqual(resumed.json()["review"]["status"], "active")
+        deleted = self.client.delete(f"/api/v1/reviews/{review['id']}")
+        self.assertEqual(deleted.json()["review"]["status"], "deleted")
+
     def test_11_graph(self):
         resp = self.client.get("/api/v1/graph")
         self.assertEqual(resp.status_code, 200)
@@ -285,6 +464,77 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(rebuild.status_code, 200)
         self.assertTrue(rebuild.json()["dryRun"])
         self.assertIn("summary", rebuild.json())
+
+    def test_11b_graph_mutations_are_persistent_and_reversible(self):
+        from berrybrain_api.database import SessionLocal
+        from berrybrain_api.graph_write_service import GraphWriteService
+
+        with SessionLocal() as session:
+            writer = GraphWriteService(session)
+            left = writer.upsert_node(node_type="concept", label="Graph Action Left")
+            right = writer.upsert_node(node_type="concept", label="Graph Action Right")
+            merge_candidate = writer.upsert_node(
+                node_type="concept", label="Graph Action Alias"
+            )
+            edge = writer.upsert_edge(
+                source_node_id=left.id,
+                target_node_id=right.id,
+                edge_type="related",
+                reason="Integration fixture relationship.",
+                evidence=["integration fixture"],
+                confidence=0.7,
+            )
+            edge_id = edge.id
+            left_id = left.id
+            right_id = right.id
+            merge_candidate_id = merge_candidate.id
+
+        confirmed = self.client.post(f"/api/v1/graph/connections/{edge_id}/confirm")
+        self.assertEqual(confirmed.status_code, 200)
+        self.assertEqual(confirmed.json()["status"], "confirmed")
+        mutation_id = confirmed.json()["mutationLogId"]
+
+        undone = self.client.post(f"/api/v1/graph/mutations/{mutation_id}/undo")
+        self.assertEqual(undone.status_code, 200)
+        self.assertEqual(undone.json()["status"], "undone")
+
+        ignored = self.client.post(f"/api/v1/graph/connections/{edge_id}/ignore")
+        self.assertEqual(ignored.json()["status"], "ignored")
+        restored = self.client.post(f"/api/v1/graph/connections/{edge_id}/restore")
+        self.assertEqual(restored.json()["status"], "suggested")
+
+        changed = self.client.patch(
+            f"/api/v1/graph/connections/{edge_id}/type",
+            json={"type": "prerequisite"},
+        )
+        self.assertEqual(changed.json()["type"], "prerequisite")
+        evidence = self.client.post(
+            f"/api/v1/graph/connections/{edge_id}/evidence",
+            json={"excerpt": "Manual integration evidence", "source_note_id": None},
+        )
+        self.assertEqual(evidence.status_code, 200)
+        self.assertTrue(
+            any(
+                isinstance(item, dict) and item.get("kind") == "manual"
+                for item in evidence.json()["evidence"]
+            )
+        )
+        explanation = self.client.get(
+            f"/api/v1/graph/connections/{edge_id}/explanation"
+        )
+        self.assertEqual(explanation.status_code, 200)
+        self.assertEqual(explanation.json()["source"]["id"], left_id)
+        self.assertEqual(explanation.json()["target"]["id"], right_id)
+
+        merged = self.client.post(
+            f"/api/v1/graph/nodes/{left_id}/merge/{merge_candidate_id}"
+        )
+        self.assertEqual(merged.status_code, 200)
+        split = self.client.post(
+            f"/api/v1/graph/merges/{merged.json()['mutationLogId']}/split"
+        )
+        self.assertEqual(split.status_code, 200)
+        self.assertEqual(split.json()["status"], "split")
 
     def test_12_search(self):
         resp = self.client.get("/api/v1/search", params={"q": "Test"})
@@ -297,6 +547,90 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue(
             any("Updated content" in item.get("snippet", "") for item in body_results)
         )
+        note = self.client.get(f"/api/v1/notes/{body_results[0]['path']}").json()
+        batch = self.client.post(
+            "/api/v1/embeddings/batch",
+            json={
+                "embeddings": [
+                    {
+                        "note_id": note["id"],
+                        "content_hash": note["content_hash"],
+                        "vector": [0.1, 0.2],
+                        "model": "test-embedding",
+                        "provider": "test",
+                        "chunk_index": 0,
+                        "chunk_text": "retrieval-only hidden chunk evidence",
+                        "heading_path": "Hidden Evidence",
+                        "start_line": 10,
+                        "end_line": 12,
+                        "token_count": 4,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(batch.status_code, 200)
+        chunk_resp = self.client.get(
+            "/api/v1/search", params={"q": "retrieval-only hidden", "limit": 10}
+        )
+        self.assertEqual(chunk_resp.status_code, 200)
+        chunk_results = chunk_resp.json()["results"]
+        self.assertTrue(any(item.get("evidence") for item in chunk_results))
+
+        import berrybrain_api.main as main_module
+
+        original_generate_query_embedding = main_module.generate_query_embedding
+        try:
+            main_module.generate_query_embedding = lambda config, text: [0.1, 0.2]
+            vector_resp = self.client.get(
+                "/api/v1/search", params={"q": "no lexical match here", "limit": 10}
+            )
+        finally:
+            main_module.generate_query_embedding = original_generate_query_embedding
+        self.assertEqual(vector_resp.status_code, 200)
+        vector_results = vector_resp.json()["results"]
+        self.assertLessEqual(len(vector_results), 10)
+        self.assertTrue(
+            any(item.get("evidence") for item in vector_results),
+            vector_results,
+        )
+        self.assertTrue(
+            any(item.get("source") == "vector_chunk" for item in vector_results),
+            vector_results,
+        )
+
+        from berrybrain_api.database import SessionLocal
+        from berrybrain_api.models import ConnectionRecord, NoteRecord
+
+        source_note = self.client.get(f"/api/v1/notes/{body_results[0]['path']}").json()
+        with SessionLocal() as session:
+            connected = NoteRecord(
+                title="Graph Expansion Only",
+                slug="graph-expansion-only",
+                path="inbox/graph-expansion-only.md",
+                content="No lexical overlap.",
+                content_hash="graph-only",
+            )
+            session.add(connected)
+            session.flush()
+            session.add(
+                ConnectionRecord(
+                    source_note_id=source_note["id"],
+                    target_note_id=connected.id,
+                    connection_type="semantic_similarity",
+                    reason="Graph-only related note.",
+                    confidence=80,
+                    status="confirmed",
+                )
+            )
+            session.commit()
+        graph_resp = self.client.get(
+            "/api/v1/search", params={"q": "Updated content", "limit": 20}
+        )
+        self.assertEqual(graph_resp.status_code, 200)
+        self.assertTrue(
+            any(item.get("source") == "graph" for item in graph_resp.json()["results"]),
+            graph_resp.json()["results"],
+        )
 
     def test_13_worker_heartbeat(self):
         resp = self.client.post(
@@ -308,6 +642,7 @@ class IntegrationTest(unittest.TestCase):
         resp2 = self.client.get("/api/v1/worker/status")
         self.assertEqual(resp2.status_code, 200)
         self.assertEqual(resp2.json()["worker"]["jobs_processed"], 5)
+        self.assertTrue(resp2.json()["worker"]["last_heartbeat"].endswith("Z"))
 
     def test_14_settings(self):
         resp = self.client.put(
@@ -419,6 +754,7 @@ class IntegrationTest(unittest.TestCase):
         health = self.client.get("/api/v1/jobs/health")
         self.assertEqual(health.status_code, 200)
         self.assertIn("counts", health.json())
+        self.assertIn("dead_letter", health.json()["counts"])
 
         recovered = self.client.post("/api/v1/jobs/recover-stale")
         self.assertEqual(recovered.status_code, 200)

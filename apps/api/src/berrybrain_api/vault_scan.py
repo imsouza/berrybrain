@@ -6,7 +6,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from berrybrain_api.jobs import enqueue_note_changed_jobs
+from berrybrain_api.jobs import (
+    affected_job_types_for_note_update,
+    enqueue_note_changed_jobs,
+)
 from berrybrain_api.models import NoteRecord
 from berrybrain_api.sync import remove_note_record, sync_note_record
 from berrybrain_api.vault import content_hash, ensure_vault
@@ -49,12 +52,17 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
             continue
 
         if existing.content_hash != current_hash:
+            previous_content = existing.content
             record = sync_note_record(session, vault_path, relative_path)
+            affected_job_types = affected_job_types_for_note_update(
+                previous_content, path.read_text(encoding="utf-8"), record.path
+            )
             jobs = enqueue_note_changed_jobs(
                 session,
                 record.path,
                 "NOTE_UPDATED",
                 record.content_hash,
+                affected_job_types=affected_job_types,
             )
             result["updated"] += 1
             result["jobs_created"] += len(jobs)
