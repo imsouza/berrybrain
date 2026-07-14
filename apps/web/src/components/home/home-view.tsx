@@ -186,7 +186,7 @@ export function HomeView() {
             status: {
               ...DEMO_HOME_SUMMARY.status,
               worker: active ? "processing in browser" : "browser worker ready",
-              cloudProvider: config ? "nvidia-nim" : "not configured",
+              cloudProvider: config?.provider || "not configured",
               cloudModel: config?.model || "",
               cloudStatus: config ? (active ? "running" : "connected") : "offline",
               cloudConfigured: Boolean(config),
@@ -203,7 +203,7 @@ export function HomeView() {
               pending,
               completed,
               failed,
-              currentStep: active ? "Expanding knowledge graph with NVIDIA NIM" : pending ? "Waiting for browser worker" : "Knowledge graph is up to date",
+              currentStep: active ? "Expanding knowledge graph with cloud AI" : pending ? "Waiting for browser worker" : "Knowledge graph is up to date",
               lastResult: completed ? `${completed} notes assimilated in this browser` : "Waiting for the first assimilated note",
               status: failed ? "failed" : active ? "running" : "completed",
             },
@@ -219,7 +219,7 @@ export function HomeView() {
               concepts: { total: concepts.length, newToday: 0, withoutPermanentNote: concepts.length },
               study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
               jobs: { pending, active, failed, completedToday: completed, total },
-              ai: { provider: config ? "nvidia-nim" : "not configured", model: config?.model || "", metadata: graph.nodes.length, embeddings: 0, jobsProcessed: completed, errors: failed },
+              ai: { provider: config?.provider || "not configured", model: config?.model || "", metadata: graph.nodes.length, embeddings: 0, jobsProcessed: completed, errors: failed },
             },
             recentNotes: localNotes,
             recentInsights: insightNodes.slice(-5).reverse().map((node, index) => ({
@@ -229,7 +229,7 @@ export function HomeView() {
               description: node.summary || "",
               priority: 2,
               confidence: node.confidence,
-              provider: "nvidia-nim",
+              provider: node.provider || config?.provider || "cloud",
               model: node.createdByModel,
               status: node.status,
             })),
@@ -257,7 +257,7 @@ export function HomeView() {
             completed: job.progress,
             total: 100,
             percent: job.progress,
-            currentStep: job.status === "running" ? "NVIDIA NIM cognitive analysis" : "Queued in browser",
+            currentStep: job.status === "running" ? "Cloud AI cognitive analysis" : "Queued in browser",
           })));
         })
         .catch(() => setError(true))

@@ -126,7 +126,7 @@ export function ThirdPartyIntegrations() {
         }`}
         aria-label="Donate to BerryBrain on Ko-fi"
       >
-        Donate
+        <span aria-hidden="true">♥</span> Donate
       </a>
     </>
   );

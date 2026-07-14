@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  NVIDIA_NIM_URL,
+  CloudProviderUrlError,
   jsonHeaders,
+  providerName,
   rejectCrossSite,
+  resolveCloudProviderUrl,
   safeJson,
   upstreamError,
   validApiKey,
@@ -18,11 +20,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await safeJson(request, 4_096);
     if (!validApiKey(body.apiKey)) {
-      return NextResponse.json({ connected: false, error: "A valid NVIDIA NIM API key is required." }, { status: 400, headers: jsonHeaders() });
+      return NextResponse.json({ connected: false, error: "A valid cloud API key is required." }, { status: 400, headers: jsonHeaders() });
     }
-    const response = await fetch(`${NVIDIA_NIM_URL}/models`, {
+    const providerUrl = await resolveCloudProviderUrl(body.providerUrl);
+    const response = await fetch(`${providerUrl}/models`, {
       headers: { Authorization: `Bearer ${body.apiKey.trim()}`, Accept: "application/json" },
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) {
@@ -33,11 +37,11 @@ export async function POST(request: NextRequest) {
       .map((item) => (typeof item.id === "string" ? item.id : ""))
       .filter(Boolean)
       .slice(0, 500);
-    return NextResponse.json({ connected: true, provider: "nvidia-nim", models }, { headers: jsonHeaders() });
+    return NextResponse.json({ connected: true, provider: providerName(providerUrl), providerUrl, models }, { headers: jsonHeaders() });
   } catch (error) {
     const message = error instanceof Error && error.name !== "TimeoutError"
       ? error.message
-      : "NVIDIA NIM did not respond in time.";
-    return NextResponse.json({ connected: false, error: message }, { status: 502, headers: jsonHeaders() });
+      : "Cloud provider did not respond in time.";
+    return NextResponse.json({ connected: false, error: message }, { status: error instanceof CloudProviderUrlError ? 400 : 502, headers: jsonHeaders() });
   }
 }

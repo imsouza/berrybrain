@@ -85,7 +85,7 @@ const footerGroups = [
       ["Docs", "/docs"],
       ["Open BerryBrain", "/brain"],
       ["GitHub", GITHUB_URL],
-      ["Donate", "https://ko-fi.com/berrybrain"],
+      ["♥ Donate", "https://ko-fi.com/berrybrain"],
     ],
   },
   {

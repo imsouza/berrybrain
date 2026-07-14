@@ -10,7 +10,7 @@ test.describe("Browser-only persistence", () => {
     await page.route("**/api/browser-ai/models", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ connected: true, provider: "nvidia-nim", models: ["test/model"] }),
+      body: JSON.stringify({ connected: true, provider: "NVIDIA NIM", providerUrl: "https://integrate.api.nvidia.com/v1", models: ["test/model"] }),
     }));
     await page.route("**/api/browser-ai/chat", (route) => route.fulfill({
       status: 200,
@@ -158,8 +158,8 @@ test.describe("Browser-only persistence", () => {
     );
     expect(restoredCounts).toEqual({ notes: 1, attachments: 1 });
     await expect(page.getByText("Browser persistence test", { exact: true }).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: "Connect NVIDIA NIM to continue." })).toBeVisible();
-    await page.getByLabel("NVIDIA NIM API Key").fill("nvapi-restored-key-that-is-long-enough");
+    await expect(page.getByRole("heading", { name: "Connect a cloud AI provider to continue." })).toBeVisible();
+    await page.getByLabel("Cloud API Key").fill("nvapi-restored-key-that-is-long-enough");
     await page.getByRole("button", { name: "Load models" }).click();
     await page.getByLabel("Model").selectOption("test/model");
     await page.getByRole("button", { name: "Connect and open workspace" }).click();
