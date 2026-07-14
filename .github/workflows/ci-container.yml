@@ -3,17 +3,8 @@ name: CI Container
 on:
   push:
     branches: [main]
-    paths:
-      - "docker-compose.yml"
-      - "apps/**"
-      - "scripts/baseline.sh"
-      - ".github/workflows/ci-container.yml"
-  pull_request:
-    paths:
-      - "docker-compose.yml"
-      - "apps/**"
-      - "scripts/baseline.sh"
-      - ".github/workflows/ci-container.yml"
+  pull_request: {}
+  workflow_dispatch: {}
 
 jobs:
   compose:
