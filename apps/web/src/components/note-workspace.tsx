@@ -45,7 +45,7 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <main className="flex h-[100dvh] overflow-hidden bg-background text-foreground">
+    <main className="bb-workspace flex h-[100dvh] overflow-hidden bg-background text-foreground">
       <CommandPalette open={w.cmdOpen} onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />
       <ObservabilityPanel open={w.monitorOpen} apiUrl={w.api} onClose={() => w.setMonitorOpen(false)} />
       <SettingsPanel open={w.settingsOpen} onClose={() => w.setSettingsOpen(false)} apiUrl={w.api} />
@@ -96,8 +96,8 @@ function DemoNotice() {
     <div className="flex flex-wrap items-center gap-3 border-b border-border/50 bg-accent-soft/40 px-4 py-2.5 text-sm">
       <span className="text-muted">Demo is read-only. Set up a local instance to use all features.</span>
       <div className="ml-auto flex gap-2">
-        <button className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white transition hover:opacity-90" onClick={() => go("/login")}>Login</button>
-        <button className="rounded-lg bg-foreground px-3 py-1 text-xs font-medium text-background transition hover:opacity-90" onClick={() => go("/setup")}>Setup</button>
+        <button className="bb-action px-3 py-1 text-xs font-medium" onClick={() => go("/login")}>Login</button>
+        <button className="bb-action px-3 py-1 text-xs font-medium" onClick={() => go("/setup")}>Setup</button>
       </div>
     </div>
   );
@@ -108,7 +108,7 @@ function MobileWorkspaceBar({ onMenu }: { onMenu: () => void }) {
   const title = w.graphOpen ? "Knowledge Graph" : w.active?.title || "BerryBrain";
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/50 bg-panel px-3 lg:hidden">
+    <div className="bb-mobile-bar flex h-12 shrink-0 items-center gap-2 bg-panel px-3 lg:hidden">
       <button className="rounded-lg p-2 text-muted hover:bg-surface hover:text-foreground" onClick={onMenu} aria-label="Open navigation">
         <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" /></svg>
       </button>

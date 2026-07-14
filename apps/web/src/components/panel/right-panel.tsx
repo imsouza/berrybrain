@@ -90,7 +90,7 @@ export function RightPanel() {
     : [];
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(88vw,20rem)] flex-col overflow-y-auto border-l border-border/50 bg-panel shadow-xl lg:static lg:z-auto lg:w-72 lg:flex-shrink-0 lg:shadow-none" aria-label="Context panel">
+    <aside className="bb-context-panel fixed inset-y-0 right-0 z-40 flex w-[min(88vw,20rem)] flex-col overflow-y-auto bg-panel lg:static lg:z-auto lg:w-72 lg:flex-shrink-0" aria-label="Context panel">
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/50">
         <h2 className="text-xs font-semibold tracking-tight">{w.active ? w.active.title.slice(0, 18) : "Activity"}</h2>
         <button className="rounded-lg p-1 text-muted hover:bg-surface" onClick={() => w.setRightOpen(false)} aria-label="Close">
@@ -160,9 +160,9 @@ export function RightPanel() {
 
             <Section title="Actions">
               <div className="flex flex-wrap gap-1.5">
-                <button className="rounded-lg bg-surface px-2.5 py-1.5 text-[10px] text-muted hover:text-foreground hover:ring-1 hover:ring-border/50" onClick={reprocessNote}>Reprocess</button>
-                <button className="rounded-lg bg-surface px-2.5 py-1.5 text-[10px] text-muted hover:text-foreground hover:ring-1 hover:ring-border/50" onClick={expandGraph}>Expand graph</button>
-                <button className="rounded-lg bg-surface px-2.5 py-1.5 text-[10px] text-amber-600 hover:text-amber-500 hover:ring-1 hover:ring-amber-300/50" onClick={() => w.setGraphOpen(true)}>View in graph</button>
+                <button className="bb-action px-2.5 py-1.5 text-[10px]" onClick={reprocessNote}>Reprocess</button>
+                <button className="bb-action px-2.5 py-1.5 text-[10px]" onClick={expandGraph}>Expand graph</button>
+                <button className="bb-action px-2.5 py-1.5 text-[10px] text-amber-600" onClick={() => w.setGraphOpen(true)}>View in graph</button>
               </div>
             </Section>
 

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { t } from "@/i18n";
-import { appPath } from "@/contexts/workspace-context";
+import { apiFetch, appPath } from "@/contexts/workspace-context";
 
 const EDGE_COLORS: Record<string, string> = {
   explicit_link: "#3C8F5A",
@@ -461,7 +461,7 @@ export function GraphScreen({
 
   useEffect(() => {
     if (apiUrl === "__demo__") return;
-    fetch(`${apiUrl}/api/v1/settings/graph/config`)
+    apiFetch(`${apiUrl}/api/v1/settings/graph/config`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((config) => {
         const mode = config.default_layout as GraphLayoutMode;
@@ -478,7 +478,7 @@ export function GraphScreen({
     }
     let cancelled = false;
     setSummaryLoading(true);
-    fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
+    apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((payload) => {
         if (!cancelled) {
@@ -502,7 +502,7 @@ export function GraphScreen({
       setResearchModeEnabled(false);
       return;
     }
-    fetch(`${apiUrl}/api/v1/settings`)
+    apiFetch(`${apiUrl}/api/v1/settings`)
       .then((r) => r.json())
       .then((payload) => {
         const item = (payload.settings || []).find((setting: { key: string; value: string }) => setting.key === "research_mode_enabled");
@@ -518,7 +518,7 @@ export function GraphScreen({
 
   async function expandGraph() {
     if (apiUrl === "__demo__") return;
-    await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
+    await apiFetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
     reload();
   }
 
@@ -530,17 +530,24 @@ export function GraphScreen({
     setInference(null);
     setInferenceSaveStatus("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/infer`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text }),
       });
-      setInference(await response.json());
-    } catch {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = typeof payload.detail === "string"
+          ? payload.detail
+          : `Graph inference failed (HTTP ${response.status}).`;
+        throw new Error(message);
+      }
+      setInference(payload as InferenceResult);
+    } catch (error) {
       setInference({
         status: "error",
         question: text,
-        answer: "Could not query the graph right now.",
+        answer: error instanceof Error ? error.message : "Could not query the graph right now.",
       });
     } finally {
       setInferLoading(false);
@@ -554,7 +561,7 @@ export function GraphScreen({
     setInferenceSaving(true);
     setInferenceSaveStatus("Saving inference as insight...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/insights/from-inference`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/insights/from-inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: text, inference }),
@@ -585,7 +592,7 @@ export function GraphScreen({
   async function createPermanentConceptNote() {
     if (!selectedNode?.sourceId || selectedNode.type !== "concept") return;
     if (apiUrl === "__demo__") return;
-    const response = await fetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
+    const response = await apiFetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
     const payload = await response.json();
     if (payload.note?.path) {
       onNavigate(payload.note.path);
@@ -595,7 +602,7 @@ export function GraphScreen({
   async function saveManualNodeNotes() {
     if (!selectedNode?.recordId) return;
     if (apiUrl === "__demo__") return;
-    const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notes: manualNotes }),
@@ -615,7 +622,7 @@ export function GraphScreen({
     setActionLoading("validate-node-web");
     setNodeActionStatus("Validating with web...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.error) {
         setNodeActionStatus(payload.detail || payload.error || "Web validation failed.");
@@ -628,7 +635,7 @@ export function GraphScreen({
       );
       reload();
       if (selectedNode.recordId) {
-        const summaryResponse = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
+        const summaryResponse = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
         if (summaryResponse.ok) setNodeSummary(await summaryResponse.json());
       }
     } finally {
@@ -642,7 +649,7 @@ export function GraphScreen({
     setActionLoading("enrich-node-ai");
     setNodeActionStatus("Enriching node with configured AI...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "AI enrichment failed.");
@@ -666,7 +673,7 @@ export function GraphScreen({
     setActionLoading(status === "confirmed" ? "confirm-node" : "ignore-node");
     const action = status === "confirmed" ? "confirm" : "ignore";
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
       if (!response.ok) {
         setNodeActionStatus(`${status === "confirmed" ? "Confirm Node" : "Ignore Node"} failed.`);
         return;
@@ -690,13 +697,13 @@ export function GraphScreen({
     setActionLoading(isApply ? "confirm-node" : "ignore-node");
     try {
       const insightAction = isApply ? "apply" : "ignore";
-      const insightResponse = await fetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
+      const insightResponse = await apiFetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
       if (!insightResponse.ok) {
         setNodeActionStatus(isApply ? "Apply Insight failed." : "Ignore Insight failed.");
         return;
       }
       const nodeAction = isApply ? "confirm" : "ignore";
-      await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
+      await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
       setNodeSummary((current) => current ? { ...current, status } : current);
       setNodeActionStatus(isApply ? "Insight applied." : "Insight ignored.");
       if (!isApply) {
@@ -714,7 +721,7 @@ export function GraphScreen({
     const action = status === "confirmed" ? "confirm" : "ignore";
     setActionLoading(`${action}-connection-${edgeId}`);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
       if (!response.ok) {
         setNodeActionStatus(`${status === "confirmed" ? "Confirm Connection" : "Ignore Connection"} failed.`);
         return;
@@ -737,7 +744,7 @@ export function GraphScreen({
     setActionLoading(`save-insight-${edgeId}`);
     setNodeActionStatus("Generating connection insight with configured AI...");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "Connection insight generation failed.");
@@ -761,7 +768,7 @@ export function GraphScreen({
     setActionLoading("reprocess-node");
     setNodeActionStatus("Node reprocess queued.");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/reprocess`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/reprocess`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setNodeActionStatus(payload.detail || "Reprocess node failed.");
@@ -804,7 +811,7 @@ export function GraphScreen({
           />
           <button
             type="submit"
-            className="h-8 shrink-0 rounded-lg bg-accent px-3 text-[11px] text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="bb-action h-8 min-w-14 shrink-0 px-3 text-[11px] font-medium"
             disabled={inferLoading || !query.trim()}
           >
             {inferLoading ? "..." : t("ask")}
@@ -849,7 +856,7 @@ export function GraphScreen({
           <option value="connections">{t("layoutConnections")}</option>
         </select>
         <button
-          className={`h-8 rounded-lg px-2.5 text-[11px] ${viewMode === "list" ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`}
+          className={`bb-action h-8 px-2.5 text-[11px] ${viewMode === "list" ? "bb-action--active" : ""}`}
           aria-pressed={viewMode === "list"}
           onClick={() => {
             const next = viewMode === "visual" ? "list" : "visual";
@@ -859,12 +866,12 @@ export function GraphScreen({
         >
           {viewMode === "visual" ? "List view" : "Visual view"}
         </button>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
-        <button className="h-8 rounded-lg bg-surface px-2.5 text-[11px] text-muted hover:text-foreground" onClick={expandGraph}>{t("expand")}</button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showInsightNodes ? "bg-surface text-muted hover:text-foreground" : "bg-accent text-white"}`} onClick={toggleInsightNodes}>
+        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
+        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={expandGraph}>{t("expand")}</button>
+        <button className={`bb-action h-8 px-2.5 text-[11px] ${showInsightNodes ? "bb-action--active" : ""}`} onClick={toggleInsightNodes}>
           {showInsightNodes ? t("hideInsightNodes") : t("showInsightNodes")}
         </button>
-        <button className={`h-8 rounded-lg px-2.5 text-[11px] ${showLegend ? "bg-accent text-white" : "bg-surface text-muted hover:text-foreground"}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
+        <button className={`bb-action h-8 px-2.5 text-[11px] ${showLegend ? "bb-action--active" : ""}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
       </div>
 
       {inference && (
@@ -908,14 +915,14 @@ export function GraphScreen({
             <div className="mt-2 flex flex-wrap gap-1">
               {((inference.status === "answered" || inference.status === "success" || inference.status === "sufficient_evidence" || inference.status === "saved_as_insight")) && (
                 <button
-                  className="rounded-lg bg-accent px-3 py-1 text-[10px] text-white disabled:opacity-50"
+                  className="bb-action px-3 py-1 text-[10px]"
                   disabled={inferenceSaving || inference.status === "saved_as_insight"}
                   onClick={saveInferenceAsInsight}
                 >
                   {inferenceSaving ? "Saving..." : inference.status === "saved_as_insight" ? "Saved" : t("saveAsInsight")}
                 </button>
               )}
-              <button className="rounded-lg bg-panel px-3 py-1 text-[10px] text-muted hover:text-foreground" onClick={() => setInference(null)}>{t("close")}</button>
+              <button className="bb-action px-3 py-1 text-[10px]" onClick={() => setInference(null)}>{t("close")}</button>
             </div>
             {inferenceSaveStatus && (
               <div className="mt-2 rounded-lg bg-panel/70 px-2 py-1 text-[10px] text-muted">
@@ -936,8 +943,8 @@ export function GraphScreen({
               <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
               {apiUrl === "__demo__" && (
                 <div className="mt-2 flex gap-2">
-                  <a href="https://github.com/imsouza/berrybrain" target="_blank" rel="noreferrer" className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-black hover:opacity-90">GitHub</a>
-                  <a href={appPath("/docs")} className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90">Docs</a>
+                  <a href="https://github.com/imsouza/berrybrain" target="_blank" rel="noreferrer" className="bb-action px-3 py-1.5 text-xs font-medium">GitHub</a>
+                  <a href={appPath("/docs")} className="bb-action px-3 py-1.5 text-xs font-medium">Docs</a>
                 </div>
               )}
             </div>
@@ -1067,7 +1074,7 @@ export function GraphScreen({
                     value={manualNotes}
                     onChange={(event) => setManualNotes(event.target.value)}
                   />
-                  <button className="mt-2 rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
+                  <button className="bb-action mt-2 px-3 py-1.5 text-[10px]" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
                 </section>
 
                 {!!nodeSummary?.notes?.length && (
@@ -1132,7 +1139,7 @@ export function GraphScreen({
 
               <div className="flex flex-wrap gap-1 pt-1">
                 {selectedNode.path && (
-                  <button className="rounded-lg bg-accent px-3 py-1.5 text-[10px] text-white" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
+                  <button className="bb-action px-3 py-1.5 text-[10px]" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
                 )}
                 {nodeActions.filter((action) => action.visible && action.variant !== "danger").map((action) => (
                   <GraphActionButton
@@ -1149,7 +1156,7 @@ export function GraphScreen({
                   />
                 ))}
                 {selectedNode.type === "concept" && selectedNode.sourceId && (
-                  <button className="rounded-lg border border-amber-500/45 bg-amber-500/15 px-3 py-1.5 text-[10px] font-medium text-amber-300 hover:bg-amber-500/25" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
+                  <button className="bb-action px-3 py-1.5 text-[10px] font-medium text-amber-600" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
                 )}
               </div>
               {nodeActionStatus && <div className="rounded-lg bg-surface p-2 text-[10px] text-muted/70">{nodeActionStatus}</div>}
@@ -1185,26 +1192,26 @@ function GraphActionButton({ action, loading, onClick }: { action: GraphAction; 
 }
 
 function graphActionClass(action: GraphAction) {
-  const base = "rounded-lg px-3 py-1.5 text-[10px] font-medium transition disabled:opacity-50";
+  const base = "bb-action px-3 py-1.5 text-[10px] font-medium";
   if (action.id === "confirm-node") {
-    return `${base} bg-emerald-600 text-white hover:bg-emerald-500`;
+    return `${base} text-emerald-600`;
   }
   if (action.id === "ignore-node") {
-    return `${base} border border-red-500/45 bg-red-500/12 text-red-300 hover:bg-red-500/20`;
+    return `${base} bb-action--danger`;
   }
   if (action.id === "reprocess-node") {
-    return `${base} border border-sky-500/45 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25`;
+    return base;
   }
   if (action.id === "enrich-node-ai") {
-    return `${base} border border-violet-500/45 bg-violet-500/15 text-violet-300 hover:bg-violet-500/25`;
+    return base;
   }
   if (action.id === "validate-node-web") {
-    return `${base} border border-cyan-500/45 bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25`;
+    return base;
   }
   if (action.variant === "danger") {
-    return `${base} bg-danger text-white`;
+    return `${base} bb-action--danger`;
   }
-  return `${base} border border-accent/45 bg-accent/15 text-accent hover:bg-accent/25`;
+  return base;
 }
 
 function formatConfidence(value?: number) {

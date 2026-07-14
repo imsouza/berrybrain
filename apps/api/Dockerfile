@@ -14,6 +14,7 @@ RUN python -c "from huggingface_hub import snapshot_download; snapshot_download(
 
 WORKDIR /app
 COPY scripts/validate-env.sh scripts/prepare-runtime-dirs.sh ./scripts/
+COPY apps/api/scripts/seed_admin.py apps/api/scripts/delete_owner.py ./scripts/
 RUN mkdir -p /app/data/sqlite /app/data/jobs /app/data/logs /app/data/backups /app/vault
 
 EXPOSE 8000

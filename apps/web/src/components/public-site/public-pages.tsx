@@ -6,6 +6,7 @@ import berryPrint from "../../../public/berrybrain-print1.png";
 import berryPrint2 from "../../../public/berrybrain-print2.jpeg";
 import berryPrint3 from "../../../public/berrybrain-print3.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { readCsrf } from "@/components/public-site/user-menu";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 const GITHUB_URL = "https://github.com/imsouza/berrybrain";
@@ -78,7 +79,7 @@ const footerGroups = [
       ["Architecture", "/#architecture"],
       ["Reliability", "/#reliability"],
       ["Docs", "/docs"],
-      ["Login", "/login"],
+      ["Open BerryBrain", "/brain"],
       ["GitHub", GITHUB_URL],
     ],
   },
@@ -149,7 +150,6 @@ function LegalModal({ open, onClose }: { open: string | null; onClose: () => voi
 
 const mobileNavLinks = [
   ...nav,
-  ["Login", "/login"],
   ["Security", "legal:security"],
   ["Privacy", "legal:privacy"],
   ["GDPR/LGPD", "legal:gdpr-lgpd"],
@@ -158,6 +158,24 @@ const mobileNavLinks = [
   ["GitHub", GITHUB_URL],
 ] as const;
 
+type PublicAccessState = "checking" | "setup" | "configured" | "authenticated";
+
+type PublicAccessValue = {
+  state: PublicAccessState;
+  loggingOut: boolean;
+  logout: () => Promise<void>;
+};
+
+const PublicAccessContext = createContext<PublicAccessValue>({
+  state: "checking",
+  loggingOut: false,
+  logout: async () => undefined,
+});
+
+function usePublicAccess() {
+  return useContext(PublicAccessContext);
+}
+
 export function PublicShell({
   children,
 }: Readonly<{
@@ -165,10 +183,55 @@ export function PublicShell({
 }>) {
   const [modal, setModal] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [accessState, setAccessState] = useState<PublicAccessState>("checking");
+  const [loggingOut, setLoggingOut] = useState(false);
+  const apiUrl = getApiUrl();
   const openModal = useCallback((key: string) => setModal(key), []);
   const closeModal = useCallback(() => setModal(null), []);
 
+  useEffect(() => {
+    let alive = true;
+    async function loadAccess() {
+      try {
+        const setupResponse = await fetch(`${apiUrl}/api/v1/setup/status`, {
+          credentials: "include",
+        });
+        if (!setupResponse.ok) throw new Error("Setup status unavailable");
+        const setup = await setupResponse.json();
+        if (!alive) return;
+        if (setup.needsSetup) {
+          setAccessState("setup");
+          return;
+        }
+        const meResponse = await fetch(`${apiUrl}/api/v1/auth/me`, {
+          credentials: "include",
+        });
+        if (alive) setAccessState(meResponse.ok ? "authenticated" : "configured");
+      } catch {
+        if (alive) setAccessState("configured");
+      }
+    }
+    loadAccess();
+    return () => {
+      alive = false;
+    };
+  }, [apiUrl]);
+
+  const logout = useCallback(async () => {
+    setLoggingOut(true);
+    try {
+      await fetch(`${apiUrl}/api/v1/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "X-CSRF-Token": readCsrf() },
+      });
+    } finally {
+      window.location.href = appPath("/");
+    }
+  }, [apiUrl]);
+
   return (
+    <PublicAccessContext.Provider value={{ state: accessState, loggingOut, logout }}>
     <LegalModalContext.Provider value={openModal}>
       <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur">
@@ -190,17 +253,31 @@ export function PublicShell({
             )}
           </nav>
           <div className="flex items-center gap-2">
-            <a
-              href={appPath("/login")}
-              className="hidden rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-surface sm:inline-flex"
-            >
-              Login
-            </a>
+            {accessState === "checking" ? (
+              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" aria-label="Checking access" />
+            ) : accessState === "setup" ? (
+              <a href={appPath("/setup")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
+                Setup
+              </a>
+            ) : accessState === "authenticated" ? (
+              <button
+                type="button"
+                onClick={logout}
+                disabled={loggingOut}
+                className="bb-action inline-flex px-3 py-2 text-xs font-semibold"
+              >
+                {loggingOut ? "Signing out..." : "Logout"}
+              </button>
+            ) : (
+              <a href={appPath("/brain")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
+                Open BerryBrain
+              </a>
+            )}
             <a
               href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
-              className="hidden items-center gap-2 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-black hover:opacity-90 sm:inline-flex"
+              className="bb-action hidden items-center gap-2 px-3 py-2 text-xs font-semibold sm:inline-flex"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
                 <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />
@@ -267,6 +344,7 @@ export function PublicShell({
         <LegalModal open={modal} onClose={closeModal} />
       </main>
     </LegalModalContext.Provider>
+    </PublicAccessContext.Provider>
   );
 }
 
@@ -310,7 +388,7 @@ const GraphIcon = ({ className = "size-5" }: { className?: string }) => (
 
 function DiagramBox({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-lg border border-border bg-panel p-4">
+    <div className="bb-subcard p-4">
       <div className="text-sm font-semibold">{title}</div>
       <div className="mt-2 text-xs leading-5 text-muted">{body}</div>
     </div>
@@ -342,20 +420,23 @@ function CapabilityMark({ value }: { value: CapabilityStatus }) {
 }
 
 function LandingContent() {
+  const { state: accessState } = usePublicAccess();
+  const primaryPath = accessState === "setup" ? "/setup" : "/brain";
+  const primaryLabel = accessState === "setup" ? "Set up BerryBrain" : "Open BerryBrain";
   const featureCards = [
-    { title: "Markdown vault", body: "Real files remain portable, inspectable, and easy to back up.", icon: DocsIcon },
-    { title: "Explainable graph", body: "Connections keep evidence, confidence, status, provider, and model trace.", icon: GraphIcon },
-    { title: "Docker self-hosting", body: "Run web, API, and worker locally or behind your own reverse proxy.", icon: DockerIcon },
-    { title: "Cognitive attachments", body: "PDFs, images, audio, and video become searchable chunks and graph evidence.", icon: DocsIcon },
-    { title: "Resilient autopilot", body: "Leases, retries, recovery, and idempotency keep background work observable.", icon: GraphIcon },
-    { title: "Auditable delivery", body: "Automated tests, container scans, SBOMs, and signed-release workflows support self-hosting.", icon: GithubIcon },
+    { title: "Your Markdown stays yours", body: "BerryBrain watches real files in your vault. Read, move, export, and back them up without a proprietary format.", icon: DocsIcon },
+    { title: "Connections explain themselves", body: "Graph edges retain a reason, source evidence, confidence, lifecycle status, provider, and model trace.", icon: GraphIcon },
+    { title: "One command, full stack", body: "Docker starts the web app, authenticated API, and cognitive worker on infrastructure you control.", icon: DockerIcon },
+    { title: "Attachments become evidence", body: "PDFs, images, audio, and video become searchable chunks with page or timestamp provenance.", icon: DocsIcon },
+    { title: "Autopilot you can inspect", body: "Leases, retries, recovery, and idempotency keep background processing resilient and visible in Monitor.", icon: GraphIcon },
+    { title: "A release you can verify", body: "Protected CI, container scans, signed images, SBOMs, and a public audit back the v1.0 release.", icon: GithubIcon },
   ];
   const pipeline = [
-    ["Capture", "Write Markdown notes and keep source files portable."],
-    ["Parse", "Extract structure, links, headings, and metadata."],
-    ["Assimilate", "Generate concepts, summaries, and retrieval chunks."],
-    ["Connect", "Create explainable graph edges with evidence."],
-    ["Review", "Turn gaps and insights into next study actions."],
+    ["Capture", "Write a note or attach a source. The original remains available in your vault."],
+    ["Understand", "Extract structure, concepts, context, entities, and evidence-bearing chunks."],
+    ["Retrieve", "Combine lexical, vector, and graph signals instead of relying on one model answer."],
+    ["Connect", "Create typed graph relations with reasons, confidence, and source evidence."],
+    ["Act", "Review gaps, apply insights, confirm suggestions, and choose the next study step."],
   ];
   const maturityItems = [
     ["Hybrid memory", "Markdown chunks, lexical signals, vectors, and graph context work together during retrieval."],
@@ -374,10 +455,10 @@ function LandingContent() {
   const comparisonRows = [
     ["Local Markdown source", "Implemented", "Implemented", "Not native", "Implemented"],
     ["First-party self-hostable web stack", "Implemented", "Not native", "Not native", "Not native"],
-    ["Knowledge graph", "Conditional", "Implemented", "Not native", "Not native"],
-    ["Explainable AI insights", "Conditional", "Not native", "Conditional", "Not native"],
-    ["Evidence per connection", "Conditional", "Not native", "Not native", "Not native"],
-    ["Retrieval / semantic search", "Conditional", "Not native", "Conditional", "Not native"],
+    ["Knowledge graph", "Implemented", "Implemented", "Not native", "Not native"],
+    ["Explainable AI insights", "Implemented", "Not native", "Conditional", "Not native"],
+    ["Evidence per connection", "Implemented", "Not native", "Not native", "Not native"],
+    ["Retrieval / semantic search", "Implemented", "Not native", "Conditional", "Not native"],
     ["Provider/model trace", "Implemented", "Not native", "Not native", "Not native"],
     ["Collaboration workspace", "Not native", "Conditional", "Implemented", "Not native"],
     ["Local source files and data portability", "Implemented", "Implemented", "Conditional", "Implemented"],
@@ -403,41 +484,37 @@ function LandingContent() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
               <span className="size-1.5 rounded-full bg-accent" />
-              Source-available · Local-first · Evidence-first
+              v1.0.0 · Local-first · Evidence-backed
             </span>
             <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
-              BerryBrain turns Markdown notes into an evidence-backed knowledge graph.
+              Turn the notes you already own into knowledge you can navigate.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-muted md:text-lg">
-              A self-hosted second brain for local notes, explainable graph reasoning, and auditable AI assistance. Free for non-commercial self-hosting and designed around your own vault.
+              BerryBrain reads your Markdown vault, builds explainable connections, retrieves supporting context, and turns gaps into study actions. Your source files stay local and readable without BerryBrain.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
-                href={appPath("/login")}
-                className="inline-flex items-center justify-center rounded-md bg-accent px-5 py-3 text-sm font-semibold text-black shadow-sm transition hover:opacity-90"
+                href={appPath(primaryPath)}
+                className="bb-action inline-flex items-center justify-center px-5 py-3 text-sm font-semibold"
               >
-                Login to your brain
+                {primaryLabel}
               </a>
               <a
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-panel px-5 py-3 text-sm font-medium text-foreground transition hover:bg-surface"
+                className="bb-action inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-muted hover:text-foreground"
               >
                 <GithubIcon />
-                View on GitHub
-              </a>
-              <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm font-medium text-muted transition hover:text-foreground">
-                <DocsIcon className="size-4" />
-                Read docs
+                GitHub
               </a>
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["License", "Non-commercial"],
-                ["Runtime", "Docker"],
-                ["Vault", "Markdown"],
-                ["Model", "Local/cloud"],
+                ["Release", "v1.0.0"],
+                ["Deploy", "Docker"],
+                ["Source", "Markdown"],
+                ["Models", "Local/cloud"],
               ].map(([label, value]) => (
                 <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
                   <div className="text-xs uppercase text-muted">{label}</div>
@@ -447,7 +524,7 @@ function LandingContent() {
             </div>
           </div>
           <div className="relative min-h-[330px] md:-ml-24 md:min-h-[470px]" aria-label="BerryBrain workspace previews">
-            <div className="absolute left-0 top-10 w-[88%] overflow-hidden rounded-lg border border-border bg-panel shadow-2xl shadow-black/10 motion-safe:[animation:bb-float-a_7s_ease-in-out_infinite]">
+            <div className="bb-card bb-card--elevated absolute left-0 top-10 w-[88%] overflow-hidden motion-safe:[animation:bb-float-a_7s_ease-in-out_infinite]">
               <Image
                 src={berryPrint}
                 alt="BerryBrain home screen"
@@ -458,7 +535,7 @@ function LandingContent() {
                 className="h-auto w-full"
               />
             </div>
-            <div className="absolute right-0 top-0 w-[48%] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/10 motion-safe:[animation:bb-float-b_8s_ease-in-out_infinite]">
+            <div className="bb-card absolute right-0 top-0 w-[48%] overflow-hidden motion-safe:[animation:bb-float-b_8s_ease-in-out_infinite]">
               <Image
                 src={berryPrint2}
                 alt="BerryBrain graph preview"
@@ -468,7 +545,7 @@ function LandingContent() {
                 className="h-auto w-full"
               />
             </div>
-            <div className="absolute bottom-6 right-4 w-[54%] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/10 motion-safe:[animation:bb-float-c_7.5s_ease-in-out_infinite]">
+            <div className="bb-card absolute bottom-6 right-4 w-[54%] overflow-hidden motion-safe:[animation:bb-float-c_7.5s_ease-in-out_infinite]">
               <Image
                 src={berryPrint3}
                 alt="BerryBrain note preview"
@@ -483,46 +560,60 @@ function LandingContent() {
       </section>
 
       <section id="product" className="scroll-mt-24 bg-background">
-        <div className="mx-auto grid w-full max-w-6xl gap-4 px-5 py-12 sm:grid-cols-2 md:px-6 lg:grid-cols-3">
-          {featureCards.map((item) => {
-            const Icon = item.icon;
-            return (
-              <article key={item.title} className="rounded-lg border border-border bg-panel p-5">
-                <div className="flex size-10 items-center justify-center rounded-md bg-accent-soft text-accent">
-                  <Icon />
-                </div>
-                <h2 className="mt-4 text-sm font-semibold">{item.title}</h2>
-                <p className="mt-3 text-sm leading-6 text-muted">{item.body}</p>
-              </article>
-            );
-          })}
+        <div className="mx-auto w-full max-w-6xl px-5 py-16 md:px-6">
+          <div className="grid gap-5 md:grid-cols-[0.7fr_1.3fr] md:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">What it changes</p>
+              <h2 className="mt-3 text-3xl font-semibold">More than notes with an AI button.</h2>
+            </div>
+            <p className="max-w-2xl text-sm leading-7 text-muted md:justify-self-end">
+              BerryBrain treats your vault as durable knowledge: sources remain portable, generated artifacts remain traceable, and every automated step stays observable.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {featureCards.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <article key={item.title} className="bb-card bb-card--interactive p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex size-10 items-center justify-center rounded-md bg-accent-soft text-accent">
+                      <Icon />
+                    </div>
+                    <span className="text-xs font-semibold text-muted">{String(index + 1).padStart(2, "0")}</span>
+                  </div>
+                  <h3 className="mt-5 text-base font-semibold">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-muted">{item.body}</p>
+                </article>
+              );
+            })}
+          </div>
         </div>
       </section>
 
-      <section className="border-y border-border/70 bg-[#182015] text-white">
+      <section className="border-y border-border/70 bg-background">
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:px-6">
           <div>
-            <p className="text-xs font-semibold uppercase text-[#CDE69A]">Workflow</p>
-            <h2 className="mt-3 text-3xl font-semibold">A second brain that leaves a trail.</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/68">
-              BerryBrain does not hide generated knowledge. Every assisted artifact is designed to be reviewable before it becomes part of the graph.
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Workflow</p>
+            <h2 className="mt-3 text-3xl font-semibold">From a raw note to a decision you can verify.</h2>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-muted">
+              Each stage adds structure without hiding the source. Generated concepts, connections, and insights carry enough provenance for you to confirm, ignore, or revisit them.
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-5">
             {pipeline.map(([step, body], index) => (
-              <div key={step} className="relative rounded-lg border border-white/12 bg-white/7 p-4">
+              <div key={step} className="bb-card relative p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="flex size-8 items-center justify-center rounded-full bg-[#CDE69A] text-xs font-semibold text-[#182015]">
+                  <span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-black">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   {index < pipeline.length - 1 && (
-                    <span className="hidden text-[#CDE69A] md:block" aria-hidden="true">→</span>
+                    <span className="hidden text-danger md:block" aria-hidden="true">→</span>
                   )}
                 </div>
                 <div className="mt-5 text-sm font-semibold">{step}</div>
-                <p className="mt-3 text-xs leading-5 text-white/62">{body}</p>
+                <p className="mt-3 text-xs leading-5 text-muted">{body}</p>
                 {index < pipeline.length - 1 && (
-                  <div className="mt-4 h-px bg-gradient-to-r from-[#CDE69A]/60 to-transparent md:hidden" aria-hidden="true" />
+                  <div className="mt-4 h-px bg-border md:hidden" aria-hidden="true" />
                 )}
               </div>
             ))}
@@ -532,7 +623,7 @@ function LandingContent() {
 
       <section id="architecture" className="scroll-mt-24 bg-panel/45">
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1.08fr_0.92fr] md:px-6">
-          <div className="rounded-lg border border-border bg-background p-5">
+          <div className="bb-card bb-card--elevated p-5">
             <div className="grid gap-4 text-sm">
               <DiagramBox title="Knowledge sources" body="Markdown, links, PDFs, images, audio, video" />
               <DiagramArrow />
@@ -553,7 +644,10 @@ function LandingContent() {
           </div>
           <div className="flex flex-col justify-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Architecture</p>
-            <h2 className="mt-3 text-3xl font-semibold">Built as a self-hosted stack, not a closed service.</h2>
+            <h2 className="mt-3 text-3xl font-semibold">A cognitive layer you can run, inspect, and replace piece by piece.</h2>
+            <p className="mt-4 max-w-xl text-sm leading-7 text-muted">
+              Storage, retrieval, graph reasoning, model routing, and system diagnostics have separate responsibilities. No single model response becomes the whole product.
+            </p>
             <div className="mt-7 space-y-5">
               {[
                 ["Next.js web", "Public project pages and the self-hosted workspace UI."],
@@ -574,19 +668,19 @@ function LandingContent() {
       <section id="reliability" className="scroll-mt-24 border-y border-border/70 bg-background">
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[0.72fr_1.28fr] md:px-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Current foundation</p>
-            <h2 className="mt-3 text-3xl font-semibold">Knowledge that remains inspectable after the model answers.</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Trust and recovery</p>
+            <h2 className="mt-3 text-3xl font-semibold">Useful when AI succeeds. Recoverable when it does not.</h2>
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
-              BerryBrain treats generated knowledge as durable data with provenance, lifecycle, and recovery paths. AI output never replaces the Markdown source.
+              Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
             </p>
             <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline">
               Read the technical documentation
               <span aria-hidden="true">→</span>
             </a>
           </div>
-          <div className="grid gap-x-8 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             {maturityItems.map(([title, body], index) => (
-              <article key={title} className="border-t border-border py-5">
+              <article key={title} className="bb-card p-5">
                 <div className="flex items-start gap-4">
                   <span className="mt-0.5 text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
                   <div>
@@ -603,12 +697,12 @@ function LandingContent() {
       <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-16 md:px-6">
         <div className="max-w-2xl">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Why it exists</p>
-          <h2 className="mt-3 text-3xl font-semibold">A practical comparison against common knowledge workflows.</h2>
+          <h2 className="mt-3 text-3xl font-semibold">Choose the workflow, not just the feature list.</h2>
           <p className="mt-4 text-sm leading-7 text-muted">
-            BerryBrain keeps Markdown portability, but adds provenance, graph reasoning, retrieval, and reviewable AI outputs.
+            Plain folders maximize portability. Obsidian centers local Markdown. Notion centers collaborative cloud work. BerryBrain focuses on a self-hosted cognitive pipeline with inspectable AI outputs.
           </p>
         </div>
-        <div className="overflow-x-auto rounded-lg border border-border bg-panel">
+        <div className="bb-card bb-card--elevated overflow-x-auto">
           <div className="min-w-[860px]">
           <div className="grid grid-cols-[1.35fr_repeat(4,minmax(0,1fr))] border-b border-border bg-surface text-xs font-semibold uppercase tracking-[0.14em] text-muted">
             <div className="px-4 py-4">Capability</div>
@@ -632,26 +726,28 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Statuses are product-level, not plugin-level. Community plugins are excluded. BerryBrain graph, insights, and semantic search stay Conditional until a clean public end-to-end test proves indexing, updates, and answer quality.
+          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.0 and is covered by the public release audit. “Conditional” means availability depends on plan, configuration, or workflow.
         </p>
       </section>
 
       <section className="border-t border-border/70 bg-accent/10">
         <div className="mx-auto grid w-full max-w-6xl gap-5 px-5 py-14 md:grid-cols-[1fr_auto] md:items-center md:px-6">
           <div>
-            <h2 className="text-3xl font-semibold">Explore the source and self-host it your way.</h2>
+            <h2 className="text-3xl font-semibold">
+              {accessState === "setup" ? "Create the owner account, then make the vault yours." : "Your second brain is ready when you are."}
+            </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-              The public page is only informational. GitHub is the next step for code, issues, deployment notes, and contributions.
+              {accessState === "setup"
+                ? "First run takes you through a one-time local owner setup, followed by model and provider configuration."
+                : "Open the workspace to continue writing, connecting, and reviewing. Deployment, security, and recovery details remain available in the docs."}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row md:justify-end">
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-black hover:opacity-90">
-              <GithubIcon />
-              Open GitHub
+            <a href={appPath(primaryPath)} className="bb-action inline-flex items-center justify-center px-5 py-3 text-sm font-semibold">
+              {primaryLabel}
             </a>
-            <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm text-foreground hover:bg-surface">
-              <DocsIcon className="size-4" />
-              Documentation
+            <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm text-muted hover:text-foreground">
+              <DocsIcon className="size-4" /> Read docs
             </a>
           </div>
         </div>
@@ -824,7 +920,7 @@ export function AuthPage() {
             BerryBrain uses one local owner account, secure cookies, CSRF protection, rate limits, lockout, and audit events.
           </p>
         </div>
-        <form className="rounded-lg border border-border bg-panel p-6" onSubmit={(event) => event.preventDefault()}>
+        <form className="bb-card bb-card--elevated p-6" onSubmit={(event) => event.preventDefault()}>
           {view === "auth" && (
             <>
               <label htmlFor="owner-identifier" className="block text-xs font-medium text-muted">Username or owner email</label>
@@ -844,14 +940,14 @@ export function AuthPage() {
                   Keep me signed in on this device
                 </label>
               )}
-              <button disabled={busy || !email.trim() || !password.trim()} type="button" onClick={submit} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+              <button disabled={busy || !email.trim() || !password.trim()} type="button" onClick={submit} className="bb-action mt-6 w-full px-4 py-2 text-sm font-medium">
                 {busy ? "Working..." : isSignup ? "Go to setup" : "Continue"}
               </button>
               {awaitingCode && (
                 <div className="mt-5 rounded-md border border-border bg-surface p-3">
                   <label className="block text-xs font-medium text-muted">Email security code</label>
                   <input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 12))} className="mt-2 w-full rounded-md border border-border bg-panel px-3 py-2 text-sm outline-none focus:border-accent" placeholder="000000" inputMode="numeric" autoComplete="one-time-code" />
-                  <button disabled={busy || !otp} type="button" onClick={verifyCode} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm disabled:opacity-60">
+                  <button disabled={busy || !otp} type="button" onClick={verifyCode} className="bb-action mt-3 w-full px-4 py-2 text-sm">
                     Verify code
                   </button>
                 </div>
@@ -869,10 +965,10 @@ export function AuthPage() {
               <label className="block text-xs font-medium text-muted">Account email</label>
               <input required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="you@example.com" type="email" />
               <p className="mt-2 text-[11px] leading-5 text-muted">We will send a recovery code to this address if it matches an account.</p>
-              <button disabled={busy || !email.trim()} type="button" onClick={requestReset} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+              <button disabled={busy || !email.trim()} type="button" onClick={requestReset} className="bb-action mt-6 w-full px-4 py-2 text-sm font-medium">
                 {busy ? "Working..." : "Send recovery code"}
               </button>
-              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm">
+              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="bb-action mt-3 w-full px-4 py-2 text-sm">
                 Back to login
               </button>
             </>
@@ -889,10 +985,10 @@ export function AuthPage() {
               <label className="mt-4 block text-xs font-medium text-muted">Confirm new password</label>
               <input required minLength={12} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Repeat the password" type="password" />
               <p className="mt-2 text-[11px] leading-5 text-muted">Use at least 12 characters with mixed letter case and a number.</p>
-              <button disabled={busy || !email.trim() || !otp || !newPassword.trim() || !confirmPassword.trim()} type="button" onClick={confirmReset} className="mt-6 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+              <button disabled={busy || !email.trim() || !otp || !newPassword.trim() || !confirmPassword.trim()} type="button" onClick={confirmReset} className="bb-action mt-6 w-full px-4 py-2 text-sm font-medium">
                 {busy ? "Working..." : "Reset password"}
               </button>
-              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="mt-3 w-full rounded-md border border-border px-4 py-2 text-sm">
+              <button type="button" onClick={() => { setStatus(""); setView("auth"); }} className="bb-action mt-3 w-full px-4 py-2 text-sm">
                 Back to login
               </button>
             </>
@@ -942,7 +1038,7 @@ export function AccountSettingsPage() {
             ["Privacy", "Data export, deletion requests, local-first mode, external provider visibility, and consent history."],
             ["Security", "Local owner setup, session review, lockout events, and audit history."],
           ].map(([title, body]) => (
-            <article key={title} className="rounded-lg border border-border bg-panel p-5">
+            <article key={title} className="bb-card p-5">
               <h2 className="text-sm font-semibold">{title}</h2>
               <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
             </article>
@@ -960,9 +1056,12 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
         <div>
           <Image src={berrylogo} alt="BerryBrain" width={160} height={160} className="rounded-md grayscale" sizes="160px" />
           <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
-            A private, evidence-first second brain for notes, concepts, graph reasoning, and accountable AI assistance.
+            A local-first cognitive workspace that turns owned Markdown, attachments, and model-assisted analysis into explainable knowledge.
           </p>
-          <p className="mt-4 text-xs text-muted">Support: contato@optlabs.com.br</p>
+          <p className="mt-4 text-xs text-muted">BerryBrain v1.0.0 · Self-hosted · Non-commercial license</p>
+          <a href="mailto:contato@optlabs.com.br" className="mt-2 inline-flex text-xs text-muted underline-offset-4 hover:text-foreground hover:underline">
+            contato@optlabs.com.br
+          </a>
           <a
             href={GITHUB_URL}
             target="_blank"
