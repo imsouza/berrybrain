@@ -121,6 +121,10 @@ test.describe("Authenticated workspace quality", () => {
   }) => {
     await openWorkspace(page, context);
 
+    const donate = page.getByRole("link", { name: "Donate to BerryBrain on Ko-fi" });
+    await expect(donate).toBeVisible();
+    await expect(donate).toHaveAttribute("href", "https://ko-fi.com/berrybrain");
+
     const quickNote = page.getByRole("textbox", { name: "Quick note draft" });
     await quickNote.fill("A short idea that is not a note yet.");
     await expect(quickNote).toHaveAttribute("maxlength", "2000");
