@@ -44,6 +44,12 @@ export default function NotificationsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    if (api === "__browser__") {
+      setAlerts([]);
+      setFailedJobs([]);
+      setLoading(false);
+      return;
+    }
     try {
       const [summaryRes, jobsRes] = await Promise.all([
         fetch(`${api}/api/v1/home/summary`),

@@ -98,6 +98,12 @@ export default function ActivityPage() {
 
   const loadActivity = useCallback(async () => {
     setLoading(true);
+    if (api === "__browser__") {
+      setActivity([]);
+      setSummary({ completed: 0, failed: 0, running: 0, pending: 0 });
+      setLoading(false);
+      return;
+    }
     try {
       const [logsRes, jobsRes] = await Promise.all([
         fetch(`${api}/api/v1/automation-logs?limit=100`),

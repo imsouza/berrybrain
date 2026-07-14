@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
+import {
+  BROWSER_STORAGE_MODE,
+  browserStorageStatus,
+  exportBrowserBackup,
+  importBrowserBackup,
+  wipeBrowserStorage,
+} from "@/lib/browser-storage";
 
 type ThemeKind = "light" | "dark";
 
@@ -294,6 +301,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagClearing, setDiagClearing] = useState(false);
   const [diagClearResult, setDiagClearResult] = useState("");
+  const [portabilityStatus, setPortabilityStatus] = useState("");
+  const [storageStatus, setStorageStatus] = useState<{ persisted: boolean; usage: number; quota: number } | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const selectedProviderLabel = useMemo(() => CLOUD_PROVIDERS[s.ai_api_url] || "Custom provider", [s.ai_api_url]);
   const nimApiKey = s.ai_api_key;
@@ -307,6 +317,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaveStatus("");
     if (apiUrl === "__demo__") {
       setIsAdmin(false);
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      setIsAdmin(false);
+      setSettingsLoading(false);
+      browserStorageStatus().then(setStorageStatus).catch(() => setStorageStatus(null));
       return;
     }
     let cancelled = false;
@@ -352,7 +368,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
-    if (apiUrl === "__demo__") {
+    if (apiUrl === "__demo__" || BROWSER_STORAGE_MODE) {
       setDiagnostics(null);
       return;
     }
@@ -477,6 +493,11 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       setConnectionStatus("Provider testing is disabled in demo mode.");
       return false;
     }
+    if (BROWSER_STORAGE_MODE) {
+      setConnectionStatus("Direct browser provider testing is not available yet. Your key was not stored.");
+      setSaveStatus("Cloud AI remains disabled in browser-only mode.");
+      return false;
+    }
     const baseUrl = next.ai_api_url || next.ai_custom_url;
     setLoadingModels(true);
     setConnectionStatus("");
@@ -520,6 +541,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   async function clearCloudKey() {
     if (!window.confirm("Clear the saved cloud API key? AI cloud processing will stop until a new key is configured.")) return;
+    if (BROWSER_STORAGE_MODE) {
+      localStorage.removeItem("bb_ai_api_key");
+      localStorage.removeItem("bb_graph_ai_api_key");
+      setApiKeyConfigured(false);
+      setGraphApiKeyConfigured(false);
+      setS((previous) => ({ ...previous, ai_api_key: "", graph_ai_api_key: "" }));
+      setConnectionStatus("Cloud API key cleared from this browser.");
+      return;
+    }
     const response = await fetch(`${apiUrl}/api/v1/settings/ai/key`, {
       method: "DELETE",
       credentials: "include",
@@ -572,6 +602,18 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     );
     if (!confirmed) return;
     setConnectionStatus("Wiping BerryBrain data...");
+    if (BROWSER_STORAGE_MODE) {
+      try {
+        await wipeBrowserStorage();
+        if (resetSettings) resetLocalSettings();
+        else preserveLocalSettings();
+        setConnectionStatus(resetSettings ? "Browser data wiped. Settings reset. Reloading..." : "Browser data wiped. Settings preserved. Reloading...");
+        window.setTimeout(() => window.location.reload(), 700);
+      } catch (error) {
+        setConnectionStatus(error instanceof Error ? error.message : "Browser data could not be wiped.");
+      }
+      return;
+    }
     const response = await fetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -591,6 +633,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   async function runMaintenance(action: "rebuild-brain" | "cleanup-legacy-insights" | "validate-graph" | "reindex-knowledge-base") {
     if (apiUrl === "__demo__") {
       setMaintenanceStatus("Maintenance actions are disabled in demo mode.");
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      setMaintenanceStatus("This maintenance action requires the self-hosted worker.");
       return;
     }
     const labels: Record<typeof action, string> = {
@@ -634,6 +680,41 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       setDiagnostics((prev) => prev ? { ...prev, staleRunning: [] } : prev);
     } catch { setDiagClearResult(t("clearedFail")); }
     finally { setDiagClearing(false); }
+  }
+
+  async function exportAllBrowserData() {
+    setPortabilityStatus("Creating verified backup...");
+    try {
+      const blob = await exportBrowserBackup();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      anchor.href = url;
+      anchor.download = `berrybrain-backup-${stamp}.berrybrain.json`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setPortabilityStatus("Backup exported with SHA-256 integrity verification.");
+    } catch (error) {
+      setPortabilityStatus(error instanceof Error ? error.message : "Backup could not be exported.");
+    }
+  }
+
+  async function importAllBrowserData(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const confirmed = window.confirm(
+      "Import this BerryBrain backup?\n\nAll current browser notes, graph data, attachments, jobs, insights, and Settings will be replaced. Export the current workspace first if you may need it.",
+    );
+    if (!confirmed) return;
+    setPortabilityStatus("Validating and importing backup...");
+    try {
+      await importBrowserBackup(file);
+      setPortabilityStatus("Backup restored. Reloading...");
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      setPortabilityStatus(error instanceof Error ? error.message : "Backup could not be imported.");
+    }
   }
 
   if (!open) return null;
@@ -937,6 +1018,34 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             )}
           </Section>
 
+          {BROWSER_STORAGE_MODE && (
+            <Section title="Data portability" description="Your browser is the primary data store. Keep external backups.">
+              <div className="rounded-lg border border-border/60 bg-panel px-3 py-2 text-xs text-muted">
+                <p>{storageStatus?.persisted ? "Persistent browser storage granted." : "Persistent storage is not guaranteed by this browser."}</p>
+                {storageStatus?.quota ? (
+                  <p className="mt-1">
+                    {formatBytes(storageStatus.usage)} used of approximately {formatBytes(storageStatus.quota)}.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <MaintenanceButton onClick={exportAllBrowserData}>Export all data</MaintenanceButton>
+                <MaintenanceButton onClick={() => importInputRef.current?.click()}>Import all data</MaintenanceButton>
+              </div>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="application/json,.json,.berrybrain.json"
+                className="hidden"
+                onChange={importAllBrowserData}
+              />
+              <p className="text-[11px] leading-5 text-muted">
+                The backup includes notes, attachments, graph records, insights, jobs, metadata, and non-sensitive local preferences. Analytics consent and login sessions are excluded.
+              </p>
+              {portabilityStatus && <p className="rounded-lg bg-surface px-3 py-2 text-xs text-muted">{portabilityStatus}</p>}
+            </Section>
+          )}
+
           <Section title="Danger zone" description="Permanent destructive actions. Confirmations are required.">
             <div className="grid gap-2 sm:grid-cols-2">
               <DangerButton onClick={() => wipeAll(false)}>Wipe all, keep Settings</DangerButton>
@@ -967,6 +1076,13 @@ function Section({ title, description, children }: { title: string; description:
       <div className="mt-4 space-y-3">{children}</div>
     </section>
   );
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {

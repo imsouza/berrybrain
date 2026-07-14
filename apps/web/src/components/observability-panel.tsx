@@ -39,7 +39,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    if (apiUrl === "__demo__") {
+    if (apiUrl === "__demo__" || apiUrl === "__browser__") {
       setJobs([]);
       setLogs([]);
       setWorker(null);
@@ -71,6 +71,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
   const isFailedJob = (job: any) => job.status === "failed" || job.status === "dead_letter";
   const loadData = async () => {
+    if (apiUrl === "__browser__") return;
     const [jRes, lRes, wRes, sRes] = await Promise.all([
       fetch(`${apiUrl}/api/v1/jobs?limit=50`),
       fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
@@ -88,6 +89,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
   };
 
   async function retryJob(jobId: number) {
+    if (apiUrl === "__browser__") return;
     setRetryingJobId(jobId);
     setJobActionStatus("");
     try {

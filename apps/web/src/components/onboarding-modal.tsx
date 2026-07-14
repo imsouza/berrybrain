@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
 const RECOMMENDED_MODEL = "qwen/qwen3.5-397b-instruct";
@@ -72,6 +73,22 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     if (typeof window === "undefined") return;
     let alive = true;
 
+    if (BROWSER_STORAGE_MODE) {
+      const tourSeen = localStorage.getItem("bb_tour_seen") === "1";
+      if (!tourSeen) {
+        setStep(0);
+        setPhase("tour");
+        setShow(true);
+      }
+      const openBrowserTour = () => {
+        setStep(0);
+        setPhase("tour");
+        setShow(true);
+      };
+      window.addEventListener("bb:open-tour", openBrowserTour);
+      return () => window.removeEventListener("bb:open-tour", openBrowserTour);
+    }
+
     function openTour() {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
@@ -134,10 +151,11 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   const steps = useMemo(() => baseSteps, []);
   const isConfigStep = phase === "ai";
   const aiConfigured =
-    modeSelected &&
-    (mode === "local"
-      ? Boolean(localUrl.trim()) && Boolean(localModel.trim())
-      : Boolean(apiUrl.trim()) && Boolean(apiKey.trim()) && Boolean(model.trim()));
+    BROWSER_STORAGE_MODE ||
+    (modeSelected &&
+      (mode === "local"
+        ? Boolean(localUrl.trim()) && Boolean(localModel.trim())
+        : Boolean(apiUrl.trim()) && Boolean(apiKey.trim()) && Boolean(model.trim())));
   const total = steps.length;
   const progress = isConfigStep ? 100 : Math.round(((step + 1) / total) * 100);
   const isLastTourStep = step === steps.length - 1;
@@ -171,6 +189,13 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   async function finish(provider: "local" | "cloud" = mode) {
     setSaving(true);
     setSaveError("");
+    if (BROWSER_STORAGE_MODE) {
+      localStorage.setItem("bb_tour_seen", "1");
+      localStorage.setItem("bb_onboarding_completed", "true");
+      setShow(false);
+      setSaving(false);
+      return;
+    }
     const url = apiUrl.trim() || NVIDIA_NIM_URL;
     const values: Record<string, string> = {
       ai_provider: provider,
@@ -229,10 +254,14 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">
-                {isConfigStep ? "AI setup" : steps[step].eyebrow}
+                {isConfigStep ? (BROWSER_STORAGE_MODE ? "Browser storage" : "AI setup") : steps[step].eyebrow}
               </p>
               <h2 className="mt-1 text-xl font-semibold tracking-tight">
-                {isConfigStep ? "Choose how BerryBrain uses AI." : steps[step].title}
+                {isConfigStep
+                  ? BROWSER_STORAGE_MODE
+                    ? "Your local browser workspace is ready."
+                    : "Choose how BerryBrain uses AI."
+                  : steps[step].title}
               </h2>
             </div>
             {!isConfigStep && (
@@ -259,6 +288,8 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                 ))}
               </div>
             </div>
+          ) : BROWSER_STORAGE_MODE ? (
+            <BrowserStorageSetup />
           ) : (
             <div>
               <p className="max-w-xl text-sm leading-6 text-muted">
@@ -400,7 +431,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
         <div className="flex items-center justify-between border-t border-border px-6 py-4">
           <div className="text-xs text-muted">
-            {isConfigStep ? "AI setup" : `Step ${step + 1} of ${total}`}
+            {isConfigStep ? (BROWSER_STORAGE_MODE ? "Local data setup" : "AI setup") : `Step ${step + 1} of ${total}`}
           </div>
           <div className="flex gap-2">
             <button
@@ -430,12 +461,37 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                 disabled={!aiConfigured || saving}
                 className="bb-action px-4 py-2 text-sm font-medium"
               >
-                {saving ? "Saving…" : "Finish"}
+                {saving ? "Saving…" : BROWSER_STORAGE_MODE ? "Open workspace" : "Finish"}
               </button>
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BrowserStorageSetup() {
+  return (
+    <div className="space-y-4">
+      <p className="max-w-xl text-sm leading-6 text-muted">
+        Notes are stored in this browser with IndexedDB. No BerryBrain account, API server, or remote database is required.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {[
+          ["Persistent", "BerryBrain requests durable browser storage when supported."],
+          ["Portable", "Export and restore the complete workspace from Settings."],
+          ["Local", "Your notes stay on this browser and origin."],
+        ].map(([title, description]) => (
+          <div key={title} className="rounded-md border border-border bg-surface px-3 py-3">
+            <p className="text-sm font-medium">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-muted">{description}</p>
+          </div>
+        ))}
+      </div>
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-muted">
+        Clearing site data can remove this workspace. Export backups regularly. AI processing, OCR, and background graph expansion still require a future browser engine or the self-hosted worker.
+      </p>
     </div>
   );
 }

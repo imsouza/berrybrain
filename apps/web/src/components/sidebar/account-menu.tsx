@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 import {
   AccountSettingsDialog,
   readCsrf,
@@ -27,6 +28,7 @@ export function AccountMenu() {
   const [open, setOpen] = useState(false);
 
   const loadMe = useCallback(async () => {
+    if (BROWSER_STORAGE_MODE) return;
     try {
       const res = await fetch(`${apiUrl}/api/v1/auth/me`, { credentials: "include" });
       setUser(res.ok ? ((await res.json()).user as MeUser) : null);
@@ -55,6 +57,8 @@ export function AccountMenu() {
     },
     [apiUrl],
   );
+
+  if (BROWSER_STORAGE_MODE) return null;
 
   if (!user) {
     return (

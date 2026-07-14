@@ -625,6 +625,7 @@ Edit `.env` and set at minimum:
 | `BERRYBRAIN_ENV_FILE` | Optional Compose environment file path. Defaults to `.env`; useful for isolated smoke tests or multiple self-hosted instances. |
 | `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
 | `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` | Optional analytics property for public pages. Empty by default on self-hosted instances; tracking still requires visitor consent. Never send note or account data as analytics events. |
+| `NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE` | Set to `browser` only for the hosted webapp build. Notes and browser-workspace records use IndexedDB and `/brain` does not require the self-hosted API. Leave empty for Docker/self-hosted mode. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
 | `SMTP_*` | Optional legacy email delivery settings. Not required for default self-hosted setup. |
@@ -642,6 +643,26 @@ docker compose up -d
 ```
 
 Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the Worker starts in the background to process vault scans, embeddings, graph expansion, and insights.
+
+### Browser-only webapp mode
+
+The `webapp` branch can run its note workspace without FastAPI by setting:
+
+```ini
+NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE=browser
+NEXT_PUBLIC_GOOGLE_ANALYTICS_ID=G-36YL9QLC5K
+```
+
+In this mode, notes and browser-workspace records are persisted in IndexedDB. Settings exposes
+**Export all data** and **Import all data**. Backups include all versioned browser stores plus
+non-sensitive BerryBrain preferences, use a SHA-256 integrity checksum, and replace the current
+browser workspace only after validation and explicit confirmation.
+
+Browser storage belongs to one browser profile and origin. Clearing site data, browser eviction,
+or changing domains can remove it. Keep exported backups outside the browser. The current browser
+mode provides local note editing, local note graph nodes, and direct note search; the self-hosted
+worker remains required for embeddings, AI insights, semantic graph expansion, OCR, and background
+jobs. Provider keys, sessions, and analytics consent are not included in browser backups.
 
 ### 3. Create the local owner account
 
