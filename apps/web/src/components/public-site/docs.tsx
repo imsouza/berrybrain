@@ -265,8 +265,9 @@ On first login the **AI setup** modal opens automatically. Choose:
 Until you finish this step, the setup reappears on every load. This guarantees the system is
 never silently unconfigured.
 
-In the hosted browser-storage build, NVIDIA NIM cloud setup is the only provider option and is
-mandatory. The key stays in that browser's IndexedDB, is excluded from exports, and is sent through
+In the hosted browser-storage build, a compatible cloud provider is mandatory. NVIDIA NIM,
+OpenAI, DeepSeek, Groq, OpenRouter, and custom public HTTPS OpenAI-compatible endpoints are
+supported. The key stays in that browser's IndexedDB, is excluded from exports, and is sent through
 a stateless same-origin proxy. The browser cognitive worker runs while BerryBrain is open and
 resumes queued note processing when the workspace is reopened.
 
@@ -316,8 +317,9 @@ Security behavior:
 5. Click **Load models**, then select a model returned by your provider.
 6. Finish.
 
-In the hosted web app, NVIDIA NIM is fixed as the cloud provider. Local Ollama fields are hidden
-because a Netlify browser deployment cannot reach the user's local Worker container reliably.
+In the hosted web app, cloud processing is required but NVIDIA NIM is not. Select a preset or a
+custom public HTTPS OpenAI-compatible endpoint. Local Ollama fields are hidden because a Netlify
+browser deployment cannot reach the user's local Worker container reliably.
 
 ### Provider setup is required
 BerryBrain does not allow onboarding to finish without an explicit Local or Cloud choice.

@@ -1,4 +1,4 @@
-import { askBrowserNvidia } from "@/lib/browser-ai";
+import { askBrowserCloud } from "@/lib/browser-ai";
 import {
   getBrowserCloudConfig,
   getBrowserNote,
@@ -92,7 +92,7 @@ async function processQueue() {
       );
       const validPaths = new Set(summaries.map((item) => item.path));
       await updateBrowserCognitiveJob(job.id, { progress: 35 });
-      const response = await askBrowserNvidia([
+      const response = await askBrowserCloud([
         {
           role: "system",
           content: [
@@ -116,7 +116,7 @@ async function processQueue() {
       ], config);
       await updateBrowserCognitiveJob(job.id, { progress: 75 });
       const analysis = parseAnalysis(response.content, validPaths);
-      await saveBrowserCognitiveAnalysis(note.path, config.model, analysis);
+      await saveBrowserCognitiveAnalysis(note.path, config.provider, config.model, analysis);
       await updateBrowserCognitiveJob(job.id, { status: "completed", progress: 100, error: undefined });
       window.dispatchEvent(new CustomEvent("bb:browser-knowledge-updated"));
       window.dispatchEvent(new CustomEvent("bb:browser-worker-updated"));

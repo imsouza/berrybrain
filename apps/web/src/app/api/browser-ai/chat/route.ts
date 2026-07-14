@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  NVIDIA_NIM_URL,
+  CloudProviderUrlError,
   jsonHeaders,
+  providerName,
   rejectCrossSite,
+  resolveCloudProviderUrl,
   safeJson,
   upstreamError,
   validApiKey,
@@ -34,9 +36,10 @@ export async function POST(request: NextRequest) {
     const body = await safeJson(request);
     const model = typeof body.model === "string" ? body.model.trim() : "";
     if (!validApiKey(body.apiKey) || !model || model.length > 200 || !validMessages(body.messages)) {
-      return NextResponse.json({ error: "Invalid NVIDIA NIM request." }, { status: 400, headers: jsonHeaders() });
+      return NextResponse.json({ error: "Invalid cloud AI request." }, { status: 400, headers: jsonHeaders() });
     }
-    const response = await fetch(`${NVIDIA_NIM_URL}/chat/completions`, {
+    const providerUrl = await resolveCloudProviderUrl(body.providerUrl);
+    const response = await fetch(`${providerUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${body.apiKey.trim()}`,
@@ -51,6 +54,7 @@ export async function POST(request: NextRequest) {
         stream: false,
       }),
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) {
@@ -62,13 +66,13 @@ export async function POST(request: NextRequest) {
     };
     const content = payload.choices?.[0]?.message?.content;
     if (typeof content !== "string" || !content.trim()) {
-      return NextResponse.json({ error: "NVIDIA NIM returned an empty response." }, { status: 502, headers: jsonHeaders() });
+      return NextResponse.json({ error: "Cloud provider returned an empty response." }, { status: 502, headers: jsonHeaders() });
     }
-    return NextResponse.json({ content, provider: "nvidia-nim", model, usage: payload.usage || null }, { headers: jsonHeaders() });
+    return NextResponse.json({ content, provider: providerName(providerUrl), providerUrl, model, usage: payload.usage || null }, { headers: jsonHeaders() });
   } catch (error) {
     const message = error instanceof Error && error.name !== "TimeoutError"
       ? error.message
-      : "NVIDIA NIM did not respond in time.";
-    return NextResponse.json({ error: message }, { status: 502, headers: jsonHeaders() });
+      : "Cloud provider did not respond in time.";
+    return NextResponse.json({ error: message }, { status: error instanceof CloudProviderUrlError ? 400 : 502, headers: jsonHeaders() });
   }
 }

@@ -41,8 +41,8 @@ type StoredAttachment = {
 
 export type BrowserCloudConfig = {
   id: "cloud-provider";
-  provider: "nvidia-nim";
-  apiUrl: "https://integrate.api.nvidia.com/v1";
+  provider: string;
+  apiUrl: string;
   apiKey: string;
   model: string;
   verifiedAt: string;
@@ -50,7 +50,6 @@ export type BrowserCloudConfig = {
 };
 
 const BROWSER_CLOUD_CONFIG_ID = "cloud-provider";
-const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
 
 export type BrowserAttachment = Omit<StoredAttachment, "blob" | "notePath"> & {
   downloadUrl: string;
@@ -196,18 +195,23 @@ export async function getBrowserCloudConfig(): Promise<BrowserCloudConfig | null
 }
 
 export async function saveBrowserCloudConfig(input: {
+  provider: string;
+  apiUrl: string;
   apiKey: string;
   model: string;
 }): Promise<BrowserCloudConfig> {
   const apiKey = input.apiKey.trim();
   const model = input.model.trim();
-  if (apiKey.length < 20 || apiKey.length > 512) throw new Error("Enter a valid NVIDIA NIM API key.");
-  if (!model || model.length > 200) throw new Error("Select a valid NVIDIA NIM model.");
+  const apiUrl = input.apiUrl.trim().replace(/\/+$/, "");
+  const provider = input.provider.trim().slice(0, 160) || new URL(apiUrl).hostname;
+  if (!apiUrl.startsWith("https://") || apiUrl.length > 2_048) throw new Error("Enter a valid public HTTPS cloud provider URL.");
+  if (apiKey.length < 20 || apiKey.length > 512) throw new Error("Enter a valid cloud API key.");
+  if (!model || model.length > 200) throw new Error("Select a valid cloud model.");
   const now = new Date().toISOString();
   const record: BrowserCloudConfig = {
     id: BROWSER_CLOUD_CONFIG_ID,
-    provider: "nvidia-nim",
-    apiUrl: NVIDIA_NIM_URL,
+    provider,
+    apiUrl,
     apiKey,
     model,
     verifiedAt: now,
@@ -432,7 +436,7 @@ export type BrowserGraphNodeRecord = {
   confidence: number;
   createdBy: "ai";
   createdByModel: string;
-  provider: "nvidia-nim";
+  provider: string;
   updatedAt: string;
 };
 
@@ -449,6 +453,7 @@ export type BrowserGraphDataNode = {
   confidence: number;
   createdBy: string;
   createdByModel?: string;
+  provider?: string;
 };
 
 export type BrowserGraphEdgeRecord = {
@@ -461,7 +466,7 @@ export type BrowserGraphEdgeRecord = {
   evidence: string[];
   confidence: number;
   status: "suggested";
-  provider: "nvidia-nim";
+  provider: string;
   model: string;
   sourceNotePath: string;
   updatedAt: string;
@@ -522,6 +527,7 @@ export async function listBrowserCognitiveJobs(): Promise<BrowserCognitiveJob[]>
 
 export async function saveBrowserCognitiveAnalysis(
   notePath: string,
+  provider: string,
   model: string,
   analysis: BrowserCognitiveAnalysis,
 ): Promise<void> {
@@ -565,7 +571,7 @@ export async function saveBrowserCognitiveAnalysis(
         confidence: Math.max(0, Math.min(1, concept.confidence)),
         createdBy: "ai",
         createdByModel: model,
-        provider: "nvidia-nim",
+        provider,
         updatedAt: now,
       };
       nodeStore.put(node);
@@ -575,11 +581,11 @@ export async function saveBrowserCognitiveAnalysis(
         target: conceptId,
         type: "mentions",
         label: "mentions",
-        reason: `The concept “${concept.name}” was extracted from this note by NVIDIA NIM.`,
+        reason: `The concept “${concept.name}” was extracted from this note by the configured cloud model.`,
         evidence: [concept.description.slice(0, 500)],
         confidence: node.confidence,
         status: "suggested",
-        provider: "nvidia-nim",
+        provider,
         model,
         sourceNotePath: notePath,
         updatedAt: now,
@@ -599,7 +605,7 @@ export async function saveBrowserCognitiveAnalysis(
         confidence: Math.max(0, Math.min(1, insight.confidence)),
         createdBy: "ai",
         createdByModel: model,
-        provider: "nvidia-nim",
+        provider,
         updatedAt: now,
       };
       nodeStore.put(node);
@@ -614,7 +620,7 @@ export async function saveBrowserCognitiveAnalysis(
         evidence: insight.evidence.slice(0, 6).map((item) => item.slice(0, 500)),
         confidence: node.confidence,
         status: "suggested",
-        provider: "nvidia-nim",
+        provider,
         model,
         sourceNotePath: notePath,
         updatedAt: now,
@@ -632,7 +638,7 @@ export async function saveBrowserCognitiveAnalysis(
         evidence: connection.evidence.slice(0, 6).map((item) => item.slice(0, 500)),
         confidence: Math.max(0, Math.min(1, connection.confidence)),
         status: "suggested",
-        provider: "nvidia-nim",
+        provider,
         model,
         sourceNotePath: notePath,
         updatedAt: now,
@@ -682,6 +688,7 @@ export async function saveBrowserInferenceInsight(input: {
   answer: string;
   relatedNodeIds: string[];
   evidence: string[];
+  provider: string;
   model: string;
 }): Promise<BrowserGraphNodeRecord> {
   const now = new Date().toISOString();
@@ -699,7 +706,7 @@ export async function saveBrowserInferenceInsight(input: {
     confidence: input.evidence.length ? 0.75 : 0.5,
     createdBy: "ai",
     createdByModel: input.model,
-    provider: "nvidia-nim",
+    provider: input.provider,
     updatedAt: now,
   };
   const database = await openBrowserDatabase();
@@ -719,7 +726,7 @@ export async function saveBrowserInferenceInsight(input: {
         evidence: input.evidence.slice(0, 8).map((item) => item.slice(0, 500)),
         confidence: node.confidence,
         status: "suggested",
-        provider: "nvidia-nim",
+        provider: input.provider,
         model: input.model,
         sourceNotePath: node.sourceNotePaths[0] || "inference",
         updatedAt: now,

@@ -660,7 +660,7 @@ browser workspace only after validation and explicit confirmation.
 
 Browser storage belongs to one browser profile and origin. Clearing site data, browser eviction,
 or changing domains can remove it. Keep exported backups outside the browser. On first use, the
-tour may be skipped, but verified NVIDIA NIM setup is mandatory. The provider key is stored only in
+tour may be skipped, but a verified OpenAI-compatible cloud provider is mandatory. The provider key is stored only in
 that origin's IndexedDB, excluded from backups, and sent through a same-origin stateless proxy to
 NVIDIA. No provider key or note database is persisted by the hosted BerryBrain server.
 
@@ -676,8 +676,9 @@ base directory, `npm run build` as the build command, and `.next` as the publish
 `BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for browser-only deployments.
 The Netlify Next.js runtime is pinned in the web package so App Router pages and middleware are
 packaged as Netlify Functions instead of publishing raw `.next` artifacts that return 404.
-The functions under `/api/browser-ai/*` are fixed NVIDIA NIM proxies: they reject cross-site calls,
-do not accept arbitrary upstream URLs, disable caching, and do not persist request bodies or keys.
+The functions under `/api/browser-ai/*` are restricted cloud-provider proxies: they reject
+cross-site calls, require public HTTPS endpoints, reject local/private network destinations and
+redirects, disable caching, and do not persist request bodies or keys.
 
 ### 3. Create the local owner account
 

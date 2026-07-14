@@ -15,21 +15,25 @@ async function providerRequest<T>(path: string, body: Record<string, unknown>): 
     cache: "no-store",
   });
   const payload = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new Error(payload.error || `NVIDIA NIM request failed (HTTP ${response.status}).`);
+  if (!response.ok) throw new Error(payload.error || `Cloud AI request failed (HTTP ${response.status}).`);
   return payload as T;
 }
 
-export async function testBrowserNvidiaConnection(apiKey: string) {
-  return providerRequest<{ connected: true; provider: "nvidia-nim"; models: string[] }>("models", { apiKey });
+export async function testBrowserCloudConnection(providerUrl: string, apiKey: string) {
+  return providerRequest<{ connected: true; provider: string; providerUrl: string; models: string[] }>("models", {
+    providerUrl,
+    apiKey,
+  });
 }
 
-export async function askBrowserNvidia(
+export async function askBrowserCloud(
   messages: BrowserAiMessage[],
   config?: BrowserCloudConfig,
 ) {
   const activeConfig = config || await getBrowserCloudConfig();
-  if (!activeConfig) throw new Error("Configure NVIDIA NIM before using AI.");
-  return providerRequest<{ content: string; provider: "nvidia-nim"; model: string; usage: unknown }>("chat", {
+  if (!activeConfig) throw new Error("Configure a cloud AI provider before using AI.");
+  return providerRequest<{ content: string; provider: string; providerUrl: string; model: string; usage: unknown }>("chat", {
+    providerUrl: activeConfig.apiUrl,
     apiKey: activeConfig.apiKey,
     model: activeConfig.model,
     messages,

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
-import { askBrowserNvidia } from "@/lib/browser-ai";
+import { askBrowserCloud } from "@/lib/browser-ai";
 import { saveBrowserInferenceInsight } from "@/lib/browser-storage";
 
 const EDGE_COLORS: Record<string, string> = {
@@ -548,7 +548,7 @@ export function GraphScreen({
           evidence: edge.evidence || [],
           confidence: edge.confidence || 0,
         }));
-        const response = await askBrowserNvidia([
+        const response = await askBrowserCloud([
           {
             role: "system",
             content: "Answer only from the supplied BerryBrain graph. Return JSON only: {status,answer,relatedNodeIds,evidence}. status must be answered or insufficient_evidence. Evidence must cite node labels or edge reasons. Never invent a relation.",
@@ -576,7 +576,7 @@ export function GraphScreen({
         setInference({
           status: "error",
           question: text,
-          answer: error instanceof Error ? error.message : "Could not query NVIDIA NIM.",
+          answer: error instanceof Error ? error.message : "Could not query the configured cloud provider.",
         });
       } finally {
         setInferLoading(false);
@@ -628,7 +628,8 @@ export function GraphScreen({
           answer: inference.answer,
           relatedNodeIds: relatedInferenceNodes.map((node) => node.id),
           evidence: inference.evidence.map(formatInferenceEvidence).filter(Boolean),
-          model: inference.model || "nvidia-nim",
+          provider: inference.provider || "cloud",
+          model: inference.model || "cloud-model",
         });
         setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
         setInferenceSaveStatus(`Saved as insight: ${insight.title}`);

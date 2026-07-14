@@ -7,9 +7,17 @@ import {
   getBrowserCloudConfig,
   saveBrowserCloudConfig,
 } from "@/lib/browser-storage";
-import { testBrowserNvidiaConnection } from "@/lib/browser-ai";
+import { testBrowserCloudConnection } from "@/lib/browser-ai";
 
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
+const CLOUD_PROVIDERS: Record<string, string> = {
+  [NVIDIA_NIM_URL]: "NVIDIA NIM",
+  "https://api.openai.com/v1": "OpenAI",
+  "https://api.deepseek.com/v1": "DeepSeek",
+  "https://api.groq.com/openai/v1": "Groq",
+  "https://openrouter.ai/api/v1": "OpenRouter",
+  "": "Custom OpenAI-compatible provider",
+};
 
 type MeResponse = {
   user?: { email?: string; displayName?: string };
@@ -63,6 +71,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   const [modeSelected, setModeSelected] = useState(BROWSER_STORAGE_MODE);
   const [help, setHelp] = useState<"local" | "cloud" | null>(null);
   const [apiUrl, setApiUrl] = useState(NVIDIA_NIM_URL);
+  const [customApiUrl, setCustomApiUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [localUrl, setLocalUrl] = useState("http://host.docker.internal:11434");
@@ -83,6 +92,11 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
           if (!alive) return;
           const tourSeen = localStorage.getItem("bb_tour_seen") === "1";
           if (config) {
+            if (CLOUD_PROVIDERS[config.apiUrl]) setApiUrl(config.apiUrl);
+            else {
+              setApiUrl("");
+              setCustomApiUrl(config.apiUrl);
+            }
             setApiKey(config.apiKey);
             setModel(config.model);
             setModels([config.model]);
@@ -170,22 +184,23 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
   const steps = useMemo(() => baseSteps, []);
   const isConfigStep = phase === "ai";
+  const cloudUrl = (apiUrl || customApiUrl).trim();
   const aiConfigured =
     modeSelected &&
       (mode === "local"
         ? Boolean(localUrl.trim()) && Boolean(localModel.trim())
-        : Boolean(apiUrl.trim()) && Boolean(apiKey.trim()) && Boolean(model.trim()));
+        : Boolean(cloudUrl) && Boolean(apiKey.trim()) && Boolean(model.trim()));
   const total = steps.length;
   const progress = isConfigStep ? 100 : Math.round(((step + 1) / total) * 100);
   const isLastTourStep = step === steps.length - 1;
 
   async function loadModels() {
-    const url = apiUrl.trim() || NVIDIA_NIM_URL;
+    const url = cloudUrl;
     setLoadingModels(true);
     setModelsError("");
     try {
       if (BROWSER_STORAGE_MODE) {
-        const data = await testBrowserNvidiaConnection(apiKey.trim());
+        const data = await testBrowserCloudConnection(url, apiKey.trim());
         const ids = data.models;
         setModels(ids);
         if (!model.trim()) setModel(ids[0] || "");
@@ -216,12 +231,17 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     setSaveError("");
     if (BROWSER_STORAGE_MODE) {
       try {
-        await testBrowserNvidiaConnection(apiKey.trim());
-        await saveBrowserCloudConfig({ apiKey, model });
+        const connection = await testBrowserCloudConnection(cloudUrl, apiKey.trim());
+        await saveBrowserCloudConfig({
+          provider: CLOUD_PROVIDERS[cloudUrl] || connection.provider,
+          apiUrl: connection.providerUrl,
+          apiKey,
+          model,
+        });
         localStorage.setItem("bb_ai_provider", "cloud");
         localStorage.setItem("bb_graph_ai_provider", "cloud");
-        localStorage.setItem("bb_ai_api_url", NVIDIA_NIM_URL);
-        localStorage.setItem("bb_graph_ai_api_url", NVIDIA_NIM_URL);
+        localStorage.setItem("bb_ai_api_url", connection.providerUrl);
+        localStorage.setItem("bb_graph_ai_api_url", connection.providerUrl);
         localStorage.setItem("bb_ai_model", model.trim());
         localStorage.setItem("bb_graph_ai_model", model.trim());
         localStorage.setItem("bb_remote_content_consent", "true");
@@ -230,7 +250,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         window.dispatchEvent(new CustomEvent("bb:cloud-configured"));
         setShow(false);
       } catch (error) {
-        setSaveError(error instanceof Error ? error.message : "NVIDIA NIM could not be configured.");
+        setSaveError(error instanceof Error ? error.message : "The cloud provider could not be configured.");
       } finally {
         setSaving(false);
       }
@@ -299,7 +319,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
               <h2 className="mt-1 text-xl font-semibold tracking-tight">
                 {isConfigStep
                   ? BROWSER_STORAGE_MODE
-                    ? "Connect NVIDIA NIM to continue."
+                    ? "Connect a cloud AI provider to continue."
                     : "Choose how BerryBrain uses AI."
                   : steps[step].title}
               </h2>
@@ -332,7 +352,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
             <div>
               <p className="max-w-xl text-sm leading-6 text-muted">
                 {BROWSER_STORAGE_MODE
-                  ? "Your notes stay in IndexedDB in this browser. NVIDIA NIM provides the required cognitive processing while the tab is open; the API key stays in this browser and is excluded from exports."
+                  ? "Your notes stay in IndexedDB in this browser. Your chosen cloud provider supplies cognitive processing while the tab is open; its API key stays in this browser and is excluded from exports."
                   : "Local mode keeps processing on your machine through Ollama. Cloud mode uses an OpenAI-compatible provider for graph enrichment and insights."}
               </p>
               {!BROWSER_STORAGE_MODE && <div className="mt-5 grid grid-cols-2 gap-2">
@@ -419,17 +439,30 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
               {(mode === "cloud" || BROWSER_STORAGE_MODE) && (
                 <div className="mt-4 grid gap-3">
                   <label className="block text-xs text-muted">
-                    Provider
-                    <input
-                      value={BROWSER_STORAGE_MODE ? "NVIDIA NIM" : apiUrl}
-                      onChange={(e) => setApiUrl(e.target.value)}
-                      disabled={BROWSER_STORAGE_MODE}
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none disabled:opacity-75 focus:border-accent"
-                      placeholder={BROWSER_STORAGE_MODE ? "NVIDIA NIM" : NVIDIA_NIM_URL}
-                    />
+                    Cloud provider
+                    <select
+                      value={apiUrl}
+                      onChange={(e) => { setApiUrl(e.target.value); setModels([]); setModel(""); }}
+                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                    >
+                      {Object.entries(CLOUD_PROVIDERS).map(([url, label]) => (
+                        <option key={url || "custom"} value={url}>{label}</option>
+                      ))}
+                    </select>
                   </label>
+                  {apiUrl === "" && (
+                    <label className="block text-xs text-muted">
+                      Custom API base URL
+                      <input
+                        value={customApiUrl}
+                        onChange={(e) => { setCustomApiUrl(e.target.value); setModels([]); setModel(""); }}
+                        className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                        placeholder="https://provider.example/v1"
+                      />
+                    </label>
+                  )}
                   <label className="block text-xs text-muted">
-                    NVIDIA NIM API Key
+                    Cloud API Key
                     <input
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
@@ -463,7 +496,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                       </button>
                     </div>
                     {modelsError && <span className="mt-1 block text-xs text-red-400">{modelsError}</span>}
-                    <span className="mt-1 block text-[11px] text-muted">Models are loaded from your NVIDIA NIM account.</span>
+                    <span className="mt-1 block text-[11px] text-muted">Models are loaded from your cloud provider account.</span>
                   </label>
                 </div>
               )}
@@ -478,7 +511,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
 
         <div className="flex items-center justify-between border-t border-border px-6 py-4">
           <div className="text-xs text-muted">
-            {isConfigStep ? (BROWSER_STORAGE_MODE ? "NVIDIA NIM required" : "AI setup") : `Step ${step + 1} of ${total}`}
+            {isConfigStep ? (BROWSER_STORAGE_MODE ? "Cloud AI required" : "AI setup") : `Step ${step + 1} of ${total}`}
           </div>
           <div className="flex gap-2">
             <button
