@@ -15,7 +15,9 @@ jobs:
       BERRYBRAIN_API_TOKEN: ci-token
       BERRYBRAIN_SESSION_SECRET: ci-session-secret-change-me-32-bytes
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -25,7 +27,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: apps/web/package-lock.json
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: API security tests
