@@ -10,6 +10,7 @@ import {
   exportBrowserBackup,
   getBrowserCloudConfig,
   importBrowserBackup,
+  queueUnprocessedBrowserNotes,
   saveBrowserCloudConfig,
   wipeBrowserStorage,
 } from "@/lib/browser-storage";
@@ -480,6 +481,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaving(true);
     setSaveStatus("");
     try {
+      let queuedNotes = 0;
       const baseUrl = (s.ai_api_url || s.ai_custom_url).trim();
       const isNvidiaNim = isNvidiaNimEndpoint(baseUrl);
       const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
@@ -530,6 +532,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       if (needsConnectionTest && !(await testCloudConnection(next, false))) return;
 
       await persist(next);
+      if (BROWSER_STORAGE_MODE) queuedNotes = await queueUnprocessedBrowserNotes();
       applyTheme(next);
       if (next.ai_api_key) setApiKeyConfigured(true);
       if (next.graph_ai_api_key) setGraphApiKeyConfigured(true);
@@ -537,7 +540,11 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       editedRef.current = false;
       providerChoiceRef.current = null;
       cloudConnectionEditedRef.current = false;
-      setSaveStatus(wantsCloud ? "Settings saved. Cloud AI is active." : "Settings saved.");
+      setSaveStatus(
+        wantsCloud
+          ? `Settings saved. Cloud AI is active.${queuedNotes ? ` ${queuedNotes} note${queuedNotes === 1 ? "" : "s"} queued for cognitive processing.` : ""}`
+          : "Settings saved.",
+      );
       if (BROWSER_STORAGE_MODE) {
         localStorage.setItem("bb_onboarding_completed", "true");
         window.dispatchEvent(new CustomEvent("bb:cloud-configured"));

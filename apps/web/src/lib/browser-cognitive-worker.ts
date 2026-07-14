@@ -72,10 +72,10 @@ function parseAnalysis(raw: string, validPaths: Set<string>): BrowserCognitiveAn
 
 async function processQueue() {
   const config = await getBrowserCloudConfig();
-  if (!config) return;
+  if (!config) return false;
   for (let processed = 0; processed < 4; processed += 1) {
     const job = await nextBrowserCognitiveJob();
-    if (!job) return;
+    if (!job) return false;
     await updateBrowserCognitiveJob(job.id, { status: "running", progress: 15, error: undefined });
     window.dispatchEvent(new CustomEvent("bb:browser-worker-updated"));
     try {
@@ -129,20 +129,25 @@ async function processQueue() {
       window.dispatchEvent(new CustomEvent("bb:browser-worker-updated"));
     }
   }
+  return Boolean(await nextBrowserCognitiveJob());
 }
 
 export async function runBrowserCognitiveWorker() {
   if (running || typeof window === "undefined") return;
   running = true;
+  let hasRemainingJobs = false;
   try {
     if (navigator.locks?.request) {
       await navigator.locks.request("berrybrain-cognitive-worker", { ifAvailable: true }, async (lock) => {
-        if (lock) await processQueue();
+        if (lock) hasRemainingJobs = await processQueue();
       });
     } else {
-      await processQueue();
+      hasRemainingJobs = await processQueue();
     }
   } finally {
     running = false;
+  }
+  if (hasRemainingJobs) {
+    window.setTimeout(() => { void runBrowserCognitiveWorker(); }, 250);
   }
 }

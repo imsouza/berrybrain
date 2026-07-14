@@ -499,6 +499,20 @@ export async function queueBrowserCognitiveJob(notePath: string): Promise<void> 
   await withStore<IDBValidKey>("jobs", "readwrite", (store) => store.put(record));
 }
 
+export async function queueUnprocessedBrowserNotes(): Promise<number> {
+  const [notes, jobs] = await Promise.all([
+    listBrowserNotes(),
+    withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll()),
+  ]);
+  const jobsByPath = new Map(jobs.map((job) => [job.notePath, job]));
+  const candidates = notes.filter((note) => {
+    const job = jobsByPath.get(note.path);
+    return !job || job.status === "failed";
+  });
+  await Promise.all(candidates.map((note) => queueBrowserCognitiveJob(note.path)));
+  return candidates.length;
+}
+
 export async function nextBrowserCognitiveJob(): Promise<BrowserCognitiveJob | null> {
   const jobs = await withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll());
   return jobs
