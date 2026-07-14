@@ -320,7 +320,7 @@ export async function createBrowserAttachment(notePath: string, file: File): Pro
     throw new Error("Browser attachments are limited to 50 MB per file.");
   }
   const record: StoredAttachment = {
-    id: Date.now() * 1000 + crypto.getRandomValues(new Uint16Array(1))[0] % 1000,
+    id: crypto.getRandomValues(new Uint32Array(1))[0],
     notePath,
     filename: file.name.slice(0, 255),
     mimeType: file.type || "application/octet-stream",
