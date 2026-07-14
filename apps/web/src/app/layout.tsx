@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { PwaRegister } from "@/components/pwa-register";
+import { ThirdPartyIntegrations } from "@/components/third-party-integrations";
 import berrylogo from "../../public/berrylogo.png";
 import "./globals.css";
 
@@ -50,6 +51,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <PwaRegister />
         {children}
+        <ThirdPartyIntegrations />
       </body>
     </html>
   );
