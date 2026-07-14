@@ -76,7 +76,7 @@ export default function ReviewsPage() {
       <div className="grid min-h-full place-items-center px-6">
         <div className="text-center">
           <p className="text-sm text-danger">{error}</p>
-          <button className="mt-3 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-white" onClick={load}>Try again</button>
+          <button className="bb-action mt-3 px-4 py-2 text-xs font-medium" onClick={load}>Try again</button>
         </div>
       </div>
     );
@@ -110,7 +110,7 @@ export default function ReviewsPage() {
           <p className="mt-4 text-lg leading-relaxed text-foreground">{current.prompt}</p>
 
           {!revealed ? (
-            <button className="mt-8 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white" onClick={() => setRevealed(true)}>Reveal expected points</button>
+            <button className="bb-action mt-8 px-4 py-2.5 text-sm font-medium" onClick={() => setRevealed(true)}>Reveal expected points</button>
           ) : (
             <div className="mt-8 border-t border-border/50 pt-6">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted/50">Expected points</p>
@@ -124,7 +124,7 @@ export default function ReviewsPage() {
                   <button
                     key={rating}
                     disabled={Boolean(submitting)}
-                    className="rounded-lg border border-border bg-panel px-3 py-2.5 text-xs font-medium capitalize text-foreground transition hover:border-accent/60 hover:bg-accent-soft disabled:opacity-45"
+                    className="bb-action px-3 py-2.5 text-xs font-medium capitalize"
                     onClick={() => grade(rating)}
                   >
                     {submitting === rating ? "Saving..." : rating}

@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 .env
 data/
+vault/*
+!vault/.gitkeep
 .cursor/
 .opencode/
 .codex/

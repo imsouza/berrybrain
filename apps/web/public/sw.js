@@ -1,11 +1,10 @@
-const CACHE_NAME = "berrybrain-shell-v1";
+const CACHE_NAME = "berrybrain-static-v2";
 const BASE = new URL(self.location.href).pathname.replace(/\/sw\.js$/, "") || "";
 const SHELL_ASSETS = [
-  BASE + "/",
-  BASE + "/brain",
   BASE + "/manifest.webmanifest",
   BASE + "/favicon.svg",
-  BASE + "/berrylogo.png"
+  BASE + "/berrylogo.png",
+  BASE + "/offline.html"
 ];
 
 self.addEventListener("install", (event) => {
@@ -36,20 +35,15 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
-          return response;
-        })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match(BASE + "/")))
+        .catch(() => caches.match(BASE + "/offline.html"))
     );
     return;
   }
 
   const staticAsset =
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname === "/manifest.webmanifest" ||
-    url.pathname === "/favicon.svg" ||
+    url.pathname.startsWith(BASE + "/_next/static/") ||
+    url.pathname === BASE + "/manifest.webmanifest" ||
+    url.pathname === BASE + "/favicon.svg" ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".jpg") ||
     url.pathname.endsWith(".jpeg") ||
