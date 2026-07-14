@@ -1,9 +1,9 @@
 # Auditoria de Maturidade do BerryBrain
 
-**Data:** 13 de julho de 2026  
+**Data:** 14 de julho de 2026
 **Escopo:** produto local-first, API, Worker, Web, Cognitive Layer, segurança, dados, instalação e release.  
-**Resultado:** 302/307 critérios do planejamento concluídos (98,4%).
-**Estado:** implementação e governança remota validadas; publicação da release 1.0 em andamento.
+**Resultado:** 307/307 critérios do planejamento concluídos (100%).
+**Estado:** release `v1.0.0` publicada e certificada pelas evidências deste documento.
 
 ## Conclusão Executiva
 
@@ -20,7 +20,7 @@ O BerryBrain implementa o núcleo de um segundo cérebro funcional:
 - anexos podem se tornar fontes cognitivas com extração, OCR e transcrição controlados;
 - autenticação protege uma conta owner local, sem senha padrão.
 
-O produto não deve ser chamado de release 1.0 final até o histórico de estabilidade e os artefatos assinados listados nesta auditoria serem comprovados.
+Todos os gates definidos para a release 1.0 foram comprovados por testes, histórico remoto e artefatos verificáveis.
 
 ## Evidência Reproduzida
 
@@ -81,7 +81,7 @@ Correção:
 | Landing/Docs | OK | produto, arquitetura, confiabilidade e login documentados |
 | Containerização | OK | Web, API e Worker iniciam no comando padrão |
 | Governança remota | OK | épicos, PRs, checks obrigatórios e proteção de `main` ativos |
-| Release remoto | EM ANDAMENTO | exige histórico verde final, tag e artefatos assinados |
+| Release remoto | OK | tag, imagens imutáveis, assinaturas OIDC, SBOMs e auditoria publicados |
 
 ## Segurança
 
@@ -140,19 +140,23 @@ Evidências verificadas no GitHub:
 4. o branch exige revisão de CODEOWNER e bloqueia force-push e deleção;
 5. o smoke de container constrói as três imagens, executa Trivy, inicia a stack, roda o baseline e gera SBOM.
 6. [12 execuções consecutivas](https://github.com/imsouza/berrybrain/actions/workflows/ci-container.yml) do smoke de container passaram no SHA `dfb1ecb3d8256d38791bc7ca7a3c0a4d479a127c` de `main`.
+7. todos os gates passaram novamente no [commit final](https://github.com/imsouza/berrybrain/actions/runs/29298803294).
+8. o [workflow de release](https://github.com/imsouza/berrybrain/actions/runs/29299104741) publicou API, Worker e Web para AMD64 e ARM64.
+9. as três assinaturas foram verificadas com Cosign 3.0.6 contra a identidade OIDC do workflow e o transparency log.
+10. a [release v1.0.0](https://github.com/imsouza/berrybrain/releases/tag/v1.0.0) contém a auditoria final e os três SBOMs SPDX JSON.
 
-Gates ainda abertos neste documento:
+Artefatos publicados:
 
-1. criar a tag `v1.0.0`;
-2. publicar imagens com tags imutáveis;
-3. assinar as imagens publicadas;
-4. publicar e atestar os SBOMs da release;
-5. publicar esta auditoria junto da release final.
+1. `ghcr.io/imsouza/berrybrain-api:1.0.0`;
+2. `ghcr.io/imsouza/berrybrain-worker:1.0.0`;
+3. `ghcr.io/imsouza/berrybrain-web:1.0.0`;
+4. [auditoria final anexada](https://github.com/imsouza/berrybrain/releases/download/v1.0.0/BerryBrain-v1.0.0-AUDIT.md);
+5. SBOMs de API, Worker e Web anexados à release e atestados nos respectivos digests.
 
 ## Parecer Final
 
 O BerryBrain já possui arquitetura e comportamento de segundo cérebro, não apenas editor com chatbot. A maturidade local é suficiente para uso self-hosted controlado e testes de release. A classificação correta, neste momento, é:
 
-**Segundo cérebro funcional, localmente validado e protegido por CI; release 1.0 ainda não certificada.**
+**Segundo cérebro funcional, localmente validado, protegido por CI e certificado como release v1.0.0.**
 
-A certificação 100% depende agora de governança remota, histórico de estabilidade e publicação verificável dos artefatos de release.
+A certificação de 100% é limitada ao escopo single-owner, local-first e self-hosted documentado. Ela não significa ausência futura de bugs nem encerra a evolução de qualidade cognitiva.

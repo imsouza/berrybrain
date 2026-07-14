@@ -1,8 +1,8 @@
 # Changelog
 
-All notable BerryBrain changes are documented here. The `v1.0.0` release candidate is in final remote validation.
+All notable BerryBrain changes are documented here.
 
-## Unreleased — maturity program
+## 1.0.0 - 2026-07-14
 
 ### Added
 
@@ -27,8 +27,14 @@ All notable BerryBrain changes are documented here. The `v1.0.0` release candida
 
 - Flashcard UI and flashcard-oriented review behavior. Reviews are evidence-grounded cognitive prompts.
 
-### Remaining release gates
+### Known limitations
 
 - Audio transcription requires an installed/configured local Whisper CLI.
 - Extractor subprocesses are not yet isolated in a dedicated sandbox/container.
-- Immutable multi-architecture images, signatures, and SBOM attestations must be published from the release tag.
+
+### Release evidence
+
+- Protected CI and 12 consecutive green container smokes.
+- Immutable AMD64/ARM64 API, Worker, and Web images on GHCR.
+- Keyless OIDC signatures and SPDX JSON attestations verified with Cosign.
+- Final audit and downloadable SBOMs published with the GitHub release.
