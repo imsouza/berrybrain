@@ -19,6 +19,8 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 ![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
 ![License](https://img.shields.io/badge/license-non--commercial-lightgrey)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/berrybrain)
+
 ---
 
 ## Table of Contents
