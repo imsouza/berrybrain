@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -184,7 +185,10 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             "ollama": "online" if worker and worker.ollama_healthy else "offline",
             "cloudProvider": _cloud_provider(ai_config),
             "cloudModel": ai_config.get("cloud_model") or "",
-            "cloudStatus": progress_state,
+            "cloudStatus": _cloud_status(ai_config),
+            "cloudConfigured": bool(ai_config.get("cloud_key_configured")),
+            "cloudLastTestAt": ai_config.get("last_test_at") or None,
+            "remoteContentConsent": ai_config.get("remote_content_consent") == "true",
             "pendingJobs": len(pending_jobs),
             "activeJobs": len(running_jobs),
             "lastProcessingAt": serialize_datetime(_last_processing_at(jobs, notes)),
@@ -324,10 +328,24 @@ def list_recent_connections(session: Session, limit: int = 20) -> list[dict[str,
 def _ai_config(session: Session) -> dict[str, str]:
     rows = session.execute(select(SettingRecord)).scalars()
     values = {row.key: row.value for row in rows}
+    cloud_url = values.get("ai_api_url") or values.get("ai_custom_url", "")
+    api_key = values.get("ai_api_key", "")
+    test_matches = (
+        values.get("ai_last_test_url", "").rstrip("/") == cloud_url.rstrip("/")
+        and values.get("ai_last_test_key_fingerprint", "")
+        == (hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else "")
+        and values.get("ai_last_test_method") == "chat_completions"
+    )
     return {
         "provider": values.get("ai_provider", "local"),
-        "cloud_api_url": values.get("ai_api_url") or values.get("ai_custom_url", ""),
+        "cloud_api_url": cloud_url,
         "cloud_model": values.get("ai_model", ""),
+        "cloud_key_configured": "true" if values.get("ai_api_key") else "",
+        "remote_content_consent": values.get("remote_content_consent", "false"),
+        "last_test_status": values.get("ai_last_test_status", "untested")
+        if test_matches
+        else "untested",
+        "last_test_at": values.get("ai_last_test_at", ""),
     }
 
 
@@ -339,6 +357,24 @@ def _cloud_provider(config: dict[str, str]) -> str:
     if "nvidia" in url or "nvidia" in model or "nemotron" in model:
         return "nvidia-nim"
     return "cloud"
+
+
+def _cloud_status(config: dict[str, str]) -> str:
+    if config.get("provider") != "cloud":
+        return "local"
+    if not (
+        config.get("cloud_api_url")
+        and config.get("cloud_key_configured")
+        and config.get("cloud_model")
+    ):
+        return "incomplete"
+    if config.get("remote_content_consent") != "true":
+        return "disabled"
+    if config.get("last_test_status") == "connected":
+        return "connected"
+    if config.get("last_test_status") == "failed":
+        return "failed"
+    return "configured"
 
 
 def _worker_status(worker: WorkerStatus | None, now: datetime) -> str:

@@ -79,13 +79,13 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
           onClose();
         }}
       />
-      <div className="relative z-50 w-80 max-h-[70vh] flex flex-col overflow-hidden rounded-2xl bg-panel shadow-2xl ring-1 ring-black/5">
+      <div className="bb-card bb-card--elevated relative z-50 flex max-h-[70vh] w-80 flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/35">
-          <h2 className="text-sm font-semibold">Alertas</h2>
+          <h2 className="text-sm font-semibold">Alerts</h2>
           <button
             className="rounded-lg p-1.5 text-muted transition hover:bg-black/5 hover:text-foreground"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label="Close"
           >
             <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -117,7 +117,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
         <div className="border-t border-border/35 p-2">
           <button
-            className="w-full rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground"
+            className="bb-action w-full px-3 py-1.5 text-xs font-medium"
             onClick={() => {
               window.location.href = appPath("/activity");
               onClose();

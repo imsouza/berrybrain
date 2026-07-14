@@ -74,10 +74,10 @@ export function UserMenu() {
   if (!user) {
     return (
       <div className="flex items-center gap-2">
-        <a href={appPath("/login")} className="rounded-md px-3 py-2 text-xs text-muted hover:text-foreground">
+        <a href={appPath("/login")} className="bb-action px-3 py-2 text-xs">
           Log in
         </a>
-        <a href={appPath("/setup")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black hover:opacity-90">
+        <a href={appPath("/setup")} className="bb-action px-3 py-2 text-xs font-medium">
           Set up
         </a>
       </div>
@@ -86,7 +86,7 @@ export function UserMenu() {
 
   return (
     <div className="flex items-center gap-2">
-      <a href={appPath("/brain")} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-black">
+      <a href={appPath("/brain")} className="bb-action px-3 py-2 text-xs font-medium">
         Open app
       </a>
       <button
@@ -101,7 +101,7 @@ export function UserMenu() {
           <circle cx="12" cy="7" r="4" />
         </svg>
       </button>
-      <button type="button" onClick={logout} className="rounded-md border border-border px-3 py-2 text-xs text-muted hover:text-foreground">
+      <button type="button" onClick={logout} className="bb-action px-3 py-2 text-xs">
         Sign out
       </button>
       <AccountSettingsDialog
@@ -208,7 +208,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 await call("/me", "PATCH", { display_name: displayName });
               }, "Profile updated.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Save profile
           </button>
@@ -227,7 +227,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setEmailPassword("");
               }, "Email updated.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Change email
           </button>
@@ -250,7 +250,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setNewPassword("");
               }, "Password changed.")
             }
-            className="rounded-md bg-accent px-3 py-2 font-medium text-black disabled:opacity-50"
+            className="bb-action px-3 py-2 font-medium"
           >
             Change password
           </button>
@@ -269,7 +269,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 setTwoFaPassword("");
               }, "2FA updated.")
             }
-            className="rounded-md border border-border px-3 py-2 hover:text-foreground disabled:opacity-50"
+            className="bb-action px-3 py-2"
           >
             {user.twoFactorEnabled ? "Disable 2FA" : "Enable 2FA"}
           </button>
@@ -286,7 +286,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
                 window.location.href = appPath("/login");
               }, "Sessions closed.")
             }
-            className="rounded-md border border-border px-3 py-2 hover:text-foreground disabled:opacity-50"
+            className="bb-action px-3 py-2"
           >
             Sign out everywhere
           </button>

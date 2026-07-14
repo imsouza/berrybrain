@@ -572,6 +572,33 @@ The editor supports attaching files to notes, with limits configured in Settings
 
 Attachments are persisted, queued, extracted, indexed as chunks, and represented as evidence-backed graph nodes. PDF/document parsing, Tesseract OCR, and local Faster Whisper transcription run in a constrained extractor process with configurable timeout and file-size limits.
 
+### OCR Languages
+
+`BERRYBRAIN_ATTACHMENT_OCR_LANGUAGE` is passed to Tesseract's `-l` option. Changing the code
+does not download a language automatically: the matching Tesseract `traineddata` package must
+already exist in the API image. The default image bundles English (`eng`) and orientation
+detection (`osd`) only.
+
+For Debian-based images, add the required packages to `apps/api/Dockerfile`, rebuild the API,
+and then select their Tesseract codes in Settings. Example for Portuguese and Spanish:
+
+```dockerfile
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+```bash
+docker compose build api
+docker compose up -d api
+docker compose exec api tesseract --list-langs
+```
+
+Use Tesseract codes such as `eng`, `por`, `spa`, `deu`, or `fra`. Multiple installed
+languages can be combined, for example `por+eng`. An unknown code or a code whose package is
+absent causes the OCR job to fail; this rule applies to every language.
+
 ---
 
 ## Self-Hosting
@@ -847,7 +874,7 @@ Implemented capabilities:
 - `attachment` graph nodes;
 - attachment-backed insights and graph answers.
 
-Remaining maturity work includes broader real-world fixtures, more OCR languages, larger transcription model choices, and public quality benchmarks.
+Remaining maturity work includes bundling more OCR language packs by default, broader real-world fixtures, larger transcription model choices, and public quality benchmarks. Any Tesseract language can be added by installing its matching `traineddata` package as documented above.
 
 ### Security and Self-Hosting Roadmap
 
