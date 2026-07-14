@@ -3,13 +3,7 @@ name: CI Worker
 on:
   push:
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - ".github/workflows/ci-worker.yml"
   pull_request:
-    paths:
-      - "apps/worker/**"
-      - ".github/workflows/ci-worker.yml"
 
 jobs:
   worker:
