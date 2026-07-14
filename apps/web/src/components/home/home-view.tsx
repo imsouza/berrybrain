@@ -162,6 +162,55 @@ export function HomeView() {
       setLoading(false);
       return;
     }
+    if (w.api === "__browser__") {
+      const localNotes = w.notes.slice(0, 8).map((note) => ({
+        title: note.title,
+        path: note.path,
+        folder: note.folder,
+        status: "saved locally",
+      }));
+      setSummary({
+        ...DEMO_HOME_SUMMARY,
+        status: {
+          ...DEMO_HOME_SUMMARY.status,
+          worker: "browser storage",
+          cloudProvider: "not configured",
+          cloudModel: "",
+          cloudStatus: "completed",
+          cloudConfigured: false,
+          remoteContentConsent: false,
+          lastProcessingAt: null,
+        },
+        progress: {
+          ...DEMO_HOME_SUMMARY.progress,
+          completed: 0,
+          currentStep: "Browser data saved locally",
+          lastResult: "No background worker in browser mode",
+        },
+        stats: {
+          notes: { total: w.notes.length, createdToday: 0, unassimilated: 0 },
+          connections: { total: 0, createdToday: 0, averageConfidence: 0 },
+          concepts: { total: 0, newToday: 0, withoutPermanentNote: 0 },
+          study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
+          jobs: { pending: 0, active: 0, failed: 0, completedToday: 0, total: 0 },
+          ai: { provider: "browser", model: "", metadata: 0, embeddings: 0, jobsProcessed: 0, errors: 0 },
+        },
+        recentNotes: localNotes,
+        recentInsights: [],
+        recentConnections: [],
+        graphSummary: {
+          nodes: w.notes.length,
+          edges: 0,
+          orphans: w.notes.length,
+          clusters: 0,
+          centralNotes: [],
+        },
+        needsAttention: [],
+      });
+      setPipelineProgress([]);
+      setLoading(false);
+      return;
+    }
     fetch(`${w.api}/api/v1/home/summary`)
       .then((r) => {
         if (!r.ok) throw new Error("home-summary");
@@ -174,10 +223,11 @@ export function HomeView() {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.notes) setPipelineProgress(d.notes); })
       .catch(() => {});
-  }, [w.api, w.demo]);
+  }, [w.api, w.demo, w.notes]);
 
   const updateConnectionStatus = useCallback(
     async (id: number, action: "confirm" | "ignore") => {
+      if (w.api === "__browser__") return;
       const response = await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, {
         method: "POST",
       });
@@ -509,6 +559,10 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
 function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: HomeSummary; onOpenGraph: () => void; apiUrl: string; onToast: (msg: string, kind: "success" | "error") => void }) {
   const graph = summary.graphSummary;
   const recalcular = async () => {
+    if (apiUrl === "__browser__") {
+      onToast("Graph expansion requires the self-hosted API and worker.", "error");
+      return;
+    }
     try {
       const r = await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
       if (!r.ok) throw new Error("expand-fail");

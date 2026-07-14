@@ -8,6 +8,7 @@ import berryPrint3 from "../../../public/berrybrain-print3.png";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { readCsrf } from "@/components/public-site/user-menu";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 const GITHUB_URL = "https://github.com/imsouza/berrybrain";
 
@@ -196,6 +197,10 @@ export function PublicShell({
   const closeModal = useCallback(() => setModal(null), []);
 
   useEffect(() => {
+    if (BROWSER_STORAGE_MODE) {
+      setAccessState("configured");
+      return;
+    }
     let alive = true;
     async function loadAccess() {
       try {

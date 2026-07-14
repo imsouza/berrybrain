@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { NoteWorkspace } from "@/components/note-workspace";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 export default function Brain() {
   const apiUrl = getApiUrl();
-  const [state, setState] = useState<"checking" | "allowed">("checking");
+  const [state, setState] = useState<"checking" | "allowed">(
+    BROWSER_STORAGE_MODE ? "allowed" : "checking",
+  );
 
   useEffect(() => {
+    if (BROWSER_STORAGE_MODE) return;
     let alive = true;
     fetch(`${apiUrl}/api/v1/setup/status`, { credentials: "include" })
       .then((response) => response.json())
@@ -31,7 +35,7 @@ export default function Brain() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [apiUrl]);
 
   if (state !== "allowed") {
     return (

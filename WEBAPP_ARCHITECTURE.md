@@ -127,11 +127,15 @@ minimal account metadata before signup.
 
 ### Phase 1 — Browser knowledge repository
 
-- [ ] Versioned OPFS/IndexedDB repository interface.
-- [ ] Transactional note and graph writes with crash recovery.
+- [x] Versioned IndexedDB repository and migration boundary.
+- [ ] OPFS attachment repository.
+- [x] Transactional note writes.
+- [ ] Transactional graph writes with crash recovery.
 - [ ] Encryption envelope, key lifecycle, migration tests, and lock screen.
-- [ ] Quota, persistence, eviction, private-mode, and browser support diagnostics.
-- [ ] Encrypted backup/export/import with corruption checks.
+- [x] Quota and persistent-storage diagnostics.
+- [ ] Eviction, private-mode, and cross-browser support diagnostics.
+- [x] Complete backup/export/import with SHA-256 corruption checks.
+- [ ] Optional encrypted backup envelope and key recovery design.
 - [ ] Web Worker pipeline and deterministic migration fixtures.
 
 ### Phase 2 — Hosted account control plane

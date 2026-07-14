@@ -3,6 +3,7 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 export type MeUser = {
   id: number;
@@ -29,6 +30,11 @@ export function UserMenu() {
   const [ready, setReady] = useState(false);
 
   const loadMe = useCallback(async () => {
+    if (BROWSER_STORAGE_MODE) {
+      setUser(null);
+      setReady(true);
+      return;
+    }
     if (!hasSessionCookie()) {
       setUser(null);
       setReady(true);
@@ -70,6 +76,14 @@ export function UserMenu() {
   }, [apiUrl]);
 
   if (!ready) return <div className="h-8 w-24" aria-hidden />;
+
+  if (BROWSER_STORAGE_MODE) {
+    return (
+      <a href={appPath("/brain")} className="bb-action px-3 py-2 text-xs font-medium">
+        Open app
+      </a>
+    );
+  }
 
   if (!user) {
     return (

@@ -460,7 +460,7 @@ export function GraphScreen({
   }
 
   useEffect(() => {
-    if (apiUrl === "__demo__") return;
+    if (apiUrl === "__demo__" || apiUrl === "__browser__") return;
     apiFetch(`${apiUrl}/api/v1/settings/graph/config`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((config) => {
@@ -472,7 +472,7 @@ export function GraphScreen({
   }, [apiUrl]);
 
   useEffect(() => {
-    if (apiUrl === "__demo__" || !selectedNode?.recordId || !showDetail) {
+    if (apiUrl === "__demo__" || apiUrl === "__browser__" || !selectedNode?.recordId || !showDetail) {
       setNodeSummary(null);
       return;
     }
@@ -498,7 +498,7 @@ export function GraphScreen({
   }, [apiUrl, selectedNode?.recordId, showDetail]);
 
   useEffect(() => {
-    if (apiUrl === "__demo__") {
+    if (apiUrl === "__demo__" || apiUrl === "__browser__") {
       setResearchModeEnabled(false);
       return;
     }
@@ -517,7 +517,7 @@ export function GraphScreen({
   }
 
   async function expandGraph() {
-    if (apiUrl === "__demo__") return;
+    if (apiUrl === "__demo__" || apiUrl === "__browser__") return;
     await apiFetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
     reload();
   }
@@ -526,6 +526,23 @@ export function GraphScreen({
     const text = query.trim();
     if (!text) return;
     if (apiUrl === "__demo__") return;
+    if (apiUrl === "__browser__") {
+      const matches = (graphData?.nodes || []).filter((node) =>
+        `${node.label} ${node.summary || ""}`.toLowerCase().includes(text.toLowerCase()),
+      );
+      setInference({
+        status: matches.length ? "local_search" : "insufficient_evidence",
+        question: text,
+        answer: matches.length
+          ? `Found ${matches.length} matching note${matches.length === 1 ? "" : "s"} in this browser. AI inference requires a configured browser-safe provider.`
+          : "No matching local note was found. AI inference is not enabled in browser-only mode yet.",
+        relatedNodes: matches.map((node) => ({ id: node.id, title: node.title, label: node.label, type: node.type, path: node.path })),
+        evidence: matches.slice(0, 5).map((node) => ({ title: node.title || node.label, reference: node.path })),
+        provider: "browser-search",
+        model: "none",
+      });
+      return;
+    }
     setInferLoading(true);
     setInference(null);
     setInferenceSaveStatus("");

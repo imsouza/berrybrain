@@ -30,6 +30,11 @@ export default function ReviewsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    if (w.api === "__browser__") {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     try {
       const response = await fetch(`${w.api}/api/v1/reviews?due=true&limit=50`);
       if (!response.ok) throw new Error("Could not load today's review session.");
@@ -48,7 +53,7 @@ export default function ReviewsPage() {
 
   async function grade(rating: Rating) {
     const current = items[0];
-    if (!current || submitting) return;
+    if (!current || submitting || w.api === "__browser__") return;
     setSubmitting(rating);
     try {
       const response = await fetch(`${w.api}/api/v1/reviews/${current.id}/grade`, {

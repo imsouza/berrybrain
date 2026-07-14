@@ -52,7 +52,7 @@ export function CommandPalette({
     if (!open) return;
 
     const trimmed = query.trim();
-    if (!trimmed || apiUrl === "__demo__") {
+    if (!trimmed || apiUrl === "__demo__" || apiUrl === "__browser__") {
       setResults(commands);
       setSelectedIndex(0);
       return;

@@ -22,7 +22,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    if (apiUrl === "__demo__") {
+    if (apiUrl === "__demo__" || apiUrl === "__browser__") {
       setAlerts([]);
       setLoading(false);
       return;
@@ -123,7 +123,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
               onClose();
             }}
           >
-            Ver atividade
+            View activity
           </button>
         </div>
       </div>

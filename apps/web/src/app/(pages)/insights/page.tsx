@@ -68,6 +68,11 @@ export default function InsightsPage() {
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
+    if (api === "__browser__") {
+      setInsights([]);
+      setLoading(false);
+      return;
+    }
     try {
       const r = await fetch(`${api}/api/v1/insights?limit=50`);
       if (r.ok) {
@@ -82,6 +87,10 @@ export default function InsightsPage() {
   useEffect(() => { loadInsights(); }, [loadInsights]);
 
   const generateNow = async () => {
+    if (api === "__browser__") {
+      setFeedback("AI insight generation requires the self-hosted API and worker.");
+      return;
+    }
     setGenerating(true);
     setFeedback(null);
     try {
@@ -102,6 +111,7 @@ export default function InsightsPage() {
   };
 
   const dismissInsight = async (id: number, action: "apply" | "ignore") => {
+    if (api === "__browser__") return;
     try {
       const r = await fetch(`${api}/api/v1/insights/${id}/${action}`, { method: "POST" });
       if (r.ok) setFeedback(action === "apply" ? t("insightApplied") : t("insightIgnored"));
@@ -111,6 +121,7 @@ export default function InsightsPage() {
   };
 
   const createNote = async (insight: InsightItem) => {
+    if (api === "__browser__") return;
     try {
       await fetch(`${api}/api/v1/insights/${insight.id}/create-note`, { method: "POST" });
       setFeedback(t("createNoteJobSent"));
@@ -119,6 +130,7 @@ export default function InsightsPage() {
   };
 
   const createReview = async (insight: InsightItem) => {
+    if (api === "__browser__") return;
     try {
       await fetch(`${api}/api/v1/insights/${insight.id}/create-review`, { method: "POST" });
       setFeedback(t("createReviewJobSent"));

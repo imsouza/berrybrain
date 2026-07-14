@@ -2,8 +2,20 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AutosaveStatus, Insight, JobSummary, NoteDetail, NoteSummary, Stats, Toast } from "@/types";
+import {
+  BROWSER_STORAGE_MODE,
+  browserStats,
+  createBrowserNote,
+  deleteBrowserNote,
+  getBrowserNote,
+  initializeBrowserStorage,
+  listBrowserNotes,
+  renameBrowserNote,
+  saveBrowserNote,
+} from "@/lib/browser-storage";
 
 export function getApiUrl() {
+  if (process.env.NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE === "browser") return "__browser__";
   const env = process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL;
   if (env) return env;
   if (typeof window === "undefined") return "";
@@ -151,7 +163,10 @@ const C = createContext<Ctx>(null!);
 export function useWorkspace() { return useContext(C); }
 
 export function WorkspaceProvider({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
-  const api = useMemo(() => demo ? "__demo__" : getApiUrl(), [demo]);
+  const api = useMemo(
+    () => (demo ? "__demo__" : BROWSER_STORAGE_MODE ? "__browser__" : getApiUrl()),
+    [demo],
+  );
   const [notes, setNotes] = useState<NoteSummary[]>(() => demo ? demoNoteSummaries() : []);
   const [active, setActive] = useState<NoteDetail | null>(null);
   const [draft, setDraft] = useState("");
@@ -186,6 +201,19 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
 
   async function loadAll() {
     if (demo) return;
+    if (BROWSER_STORAGE_MODE) {
+      try {
+        await initializeBrowserStorage();
+        const [localNotes, localStats] = await Promise.all([listBrowserNotes(), browserStats()]);
+        setNotes(localNotes);
+        setStats(localStats);
+        setJobs([]);
+        setInsights([]);
+      } catch {
+        toast("Browser storage could not be opened.", "error");
+      }
+      return;
+    }
     try {
       const [nr, jr, sr, insR] = await Promise.all([
         apiFetch(`${api}/api/v1/notes`), apiFetch(`${api}/api/v1/jobs?limit=8`),
@@ -207,6 +235,20 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive(detail); setDraft(detail.content); draftRef.current = detail.content; setSaveConflict(null); setRightOpen(false); setAutosave("saved");
       return;
     }
+    if (BROWSER_STORAGE_MODE) {
+      const note = await getBrowserNote(path);
+      if (!note) {
+        toast("Note not found in browser storage.", "error");
+        return;
+      }
+      setActive(note);
+      setDraft(note.content);
+      draftRef.current = note.content;
+      setSaveConflict(null);
+      setRightOpen(false);
+      setAutosave("saved");
+      return;
+    }
     const r = await apiFetch(`${api}/api/v1/notes/${encode(path)}`);
     if (!r.ok) { toast("Failed to open note.", "error"); return; }
     const n = await r.json();
@@ -220,6 +262,21 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive({ ...active, content: draft });
       setSaveConflict(null);
       setAutosave("saved");
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      const contentToSave = draftRef.current;
+      setAutosave("saving");
+      try {
+        const updated = await saveBrowserNote(active, contentToSave);
+        setActive(updated);
+        setNotes(await listBrowserNotes());
+        setSaveConflict(null);
+        setAutosave(draftRef.current === contentToSave ? "saved" : "unsaved");
+      } catch {
+        setAutosave("unsaved");
+        toast("Browser storage could not save this note.", "error");
+      }
       return;
     }
     const expectedHash = baseContentHash || active.content_hash;
@@ -305,6 +362,16 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         setActive(note); setDraft(note.content); draftRef.current = note.content; setSaveConflict(null); setAutosave("saved");
         return true;
       }
+      if (BROWSER_STORAGE_MODE) {
+        const note = await createBrowserNote(content);
+        setNotes(await listBrowserNotes());
+        setActive(note);
+        setDraft(note.content);
+        draftRef.current = note.content;
+        setSaveConflict(null);
+        setAutosave("saved");
+        return true;
+      }
       const r = await apiFetch(`${api}/api/v1/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder: "inbox", content }),
@@ -335,6 +402,16 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Demo note deleted.", "success");
       return;
     }
+    if (BROWSER_STORAGE_MODE) {
+      await deleteBrowserNote(active.path);
+      setNotes(await listBrowserNotes());
+      setActive(null);
+      setDraft("");
+      draftRef.current = "";
+      setSaveConflict(null);
+      toast("Note removed from this browser.", "success");
+      return;
+    }
     try {
       const response = await apiFetch(`${api}/api/v1/notes/${encode(active.path)}`, { method: "DELETE" });
       if (!response.ok) {
@@ -350,6 +427,11 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   async function scanVault() {
     if (demo) {
       toast("Demo vault is already loaded.", "info");
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      await loadAll();
+      toast("Browser workspace refreshed.", "success");
       return;
     }
     const r = await apiFetch(`${api}/api/v1/vault/scan`, { method: "POST" });
@@ -377,6 +459,17 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       setActive({ ...active, title: newTitle });
       setNotes((current) => current.map((note) => note.path === active.path ? { ...note, title: newTitle } : note));
       toast("Demo note renamed.", "success");
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      try {
+        const updated = await renameBrowserNote(active, newTitle);
+        setActive(updated);
+        setNotes(await listBrowserNotes());
+        toast("Renamed.", "success");
+      } catch {
+        toast("Browser storage could not rename the note.", "error");
+      }
       return;
     }
     try {
@@ -408,7 +501,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [active]);
 
   async function aiRename(path: string) {
-    if (demo) return;
+    if (demo || BROWSER_STORAGE_MODE) return;
     try {
       await apiFetch(`${api}/api/v1/jobs`, {
         method: "POST",
@@ -420,7 +513,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
 
   useEffect(() => { loadAll(); }, []);
   useEffect(() => {
-    if (demo) return;
+    if (demo || BROWSER_STORAGE_MODE) return;
     const iv = setInterval(() => { apiFetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);
     return () => clearInterval(iv);
   }, [api, demo]);
