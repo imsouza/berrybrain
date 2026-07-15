@@ -644,9 +644,11 @@ docker compose up -d
 
 Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the Worker starts in the background to process vault scans, embeddings, graph expansion, and insights.
 
-### Browser-only webapp mode
+### Browser-only workspace mode (experimental, not deployed)
 
-The `webapp` branch can run its note workspace without FastAPI by setting:
+The repository retains an experimental browser-only workspace implementation for development and
+automated tests. It is not exposed by the official Netlify deployment. To test it locally, build
+without `NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY=true` and set:
 
 ```ini
 NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE=browser
@@ -671,14 +673,16 @@ jobs. OCR, media transcription, durable background processing while the browser 
 server-side vector databases remain self-hosted capabilities.
 
 For Netlify, deploy the `webapp` branch. The repository's `netlify.toml` sets `apps/web` as the
-base directory, `npm run build` as the build command, and `.next` as the publish directory. Keep
+base directory, `npm run build` as the build command, `.next` as the publish directory, and
+`NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY=true`. This serves only the public landing page. Workspace,
+authentication, setup, and browser-AI routes redirect to the download section or return 404.
+Previously registered BerryBrain service workers and caches are removed in this mode. Keep
 `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` in the Netlify environment when analytics is enabled. Do not set
-`BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for browser-only deployments.
+`BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for the landing deployment.
 The Netlify Next.js runtime is pinned in the web package so App Router pages and middleware are
 packaged as Netlify Functions instead of publishing raw `.next` artifacts that return 404.
-The functions under `/api/browser-ai/*` are restricted cloud-provider proxies: they reject
-cross-site calls, require public HTTPS endpoints, reject local/private network destinations and
-redirects, disable caching, and do not persist request bodies or keys.
+The dormant `/api/browser-ai/*` functions retain their proxy protections for local development but
+are blocked by middleware on the landing deployment.
 
 ### 3. Create the local owner account
 
