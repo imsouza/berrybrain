@@ -23,15 +23,6 @@ const EDITOR_FONTS: Record<string, string> = {
 
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
 
-function isNvidiaNimEndpoint(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname.toLowerCase().replace(/\.$/, "");
-    return hostname === "nvidia.com" || hostname.endsWith(".nvidia.com");
-  } catch {
-    return false;
-  }
-}
-
 const CLOUD_PROVIDERS: Record<string, string> = {
   [NVIDIA_NIM_URL]: "NVIDIA NIM",
   "https://api.openai.com/v1": "OpenAI",
@@ -296,7 +287,6 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [diagClearResult, setDiagClearResult] = useState("");
 
   const selectedProviderLabel = useMemo(() => CLOUD_PROVIDERS[s.ai_api_url] || "Custom provider", [s.ai_api_url]);
-  const nimApiKey = s.ai_api_key;
 
   useEffect(() => {
     if (!open) return;
@@ -415,11 +405,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaveStatus("");
     try {
       const baseUrl = (s.ai_api_url || s.ai_custom_url).trim();
-      const isNvidiaNim = isNvidiaNimEndpoint(baseUrl);
       const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
       const hasCloudModel = Boolean(s.ai_model.trim());
-      const inferNimActivation = isNvidiaNim && providerChoiceRef.current !== "local";
-      const wantsCloud = s.ai_provider === "cloud" || inferNimActivation;
+      const wantsCloud = s.ai_provider === "cloud";
       let next = s;
 
       if (wantsCloud && (!baseUrl || !hasCloudKey || !hasCloudModel)) {
@@ -741,7 +729,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             </Field>
           </Section>
 
-          <Section title="NVIDIA NIM" description="Cloud model used for graph inference, insights, and knowledge expansion.">
+          <Section title="Cloud AI" description="OpenAI-compatible provider used for graph inference, insights, and knowledge expansion.">
             <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
             <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
               <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
@@ -755,15 +743,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               </Field>
             )}
             <Field
-              label="NVIDIA NIM API Key"
+              label={`${selectedProviderLabel} API Key`}
               description={apiKeyConfigured ? "A key is saved securely. Enter a new key only to replace it." : "The key is stored by the BerryBrain API and is never returned to the browser."}
             >
               <div className="flex flex-wrap gap-2">
                 <TextInput
                   type={showKey ? "text" : "password"}
-                  value={nimApiKey}
+                  value={s.ai_api_key}
                   onChange={(value) => update("ai_api_key", value)}
-                  placeholder={apiKeyConfigured ? "Saved securely — enter a new key to replace it" : "Paste your NVIDIA NIM API key"}
+                  placeholder={apiKeyConfigured ? "Saved securely — enter a new key to replace it" : `Paste your ${selectedProviderLabel} API key`}
                 />
                 <button className="bb-action h-9 px-3 text-xs" onClick={() => setShowKey((value) => !value)}>
                   {showKey ? "Hide" : "Show"}
