@@ -5,6 +5,12 @@ import { MarkdownPreview } from "./markdown-preview";
 import { useState, useEffect, useRef, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { t } from "@/i18n";
+import {
+  BROWSER_STORAGE_MODE,
+  createBrowserAttachment,
+  deleteBrowserAttachment,
+  listBrowserAttachments,
+} from "@/lib/browser-storage";
 
 type AttachmentItem = {
   id: number;
@@ -31,7 +37,7 @@ function Backlinks({ notePath }: { notePath: string }) {
   const w = useWorkspace();
   const [links, setLinks] = useState<any[]>([]);
   useEffect(() => {
-    if (w.demo) {
+    if (w.demo || BROWSER_STORAGE_MODE) {
       setLinks([]);
       return;
     }
@@ -76,6 +82,16 @@ export function NoteEditor() {
       setAttachments([]);
       return;
     }
+    if (BROWSER_STORAGE_MODE) {
+      let objectUrls: string[] = [];
+      listBrowserAttachments(w.active.path)
+        .then((items) => {
+          objectUrls = items.map((item) => item.downloadUrl);
+          setAttachments(items);
+        })
+        .catch(() => setAttachments([]));
+      return () => objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    }
     const encodedPath = encodeNotePath(w.active.path);
     fetch(`${w.api}/api/v1/notes/${encodedPath}/attachments`)
       .then((r) => (r.ok ? r.json() : null))
@@ -104,7 +120,7 @@ export function NoteEditor() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!w.active || w.demo) {
+    if (!w.active || w.demo || BROWSER_STORAGE_MODE) {
       setPipelineProgress(null);
       return;
     }
@@ -217,7 +233,9 @@ export function NoteEditor() {
   }
 
   function insertAttachmentMarkdown(attachment: AttachmentItem) {
-    const url = `${w.api}${attachment.downloadUrl}`;
+    const url = BROWSER_STORAGE_MODE
+      ? `berrybrain-attachment:${attachment.id}`
+      : `${w.api}${attachment.downloadUrl}`;
     const name = attachment.filename.replace(/]/g, "");
     if (attachment.category === "image") {
       insertBlock(`![${name}](${url})\n`);
@@ -244,6 +262,24 @@ export function NoteEditor() {
     if (!files?.length || !w.active) return;
     if (w.demo) {
       setAttachmentStatus("Attachments are disabled in demo mode.");
+      return;
+    }
+    if (BROWSER_STORAGE_MODE) {
+      setAttachmentStatus(`Saving ${files.length} attachment${files.length > 1 ? "s" : ""} locally...`);
+      const uploaded: AttachmentItem[] = [];
+      try {
+        for (const file of Array.from(files)) {
+          uploaded.push(await createBrowserAttachment(w.active.path, file));
+        }
+        setAttachments((current) => [...uploaded, ...current]);
+        setAttachmentStatus(`${uploaded.length} attachment${uploaded.length > 1 ? "s" : ""} saved in this browser.`);
+      } catch (error) {
+        uploaded.forEach((item) => URL.revokeObjectURL(item.downloadUrl));
+        setAttachmentStatus(error instanceof Error ? error.message : "Attachment storage failed.");
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        window.setTimeout(() => setAttachmentStatus(""), 4000);
+      }
       return;
     }
     setAttachmentStatus(`Uploading ${files.length} attachment${files.length > 1 ? "s" : ""}...`);
@@ -281,12 +317,24 @@ export function NoteEditor() {
 
   async function deleteAttachment(id: number) {
     if (w.demo) return;
+    if (BROWSER_STORAGE_MODE) {
+      const target = attachments.find((item) => item.id === id);
+      await deleteBrowserAttachment(id);
+      if (target) URL.revokeObjectURL(target.downloadUrl);
+      setAttachments((current) => current.filter((item) => item.id !== id));
+      return;
+    }
     const response = await fetch(`${w.api}/api/v1/notes/attachments/${id}`, { method: "DELETE" });
     if (response.ok) setAttachments((current) => current.filter((item) => item.id !== id));
   }
 
   async function reprocessAttachment(id: number, extractor: string) {
     if (w.demo) return;
+    if (BROWSER_STORAGE_MODE) {
+      setAttachmentStatus("OCR and transcription require the self-hosted worker.");
+      window.setTimeout(() => setAttachmentStatus(""), 4000);
+      return;
+    }
     setAttachmentStatus("Queueing attachment reprocessing...");
     const response = await fetch(`${w.api}/api/v1/notes/attachments/${id}/reprocess`, {
       method: "POST",
@@ -484,6 +532,7 @@ export function NoteEditor() {
       <AttachmentsPanel
         attachments={attachments}
         apiUrl={w.api}
+        browserMode={BROWSER_STORAGE_MODE}
         status={attachmentStatus}
         onInsert={insertAttachmentMarkdown}
         onDelete={deleteAttachment}
@@ -542,6 +591,7 @@ function NotePipelineStatus({
 function AttachmentsPanel({
   attachments,
   apiUrl,
+  browserMode,
   status,
   onInsert,
   onDelete,
@@ -549,6 +599,7 @@ function AttachmentsPanel({
 }: {
   attachments: AttachmentItem[];
   apiUrl: string;
+  browserMode: boolean;
   status: string;
   onInsert: (attachment: AttachmentItem) => void;
   onDelete: (id: number) => void;
@@ -565,12 +616,12 @@ function AttachmentsPanel({
       <div className="flex flex-wrap gap-2">
         {attachments.map((attachment) => (
           <div key={attachment.id} className="flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5 text-[11px] text-muted ring-1 ring-border/35">
-            <a className="max-w-[220px] truncate hover:text-accent" href={`${apiUrl}${attachment.downloadUrl}`} target="_blank" rel="noreferrer">
+            <a className="max-w-[220px] truncate hover:text-accent" href={browserMode ? attachment.downloadUrl : `${apiUrl}${attachment.downloadUrl}`} target="_blank" rel="noreferrer">
               {attachment.filename}
             </a>
             <span className="text-muted/45">{attachment.category}</span>
             <span className="text-muted/45">{formatBytes(attachment.sizeBytes)}</span>
-            <select
+            {!browserMode && <select
               aria-label={`Extractor for ${attachment.filename}`}
               className="rounded border border-border/60 bg-panel px-1 py-0.5 text-[10px] text-foreground"
               value={extractors[attachment.id] || "auto"}
@@ -581,8 +632,8 @@ function AttachmentsPanel({
               {(attachment.category === "audio" || attachment.category === "video") && <option value="faster-whisper">Faster Whisper (local)</option>}
               {(attachment.category === "audio" || attachment.category === "video") && <option value="whisper-cli">Whisper CLI (custom)</option>}
               {attachment.category === "other" && <option value="attachment-text.v1">Text / document</option>}
-            </select>
-            <button className="text-accent hover:underline" onClick={() => onReprocess(attachment.id, extractors[attachment.id] || "auto")}>Reprocess</button>
+            </select>}
+            {!browserMode && <button className="text-accent hover:underline" onClick={() => onReprocess(attachment.id, extractors[attachment.id] || "auto")}>Reprocess</button>}
             <button className="text-accent hover:underline" onClick={() => onInsert(attachment)}>Insert</button>
             <button className="text-muted/55 hover:text-danger" onClick={() => onDelete(attachment.id)}>Remove</button>
           </div>

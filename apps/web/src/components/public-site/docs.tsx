@@ -48,14 +48,19 @@ The landing page explains the project, links to GitHub, and provides **Login** f
 of that self-hosted instance. Public signup is disabled; an unconfigured deployment directs
 the owner to the one-time local setup.
 
-### Production URL
-The public landing/app can be served at:
+### Official project site
+The hosted project site is available at:
 
 \`\`\`txt
-https://optlabs.com.br/berrybrain
+https://berrybrain.netlify.app
 \`\`\`
 
-Set the web env values to:
+It serves the landing page, this documentation, and the FAQ. The hosted workspace is disabled
+while durable persistence and background processing mature; use the self-hosted stack for the
+complete product.
+
+### Self-hosted subpath
+To serve your own instance under /berrybrain, set the web environment values to:
 
 \`\`\`bash
 NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain
@@ -175,7 +180,8 @@ your notes, attachments, extracted text, embeddings, backups, and local model fi
 
 Required software:
 
-- 64-bit Linux host or Linux VM with a recent Docker Engine and Docker Compose v2.
+- 64-bit Linux with Docker Engine and Docker Compose v2, or Windows with Docker Desktop,
+  WSL 2, and Linux containers.
 - A modern Chromium, Firefox, or Safari browser.
 - HTTPS for public deployments and PWA installation outside \`localhost\`.
 - Ollama plus an installed model for Local mode, **or** an OpenAI-compatible provider URL,
@@ -191,7 +197,7 @@ reverse proxy for public deployments.`,
     md: `## Installation (self-hosting)
 
 ### Prerequisites
-- A Linux host with Docker and Docker Compose.
+- Linux with Docker Engine and Docker Compose, or Windows with Docker Desktop and WSL 2.
 - A domain (for TLS) or a local network address for testing.
 - A strong local owner password for first-run setup.
 
@@ -265,6 +271,10 @@ On first login the **AI setup** modal opens automatically. Choose:
 Until you finish this step, the setup reappears on every load. This guarantees the system is
 never silently unconfigured.
 
+The official hosted site does not expose setup, provider configuration, or a workspace. These
+steps apply only to a self-hosted instance. An experimental browser-storage implementation remains
+in the source for development and automated tests, but it is not a supported hosted deployment.
+
 ### Guided tour
 A short tour runs **once** on first use, explaining capture, autopilot, graph, insights, and
 session controls. **Skip** moves directly to AI setup; it does not dismiss onboarding. The
@@ -310,6 +320,9 @@ Security behavior:
 4. Paste your **API key**.
 5. Click **Load models**, then select a model returned by your provider.
 6. Finish.
+
+The official hosted site does not process notes or accept provider keys. In a self-hosted instance,
+NVIDIA NIM is optional: choose any supported OpenAI-compatible cloud endpoint or Local Ollama.
 
 ### Provider setup is required
 BerryBrain does not allow onboarding to finish without an explicit Local or Cloud choice.
@@ -610,7 +623,7 @@ claims supported by notes, concepts, connections, or processed attachments.`,
     md: `## Settings
 
 - **Appearance**: theme (light/dark).
-- **Language**: interface in pt-BR or en (notes unchanged).
+- **Language**: the interface is currently English; user notes remain in their original language.
 - **Fonts**: UI and editor font families and sizes.
 - **AI**: switch between Local (Ollama) and Cloud (API), manage keys and models.
 - **Cognitive layer**: retrieval mode, chunks, graph inference, confidence, and external vector stores.
@@ -642,18 +655,16 @@ Expose only the web entrypoint; keep the API internal.`,
     title: "Verification & release status",
     md: `## Verification & release status
 
-Current local verification evidence from 13 July 2026:
+Verification is automated by repository CI:
 
-- **API**: 156 unit and integration tests pass.
-- **Worker**: 34 tests pass, including disposable-database integration paths.
-- **Browser**: 13 production Playwright checks pass, including owner login, keyboard flow, mobile layout, and degraded Home behavior.
-- **Static gates**: Ruff, formatting, MyPy, TypeScript, lint, and production build pass.
-- **Containers**: local Trivy policy reports zero fixable HIGH/CRITICAL findings.
-- **Supply chain**: SPDX SBOM generation and a signed immutable release workflow are defined.
+- **API and Worker**: unit, integration, disposable-database, formatting, type, and coverage gates.
+- **Browser**: production Playwright flows for public pages, owner access, workspace behavior,
+  browser-storage experiments, and the hosted landing-only boundary.
+- **Containers**: Compose validation, security scanning, and image build checks.
+- **Supply chain**: CodeQL, secret scanning, SPDX SBOM generation, and signed release workflows.
 
-This evidence validates the local worktree. It is not a published release certificate. Branch
-protection, required remote checks, signed registry artifacts, ten consecutive green \`main\`
-runs, and an external clean-machine audit remain release governance gates.`,
+Use the current GitHub commit checks and release audit as the source of truth. Static test counts
+are intentionally omitted because they become stale whenever coverage grows.`,
   },
   {
     id: "troubleshooting",
@@ -812,11 +823,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Is my data private?",
-    a: "Yes. Notes live in your own vault. External AI, email, and enrichment are opt-in and fully visible in the provider trace.",
+    a: "Your self-hosted notes live in your own vault. If you configure cloud AI or external enrichment, relevant content can leave the instance and the provider trace records that use. The official hosted site does not accept notes or provider keys.",
   },
   {
     q: "Do I need an AI provider to use it?",
-    a: "No. Without AI you still get deterministic insights and the lexical knowledge graph. Cloud or local models unlock richer embeddings, connections, and graph insights.",
+    a: "Yes. First-run onboarding requires an explicit Local Ollama or Cloud API configuration because the cognitive pipeline depends on a model. Deterministic parsing supplements AI processing; it does not replace provider setup.",
   },
   {
     q: "What is Ollama and do I need it?",
@@ -836,7 +847,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Can I self-host?",
-    a: "Yes. Deploy with Docker Compose and expose only the web/reverse-proxy entrypoint.",
+    a: "Yes. Linux can use Docker Engine and Docker Compose. Windows can use Docker Desktop with WSL 2 and Linux containers. Expose only the web/reverse-proxy entrypoint.",
+  },
+  {
+    q: "Can I use the hosted web app?",
+    a: "Not yet. The official Netlify site currently provides the landing page, Docs, FAQ, and self-hosting downloads. Workspace, login, setup, provider proxies, and browser processing remain disabled there.",
   },
   {
     q: "How do I request data access or deletion?",
@@ -844,7 +859,15 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Which languages are supported?",
-    a: "The interface supports pt-BR and en. Note content is never translated.",
+    a: "The interface is currently English. Notes remain in the language in which the user wrote them and are not translated automatically. OCR supports languages installed in the configured OCR engine.",
+  },
+  {
+    q: "How do I reset a forgotten password?",
+    a: "Use Forgot password when SMTP is configured. Otherwise run the documented seed_admin.py recovery command inside the API container; do not delete the vault or database just to reset access.",
+  },
+  {
+    q: "How do backups and deletion work?",
+    a: "Self-hosted owners can create validated backups and can erase knowledge while keeping Settings or factory-reset the instance. Provider keys and vault files require deliberate confirmation and should never be committed to Git.",
   },
   {
     q: "Is there an API?",

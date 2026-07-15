@@ -19,6 +19,8 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 ![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
 ![License](https://img.shields.io/badge/license-non--commercial-lightgrey)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/berrybrain)
+
 ---
 
 ## Table of Contents
@@ -97,7 +99,7 @@ The current worktree implements the complete local product foundation. Release g
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, no default password, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
-| Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, protected CI gates, container scans, SBOM workflow |
+| Delivery evidence | API, Worker, production-browser, security, container, CodeQL, and SBOM CI gates |
 
 Release evidence is tracked in [`AUDIT.md`](AUDIT.md) and the public [`v1.0.0` release](https://github.com/imsouza/berrybrain/releases/tag/v1.0.0). Protected `main`, required checks/review, clean-stack validation, 12 consecutive green container runs, multi-architecture images, OIDC signatures, and SPDX SBOM attestations are complete.
 
@@ -477,8 +479,7 @@ berrybrain/
 
 ### Prerequisites
 
-- 64-bit Linux host or Linux VM
-- Recent Docker Engine and Docker Compose v2
+- 64-bit Linux with Docker Engine and Docker Compose v2, or Windows with Docker Desktop, WSL 2, and Linux containers
 - Ollama with an installed model, or an OpenAI-compatible cloud provider
 
 ### Run Locally
@@ -622,6 +623,9 @@ Edit `.env` and set at minimum:
 | `BERRYBRAIN_INTERNAL_API_URL` | Server-side API origin used by the web proxy. Defaults to `http://api:8000`; use `http://127.0.0.1:8000` when running Web outside Docker. |
 | `BERRYBRAIN_ENV_FILE` | Optional Compose environment file path. Defaults to `.env`; useful for isolated smoke tests or multiple self-hosted instances. |
 | `BERRYBRAIN_DONATION_URL` | Optional donation link shown/documented by the operator; no payment processing is built in. |
+| `NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` | Optional analytics property for public pages. Empty by default on self-hosted instances; tracking still requires visitor consent. Never send note or account data as analytics events. |
+| `NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE` | Experimental browser-workspace development mode. The official hosted deployment does not expose `/brain`. Leave empty for Docker/self-hosted mode. |
+| `NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY` | Set to `true` on the official Netlify deployment. Allows only the landing page, Docs, and FAQ; private workspace/auth routes redirect and browser-AI routes return 404. |
 | `BERRYBRAIN_PUBLIC_APP_URL` | Public base URL of the web app (used in emails/links). |
 | `BERRYBRAIN_CORS_ORIGINS` | Comma-separated allowed web origins. |
 | `SMTP_*` | Optional legacy email delivery settings. Not required for default self-hosted setup. |
@@ -639,6 +643,46 @@ docker compose up -d
 ```
 
 Web serves on `http://localhost:3000`, API on `http://localhost:8000`, and the Worker starts in the background to process vault scans, embeddings, graph expansion, and insights.
+
+### Browser-only workspace mode (experimental, not deployed)
+
+The repository retains an experimental browser-only workspace implementation for development and
+automated tests. It is not exposed by the official Netlify deployment. To test it locally, build
+without `NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY=true` and set:
+
+```ini
+NEXT_PUBLIC_BERRYBRAIN_STORAGE_MODE=browser
+NEXT_PUBLIC_GOOGLE_ANALYTICS_ID=G-36YL9QLC5K
+```
+
+In this mode, notes and browser-workspace records are persisted in IndexedDB. Settings exposes
+**Export all data** and **Import all data**. Backups include all versioned browser stores plus
+non-sensitive BerryBrain preferences, use a SHA-256 integrity checksum, and replace the current
+browser workspace only after validation and explicit confirmation.
+
+Browser storage belongs to one browser profile and origin. Clearing site data, browser eviction,
+or changing domains can remove it. Keep exported backups outside the browser. On first use, the
+tour may be skipped, but a verified OpenAI-compatible cloud provider is mandatory. The provider key is stored only in
+that origin's IndexedDB, excluded from backups, and sent through a same-origin stateless proxy to
+the selected provider. This experimental mode is not exposed by the official hosted site.
+
+While the workspace is open, a browser cognitive worker resumes queued note analysis, extracts
+concepts and evidence-based insights, creates explained graph edges, and powers graph Ask with the
+configured NVIDIA model. Closing the tab pauses this worker; reopening BerryBrain resumes pending
+jobs. OCR, media transcription, durable background processing while the browser is closed, and
+server-side vector databases remain self-hosted capabilities.
+
+For Netlify, deploy the `webapp` branch. The repository's `netlify.toml` sets `apps/web` as the
+base directory, `npm run build` as the build command, `.next` as the publish directory, and
+`NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY=true`. This serves the landing page, Docs, and FAQ. Workspace,
+authentication, setup, and browser-AI routes redirect to the download section or return 404.
+Previously registered BerryBrain service workers and caches are removed in this mode. Keep
+`NEXT_PUBLIC_GOOGLE_ANALYTICS_ID` in the Netlify environment when analytics is enabled. Do not set
+`BERRYBRAIN_INTERNAL_API_URL` or `NEXT_PUBLIC_BERRYBRAIN_API_URL` for the landing deployment.
+The Netlify Next.js runtime is pinned in the web package so App Router pages and middleware are
+packaged as Netlify Functions instead of publishing raw `.next` artifacts that return 404.
+The dormant `/api/browser-ai/*` functions retain their proxy protections for local development but
+are blocked by middleware on the landing deployment.
 
 ### 3. Create the local owner account
 
@@ -675,7 +719,7 @@ If you serve the app under a path prefix, set the public web env values before b
 The landing page and app can be served at:
 
 ```text
-https://optlabs.com.br/berrybrain
+https://your.domain/berrybrain
 ```
 
 Use these web environment values:
@@ -684,9 +728,9 @@ Use these web environment values:
 NEXT_PUBLIC_BERRYBRAIN_API_URL=/berrybrain
 NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain
 NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX=/berrybrain
-BERRYBRAIN_PUBLIC_APP_URL=https://optlabs.com.br/berrybrain
-BERRYBRAIN_CORS_ORIGINS=https://optlabs.com.br
-BERRYBRAIN_ALLOWED_HOSTS=localhost,127.0.0.1,testserver,api,optlabs.com.br
+BERRYBRAIN_PUBLIC_APP_URL=https://your.domain/berrybrain
+BERRYBRAIN_CORS_ORIGINS=https://your.domain
+BERRYBRAIN_ALLOWED_HOSTS=localhost,127.0.0.1,testserver,api,your.domain
 ```
 
 Recommended reverse-proxy behavior:
@@ -805,13 +849,10 @@ The repository includes `CODEOWNERS`, a structured epic form, CI workflows, and 
 The script creates the release epics and protects `main` with required CI checks, one approving code-owner review, stale-review dismissal, conversation resolution, and force-push/deletion protection. It never accepts or stores a token in the repository; authentication remains managed by the GitHub CLI or its environment.
 - No flashcard surface; study suggestions should be insight/review oriented, not legacy flashcard UI.
 
-Latest local verification evidence (13 July 2026):
-
-- 156 API tests pass with a 60% total coverage gate and critical-module ratchets;
-- 34 Worker tests pass, including disposable-database integration coverage;
-- 13 production-browser Playwright checks pass against an isolated authenticated stack, including landing-to-login owner entry with no default password;
-- API, Worker, and Web images pass the local zero-fixable-HIGH/CRITICAL Trivy gate;
-- SPDX SBOM generation is wired into CI and signed release publication is defined in `.github/workflows/release.yml`.
+Current verification evidence is the repository's commit and pull-request checks. They cover API
+and Worker tests, production-browser Playwright flows, TypeScript/build validation, Compose,
+security scanning, CodeQL, container checks, and release/SBOM workflows. Exact test counts are not
+embedded here because they become stale as coverage grows.
 
 ### Error Handling
 

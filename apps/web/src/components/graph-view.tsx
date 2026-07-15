@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { t } from "@/i18n";
+import { getBrowserGraphData } from "@/lib/browser-storage";
 
 type GNode = {
   id: string;
@@ -22,7 +23,7 @@ type GNode = {
   createdByModel?: string;
 };
 type GEdge = {
-  id?: number;
+  id?: number | string;
   source: string;
   target: string;
   type: string;
@@ -81,11 +82,24 @@ export function useGraphData(apiUrl: string) {
   useEffect(() => {
     // ponytail: demo has no backend, render empty graph instead of erroring
     if (apiUrl === "__demo__") { setData({ nodes: [], edges: [], stats: {} }); return; }
+    if (apiUrl === "__browser__") {
+      const load = () => getBrowserGraphData().then(setData).catch(() => setError(true));
+      void load();
+      window.addEventListener("bb:browser-knowledge-updated", load);
+      return () => window.removeEventListener("bb:browser-knowledge-updated", load);
+    }
     fetch(`${apiUrl}/api/v1/graph`)
       .then(r => r.json()).then(setData).catch(() => setError(true));
   }, [apiUrl]);
   const reload = useCallback(() => {
     if (apiUrl === "__demo__") return;
+    if (apiUrl === "__browser__") {
+      setError(false);
+      getBrowserGraphData()
+        .then(setData)
+        .catch(() => setError(true));
+      return;
+    }
     setError(false);
     fetch(`${apiUrl}/api/v1/graph`).then(r => r.json()).then(setData).catch(() => setError(true));
   }, [apiUrl]);

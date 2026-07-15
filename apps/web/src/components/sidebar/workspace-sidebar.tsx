@@ -39,7 +39,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }, []);
 
   useEffect(() => {
-    if (w.demo) {
+    if (w.demo || w.api === "__browser__") {
       setAttentionCount(0);
       setDueReviewCount(0);
       return;
@@ -72,7 +72,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   }, [w.api, dismissedAt, w.demo]);
 
   async function loadFolders() {
-    if (w.demo) {
+    if (w.demo || w.api === "__browser__") {
       setFolders([]);
       return;
     }
@@ -108,6 +108,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function createFolder(parentPath = "") {
     if (w.demo) return;
+    if (w.api === "__browser__") {
+      w.toast("Empty folders are not stored in browser mode. Create a note to create its folder.", "info");
+      return;
+    }
     const name = window.prompt(parentPath ? `New folder inside ${parentPath}:` : "Folder name:");
     if (!name?.trim()) return;
     const response = await fetch(`${w.api}/api/v1/folders`, {
@@ -125,6 +129,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function renameFolder(path: string, currentName: string) {
     if (w.demo) return;
+    if (w.api === "__browser__") {
+      w.toast("Folder rename requires the self-hosted API. Notes can still be renamed locally.", "info");
+      return;
+    }
     const name = window.prompt("New folder name:", currentName);
     if (!name?.trim() || name.trim() === currentName) return;
     const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
@@ -143,6 +151,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function deleteFolder(path: string) {
     if (w.demo) return;
+    if (w.api === "__browser__") {
+      w.toast("Empty folders disappear automatically in browser mode.", "info");
+      return;
+    }
     if (!window.confirm(`Delete empty folder "${path}"?`)) return;
     const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
     if (!response.ok) {

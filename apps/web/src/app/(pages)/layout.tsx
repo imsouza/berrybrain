@@ -11,17 +11,21 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { OnboardingModal } from "@/components/onboarding-modal";
 import { GuidePanel } from "@/components/guide-panel";
 import { GraphScreen } from "@/components/graph-screen";
+import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 function Shell({ children }: { children: React.ReactNode }) {
   const w = useWorkspace();
   const prevActive = useRef(w.active);
-  const [authState, setAuthState] = useState<"checking" | "allowed">("checking");
+  const [authState, setAuthState] = useState<"checking" | "allowed">(
+    BROWSER_STORAGE_MODE ? "allowed" : "checking",
+  );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // ponytail: basePath-aware return-to-login link (strip basePath so safeNext can re-apply it)
   const loginHref = () =>
     `${appPath("/login")}?next=${encodeURIComponent(window.location.pathname.replace(new RegExp("^" + (process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL || "")), "") || "/")}`;
 
   useEffect(() => {
+    if (BROWSER_STORAGE_MODE) return;
     let alive = true;
     fetch(`${w.api}/api/v1/auth/me`, { credentials: "include" })
       .then((response) => {

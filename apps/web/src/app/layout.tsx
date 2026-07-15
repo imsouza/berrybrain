@@ -1,15 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import { PwaRegister } from "@/components/pwa-register";
+import { ThirdPartyIntegrations } from "@/components/third-party-integrations";
 import berrylogo from "../../public/berrylogo.png";
 import "./globals.css";
 
 const publicBase = process.env.NEXT_PUBLIC_BERRYBRAIN_ASSET_PREFIX || "";
+const landingOnly = process.env.NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY === "true";
 
 export const metadata: Metadata = {
   title: "BerryBrain",
   description: "Local second brain for AI-assisted study.",
   applicationName: "BerryBrain",
-  manifest: `${publicBase}/manifest.webmanifest`,
+  manifest: landingOnly ? undefined : `${publicBase}/manifest.webmanifest`,
   icons: {
     icon: berrylogo.src,
     apple: `${publicBase}/apple-touch-icon.png`,
@@ -50,6 +52,7 @@ export default function RootLayout({
       <body suppressHydrationWarning>
         <PwaRegister />
         {children}
+        <ThirdPartyIntegrations />
       </body>
     </html>
   );

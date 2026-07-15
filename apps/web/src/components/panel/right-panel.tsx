@@ -24,7 +24,7 @@ export function RightPanel() {
   const [connections, setConnections] = useState<NoteConnection[]>([]);
 
   useEffect(() => {
-    if (!w.active || w.demo) { setSteps([]); return; }
+    if (!w.active || w.demo || w.api === "__browser__") { setSteps([]); return; }
     const fetchStatus = () => {
       fetch(`${w.api}/api/v1/notes/${w.active!.path.split("/").map(encodeURIComponent).join("/")}/status`)
         .then(r => r.json()).then(d => { setSteps(d.steps || []); setStepInfo(d); }).catch(() => {});
@@ -35,7 +35,7 @@ export function RightPanel() {
   }, [w.active?.path, w.api, w.demo]);
 
   useEffect(() => {
-    if (!w.active || w.demo) { setConnections([]); return; }
+    if (!w.active || w.demo || w.api === "__browser__") { setConnections([]); return; }
     fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`)
       .then(r => r.json())
       .then(d => setConnections(d.connections || []))
@@ -50,7 +50,7 @@ export function RightPanel() {
   };
 
   const updateConnection = async (id: number, action: "confirm" | "ignore") => {
-    if (w.demo) return;
+    if (w.demo || w.api === "__browser__") return;
     await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, { method: "POST" });
     if (!w.active) return;
     const r = await fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`);
@@ -62,6 +62,10 @@ export function RightPanel() {
     if (!w.active) return;
     if (w.demo) {
       w.toast("Reprocessing is disabled in demo mode.", "info");
+      return;
+    }
+    if (w.api === "__browser__") {
+      w.toast("Cognitive processing requires the self-hosted API and worker.", "info");
       return;
     }
     const encoded = w.active.path.split("/").map(encodeURIComponent).join("/");
@@ -77,6 +81,10 @@ export function RightPanel() {
   const expandGraph = async () => {
     if (w.demo) {
       w.toast("Graph expansion is disabled in demo mode.", "info");
+      return;
+    }
+    if (w.api === "__browser__") {
+      w.toast("Graph expansion requires the self-hosted API and worker.", "info");
       return;
     }
     await fetch(`${w.api}/api/v1/graph/expand`, { method: "POST" });
@@ -102,7 +110,7 @@ export function RightPanel() {
         {w.active ? (
           <>
             {steps.length > 0 && (
-              <Section title="Processamento">
+              <Section title="Processing">
                 <div className="mb-1.5 flex items-center gap-2">
                   <div className="h-1.5 flex-1 rounded-full bg-border/50 overflow-hidden">
                     <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${stepInfo.total ? (stepInfo.completed / stepInfo.total) * 100 : 0}%` }} />
@@ -123,9 +131,9 @@ export function RightPanel() {
 
             <Section title="Status">
               <div className="text-xs text-muted space-y-1">
-                <Row k="Palavras" v={w.draft.split(/\s+/).filter(Boolean).length} />
-                <Row k="Caracteres" v={w.draft.length} />
-                <Row k="Leitura" v={`~${Math.max(1, Math.ceil(w.draft.split(/\s+/).filter(Boolean).length / 200))}min`} />
+                <Row k="Words" v={w.draft.split(/\s+/).filter(Boolean).length} />
+                <Row k="Characters" v={w.draft.length} />
+                <Row k="Reading time" v={`~${Math.max(1, Math.ceil(w.draft.split(/\s+/).filter(Boolean).length / 200))} min`} />
                 <Row k="Saved" v={w.autosave === "saved" ? "Yes" : "No"} />
               </div>
             </Section>

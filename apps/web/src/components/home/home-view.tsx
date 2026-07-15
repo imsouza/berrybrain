@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { ThemedProgressBar } from "./themed-progress-bar";
+import { getBrowserCloudConfig, getBrowserGraphData, listBrowserCognitiveJobs } from "@/lib/browser-storage";
 
-type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
+type StatusKind = "idle" | "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
 const QUICK_NOTE_MAX_LENGTH = 2_000;
 
@@ -162,6 +163,123 @@ export function HomeView() {
       setLoading(false);
       return;
     }
+    if (w.api === "__browser__") {
+      Promise.all([getBrowserCloudConfig(), getBrowserGraphData(), listBrowserCognitiveJobs()])
+        .then(([config, graph, jobs]) => {
+          const notePaths = new Set(w.notes.map((note) => note.path));
+          const currentJobs = jobs.filter((job) => notePaths.has(job.notePath));
+          const localNotes = w.notes.slice(0, 8).map((note) => ({
+            title: note.title,
+            path: note.path,
+            folder: note.folder,
+            status: "saved locally",
+          }));
+          const pending = currentJobs.filter((job) => job.status === "pending").length;
+          const active = currentJobs.filter((job) => job.status === "running").length;
+          const failed = currentJobs.filter((job) => job.status === "failed").length;
+          const completedPaths = new Set(currentJobs.filter((job) => job.status === "completed").map((job) => job.notePath));
+          const completed = completedPaths.size;
+          const total = w.notes.length;
+          const percent = total ? Math.round((completed / total) * 100) : 100;
+          const processingComplete = total === 0 || completed === total;
+          const concepts = graph.nodes.filter((node) => node.type === "concept");
+          const insightNodes = graph.nodes.filter((node) => node.type === "insight");
+          const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+          setSummary({
+            ...DEMO_HOME_SUMMARY,
+            status: {
+              ...DEMO_HOME_SUMMARY.status,
+              worker: active ? "processing in browser" : pending ? "browser worker queued" : "browser worker ready",
+              cloudProvider: config?.provider || "not configured",
+              cloudModel: config?.model || "",
+              cloudStatus: config ? (active ? "running" : "connected") : "offline",
+              cloudConfigured: Boolean(config),
+              remoteContentConsent: Boolean(config),
+              pendingJobs: pending,
+              activeJobs: active,
+              lastProcessingAt: currentJobs.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.updatedAt || null,
+            },
+            progress: {
+              ...DEMO_HOME_SUMMARY.progress,
+              mode: "determinate",
+              percent,
+              active,
+              pending,
+              completed,
+              failed,
+              currentStep: active
+                ? "Expanding knowledge graph with cloud AI"
+                : pending
+                  ? "Queued for browser processing"
+                  : failed
+                    ? "Cognitive processing needs attention"
+                    : processingComplete
+                      ? "Knowledge graph is up to date"
+                      : "Preparing notes for cognitive processing",
+              lastResult: completed ? `${completed} notes assimilated in this browser` : "Waiting for the first assimilated note",
+              status: failed ? "failed" : active || pending ? "running" : processingComplete ? "completed" : "idle",
+            },
+            stats: {
+              notes: { total: w.notes.length, createdToday: 0, unassimilated: Math.max(0, w.notes.length - completed) },
+              connections: {
+                total: graph.edges.length,
+                createdToday: 0,
+                averageConfidence: graph.edges.length
+                  ? graph.edges.reduce((sum, edge) => sum + edge.confidence, 0) / graph.edges.length
+                  : 0,
+              },
+              concepts: { total: concepts.length, newToday: 0, withoutPermanentNote: concepts.length },
+              study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
+              jobs: { pending, active, failed, completedToday: completed, total },
+              ai: { provider: config?.provider || "not configured", model: config?.model || "", metadata: graph.nodes.length, embeddings: 0, jobsProcessed: completed, errors: failed },
+            },
+            recentNotes: localNotes,
+            recentInsights: insightNodes.slice(-5).reverse().map((node, index) => ({
+              id: index + 1,
+              type: "knowledge insight",
+              title: node.title || node.label,
+              description: node.summary || "",
+              priority: 2,
+              confidence: node.confidence,
+              provider: node.provider || config?.provider || "cloud",
+              model: node.createdByModel,
+              status: node.status,
+            })),
+            recentConnections: graph.edges.slice(-5).reverse().map((edge, index) => ({
+              id: index + 1,
+              type: edge.type,
+              confidence: edge.confidence,
+              confidencePercent: Math.round(edge.confidence * 100),
+              reason: edge.reason,
+              status: edge.status,
+              source: { title: nodeById.get(edge.source)?.label || edge.source, path: nodeById.get(edge.source)?.path || "" },
+              target: { title: nodeById.get(edge.target)?.label || edge.target, path: nodeById.get(edge.target)?.path || "" },
+            })),
+            graphSummary: {
+              nodes: graph.nodes.length,
+              edges: graph.edges.length,
+              orphans: graph.stats.orphan_count,
+              clusters: 0,
+              centralNotes: [],
+            },
+            needsAttention: failed
+              ? [{ kind: "worker", title: `${failed} cognitive job${failed === 1 ? "" : "s"} failed`, description: "Open Activity to inspect the provider error. The browser worker retries failed notes after reload.", action: "Open Activity" }]
+              : config && !processingComplete && !active && !pending
+                ? [{ kind: "worker", title: `${total - completed} note${total - completed === 1 ? "" : "s"} waiting for assimilation`, description: "The browser worker will reconcile the local vault automatically while this tab remains open.", action: "Open Activity" }]
+                : [],
+          });
+          setPipelineProgress(currentJobs.filter((job) => job.status === "running" || job.status === "pending").map((job) => ({
+            notePath: job.notePath,
+            completed: job.progress,
+            total: 100,
+            percent: job.progress,
+            currentStep: job.status === "running" ? "Cloud AI cognitive analysis" : "Queued in browser",
+          })));
+        })
+        .catch(() => setError(true))
+        .finally(() => setLoading(false));
+      return;
+    }
     fetch(`${w.api}/api/v1/home/summary`)
       .then((r) => {
         if (!r.ok) throw new Error("home-summary");
@@ -174,10 +292,11 @@ export function HomeView() {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.notes) setPipelineProgress(d.notes); })
       .catch(() => {});
-  }, [w.api, w.demo]);
+  }, [w.api, w.demo, w.notes]);
 
   const updateConnectionStatus = useCallback(
     async (id: number, action: "confirm" | "ignore") => {
+      if (w.api === "__browser__") return;
       const response = await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, {
         method: "POST",
       });
@@ -194,6 +313,19 @@ export function HomeView() {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  useEffect(() => {
+    if (w.api !== "__browser__") return;
+    const refresh = () => loadSummary();
+    window.addEventListener("bb:browser-worker-updated", refresh);
+    window.addEventListener("bb:browser-knowledge-updated", refresh);
+    window.addEventListener("bb:cloud-configured", refresh);
+    return () => {
+      window.removeEventListener("bb:browser-worker-updated", refresh);
+      window.removeEventListener("bb:browser-knowledge-updated", refresh);
+      window.removeEventListener("bb:cloud-configured", refresh);
+    };
+  }, [loadSummary, w.api]);
 
   function updateStarterText(value: string) {
     setStarterText(value.slice(0, QUICK_NOTE_MAX_LENGTH));
@@ -411,7 +543,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
     <button className="bb-card bb-card--interactive w-full p-5 text-left" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
+          <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : status === "idle" ? "Autopilot waiting" : t("autopilotProcessing")}</div>
           <p className="mt-1 text-xs text-muted/60">
             {tf("activeJobsCount", { count: summary.progress.active })} · {tf("queuedCount", { count: summary.progress.pending })} · {tf("percentDone", { percent: summary.progress.percent })}
           </p>
@@ -509,6 +641,10 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
 function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: HomeSummary; onOpenGraph: () => void; apiUrl: string; onToast: (msg: string, kind: "success" | "error") => void }) {
   const graph = summary.graphSummary;
   const recalcular = async () => {
+    if (apiUrl === "__browser__") {
+      onToast("Graph expansion requires the self-hosted API and worker.", "error");
+      return;
+    }
     try {
       const r = await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
       if (!r.ok) throw new Error("expand-fail");
@@ -751,7 +887,7 @@ function HeaderLink({ children, onClick, accent }: { children: ReactNode; onClic
 }
 
 function normalizeStatus(status: string): StatusKind {
-  if (status === "failed" || status === "offline" || status === "queued" || status === "waiting_provider" || status === "completed") return status;
+  if (status === "idle" || status === "failed" || status === "offline" || status === "queued" || status === "waiting_provider" || status === "completed") return status;
   return "running";
 }
 
