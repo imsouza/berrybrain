@@ -11,6 +11,10 @@ import { getApiUrl, appPath } from "@/contexts/workspace-context";
 import { BROWSER_STORAGE_MODE } from "@/lib/browser-storage";
 
 const GITHUB_URL = "https://github.com/imsouza/berrybrain";
+const LANDING_ONLY = process.env.NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY === "true";
+const SOURCE_ZIP_URL = `${GITHUB_URL}/archive/refs/heads/main.zip`;
+const SOURCE_TAR_URL = `${GITHUB_URL}/archive/refs/heads/main.tar.gz`;
+const CONTAINER_URL = `${GITHUB_URL}/pkgs/container/berrybrain-web`;
 
 const legalContent: Record<string, { title: string; body: string[] }> = {
   security: {
@@ -71,8 +75,8 @@ const nav = [
   ["Product", "/#product"],
   ["Architecture", "/#architecture"],
   ["Reliability", "/#reliability"],
-  ["Docs", "/docs"],
-  ["FAQ", "/faq"],
+  ["Download", "/#download"],
+  ["Docs", LANDING_ONLY ? `${GITHUB_URL}#readme` : "/docs"],
 ] as const;
 
 const footerGroups = [
@@ -82,8 +86,8 @@ const footerGroups = [
       ["Overview", "/"],
       ["Architecture", "/#architecture"],
       ["Reliability", "/#reliability"],
-      ["Docs", "/docs"],
-      ["Open BerryBrain", "/brain"],
+      ["Docs", LANDING_ONLY ? `${GITHUB_URL}#readme` : "/docs"],
+      ["Download", "/#download"],
       ["GitHub", GITHUB_URL],
       ["♥ Donate", "https://ko-fi.com/berrybrain"],
     ],
@@ -197,6 +201,10 @@ export function PublicShell({
   const closeModal = useCallback(() => setModal(null), []);
 
   useEffect(() => {
+    if (LANDING_ONLY) {
+      setAccessState("configured");
+      return;
+    }
     if (BROWSER_STORAGE_MODE) {
       setAccessState("configured");
       return;
@@ -256,6 +264,10 @@ export function PublicShell({
                 <button key={href} onClick={() => openModal(href.slice(6))} className="underline-offset-4 transition hover:text-foreground hover:underline">
                   {label}
                 </button>
+              ) : href.startsWith("http") ? (
+                <a key={href} href={href} target="_blank" rel="noreferrer" className="underline-offset-4 transition hover:text-foreground hover:underline">
+                  {label}
+                </a>
               ) : (
                 <a key={href} href={appPath(href)} className="underline-offset-4 transition hover:text-foreground hover:underline">
                   {label}
@@ -264,7 +276,16 @@ export function PublicShell({
             )}
           </nav>
           <div className="flex items-center gap-2">
-            {accessState === "checking" ? (
+            {LANDING_ONLY ? (
+              <span
+                className="inline-flex cursor-not-allowed items-center rounded-md border border-border bg-surface px-3 py-2 text-xs font-semibold text-muted opacity-70"
+                aria-disabled="true"
+                title="The hosted workspace is under development. Self-host BerryBrain today."
+              >
+                <span className="sm:hidden">Web app</span>
+                <span className="hidden sm:inline">Web app in development</span>
+              </span>
+            ) : accessState === "checking" ? (
               <span className="h-8 w-24 animate-pulse rounded-md bg-surface" aria-label="Checking access" />
             ) : accessState === "setup" ? (
               <a href={appPath("/setup")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
@@ -442,8 +463,8 @@ function CapabilityMark({ value }: { value: CapabilityStatus }) {
 
 function LandingContent() {
   const { state: accessState } = usePublicAccess();
-  const primaryPath = accessState === "setup" ? "/setup" : "/brain";
-  const primaryLabel = accessState === "setup" ? "Set up BerryBrain" : "Open BerryBrain";
+  const primaryPath = LANDING_ONLY ? "/#download" : accessState === "setup" ? "/setup" : "/brain";
+  const primaryLabel = LANDING_ONLY ? "Download BerryBrain" : accessState === "setup" ? "Set up BerryBrain" : "Open BerryBrain";
   const featureCards = [
     { title: "Your Markdown stays yours", body: "BerryBrain watches real files in your vault. Read, move, export, and back them up without a proprietary format.", icon: DocsIcon },
     { title: "Connections explain themselves", body: "Graph edges retain a reason, source evidence, confidence, lifecycle status, provider, and model trace.", icon: GraphIcon },
@@ -694,7 +715,12 @@ function LandingContent() {
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
               Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
             </p>
-            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline">
+            <a
+              href={LANDING_ONLY ? `${GITHUB_URL}#readme` : appPath("/docs")}
+              target={LANDING_ONLY ? "_blank" : undefined}
+              rel={LANDING_ONLY ? "noreferrer" : undefined}
+              className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline"
+            >
               Read the technical documentation
               <span aria-hidden="true">→</span>
             </a>
@@ -751,14 +777,68 @@ function LandingContent() {
         </p>
       </section>
 
+      <section id="download" className="scroll-mt-24 border-t border-border/70 bg-panel/45">
+        <div className="mx-auto w-full max-w-6xl px-5 py-16 md:px-6">
+          <div className="grid gap-5 md:grid-cols-[0.72fr_1.28fr] md:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Download</p>
+              <h2 className="mt-3 text-3xl font-semibold">Run BerryBrain on infrastructure you control.</h2>
+            </div>
+            <p className="max-w-2xl text-sm leading-7 text-muted md:justify-self-end">
+              The hosted workspace is in development. Today, use Docker Desktop on Windows or Docker Engine on Linux. Both run the same web, API, and cognitive worker stack from the public repository.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <article className="bb-card p-5">
+              <DockerIcon className="size-6 text-accent" />
+              <h3 className="mt-5 text-base font-semibold">Windows + Docker Desktop</h3>
+              <p className="mt-3 text-sm leading-6 text-muted">Clone or download the repository, then start the complete stack through Docker Desktop with WSL 2.</p>
+              <a href={`${GITHUB_URL}#quick-start`} target="_blank" rel="noreferrer" className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
+                Installation guide
+              </a>
+            </article>
+            <article className="bb-card p-5">
+              <DockerIcon className="size-6 text-accent" />
+              <h3 className="mt-5 text-base font-semibold">Linux + Docker Engine</h3>
+              <p className="mt-3 text-sm leading-6 text-muted">Download the source archive and run the API, worker, and web containers with Docker Compose.</p>
+              <a href={SOURCE_TAR_URL} className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
+                Download .tar.gz
+              </a>
+            </article>
+            <article className="bb-card p-5">
+              <GithubIcon className="size-6 text-accent" />
+              <h3 className="mt-5 text-base font-semibold">Source archive</h3>
+              <p className="mt-3 text-sm leading-6 text-muted">Get the current main branch as a ZIP for inspection, local changes, or a clean self-hosted install.</p>
+              <a href={SOURCE_ZIP_URL} className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
+                Download .zip
+              </a>
+            </article>
+            <article className="bb-card p-5">
+              <DocsIcon className="size-6 text-accent" />
+              <h3 className="mt-5 text-base font-semibold">Containers and source</h3>
+              <p className="mt-3 text-sm leading-6 text-muted">Inspect published container packages, compose files, checks, license, and the complete installation documentation.</p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <a href={CONTAINER_URL} target="_blank" rel="noreferrer" className="bb-action inline-flex px-4 py-2 text-xs font-semibold">Containers</a>
+                <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="px-2 py-2 text-xs font-semibold text-muted hover:text-foreground">Repository</a>
+              </div>
+            </article>
+          </div>
+          <div className="mt-6 border-l-2 border-accent bg-background px-4 py-3 text-xs leading-5 text-muted">
+            No native Windows installer is published. Windows self-hosting currently requires Docker Desktop; Linux requires Docker Engine and Docker Compose. Review the non-commercial license before deployment.
+          </div>
+        </div>
+      </section>
+
       <section className="border-t border-border/70 bg-accent/10">
         <div className="mx-auto grid w-full max-w-6xl gap-5 px-5 py-14 md:grid-cols-[1fr_auto] md:items-center md:px-6">
           <div>
             <h2 className="text-3xl font-semibold">
-              {accessState === "setup" ? "Create the owner account, then make the vault yours." : "Your second brain is ready when you are."}
+              {LANDING_ONLY ? "Self-host BerryBrain today." : accessState === "setup" ? "Create the owner account, then make the vault yours." : "Your second brain is ready when you are."}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-              {accessState === "setup"
+              {LANDING_ONLY
+                ? "The hosted web app remains disabled while its persistence and background processing mature. Docker provides the complete supported experience today."
+                : accessState === "setup"
                 ? "First run takes you through a one-time local owner setup, followed by model and provider configuration."
                 : "Open the workspace to continue writing, connecting, and reviewing. Deployment, security, and recovery details remain available in the docs."}
             </p>
@@ -767,7 +847,12 @@ function LandingContent() {
             <a href={appPath(primaryPath)} className="bb-action inline-flex items-center justify-center px-5 py-3 text-sm font-semibold">
               {primaryLabel}
             </a>
-            <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm text-muted hover:text-foreground">
+            <a
+              href={LANDING_ONLY ? `${GITHUB_URL}#readme` : appPath("/docs")}
+              target={LANDING_ONLY ? "_blank" : undefined}
+              rel={LANDING_ONLY ? "noreferrer" : undefined}
+              className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm text-muted hover:text-foreground"
+            >
               <DocsIcon className="size-4" /> Read docs
             </a>
           </div>
