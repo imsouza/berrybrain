@@ -179,6 +179,40 @@ class SettingsStoreTest(unittest.TestCase):
             get_setting(self.session, "ai_last_test_status").value, "untested"
         )
 
+    def test_new_key_and_model_remain_connected_after_verified_save(self) -> None:
+        set_setting(self.session, "ai_api_url", "https://integrate.api.nvidia.com/v1")
+        set_setting(self.session, "ai_api_key", "old-key")
+        set_setting(self.session, "ai_model", "old-model")
+
+        settings_router._record_ai_test(
+            self.session,
+            "connected",
+            api_url="https://integrate.api.nvidia.com/v1",
+            method="chat_completions",
+            api_key="new-key",
+            model="new-model",
+        )
+        settings_router.update_settings_batch(
+            settings_router.BatchUpdateSettingsRequest(
+                values={
+                    "ai_provider": "cloud",
+                    "ai_api_url": "https://integrate.api.nvidia.com/v1",
+                    "ai_api_key": "new-key",
+                    "ai_model": "new-model",
+                    "remote_content_consent": "true",
+                }
+            )
+        )
+
+        status = settings_router.get_ai_status(None)
+        self.assertEqual(status["state"], "connected")
+        self.assertEqual(status["lastTestStatus"], "connected")
+
+        set_setting(self.session, "ai_model", "untested-model")
+        changed = settings_router.get_ai_status(None)
+        self.assertEqual(changed["state"], "configured")
+        self.assertEqual(changed["lastTestStatus"], "untested")
+
     def test_blank_secret_batch_preserves_saved_key_and_clear_is_explicit(self) -> None:
         set_setting(self.session, "ai_api_key", "sample-value")
 

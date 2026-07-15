@@ -1,4 +1,5 @@
 import json as _json
+import hashlib
 import secrets
 import time
 import urllib.error
@@ -119,8 +120,12 @@ def _record_ai_test(
     latency_ms: int | None = None,
     api_url: str = "",
     method: str = "",
+    api_key: str = "",
+    model: str = "",
 ) -> str:
     tested_at = datetime.now(UTC).isoformat()
+    tested_key = api_key or _setting_value(session, "ai_api_key")
+    tested_model = model or _setting_value(session, "ai_model")
     _set_values(
         session,
         {
@@ -130,6 +135,8 @@ def _record_ai_test(
             "ai_last_test_error": error,
             "ai_last_test_url": api_url.rstrip("/"),
             "ai_last_test_key_revision": _current_ai_key_revision(session),
+            "ai_last_test_key_fingerprint": _secret_fingerprint(tested_key),
+            "ai_last_test_model": tested_model.strip(),
             "ai_last_test_method": method,
         },
     )
@@ -139,6 +146,17 @@ def _record_ai_test(
 
 def _new_key_revision() -> str:
     return secrets.token_urlsafe(18)
+
+
+def _secret_fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _setting_value(session, key: str) -> str:
+    setting = session.execute(
+        select(SettingRecord).where(SettingRecord.key == key)
+    ).scalar_one_or_none()
+    return setting.value if setting is not None else ""
 
 
 def _current_ai_key_revision(session) -> str:
@@ -396,6 +414,8 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 latency_ms,
                 api_url=base,
                 method="chat_completions",
+                api_key=api_key,
+                model=model,
             )
             return {
                 "connected": True,
@@ -414,6 +434,8 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 latency_ms,
                 api_url=base,
                 method="chat_completions" if payload.model.strip() else "models",
+                api_key=api_key,
+                model=payload.model,
             )
             return {
                 "connected": False,
@@ -444,10 +466,20 @@ def get_ai_status(request: Request) -> dict:
     )
     consent = values.get("remote_content_consent", "false").lower() == "true"
     last_test = values.get("ai_last_test_status") or "untested"
+    tested_fingerprint = values.get("ai_last_test_key_fingerprint", "")
+    current_fingerprint = _secret_fingerprint(values.get("ai_api_key", ""))
+    key_matches = (
+        tested_fingerprint == current_fingerprint
+        if tested_fingerprint
+        else values.get("ai_last_test_key_revision", "")
+        == values.get("ai_key_revision", "")
+    )
+    tested_model = values.get("ai_last_test_model", "")
+    model_matches = not tested_model or tested_model == values.get("ai_model", "")
     tested_configuration_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == api_url.rstrip("/")
-        and values.get("ai_last_test_key_revision", "")
-        == values.get("ai_key_revision", "")
+        and key_matches
+        and model_matches
         and values.get("ai_last_test_method") == "chat_completions"
     )
     if not tested_configuration_matches:
@@ -518,6 +550,7 @@ def clear_ai_key() -> dict:
                 "ai_last_test_url": "",
                 "ai_last_test_key_fingerprint": "",
                 "ai_last_test_key_revision": "",
+                "ai_last_test_model": "",
                 "ai_last_test_method": "",
                 "ai_key_revision": "",
             },
