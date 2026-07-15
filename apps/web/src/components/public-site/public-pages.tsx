@@ -76,7 +76,8 @@ const nav = [
   ["Architecture", "/#architecture"],
   ["Reliability", "/#reliability"],
   ["Download", "/#download"],
-  ["Docs", LANDING_ONLY ? `${GITHUB_URL}#readme` : "/docs"],
+  ["Docs", "/docs"],
+  ["FAQ", "/faq"],
 ] as const;
 
 const footerGroups = [
@@ -86,7 +87,8 @@ const footerGroups = [
       ["Overview", "/"],
       ["Architecture", "/#architecture"],
       ["Reliability", "/#reliability"],
-      ["Docs", LANDING_ONLY ? `${GITHUB_URL}#readme` : "/docs"],
+      ["Docs", "/docs"],
+      ["FAQ", "/faq"],
       ["Download", "/#download"],
       ["GitHub", GITHUB_URL],
       ["♥ Donate", "https://ko-fi.com/berrybrain"],
@@ -715,12 +717,7 @@ function LandingContent() {
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
               Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
             </p>
-            <a
-              href={LANDING_ONLY ? `${GITHUB_URL}#readme` : appPath("/docs")}
-              target={LANDING_ONLY ? "_blank" : undefined}
-              rel={LANDING_ONLY ? "noreferrer" : undefined}
-              className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline"
-            >
+            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline">
               Read the technical documentation
               <span aria-hidden="true">→</span>
             </a>
@@ -789,35 +786,41 @@ function LandingContent() {
             </p>
           </div>
           <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <article className="bb-card p-5">
+            <article className="bb-card flex h-full flex-col p-5">
               <DockerIcon className="size-6 text-accent" />
               <h3 className="mt-5 text-base font-semibold">Windows + Docker Desktop</h3>
               <p className="mt-3 text-sm leading-6 text-muted">Clone or download the repository, then start the complete stack through Docker Desktop with WSL 2.</p>
-              <a href={`${GITHUB_URL}#quick-start`} target="_blank" rel="noreferrer" className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
-                Installation guide
-              </a>
+              <div className="mt-auto pt-6">
+                <a href={`${GITHUB_URL}#quick-start`} target="_blank" rel="noreferrer" className="bb-action inline-flex px-4 py-2 text-xs font-semibold">
+                  Installation guide
+                </a>
+              </div>
             </article>
-            <article className="bb-card p-5">
+            <article className="bb-card flex h-full flex-col p-5">
               <DockerIcon className="size-6 text-accent" />
               <h3 className="mt-5 text-base font-semibold">Linux + Docker Engine</h3>
               <p className="mt-3 text-sm leading-6 text-muted">Download the source archive and run the API, worker, and web containers with Docker Compose.</p>
-              <a href={SOURCE_TAR_URL} className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
-                Download .tar.gz
-              </a>
+              <div className="mt-auto pt-6">
+                <a href={SOURCE_TAR_URL} className="bb-action inline-flex px-4 py-2 text-xs font-semibold">
+                  Download .tar.gz
+                </a>
+              </div>
             </article>
-            <article className="bb-card p-5">
+            <article className="bb-card flex h-full flex-col p-5">
               <GithubIcon className="size-6 text-accent" />
               <h3 className="mt-5 text-base font-semibold">Source archive</h3>
               <p className="mt-3 text-sm leading-6 text-muted">Get the current main branch as a ZIP for inspection, local changes, or a clean self-hosted install.</p>
-              <a href={SOURCE_ZIP_URL} className="bb-action mt-6 inline-flex px-4 py-2 text-xs font-semibold">
-                Download .zip
-              </a>
+              <div className="mt-auto pt-6">
+                <a href={SOURCE_ZIP_URL} className="bb-action inline-flex px-4 py-2 text-xs font-semibold">
+                  Download .zip
+                </a>
+              </div>
             </article>
-            <article className="bb-card p-5">
+            <article className="bb-card flex h-full flex-col p-5">
               <DocsIcon className="size-6 text-accent" />
               <h3 className="mt-5 text-base font-semibold">Containers and source</h3>
               <p className="mt-3 text-sm leading-6 text-muted">Inspect published container packages, compose files, checks, license, and the complete installation documentation.</p>
-              <div className="mt-6 flex flex-wrap gap-3">
+              <div className="mt-auto flex flex-wrap gap-3 pt-6">
                 <a href={CONTAINER_URL} target="_blank" rel="noreferrer" className="bb-action inline-flex px-4 py-2 text-xs font-semibold">Containers</a>
                 <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="px-2 py-2 text-xs font-semibold text-muted hover:text-foreground">Repository</a>
               </div>
@@ -847,12 +850,7 @@ function LandingContent() {
             <a href={appPath(primaryPath)} className="bb-action inline-flex items-center justify-center px-5 py-3 text-sm font-semibold">
               {primaryLabel}
             </a>
-            <a
-              href={LANDING_ONLY ? `${GITHUB_URL}#readme` : appPath("/docs")}
-              target={LANDING_ONLY ? "_blank" : undefined}
-              rel={LANDING_ONLY ? "noreferrer" : undefined}
-              className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm text-muted hover:text-foreground"
-            >
+            <a href={appPath("/docs")} className="inline-flex items-center justify-center gap-2 px-3 py-3 text-sm text-muted hover:text-foreground">
               <DocsIcon className="size-4" /> Read docs
             </a>
           </div>

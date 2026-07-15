@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BERRYBRAIN_PREFIX = "/berrybrain";
 const LANDING_ONLY = process.env.NEXT_PUBLIC_BERRYBRAIN_LANDING_ONLY === "true";
+const LANDING_PUBLIC_ROUTES = new Set(["/", "/docs", "/faq"]);
+
+function isLandingPublicRoute(pathname: string) {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  return LANDING_PUBLIC_ROUTES.has(normalized);
+}
 
 function landingRedirect(request: NextRequest, anchor?: string) {
   const url = request.nextUrl.clone();
@@ -27,7 +33,7 @@ export function middleware(request: NextRequest) {
         { status: 404 },
       );
     }
-    if (LANDING_ONLY && url.pathname !== "/") {
+    if (LANDING_ONLY && !isLandingPublicRoute(url.pathname)) {
       return landingRedirect(request, url.pathname === "/brain" ? "download" : undefined);
     }
     return NextResponse.rewrite(url);
@@ -40,7 +46,7 @@ export function middleware(request: NextRequest) {
     );
   }
 
-  if (LANDING_ONLY && pathname !== "/") {
+  if (LANDING_ONLY && !isLandingPublicRoute(pathname)) {
     return landingRedirect(request, pathname === "/brain" ? "download" : undefined);
   }
 
