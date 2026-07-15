@@ -192,7 +192,7 @@ def _cloud_json(
     except urllib.error.HTTPError as error:
         if error.code in {401, 403}:
             raise GraphAIUnavailable(
-                "NVIDIA NIM authentication failed. Replace the API key in Settings."
+                "Cloud provider authentication failed. Replace the API key in Settings."
             ) from error
         if error.code == 429:
             raise GraphAIUnavailable(

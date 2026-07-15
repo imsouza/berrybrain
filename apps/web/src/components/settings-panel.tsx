@@ -430,10 +430,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       const needsConsent = wantsCloud && s.remote_content_consent !== "true";
       if (needsConsent) {
         const confirmed = window.confirm(
-          "Enable NVIDIA NIM processing?\n\nBerryBrain will send note, attachment, and graph content to the configured NVIDIA API for AI processing. This consent is saved and will not be requested again unless cloud processing is disabled.",
+          `Enable ${selectedProviderLabel} processing?\n\nBerryBrain will send note, attachment, and graph content to the configured cloud API for AI processing. This consent is saved and will not be requested again unless cloud processing is disabled.`,
         );
         if (!confirmed) {
-          setSaveStatus("Save cancelled. NVIDIA NIM was not enabled.");
+          setSaveStatus("Save cancelled. Cloud AI was not enabled.");
           return;
         }
         next = {
@@ -459,7 +459,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       editedRef.current = false;
       providerChoiceRef.current = null;
       cloudConnectionEditedRef.current = false;
-      setSaveStatus(wantsCloud ? "Settings saved. NVIDIA NIM is active." : "Settings saved.");
+      setSaveStatus(wantsCloud ? `Settings saved. ${selectedProviderLabel} is active.` : "Settings saved.");
       await refreshProviderStatus();
     } catch (error) {
       setSaveStatus(error instanceof Error ? error.message : "Settings could not be saved.");
