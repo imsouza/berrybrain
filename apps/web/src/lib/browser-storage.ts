@@ -513,6 +513,17 @@ export async function queueUnprocessedBrowserNotes(): Promise<number> {
   return candidates.length;
 }
 
+export async function recoverInterruptedBrowserCognitiveJobs(): Promise<number> {
+  const jobs = await withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll());
+  const interrupted = jobs.filter((job) => job.status === "running");
+  await Promise.all(interrupted.map((job) => updateBrowserCognitiveJob(job.id, {
+    status: "pending",
+    progress: 0,
+    error: undefined,
+  })));
+  return interrupted.length;
+}
+
 export async function nextBrowserCognitiveJob(): Promise<BrowserCognitiveJob | null> {
   const jobs = await withStore<BrowserCognitiveJob[]>("jobs", "readonly", (store) => store.getAll());
   return jobs
