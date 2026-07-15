@@ -1,5 +1,4 @@
 import json as _json
-import hashlib
 import secrets
 import time
 import urllib.error
@@ -18,6 +17,7 @@ from berrybrain_api.security import (
     get_session_user,
     normalize_email,
     require_session_user,
+    token_hash,
     verify_service_token,
 )
 from berrybrain_api.models import (
@@ -149,7 +149,7 @@ def _new_key_revision() -> str:
 
 
 def _secret_fingerprint(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+    return token_hash(value, get_app_settings().session_secret) if value else ""
 
 
 def _setting_value(session, key: str) -> str:
