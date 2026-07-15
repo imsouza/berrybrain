@@ -60,6 +60,7 @@ async def generate_graph_answer(
     prompt: str,
     system: str,
     timeout: int = 90,
+    max_tokens: int = 4096,
 ) -> dict[str, Any]:
     provider = config.get("provider") or "local"
     if provider == "cloud":
@@ -70,6 +71,7 @@ async def generate_graph_answer(
             prompt,
             f"{UNTRUSTED_CONTENT_POLICY}\n\n{system}",
             timeout,
+            max_tokens,
         )
     return await _to_thread(
         _ollama_json,
@@ -77,6 +79,7 @@ async def generate_graph_answer(
         prompt,
         f"{UNTRUSTED_CONTENT_POLICY}\n\n{system}",
         timeout,
+        max_tokens,
     )
 
 
@@ -152,7 +155,11 @@ def _ollama_embedding(
 
 
 def _cloud_json(
-    config: dict[str, str], prompt: str, system: str, timeout: int
+    config: dict[str, str],
+    prompt: str,
+    system: str,
+    timeout: int,
+    max_tokens: int,
 ) -> dict[str, Any]:
     api_url = config.get("cloud_api_url", "").rstrip("/")
     api_key = config.get("cloud_api_key", "")
@@ -170,7 +177,7 @@ def _cloud_json(
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0,
-                "max_tokens": 4096,
+                "max_tokens": max_tokens,
             }
         ).encode("utf-8"),
         headers={
@@ -199,7 +206,11 @@ def _cloud_json(
 
 
 def _ollama_json(
-    config: dict[str, str], prompt: str, system: str, timeout: int
+    config: dict[str, str],
+    prompt: str,
+    system: str,
+    timeout: int,
+    max_tokens: int,
 ) -> dict[str, Any]:
     base_url = config.get("ollama_base_url", "").rstrip("/")
     model = config.get("ollama_model", "")
@@ -214,6 +225,7 @@ def _ollama_json(
                 "system": system,
                 "stream": False,
                 "format": "json",
+                "options": {"num_predict": max_tokens},
             }
         ).encode("utf-8"),
         headers={"Content-Type": "application/json"},

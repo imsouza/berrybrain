@@ -178,12 +178,13 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         "Return JSON with status, answer, evidence, relatedNodes, suggestions, "
         "confidence. If evidence is weak, status must be insufficient_evidence."
     )
+    prompt_evidence = _bounded_query_evidence(evidence)
     prompt = json.dumps(
         {
             "question": question,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
-            "evidence": evidence[:16],
+            "evidence": prompt_evidence,
             "rules": [
                 "Do not invent facts.",
                 "Cite concrete note/node/edge/job evidence.",
@@ -193,7 +194,19 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         ensure_ascii=False,
     )
     try:
-        result = await generate_graph_answer(config, prompt, system, timeout=120)
+        result = await generate_graph_answer(
+            config,
+            prompt,
+            system,
+            timeout=80,
+            max_tokens=1024,
+        )
+    except TimeoutError:
+        return _fallback_answer(
+            question,
+            orchestrated,
+            "The AI provider did not answer within 80 seconds. Try again shortly or choose a faster model.",
+        )
     except GraphAIUnavailable as exc:
         return _fallback_answer(question, orchestrated, f"AI unavailable: {exc}")
     except urllib.error.HTTPError as exc:
@@ -235,7 +248,7 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         "suggestions": result.get("suggestions")
         if isinstance(result.get("suggestions"), list)
         else [],
-        "confidence": float(result.get("confidence") or 0.5),
+        "confidence": _safe_confidence(result.get("confidence")),
         "provider": config.get("provider", ""),
         "model": config.get("cloud_model") or config.get("ollama_model") or "",
     }
@@ -1028,6 +1041,34 @@ def _fallback_answer(
         "suggestions": suggestions,
         "reason": reason,
     }
+
+
+def _bounded_query_evidence(
+    evidence: list[dict[str, Any]],
+    *,
+    limit: int = 12,
+    max_text_chars: int = 1200,
+    max_total_chars: int = 9000,
+) -> list[dict[str, Any]]:
+    bounded: list[dict[str, Any]] = []
+    total = 0
+    for item in evidence[:limit]:
+        text = str(item.get("text") or "").strip()
+        remaining = max_total_chars - total
+        if remaining <= 0:
+            break
+        text = text[: min(max_text_chars, remaining)]
+        bounded.append({**item, "text": text})
+        total += len(text)
+    return bounded
+
+
+def _safe_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    return max(0.0, min(1.0, confidence))
 
 
 def _tokens(text: str) -> set[str]:
