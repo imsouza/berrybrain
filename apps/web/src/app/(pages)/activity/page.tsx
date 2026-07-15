@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
+import { listBrowserCognitiveJobs } from "@/lib/browser-storage";
 import { t, tf, locale } from "@/i18n";
 
 type ActivityKind = "log" | "completed" | "failed" | "running" | "pending";
@@ -99,8 +100,23 @@ export default function ActivityPage() {
   const loadActivity = useCallback(async () => {
     setLoading(true);
     if (api === "__browser__") {
-      setActivity([]);
-      setSummary({ completed: 0, failed: 0, running: 0, pending: 0 });
+      const jobs = await listBrowserCognitiveJobs();
+      const counts = { completed: 0, failed: 0, running: 0, pending: 0 };
+      const items = jobs.map((job): ActivityItem => {
+        counts[job.status] += 1;
+        return {
+          id: job.id,
+          when: job.updatedAt,
+          whenTs: new Date(job.updatedAt).getTime(),
+          human: `Knowledge graph processing for ${job.notePath}`,
+          technical: `${job.type} · ${job.progress}% · browser worker`,
+          kind: job.status,
+          noteRef: job.notePath,
+          detail: job.error,
+        };
+      }).sort((left, right) => right.whenTs - left.whenTs);
+      setActivity(items);
+      setSummary(counts);
       setLoading(false);
       return;
     }
@@ -185,7 +201,19 @@ export default function ActivityPage() {
     setLoading(false);
   }, [api]);
 
-  useEffect(() => { loadActivity(); }, [loadActivity]);
+  useEffect(() => {
+    void loadActivity();
+    if (api !== "__browser__") return;
+    const refresh = () => { void loadActivity(); };
+    window.addEventListener("bb:browser-worker-updated", refresh);
+    window.addEventListener("bb:browser-knowledge-updated", refresh);
+    const interval = window.setInterval(refresh, 2_000);
+    return () => {
+      window.removeEventListener("bb:browser-worker-updated", refresh);
+      window.removeEventListener("bb:browser-knowledge-updated", refresh);
+      window.clearInterval(interval);
+    };
+  }, [api, loadActivity]);
 
   const filtered = filter === "all" ? activity : activity.filter((a) => a.kind === filter);
 

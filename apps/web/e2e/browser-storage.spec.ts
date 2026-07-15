@@ -167,4 +167,62 @@ test.describe("Browser-only persistence", () => {
     await expect(page.getByText("evidence.txt", { exact: true })).toBeVisible();
     expect(unexpectedApiRequests).toEqual([]);
   });
+
+  test("recovers an interrupted browser worker job after reload", async ({ page }) => {
+    let chatRequests = 0;
+    await page.route("**/api/browser-ai/chat", async (route) => {
+      chatRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          content: JSON.stringify({ summary: "Recovered analysis.", concepts: [], insights: [], connections: [] }),
+          provider: "nvidia-nim",
+          model: "test/model",
+        }),
+      });
+    });
+    await page.evaluate(async () => new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("berrybrain-webapp", 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const transaction = database.transaction(["notes", "jobs"], "readwrite");
+        const now = new Date().toISOString();
+        transaction.objectStore("notes").put({
+          title: "Interrupted note",
+          path: "inbox/interrupted-note.md",
+          folder: "inbox",
+          content: "# Interrupted note\n\nThis analysis must resume after reload.",
+          content_hash: "interrupted-hash",
+          createdAt: now,
+          updatedAt: now,
+        });
+        transaction.objectStore("jobs").put({
+          id: "expand:inbox/interrupted-note.md",
+          type: "EXPAND_KNOWLEDGE_GRAPH",
+          notePath: "inbox/interrupted-note.md",
+          status: "running",
+          progress: 35,
+          createdAt: now,
+          updatedAt: now,
+        });
+        transaction.oncomplete = () => { database.close(); resolve(); };
+        transaction.onerror = () => reject(transaction.error);
+      };
+    }));
+
+    await page.reload();
+    await expect.poll(async () => page.evaluate(async () => new Promise<string>((resolve, reject) => {
+      const request = indexedDB.open("berrybrain-webapp", 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const database = request.result;
+        const get = database.transaction("jobs", "readonly").objectStore("jobs").get("expand:inbox/interrupted-note.md");
+        get.onsuccess = () => { database.close(); resolve(get.result?.status || "missing"); };
+        get.onerror = () => reject(get.error);
+      };
+    }))).toBe("completed");
+    expect(chatRequests).toBeGreaterThan(0);
+  });
 });

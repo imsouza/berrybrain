@@ -4,12 +4,15 @@ import {
   getBrowserNote,
   listBrowserNotes,
   nextBrowserCognitiveJob,
+  queueUnprocessedBrowserNotes,
+  recoverInterruptedBrowserCognitiveJobs,
   saveBrowserCognitiveAnalysis,
   updateBrowserCognitiveJob,
   type BrowserCognitiveAnalysis,
 } from "@/lib/browser-storage";
 
 let running = false;
+let rerunRequested = false;
 
 function boundedConfidence(value: unknown) {
   const number = Number(value);
@@ -133,21 +136,34 @@ async function processQueue() {
 }
 
 export async function runBrowserCognitiveWorker() {
-  if (running || typeof window === "undefined") return;
+  if (typeof window === "undefined") return;
+  if (running) {
+    rerunRequested = true;
+    return;
+  }
   running = true;
+  rerunRequested = false;
   let hasRemainingJobs = false;
+  let lockUnavailable = false;
+  const runQueue = async () => {
+    await recoverInterruptedBrowserCognitiveJobs();
+    await queueUnprocessedBrowserNotes();
+    hasRemainingJobs = await processQueue();
+  };
   try {
     if (navigator.locks?.request) {
       await navigator.locks.request("berrybrain-cognitive-worker", { ifAvailable: true }, async (lock) => {
-        if (lock) hasRemainingJobs = await processQueue();
+        if (lock) await runQueue();
+        else lockUnavailable = true;
       });
     } else {
-      hasRemainingJobs = await processQueue();
+      await runQueue();
     }
   } finally {
     running = false;
   }
-  if (hasRemainingJobs) {
-    window.setTimeout(() => { void runBrowserCognitiveWorker(); }, 250);
+  if (hasRemainingJobs || lockUnavailable || rerunRequested) {
+    rerunRequested = false;
+    window.setTimeout(() => { void runBrowserCognitiveWorker(); }, lockUnavailable ? 1_000 : 250);
   }
 }

@@ -7,7 +7,7 @@ import { t, tf } from "@/i18n";
 import { ThemedProgressBar } from "./themed-progress-bar";
 import { getBrowserCloudConfig, getBrowserGraphData, listBrowserCognitiveJobs } from "@/lib/browser-storage";
 
-type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
+type StatusKind = "idle" | "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
 const QUICK_NOTE_MAX_LENGTH = 2_000;
 
@@ -166,18 +166,22 @@ export function HomeView() {
     if (w.api === "__browser__") {
       Promise.all([getBrowserCloudConfig(), getBrowserGraphData(), listBrowserCognitiveJobs()])
         .then(([config, graph, jobs]) => {
+          const notePaths = new Set(w.notes.map((note) => note.path));
+          const currentJobs = jobs.filter((job) => notePaths.has(job.notePath));
           const localNotes = w.notes.slice(0, 8).map((note) => ({
             title: note.title,
             path: note.path,
             folder: note.folder,
             status: "saved locally",
           }));
-          const pending = jobs.filter((job) => job.status === "pending").length;
-          const active = jobs.filter((job) => job.status === "running").length;
-          const failed = jobs.filter((job) => job.status === "failed").length;
-          const completed = jobs.filter((job) => job.status === "completed").length;
-          const total = jobs.length;
+          const pending = currentJobs.filter((job) => job.status === "pending").length;
+          const active = currentJobs.filter((job) => job.status === "running").length;
+          const failed = currentJobs.filter((job) => job.status === "failed").length;
+          const completedPaths = new Set(currentJobs.filter((job) => job.status === "completed").map((job) => job.notePath));
+          const completed = completedPaths.size;
+          const total = w.notes.length;
           const percent = total ? Math.round((completed / total) * 100) : 100;
+          const processingComplete = total === 0 || completed === total;
           const concepts = graph.nodes.filter((node) => node.type === "concept");
           const insightNodes = graph.nodes.filter((node) => node.type === "insight");
           const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -185,7 +189,7 @@ export function HomeView() {
             ...DEMO_HOME_SUMMARY,
             status: {
               ...DEMO_HOME_SUMMARY.status,
-              worker: active ? "processing in browser" : "browser worker ready",
+              worker: active ? "processing in browser" : pending ? "browser worker queued" : "browser worker ready",
               cloudProvider: config?.provider || "not configured",
               cloudModel: config?.model || "",
               cloudStatus: config ? (active ? "running" : "connected") : "offline",
@@ -193,7 +197,7 @@ export function HomeView() {
               remoteContentConsent: Boolean(config),
               pendingJobs: pending,
               activeJobs: active,
-              lastProcessingAt: jobs.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.updatedAt || null,
+              lastProcessingAt: currentJobs.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]?.updatedAt || null,
             },
             progress: {
               ...DEMO_HOME_SUMMARY.progress,
@@ -203,9 +207,17 @@ export function HomeView() {
               pending,
               completed,
               failed,
-              currentStep: active ? "Expanding knowledge graph with cloud AI" : pending ? "Waiting for browser worker" : "Knowledge graph is up to date",
+              currentStep: active
+                ? "Expanding knowledge graph with cloud AI"
+                : pending
+                  ? "Queued for browser processing"
+                  : failed
+                    ? "Cognitive processing needs attention"
+                    : processingComplete
+                      ? "Knowledge graph is up to date"
+                      : "Preparing notes for cognitive processing",
               lastResult: completed ? `${completed} notes assimilated in this browser` : "Waiting for the first assimilated note",
-              status: failed ? "failed" : active ? "running" : "completed",
+              status: failed ? "failed" : active || pending ? "running" : processingComplete ? "completed" : "idle",
             },
             stats: {
               notes: { total: w.notes.length, createdToday: 0, unassimilated: Math.max(0, w.notes.length - completed) },
@@ -250,9 +262,13 @@ export function HomeView() {
               clusters: 0,
               centralNotes: [],
             },
-            needsAttention: failed ? [{ kind: "worker", title: `${failed} cognitive job${failed === 1 ? "" : "s"} failed`, description: "Open Activity or save the note again to retry.", action: "Open Activity" }] : [],
+            needsAttention: failed
+              ? [{ kind: "worker", title: `${failed} cognitive job${failed === 1 ? "" : "s"} failed`, description: "Open Activity to inspect the provider error. The browser worker retries failed notes after reload.", action: "Open Activity" }]
+              : config && !processingComplete && !active && !pending
+                ? [{ kind: "worker", title: `${total - completed} note${total - completed === 1 ? "" : "s"} waiting for assimilation`, description: "The browser worker will reconcile the local vault automatically while this tab remains open.", action: "Open Activity" }]
+                : [],
           });
-          setPipelineProgress(jobs.filter((job) => job.status === "running" || job.status === "pending").map((job) => ({
+          setPipelineProgress(currentJobs.filter((job) => job.status === "running" || job.status === "pending").map((job) => ({
             notePath: job.notePath,
             completed: job.progress,
             total: 100,
@@ -527,7 +543,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
     <button className="bb-card bb-card--interactive w-full p-5 text-left" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
+          <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : status === "idle" ? "Autopilot waiting" : t("autopilotProcessing")}</div>
           <p className="mt-1 text-xs text-muted/60">
             {tf("activeJobsCount", { count: summary.progress.active })} · {tf("queuedCount", { count: summary.progress.pending })} · {tf("percentDone", { percent: summary.progress.percent })}
           </p>
@@ -871,7 +887,7 @@ function HeaderLink({ children, onClick, accent }: { children: ReactNode; onClic
 }
 
 function normalizeStatus(status: string): StatusKind {
-  if (status === "failed" || status === "offline" || status === "queued" || status === "waiting_provider" || status === "completed") return status;
+  if (status === "idle" || status === "failed" || status === "offline" || status === "queued" || status === "waiting_provider" || status === "completed") return status;
   return "running";
 }
 
