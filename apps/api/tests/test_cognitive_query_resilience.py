@@ -27,8 +27,14 @@ def _retrieval() -> dict:
 
 
 class CognitiveQueryResilienceTests(unittest.IsolatedAsyncioTestCase):
-    @patch("berrybrain_api.cognitive_layer.get_ai_config", return_value={"provider": "cloud"})
-    @patch("berrybrain_api.cognitive_layer.orchestrate_retrieval", side_effect=lambda *_: _retrieval())
+    @patch(
+        "berrybrain_api.cognitive_layer.get_ai_config",
+        return_value={"provider": "cloud"},
+    )
+    @patch(
+        "berrybrain_api.cognitive_layer.orchestrate_retrieval",
+        side_effect=lambda *_: _retrieval(),
+    )
     @patch(
         "berrybrain_api.cognitive_layer.generate_graph_answer",
         new_callable=AsyncMock,
@@ -40,7 +46,9 @@ class CognitiveQueryResilienceTests(unittest.IsolatedAsyncioTestCase):
         _orchestrate,
         _config,
     ) -> None:
-        result = await answer_cognitive_query(object(), "How do Docker and shell connect?")
+        result = await answer_cognitive_query(
+            object(), "How do Docker and shell connect?"
+        )
 
         self.assertEqual(result["status"], "waiting_provider")
         self.assertIn("80 seconds", result["reason"])
@@ -48,8 +56,14 @@ class CognitiveQueryResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(generate.await_args.kwargs["timeout"], 80)
         self.assertEqual(generate.await_args.kwargs["max_tokens"], 1024)
 
-    @patch("berrybrain_api.cognitive_layer.get_ai_config", return_value={"provider": "cloud"})
-    @patch("berrybrain_api.cognitive_layer.orchestrate_retrieval", side_effect=lambda *_: _retrieval())
+    @patch(
+        "berrybrain_api.cognitive_layer.get_ai_config",
+        return_value={"provider": "cloud"},
+    )
+    @patch(
+        "berrybrain_api.cognitive_layer.orchestrate_retrieval",
+        side_effect=lambda *_: _retrieval(),
+    )
     @patch(
         "berrybrain_api.cognitive_layer.generate_graph_answer",
         new_callable=AsyncMock,
@@ -66,15 +80,16 @@ class CognitiveQueryResilienceTests(unittest.IsolatedAsyncioTestCase):
         _orchestrate,
         _config,
     ) -> None:
-        result = await answer_cognitive_query(object(), "How do Docker and shell connect?")
+        result = await answer_cognitive_query(
+            object(), "How do Docker and shell connect?"
+        )
 
         self.assertEqual(result["status"], "answered")
         self.assertEqual(result["confidence"], 0.5)
 
     def test_prompt_evidence_has_per_item_and_total_limits(self) -> None:
         evidence = [
-            {"title": f"Note {index}", "text": "x" * 2000}
-            for index in range(20)
+            {"title": f"Note {index}", "text": "x" * 2000} for index in range(20)
         ]
 
         bounded = _bounded_query_evidence(evidence)
