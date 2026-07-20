@@ -189,8 +189,8 @@ class SettingsStoreTest(unittest.TestCase):
             "connected",
             api_url="https://integrate.api.nvidia.com/v1",
             method="chat_completions",
-            api_key="new-key",
             model="new-model",
+            key_revision="verified-revision",
         )
         settings_router.update_settings_batch(
             settings_router.BatchUpdateSettingsRequest(
@@ -200,7 +200,8 @@ class SettingsStoreTest(unittest.TestCase):
                     "ai_api_key": "new-key",
                     "ai_model": "new-model",
                     "remote_content_consent": "true",
-                }
+                },
+                aiTestRevision="verified-revision",
             )
         )
 
@@ -212,6 +213,32 @@ class SettingsStoreTest(unittest.TestCase):
         changed = settings_router.get_ai_status(None)
         self.assertEqual(changed["state"], "configured")
         self.assertEqual(changed["lastTestStatus"], "untested")
+
+    def test_unverified_key_change_invalidates_provider_test(self) -> None:
+        set_setting(self.session, "ai_provider", "cloud")
+        set_setting(self.session, "ai_api_url", "https://api.example.com/v1")
+        set_setting(self.session, "ai_api_key", "old-key")
+        set_setting(self.session, "ai_model", "tested-model")
+        set_setting(self.session, "remote_content_consent", "true")
+        settings_router._record_ai_test(
+            self.session,
+            "connected",
+            api_url="https://api.example.com/v1",
+            method="chat_completions",
+            model="tested-model",
+            key_revision="verified-revision",
+        )
+
+        settings_router.update_settings_batch(
+            settings_router.BatchUpdateSettingsRequest(
+                values={"ai_api_key": "untested-key"},
+                aiTestRevision="wrong-revision",
+            )
+        )
+
+        status = settings_router.get_ai_status(None)
+        self.assertEqual(status["state"], "configured")
+        self.assertEqual(status["lastTestStatus"], "untested")
 
     def test_blank_secret_batch_preserves_saved_key_and_clear_is_explicit(self) -> None:
         set_setting(self.session, "ai_api_key", "sample-value")
