@@ -269,6 +269,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const providerChoiceRef = useRef<Settings["ai_provider"] | null>(null);
   const cloudConnectionEditedRef = useRef(false);
   const cloudConnectionVerifiedRef = useRef(false);
+  const cloudTestRevisionRef = useRef("");
   const [saving, setSaving] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
@@ -294,6 +295,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     providerChoiceRef.current = null;
     cloudConnectionEditedRef.current = false;
     cloudConnectionVerifiedRef.current = false;
+    cloudTestRevisionRef.current = "";
     setSaveStatus("");
     if (apiUrl === "__demo__") {
       setIsAdmin(false);
@@ -360,6 +362,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     if (["ai_api_url", "ai_custom_url", "ai_api_key", "ai_model"].includes(String(key))) {
       cloudConnectionEditedRef.current = true;
       cloudConnectionVerifiedRef.current = false;
+      cloudTestRevisionRef.current = "";
     }
     setS((previous) => {
       const next: Settings = { ...previous, [key]: value, lang: "en" };
@@ -395,7 +398,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
       credentials: "include",
-      body: JSON.stringify({ values }),
+      body: JSON.stringify({ values, aiTestRevision: cloudTestRevisionRef.current }),
     });
     if (!response.ok) throw new Error("Settings could not be saved.");
   }
@@ -447,6 +450,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       editedRef.current = false;
       providerChoiceRef.current = null;
       cloudConnectionEditedRef.current = false;
+      cloudTestRevisionRef.current = "";
       setSaveStatus(wantsCloud ? `Settings saved. ${selectedProviderLabel} is active.` : "Settings saved.");
       await refreshProviderStatus();
     } catch (error) {
@@ -494,6 +498,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         }
         await refreshProviderStatus();
         cloudConnectionVerifiedRef.current = true;
+        cloudTestRevisionRef.current = String(payload.keyRevision || "");
         return true;
       }
     } catch (error: any) {
