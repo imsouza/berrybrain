@@ -1,5 +1,7 @@
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from collections.abc import Generator
+
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from berrybrain_api.config import get_settings
 
@@ -11,6 +13,11 @@ class Base(DeclarativeBase):
 settings = get_settings()
 engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def get_session() -> Generator[Session, None, None]:
+    with SessionLocal() as session:
+        yield session
 
 
 def init_database() -> None:

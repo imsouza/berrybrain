@@ -69,6 +69,7 @@ type GraphEdge = {
 };
 
 type InferenceResult = {
+  inferenceId?: number;
   status: "answered" | "success" | "sufficient_evidence" | "insufficient_evidence" | string;
   question: string;
   answer: string;
@@ -556,7 +557,7 @@ export function GraphScreen({
 
   async function saveInferenceAsInsight() {
     const text = query.trim();
-    if (!text || !inference) return;
+    if (!text || !inference?.inferenceId) return;
     if (apiUrl === "__demo__") return;
     setInferenceSaving(true);
     setInferenceSaveStatus("Saving inference as insight...");
@@ -564,21 +565,17 @@ export function GraphScreen({
       const response = await apiFetch(`${apiUrl}/api/v1/insights/from-inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: text, inference }),
+        body: JSON.stringify({ inferenceId: inference.inferenceId }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setInferenceSaveStatus(payload.detail || "Could not save this inference.");
         return;
       }
-      if (payload.status === "created") {
+      if (payload.status === "created" || payload.status === "existing") {
         setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
         setInferenceSaveStatus(`Saved as insight: ${payload.insight?.title || text}`);
         reload();
-        return;
-      }
-      if (payload.status === "insufficient_evidence") {
-        setInferenceSaveStatus("Not saved: this answer does not have enough evidence.");
         return;
       }
       setInferenceSaveStatus(payload.status ? `Save result: ${payload.status}` : "Could not save this inference.");
@@ -913,15 +910,23 @@ export function GraphScreen({
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
-              {((inference.status === "answered" || inference.status === "success" || inference.status === "sufficient_evidence" || inference.status === "saved_as_insight")) && (
-                <button
-                  className="bb-action px-3 py-1 text-[10px]"
-                  disabled={inferenceSaving || inference.status === "saved_as_insight"}
-                  onClick={saveInferenceAsInsight}
-                >
-                  {inferenceSaving ? "Saving..." : inference.status === "saved_as_insight" ? "Saved" : t("saveAsInsight")}
-                </button>
-              )}
+              <button
+                className="bb-action px-3 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={
+                  inferenceSaving
+                  || inference.status === "saved_as_insight"
+                  || !inference.inferenceId
+                  || !["answered", "success", "sufficient_evidence", "insufficient_evidence"].includes(inference.status)
+                }
+                title={
+                  inference.status === "insufficient_evidence"
+                    ? "Create a knowledge gap from this unanswered question"
+                    : "Create a grounded knowledge insight from this answer"
+                }
+                onClick={saveInferenceAsInsight}
+              >
+                {inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}
+              </button>
               <button className="bb-action px-3 py-1 text-[10px]" onClick={() => setInference(null)}>{t("close")}</button>
             </div>
             {inferenceSaveStatus && (
