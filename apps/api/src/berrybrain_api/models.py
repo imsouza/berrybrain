@@ -337,6 +337,30 @@ class InsightRecord(Base):
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class GraphInferenceRecord(Base):
+    __tablename__ = "graph_inferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="insufficient_evidence", index=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    related_nodes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    suggestions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="graph-inference.v2"
+    )
+    insight_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class ReviewItemRecord(Base):
     __tablename__ = "review_items"
 

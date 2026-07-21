@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from importlib import import_module
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -305,24 +306,37 @@ class IntegrationTest(unittest.TestCase):
         self.assertIn("insights", resp.json())
 
     def test_10b_save_graph_inference_as_insight(self):
+        canonical = {
+            "status": "answered",
+            "question": "How do Docker and shell connect?",
+            "answer": "Docker and shell connect through local automation workflows.",
+            "evidence": [
+                "Docker Essentials mentions containers.",
+                "Linux Shell Scripting mentions automation.",
+            ],
+            "relatedNodes": [],
+            "confidence": 0.82,
+            "provider": "test-provider",
+            "model": "test-model",
+            "routes": ["knowledge_graph"],
+        }
+        with patch(
+            "berrybrain_api.routers.graph.answer_cognitive_query",
+            new=AsyncMock(return_value=canonical),
+        ):
+            inference_response = self.client.post(
+                "/api/v1/graph/infer",
+                json={"question": canonical["question"]},
+            )
+
+        self.assertEqual(inference_response.status_code, 200)
+        inference = inference_response.json()
+        self.assertIsInstance(inference["inferenceId"], int)
+        self.assertEqual(inference["answer"], canonical["answer"])
+
         resp = self.client.post(
             "/api/v1/insights/from-inference",
-            json={
-                "question": "How do Docker and shell connect?",
-                "inference": {
-                    "status": "answered",
-                    "answer": "Docker and shell connect through local automation workflows.",
-                    "evidence": [
-                        "Docker Essentials mentions containers.",
-                        "Linux Shell Scripting mentions automation.",
-                    ],
-                    "relatedNodes": [],
-                    "confidence": 0.82,
-                    "provider": "test-provider",
-                    "model": "test-model",
-                    "routes": ["knowledge_graph"],
-                },
-            },
+            json={"inferenceId": inference["inferenceId"]},
         )
 
         self.assertEqual(resp.status_code, 200)
@@ -331,8 +345,112 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(
             data["insight"]["title"], "Inference: How do Docker and shell connect?"
         )
+        activity = self.client.get("/api/v1/automation-logs").json()["logs"]
+        self.assertTrue(
+            any(
+                item["action_type"] == "INSIGHT_CREATED_FROM_INFERENCE"
+                and item["target_id"] == str(data["insight"]["id"])
+                for item in activity
+            )
+        )
+        graph = self.client.get("/api/v1/graph").json()
+        self.assertTrue(
+            any(
+                node.get("type") == "insight"
+                and node.get("sourceId") == data["insight"]["id"]
+                for node in graph["nodes"]
+            )
+        )
 
-    def test_10c_attachment_security_deduplication_and_cleanup(self):
+        duplicate = self.client.post(
+            "/api/v1/insights/from-inference",
+            json={"inferenceId": inference["inferenceId"]},
+        )
+        self.assertEqual(duplicate.json()["status"], "existing")
+
+    def test_10c_insufficient_inference_becomes_knowledge_gap(self):
+        canonical = {
+            "status": "insufficient_evidence",
+            "question": "How does quantum gravity affect this vault?",
+            "answer": "There is not enough evidence in your BerryBrain data to answer this.",
+            "routes": ["knowledge_base", "knowledge_graph"],
+            "evidence": [],
+            "relatedNodes": [],
+            "suggestions": ["Add relevant source notes."],
+        }
+        with patch(
+            "berrybrain_api.routers.graph.answer_cognitive_query",
+            new=AsyncMock(return_value=canonical),
+        ):
+            inference_response = self.client.post(
+                "/api/v1/graph/infer", json={"question": canonical["question"]}
+            )
+
+        inference = inference_response.json()
+        resp = self.client.post(
+            "/api/v1/insights/from-inference",
+            json={"inferenceId": inference["inferenceId"]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        insight = resp.json()["insight"]
+        self.assertEqual(insight["type"], "knowledge_gap")
+        self.assertIn("could not establish", insight["description"])
+        self.assertTrue(insight["evidence"])
+
+    def test_10d_provider_failure_cannot_be_saved_as_knowledge(self):
+        canonical = {
+            "status": "waiting_provider",
+            "question": "What connects these notes?",
+            "answer": "The provider is unavailable.",
+            "routes": ["knowledge_graph"],
+            "evidence": ["A note was retrieved."],
+            "relatedNodes": [],
+        }
+        with patch(
+            "berrybrain_api.routers.graph.answer_cognitive_query",
+            new=AsyncMock(return_value=canonical),
+        ):
+            inference_response = self.client.post(
+                "/api/v1/graph/infer", json={"question": canonical["question"]}
+            )
+
+        resp = self.client.post(
+            "/api/v1/insights/from-inference",
+            json={"inferenceId": inference_response.json()["inferenceId"]},
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    def test_10e_legacy_client_inference_is_not_trusted(self):
+        canonical = {
+            "status": "insufficient_evidence",
+            "question": "Injected client claim",
+            "answer": "No server evidence exists.",
+            "routes": ["knowledge_graph"],
+            "evidence": [],
+            "relatedNodes": [],
+        }
+        with patch(
+            "berrybrain_api.routers.insights.answer_cognitive_query",
+            new=AsyncMock(return_value=canonical),
+        ):
+            resp = self.client.post(
+                "/api/v1/insights/from-inference",
+                json={
+                    "question": canonical["question"],
+                    "inference": {
+                        "status": "answered",
+                        "answer": "Untrusted fabricated answer",
+                        "evidence": ["Fabricated evidence"],
+                    },
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        insight = resp.json()["insight"]
+        self.assertEqual(insight["type"], "knowledge_gap")
+        self.assertNotIn("fabricated", insight["description"].lower())
+
+    def test_10f_attachment_security_deduplication_and_cleanup(self):
         created_note = self.client.post(
             "/api/v1/notes",
             json={"title": "Attachment source", "content": "# Attachment source"},

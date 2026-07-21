@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import Engine, inspect, text
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 
 
@@ -35,6 +35,11 @@ MIGRATIONS = (
         version=3,
         name="managed-service-token-rotation",
         description="Adds hashed rotating service tokens for API and Worker authentication.",
+    ),
+    SchemaMigration(
+        version=4,
+        name="persisted-graph-inferences",
+        description="Adds auditable graph inference records linked to saved insights.",
     ),
 )
 

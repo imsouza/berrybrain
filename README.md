@@ -43,6 +43,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 - [Account Recovery and Deletion](#account-recovery-and-deletion)
 - [Deploying at /berrybrain](#deploying-at-berrybrain)
 - [Engineering Practices](#engineering-practices)
+- [Engineering Plans](#engineering-plans)
 - [Security and Privacy](#security-and-privacy)
 - [Roadmap](#roadmap)
 - [Troubleshooting](#troubleshooting)
@@ -87,7 +88,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-The current worktree implements the complete local product foundation. Release governance remains separate and must not be confused with feature completeness.
+BerryBrain implements a real local product foundation, but feature presence is not the same as measured cognitive maturity. The current evidence-based audit scores cognitive maturity at **65/100** and engineering maturity at **62/100**. The product is a functional second brain; it is not yet accurately described as 100% mature.
 
 | Foundation | Current state |
 | --- | --- |
@@ -99,9 +100,15 @@ The current worktree implements the complete local product foundation. Release g
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, no default password, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
-| Delivery evidence | 156 API tests, 34 Worker tests, 13 production-browser checks, protected CI gates, container scans, SBOM workflow |
+| Delivery evidence | Broad API, Worker, browser, security, migration, benchmark, and container suites with protected CI gates |
 
 Release evidence is tracked in [`AUDIT.md`](AUDIT.md) and the public [`v1.0.0` release](https://github.com/imsouza/berrybrain/releases/tag/v1.0.0). Protected `main`, required checks/review, clean-stack validation, 12 consecutive green container runs, multi-architecture images, OIDC signatures, and SPDX SBOM attestations are complete.
+
+The current scorecard, remaining gates, and requirement evidence are maintained in:
+
+- [`Second-Brain Maturity V2`](planning/second-brain-maturity-v2.md)
+- [`Clean Architecture and Refactoring Plan`](planning/clean-architecture-refactor.md)
+- [`Requirements Traceability`](planning/requirements-traceability.md)
 
 ---
 
@@ -133,7 +140,7 @@ flowchart LR
 
 ### Runtime Contract
 
-The frontend never calls AI providers directly. All cognitive operations flow through API services and queued jobs:
+The frontend never calls AI providers directly. Cognitive operations flow through API services and queued jobs. Graph questions are persisted before they can become insights, so the browser is never the authority for evidence:
 
 ```mermaid
 sequenceDiagram
@@ -807,13 +814,7 @@ The repository includes `CODEOWNERS`, a structured epic form, CI workflows, and 
 The script creates the release epics and protects `main` with required CI checks, one approving code-owner review, stale-review dismissal, conversation resolution, and force-push/deletion protection. It never accepts or stores a token in the repository; authentication remains managed by the GitHub CLI or its environment.
 - No flashcard surface; study suggestions should be insight/review oriented, not legacy flashcard UI.
 
-Latest local verification evidence (13 July 2026):
-
-- 156 API tests pass with a 60% total coverage gate and critical-module ratchets;
-- 34 Worker tests pass, including disposable-database integration coverage;
-- 13 production-browser Playwright checks pass against an isolated authenticated stack, including landing-to-login owner entry with no default password;
-- API, Worker, and Web images pass the local zero-fixable-HIGH/CRITICAL Trivy gate;
-- SPDX SBOM generation is wired into CI and signed release publication is defined in `.github/workflows/release.yml`.
+Verification includes API, Worker, production-browser, security, migration, backup, semantic benchmark, container scan, and SBOM workflows. Exact counts change with the code and should be read from the current protected CI run rather than copied into release claims.
 
 ### Error Handling
 
@@ -824,6 +825,18 @@ Provider failures should:
 - not create fake insights;
 - not silently corrupt graph state;
 - allow retry/reprocess.
+
+---
+
+## Engineering Plans
+
+BerryBrain uses incremental vertical-slice refactoring. The graph-inference slice is the first migrated boundary: its cognitive decision is framework-free, API sessions are injected, inference evidence is persisted server-side, and architecture tests protect the boundary.
+
+- [Clean Architecture and Refactoring Plan](planning/clean-architecture-refactor.md)
+- [Second-Brain Maturity V2](planning/second-brain-maturity-v2.md)
+- [Requirements Traceability](planning/requirements-traceability.md)
+
+These files distinguish implemented behavior from planned gates. A checkbox is marked complete only when code and automated evidence exist.
 
 ---
 
