@@ -178,12 +178,13 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         "Return JSON with status, answer, evidence, relatedNodes, suggestions, "
         "confidence. If evidence is weak, status must be insufficient_evidence."
     )
+    prompt_evidence = _bounded_query_evidence(evidence)
     prompt = json.dumps(
         {
             "question": question,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
-            "evidence": evidence[:16],
+            "evidence": prompt_evidence,
             "rules": [
                 "Do not invent facts.",
                 "Cite concrete note/node/edge/job evidence.",
@@ -193,9 +194,26 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         ensure_ascii=False,
     )
     try:
-        result = await generate_graph_answer(config, prompt, system, timeout=120)
+        result = await generate_graph_answer(
+            config,
+            prompt,
+            system,
+            timeout=80,
+            max_tokens=1024,
+            session=session,
+            prompt_version="cognitive-query.v1",
+        )
+    except TimeoutError:
+        return _fallback_answer(
+            question,
+            orchestrated,
+            "The AI provider did not answer within 80 seconds. Try again shortly or choose a faster model.",
+            config,
+        )
     except GraphAIUnavailable as exc:
-        return _fallback_answer(question, orchestrated, f"AI unavailable: {exc}")
+        return _fallback_answer(
+            question, orchestrated, f"AI unavailable: {exc}", config
+        )
     except urllib.error.HTTPError as exc:
         if exc.code in {401, 403}:
             reason = (
@@ -206,12 +224,13 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
             reason = "The AI provider rate limit was reached. Try again shortly."
         else:
             reason = f"The AI provider returned HTTP {exc.code}. Check Settings."
-        return _fallback_answer(question, orchestrated, reason)
+        return _fallback_answer(question, orchestrated, reason, config)
     except Exception:
         return _fallback_answer(
             question,
             orchestrated,
             "The AI provider request failed. Check the provider configuration in Settings.",
+            config,
         )
 
     answer_text = str(result.get("answer") or "").strip()
@@ -219,10 +238,14 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
     if not isinstance(returned_evidence, list) or not returned_evidence:
         # ponytail: model answered but skipped the strict evidence list -> use retrieved evidence
         if not answer_text:
-            return _fallback_answer(question, orchestrated, "AI returned no answer.")
+            return _fallback_answer(
+                question, orchestrated, "AI returned no answer.", config
+            )
         returned_evidence = orchestrated["evidence"][:8]
     if not answer_text:
-        return _fallback_answer(question, orchestrated, "AI returned no answer.")
+        return _fallback_answer(
+            question, orchestrated, "AI returned no answer.", config
+        )
     return {
         "status": str(result.get("status") or "answered"),
         "question": question,
@@ -235,7 +258,7 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         "suggestions": result.get("suggestions")
         if isinstance(result.get("suggestions"), list)
         else [],
-        "confidence": float(result.get("confidence") or 0.5),
+        "confidence": _safe_confidence(result.get("confidence")),
         "provider": config.get("provider", ""),
         "model": config.get("cloud_model") or config.get("ollama_model") or "",
     }
@@ -997,13 +1020,16 @@ def cognitive_config(session: Session) -> dict[str, str]:
 
 
 def _fallback_answer(
-    question: str, orchestrated: dict[str, Any], reason: str
+    question: str,
+    orchestrated: dict[str, Any],
+    reason: str,
+    config: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     evidence = orchestrated["evidence"]
     if "authentication failed" in reason.lower():
-        answer = "Evidence was found, but NVIDIA NIM rejected the configured API key."
+        answer = "Evidence was found, but the cloud provider rejected the configured API key."
         suggestions = [
-            "Replace the NVIDIA NIM API key in Settings and click Save.",
+            "Replace the cloud API key in Settings and click Save.",
             "Retry the question after Settings shows Connected.",
         ]
     else:
@@ -1018,6 +1044,7 @@ def _fallback_answer(
         answer = f"{answer} Strongest evidence: {evidence[0]['title']}."
     if reason:
         answer = f"{answer} ({reason})"
+    provider_config = config or {}
     return {
         "status": "waiting_provider",
         "question": question,
@@ -1027,7 +1054,39 @@ def _fallback_answer(
         "relatedNodes": orchestrated["relatedNodes"],
         "suggestions": suggestions,
         "reason": reason,
+        "provider": provider_config.get("provider", ""),
+        "model": provider_config.get("cloud_model")
+        or provider_config.get("ollama_model")
+        or "",
     }
+
+
+def _bounded_query_evidence(
+    evidence: list[dict[str, Any]],
+    *,
+    limit: int = 12,
+    max_text_chars: int = 1200,
+    max_total_chars: int = 9000,
+) -> list[dict[str, Any]]:
+    bounded: list[dict[str, Any]] = []
+    total = 0
+    for item in evidence[:limit]:
+        text = str(item.get("text") or "").strip()
+        remaining = max_total_chars - total
+        if remaining <= 0:
+            break
+        text = text[: min(max_text_chars, remaining)]
+        bounded.append({**item, "text": text})
+        total += len(text)
+    return bounded
+
+
+def _safe_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    return max(0.0, min(1.0, confidence))
 
 
 def _tokens(text: str) -> set[str]:

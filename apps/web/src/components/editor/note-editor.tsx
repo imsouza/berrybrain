@@ -62,6 +62,7 @@ function Backlinks({ notePath }: { notePath: string }) {
 
 export function NoteEditor() {
   const w = useWorkspace();
+  const activePath = w.active?.path;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
@@ -72,20 +73,20 @@ export function NoteEditor() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!w.active || w.demo) {
+    if (!activePath || w.demo) {
       setAttachments([]);
       return;
     }
-    const encodedPath = encodeNotePath(w.active.path);
+    const encodedPath = encodeNotePath(activePath);
     fetch(`${w.api}/api/v1/notes/${encodedPath}/attachments`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setAttachments(data?.attachments || []))
       .catch(() => setAttachments([]));
-  }, [w.active?.path, w.api, w.demo]);
+  }, [activePath, w.api, w.demo]);
 
   useEffect(() => {
     setMenuOpen(false);
-  }, [w.active?.path]);
+  }, [activePath]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -104,12 +105,12 @@ export function NoteEditor() {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!w.active || w.demo) {
+    if (!activePath || w.demo) {
       setPipelineProgress(null);
       return;
     }
     let cancelled = false;
-    const notePath = w.active.path;
+    const notePath = activePath;
     const load = () => {
       fetch(`${w.api}/api/v1/jobs/pipeline-progress`)
         .then((response) => (response.ok ? response.json() : null))
@@ -128,7 +129,7 @@ export function NoteEditor() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [w.active?.path, w.api, w.demo]);
+  }, [activePath, w.api, w.demo]);
 
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;

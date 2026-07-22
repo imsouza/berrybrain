@@ -1,0 +1,14 @@
+title = "BerryBrain secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Known lifecycle password fixture from the authentication test history"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^StrongPass123$''']
+  paths = ['''^apps/api/tests/test_security_auth\.py$''']

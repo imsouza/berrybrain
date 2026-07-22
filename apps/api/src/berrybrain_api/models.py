@@ -101,10 +101,25 @@ class JobRecord(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     claimed_by: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    claim_token: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class WorkerInboxRecord(Base):
+    __tablename__ = "worker_inbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    message_id: Mapped[str] = mapped_column(
+        String(220), unique=True, nullable=False, index=True
+    )
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    message_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    claim_token: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="processed")
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class WorkerStatus(Base):
@@ -337,6 +352,30 @@ class InsightRecord(Base):
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class GraphInferenceRecord(Base):
+    __tablename__ = "graph_inferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="insufficient_evidence", index=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    related_nodes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    suggestions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="graph-inference.v2"
+    )
+    insight_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class ReviewItemRecord(Base):
     __tablename__ = "review_items"
 
@@ -423,6 +462,32 @@ class EmbeddingRecord(Base):
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     vector_dimensions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ModelInvocationRecord(Base):
+    __tablename__ = "model_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    capability: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    remote: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    input_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
+    error_class: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    correlation_id: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="", index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class ChunkRecord(Base):

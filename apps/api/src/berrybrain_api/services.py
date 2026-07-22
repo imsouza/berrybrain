@@ -5,6 +5,7 @@ import hashlib
 import math
 import re
 import struct
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -178,6 +179,7 @@ def create_insight(
     prompt_version: str = "v1",
     reasoning: str = "",
     source_context: str = "",
+    autocommit: bool = True,
 ) -> InsightRecord:
     related = related_notes or []
     source_evidence = evidence or []
@@ -246,8 +248,11 @@ def create_insight(
         existing.last_recalculated_at = now
         existing.expires_at = now + timedelta(days=30)
         existing.updated_at = now
-        session.commit()
-        session.refresh(existing)
+        if autocommit:
+            session.commit()
+            session.refresh(existing)
+        else:
+            session.flush()
         return existing
 
     insight = InsightRecord(
@@ -273,8 +278,11 @@ def create_insight(
         last_recalculated_at=now,
     )
     session.add(insight)
-    session.commit()
-    session.refresh(insight)
+    if autocommit:
+        session.commit()
+        session.refresh(insight)
+    else:
+        session.flush()
     return insight
 
 
@@ -603,18 +611,24 @@ def resolve_note_id(session: Session, note_path: str) -> int:
     return note.id
 
 
-def _is_system_diagnostic_graph_node(node: GraphNodeRecord) -> bool:
-    if (getattr(node, "type", "") or "").lower() != "insight":
+def _record_value(record: object, key: str, default: Any = "") -> Any:
+    if isinstance(record, Mapping):
+        return record.get(key, default)
+    return getattr(record, key, default)
+
+
+def _is_system_diagnostic_graph_node(node: object) -> bool:
+    if (_record_value(node, "type", "") or "").lower() != "insight":
         return False
     combined = " ".join(
         [
-            getattr(node, "label", "") or "",
-            getattr(node, "title", "") or "",
-            getattr(node, "summary", "") or "",
-            getattr(node, "ai_summary", "") or "",
-            getattr(node, "ai_context", "") or "",
-            getattr(node, "source_evidence", "") or "",
-            getattr(node, "graph_metadata", "") or "",
+            _record_value(node, "label", "") or "",
+            _record_value(node, "title", "") or "",
+            _record_value(node, "summary", "") or "",
+            _record_value(node, "ai_summary", "") or "",
+            _record_value(node, "ai_context", "") or "",
+            _record_value(node, "source_evidence", "") or "",
+            _record_value(node, "graph_metadata", "") or "",
         ]
     ).lower()
     return any(
@@ -640,17 +654,15 @@ def build_graph(
     session: Session,
     max_depth: int = 2,
     view: str = "",
-) -> dict[str, list[dict]]:
-    from berrybrain_api.second_brain import _merge_duplicate_nodes
-
-    _merge_duplicate_nodes(session)
-
-    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
+) -> dict[str, Any]:
+    graph_nodes = list(session.execute(select(GraphNodeRecord.__table__)).mappings())
     if graph_nodes:
         graph_edges = list(
             session.execute(
-                select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
-            ).scalars()
+                select(GraphEdgeRecord.__table__).where(
+                    GraphEdgeRecord.status != "ignored"
+                )
+            ).mappings()
         )
         graph_nodes = [
             node for node in graph_nodes if not _is_system_diagnostic_graph_node(node)
@@ -659,44 +671,45 @@ def build_graph(
             graph_nodes = [
                 node
                 for node in graph_nodes
-                if getattr(node, "status", "suggested") != "ignored"
+                if node.get("status", "suggested") != "ignored"
             ]
-        node_ids = {node.id: f"{node.type}_{node.id}" for node in graph_nodes}
+        node_ids = {
+            int(node["id"]): f"{node['type']}_{node['id']}" for node in graph_nodes
+        }
         nodes = []
         for node in graph_nodes:
-            metadata = _parse_json_dict(getattr(node, "graph_metadata", "{}"))
+            metadata = _parse_json_dict(node.get("metadata", "{}"))
+            generated_at = node.get("generated_at")
             nodes.append(
                 {
-                    "id": node_ids[node.id],
-                    "recordId": node.id,
-                    "label": node.label,
-                    "title": getattr(node, "title", "") or node.label,
-                    "summary": getattr(node, "summary", ""),
-                    "aiNotes": getattr(node, "ai_notes", ""),
-                    "userNotes": getattr(node, "user_notes", ""),
-                    "type": node.type,
-                    "source": getattr(node, "source", ""),
-                    "sourceId": node.source_id,
+                    "id": node_ids[int(node["id"])],
+                    "recordId": node["id"],
+                    "label": node["label"],
+                    "title": node.get("title", "") or node["label"],
+                    "summary": node.get("summary", ""),
+                    "aiNotes": node.get("ai_notes", ""),
+                    "userNotes": node.get("user_notes", ""),
+                    "type": node["type"],
+                    "source": node.get("source", ""),
+                    "sourceId": node["source_id"],
                     "sourceNoteIds": _parse_json_list(
-                        getattr(node, "source_note_ids", "[]")
+                        node.get("source_note_ids", "[]")
                     ),
-                    "status": getattr(node, "status", "suggested"),
-                    "confidence": getattr(node, "confidence", 0.5),
-                    "createdBy": getattr(node, "created_by", "system"),
-                    "createdByModel": getattr(node, "created_by_model", ""),
-                    "aiSummary": getattr(node, "ai_summary", ""),
-                    "aiContext": getattr(node, "ai_context", ""),
-                    "sourceEvidence": getattr(node, "source_evidence", ""),
-                    "learningValue": getattr(node, "learning_value", ""),
-                    "sourceQuality": getattr(node, "source_quality", ""),
-                    "validationStatus": getattr(
-                        node, "validation_status", "unvalidated"
-                    ),
-                    "provider": getattr(node, "provider", ""),
-                    "model": getattr(node, "model", ""),
-                    "promptVersion": getattr(node, "prompt_version", ""),
-                    "generatedAt": getattr(node, "generated_at", None).isoformat()
-                    if getattr(node, "generated_at", None)
+                    "status": node.get("status", "suggested"),
+                    "confidence": node.get("confidence", 0.5),
+                    "createdBy": node.get("created_by", "system"),
+                    "createdByModel": node.get("created_by_model", ""),
+                    "aiSummary": node.get("ai_summary", ""),
+                    "aiContext": node.get("ai_context", ""),
+                    "sourceEvidence": node.get("source_evidence", ""),
+                    "learningValue": node.get("learning_value", ""),
+                    "sourceQuality": node.get("source_quality", ""),
+                    "validationStatus": node.get("validation_status", "unvalidated"),
+                    "provider": node.get("provider", ""),
+                    "model": node.get("model", ""),
+                    "promptVersion": node.get("prompt_version", ""),
+                    "generatedAt": generated_at.isoformat()
+                    if isinstance(generated_at, datetime)
                     else None,
                     "path": metadata.get("path", ""),
                     "folder": metadata.get("folder", ""),
@@ -711,31 +724,31 @@ def build_graph(
         edges = []
         degrees: dict[str, int] = {node["id"]: 0 for node in nodes}
         for edge in graph_edges:
-            source = node_ids.get(edge.source_node_id)
-            target = node_ids.get(edge.target_node_id)
+            source = node_ids.get(int(edge["source_node_id"]))
+            target = node_ids.get(int(edge["target_node_id"]))
             if source is None or target is None:
                 continue
             if source not in visible_node_ids or target not in visible_node_ids:
                 continue
             edges.append(
                 {
-                    "id": edge.id,
+                    "id": edge["id"],
                     "source": source,
                     "target": target,
-                    "type": edge.type,
-                    "label": getattr(edge, "label", ""),
-                    "confidence": edge.confidence,
-                    "reason": edge.reason,
-                    "evidence": _parse_json_list(getattr(edge, "evidence", "[]")),
-                    "aiNotes": getattr(edge, "ai_notes", ""),
-                    "userNotes": getattr(edge, "user_notes", ""),
+                    "type": edge["type"],
+                    "label": edge.get("label", ""),
+                    "confidence": edge["confidence"],
+                    "reason": edge["reason"],
+                    "evidence": _parse_json_list(edge.get("evidence", "[]")),
+                    "aiNotes": edge.get("ai_notes", ""),
+                    "userNotes": edge.get("user_notes", ""),
                     "sourceNoteIds": _parse_json_list(
-                        getattr(edge, "source_note_ids", "[]")
+                        edge.get("source_note_ids", "[]")
                     ),
-                    "createdBy": edge.created_by,
-                    "provider": getattr(edge, "provider", ""),
-                    "model": getattr(edge, "model", ""),
-                    "status": getattr(edge, "status", "suggested"),
+                    "createdBy": edge["created_by"],
+                    "provider": edge.get("provider", ""),
+                    "model": edge.get("model", ""),
+                    "status": edge.get("status", "suggested"),
                 }
             )
             degrees[source] = degrees.get(source, 0) + 1
@@ -790,21 +803,21 @@ def build_graph(
             }
         )
 
-    node_ids = {n["id"] for n in nodes}
-    degrees: dict[str, int] = {n["id"]: 0 for n in nodes}
+    fallback_node_ids = {n["id"] for n in nodes}
+    fallback_degrees: dict[str, int] = {node_id: 0 for node_id in fallback_node_ids}
     for edge in edges:
-        degrees[edge["source"]] = degrees.get(edge["source"], 0) + 1
-        degrees[edge["target"]] = degrees.get(edge["target"], 0) + 1
+        fallback_degrees[edge["source"]] = fallback_degrees.get(edge["source"], 0) + 1
+        fallback_degrees[edge["target"]] = fallback_degrees.get(edge["target"], 0) + 1
 
     for node in nodes:
-        node["connectionsCount"] = degrees.get(node["id"], 0)
+        node["connectionsCount"] = fallback_degrees.get(node["id"], 0)
 
     orphan_count = 0
-    for node_id, deg in degrees.items():
+    for node_id, deg in fallback_degrees.items():
         if deg == 0:
             orphan_count += 1
 
-    central = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:5]
+    central = sorted(fallback_degrees.items(), key=lambda x: x[1], reverse=True)[:5]
 
     return {
         "nodes": nodes,

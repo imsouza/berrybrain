@@ -19,6 +19,7 @@ def create_automation_log(
     before_state: dict[str, Any],
     after_state: dict[str, Any],
     reversible: bool,
+    autocommit: bool = True,
 ) -> AutomationLogRecord:
     log = AutomationLogRecord(
         action_type=action_type,
@@ -30,8 +31,11 @@ def create_automation_log(
         reversible=1 if reversible else 0,
     )
     session.add(log)
-    session.commit()
-    session.refresh(log)
+    if autocommit:
+        session.commit()
+        session.refresh(log)
+    else:
+        session.flush()
     return log
 
 

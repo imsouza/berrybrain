@@ -11,6 +11,7 @@ from berrybrain_api.cognitive_layer import (
     semantic_data_state,
 )
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.maturity_service import cognitive_maturity_report
 
 router = APIRouter(prefix="/api/v1/cognitive", tags=["cognitive"])
 
@@ -47,6 +48,12 @@ def retrieve_cognitive_context(payload: CognitiveQueryRequest) -> dict:
 def get_semantic_data_state() -> dict:
     with SessionLocal() as session:
         return semantic_data_state(session)
+
+
+@router.get("/maturity")
+def get_cognitive_maturity() -> dict:
+    with SessionLocal() as session:
+        return cognitive_maturity_report(session)
 
 
 @router.post("/query")

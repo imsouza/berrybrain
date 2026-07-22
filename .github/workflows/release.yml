@@ -88,3 +88,19 @@ jobs:
           --predicate "berrybrain-${{ matrix.service }}.spdx.json"
           --type spdxjson
           "${IMAGE}@${DIGEST}"
+
+  release:
+    name: Publish GitHub release
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release from verified tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: >-
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
+          || gh release create "$TAG" --repo "$GITHUB_REPOSITORY"
+          --verify-tag --generate-notes --title "BerryBrain $TAG"

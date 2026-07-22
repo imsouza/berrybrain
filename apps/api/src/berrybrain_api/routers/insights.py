@@ -4,11 +4,16 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
-from berrybrain_api.database import SessionLocal
+from berrybrain_api.database import SessionLocal, get_session
+from berrybrain_api.graph_inference_service import (
+    create_insight_from_persisted_inference,
+    persist_graph_inference,
+)
 from berrybrain_api.models import InsightRecord, JobRecord
 from berrybrain_api.second_brain import expand_knowledge_graph
 from berrybrain_api.services import (
@@ -26,7 +31,8 @@ class SyncInsightsRequest(BaseModel):
 
 
 class InferenceInsightRequest(BaseModel):
-    question: str
+    inferenceId: int | None = None
+    question: str = ""
     inference: dict | None = None
 
 
@@ -436,41 +442,21 @@ def list_insights(limit: int = 10) -> dict:
 
 
 @router.post("/from-inference")
-async def create_insight_from_inference(payload: InferenceInsightRequest) -> dict:
-    with SessionLocal() as session:
-        result = payload.inference or await answer_cognitive_query(
-            session, payload.question
-        )
-        if result["status"] not in {"answered", "success", "sufficient_evidence"}:
-            return {"status": "insufficient_evidence", "inference": result}
-        insight = create_insight(
-            session,
-            "new_connection",
-            f"Inference: {payload.question}"[:255],
-            result["answer"],
-            [],
-            6,
-            why_it_matters="This inference is grounded in the Knowledge Base, Knowledge Graph, and Semantic Data evidence returned by the configured model.",
-            evidence=result.get("evidence", []),
-            suggested_action="Review the cited nodes and decide whether this should become a permanent note or confirmed graph connection.",
-            graph_impact="Creates an insight node linked to the evidence that supported the graph inference.",
-            confidence=float(result.get("confidence", 0.5) or 0.5),
-            status="suggested",
-            provider=result.get("provider", ""),
-            model=result.get("model", ""),
-            prompt_version="graph-inference.v2",
-            reasoning=f"Saved from graph inference question: {payload.question}",
-            source_context=json.dumps(
-                {
-                    "question": payload.question,
-                    "routes": result.get("routes", []),
-                    "relatedNodes": result.get("relatedNodes", []),
-                },
-                ensure_ascii=False,
-            ),
-        )
-        expand_knowledge_graph(session)
-        return {"status": "created", "insight": serialize_insight(insight)}
+async def create_insight_from_inference(
+    payload: InferenceInsightRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    if payload.inferenceId is not None:
+        return create_insight_from_persisted_inference(session, payload.inferenceId)
+
+    # Compatibility path for older clients. The server deliberately ignores the
+    # supplied inference JSON and regenerates a canonical, persisted result.
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="Question is required")
+    result = await answer_cognitive_query(session, question)
+    inference = persist_graph_inference(session, question, result)
+    return create_insight_from_persisted_inference(session, inference.id)
 
 
 @router.post("/{insight_id}/dismiss")

@@ -121,6 +121,10 @@ test.describe("Authenticated workspace quality", () => {
   }) => {
     await openWorkspace(page, context);
 
+    const donate = page.getByRole("link", { name: "Donate to BerryBrain on Ko-fi" });
+    await expect(donate).toBeVisible();
+    await expect(donate).toHaveAttribute("href", "https://ko-fi.com/berrybrain");
+
     const quickNote = page.getByRole("textbox", { name: "Quick note draft" });
     await quickNote.fill("A short idea that is not a note yet.");
     await expect(quickNote).toHaveAttribute("maxlength", "2000");
@@ -243,5 +247,110 @@ test.describe("Authenticated workspace quality", () => {
 
     await expect(page.getByText("Error loading Home data.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  });
+
+  test("shows evidence-based cognitive maturity in Monitor", async ({
+    page,
+    context,
+  }) => {
+    await openWorkspace(page, context);
+
+    await page.getByRole("button", { name: "Monitor", exact: true }).first().click();
+    const monitor = page.getByRole("heading", { name: "Monitor" }).locator("..").locator("..");
+    await monitor.getByRole("button", { name: "Health", exact: true }).click();
+    await expect(monitor.getByText("Queue SLO")).toBeVisible();
+    await expect(monitor.getByText(/Within target|Approaching limit|Action required/)).toBeVisible();
+    await expect(monitor.getByText("Cognitive maturity")).toBeVisible();
+    await expect(monitor.getByText(/Measuring real outcomes|Mature/)).toBeVisible();
+    await expect(monitor.getByText("Model reliability")).toBeVisible();
+  });
+
+  test("cancels an active job from Monitor", async ({ page, context }) => {
+    let cancellationRequested = false;
+    await page.route("**/api/v1/jobs?limit=50", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          jobs: [
+            {
+              id: 41,
+              type: "EXPAND_KNOWLEDGE_GRAPH",
+              status: "running",
+              payload: { note_path: "notes/cancel.md" },
+              attempts: 1,
+              max_attempts: 3,
+            },
+          ],
+        }),
+      }),
+    );
+    await page.route("**/api/v1/jobs/41/cancel", (route) => {
+      cancellationRequested = true;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ job: { id: 41, status: "cancel_requested" } }),
+      });
+    });
+    await openWorkspace(page, context);
+
+    await page.getByRole("button", { name: "Monitor", exact: true }).first().click();
+    const monitor = page.getByRole("heading", { name: "Monitor" }).locator("..").locator("..");
+    await monitor.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    await expect(monitor.getByText("Cancellation requested for job #41.")).toBeVisible();
+    expect(cancellationRequested).toBe(true);
+  });
+
+  test("creates an insight from a persisted graph inference and refreshes the graph", async ({
+    page,
+    context,
+  }) => {
+    let graphLoads = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/v1/graph") graphLoads += 1;
+    });
+    await page.route("**/api/v1/graph/infer", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          inferenceId: 91,
+          status: "answered",
+          question: "How do deployment and automation connect?",
+          answer: "Automation makes deployment repeatable.",
+          evidence: ["Deployment note", "Automation note"],
+          relatedNodes: [],
+          confidence: 0.82,
+          provider: "deterministic",
+          model: "e2e-fixture",
+        }),
+      }),
+    );
+    await page.route("**/api/v1/insights/from-inference", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "created",
+          insight: { id: 41, title: "Deployment relies on automation" },
+        }),
+      }),
+    );
+
+    await openWorkspace(page, context);
+    await page.getByRole("button", { name: "View graph", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "Knowledge Graph" })).toBeVisible();
+    const ask = page.getByRole("button", { name: "Ask", exact: true });
+    await ask.locator("..").getByRole("textbox").fill(
+      "How do deployment and automation connect?",
+    );
+    await ask.click();
+    await expect(page.getByText("Automation makes deployment repeatable.")).toBeVisible();
+    const graphLoadsBeforeSave = graphLoads;
+    await page.getByRole("button", { name: "Create insight" }).click();
+    await expect(page.getByRole("button", { name: "Insight created" })).toBeVisible();
+    await expect.poll(() => graphLoads).toBeGreaterThan(graphLoadsBeforeSave);
   });
 });

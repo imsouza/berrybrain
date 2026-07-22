@@ -106,12 +106,12 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
 
     concept_nodes: dict[str, GraphNodeRecord] = {}
     concepts_count = 0
-    for normalized, note_ids in concept_to_note_ids.items():
+    for normalized, concept_note_ids in concept_to_note_ids.items():
         concept = _upsert_concept(
             session,
             name=_display_concept_name(normalized),
             normalized_name=normalized,
-            note_ids=sorted(note_ids),
+            note_ids=sorted(concept_note_ids),
             evidence=concept_sources[normalized],
             model=concept_models.get(normalized, ""),
         )
@@ -120,6 +120,8 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
 
     edges_count = 0
     connections_count = 0
+    valid_generated_connection_ids: set[int] = set()
+    valid_generated_edge_ids: set[int] = set()
     for normalized, concept_node in concept_nodes.items():
         for note_id in concept_to_note_ids[normalized]:
             note_node = note_nodes.get(_node_key("note", note_id))
@@ -139,6 +141,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
             )
             if edge:
                 edges_count += 1
+                valid_generated_edge_ids.add(edge.id)
 
         note_ids = sorted(concept_to_note_ids[normalized])
         if len(note_ids) > 1:
@@ -173,6 +176,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                     )
                     if conn:
                         connections_count += 1
+                        valid_generated_connection_ids.add(conn.id)
                     source_node = note_nodes.get(_node_key("note", source_id))
                     target_node = note_nodes.get(_node_key("note", target_id))
                     if source_node and target_node:
@@ -190,15 +194,16 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                         )
                         if edge:
                             edges_count += 1
+                            valid_generated_edge_ids.add(edge.id)
 
     note_to_concepts: dict[int, list[str]] = defaultdict(list)
-    for normalized, note_ids in concept_to_note_ids.items():
-        for note_id in note_ids:
+    for normalized, related_note_ids in concept_to_note_ids.items():
+        for note_id in related_note_ids:
             note_to_concepts[note_id].append(normalized)
     note_by_id = {note.id: note for note in notes}
     for note_id, normalized_names in note_to_concepts.items():
-        note = note_by_id.get(note_id)
-        if note is None:
+        related_note = note_by_id.get(note_id)
+        if related_note is None:
             continue
         limited = sorted(set(normalized_names))[:8]
         for index, left_name in enumerate(limited):
@@ -224,6 +229,13 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                 )
                 if edge:
                     edges_count += 1
+                    valid_generated_edge_ids.add(edge.id)
+
+    _mark_stale_generated_concept_relations(
+        session,
+        valid_connection_ids=valid_generated_connection_ids,
+        valid_edge_ids=valid_generated_edge_ids,
+    )
 
     note_by_title = {_note_lookup_key(note.title): note for note in notes}
     note_by_slug = {_note_lookup_key(note.slug): note for note in notes}
@@ -685,7 +697,7 @@ def _human_join(items: list[str]) -> str:
 
 async def generate_inferred_graph_connections(
     session: Session, max_pairs: int = 20
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Use AI to find non-obvious connections between existing graph nodes.
 
     Only one AI provider is used (cloud NVIDIA NIM or local Ollama), never both.
@@ -710,7 +722,7 @@ async def generate_inferred_graph_connections(
             note_ids.insert(0, node.source_id)
         if not note_ids:
             return None
-        return session.execute(
+        row = session.execute(
             select(ChunkRecord, NoteRecord)
             .join(NoteRecord, NoteRecord.id == ChunkRecord.note_id)
             .where(
@@ -720,6 +732,7 @@ async def generate_inferred_graph_connections(
             .order_by(ChunkRecord.chunk_index.asc())
             .limit(1)
         ).first()
+        return (row[0], row[1]) if row is not None else None
 
     chunk_by_node_id = {node.id: node_chunk(node) for node in candidates[:60]}
     evidenced_candidates = [
@@ -727,10 +740,14 @@ async def generate_inferred_graph_connections(
     ]
     if len(evidenced_candidates) < 2:
         return {"connections": 0, "reason": "insufficient_chunk_evidence"}
-    context = "\n".join(
-        f"- [{node.type}] {node.label}: {chunk_by_node_id[node.id][0].text[:280]}"
-        for node in evidenced_candidates
-    )
+    context_lines: list[str] = []
+    for node in evidenced_candidates:
+        source = chunk_by_node_id.get(node.id)
+        if source is not None:
+            context_lines.append(
+                f"- [{node.type}] {node.label}: {source[0].text[:280]}"
+            )
+    context = "\n".join(context_lines)
     prompt = (
         "Below are nodes from a knowledge graph. Identify non-obvious, "
         "semantically meaningful connections between DIFFERENT nodes.\n\n"
@@ -746,7 +763,13 @@ async def generate_inferred_graph_connections(
     )
 
     try:
-        result = await generate_graph_answer(config, prompt, system)
+        result = await generate_graph_answer(
+            config,
+            prompt,
+            system,
+            session=session,
+            prompt_version="connection-reason.v1",
+        )
     except GraphAIUnavailable:
         return {"connections": 0, "reason": "ai_unavailable"}
     except (json.JSONDecodeError, ValueError) as exc:
@@ -939,7 +962,9 @@ def _prune_generated_graph_insights(session: Session) -> int:
             select(InsightRecord).where(
                 InsightRecord.type.in_(generated_types),
                 InsightRecord.status == "suggested",
-                InsightRecord.provider.in_(("deterministic", "system", "")),
+                InsightRecord.provider.in_(
+                    ("content-analysis", "deterministic", "system", "")
+                ),
             )
         ).scalars()
     )
@@ -977,6 +1002,50 @@ def _prune_orphan_insight_nodes(session: Session) -> int:
     if removed:
         session.flush()
     return removed
+
+
+def _mark_stale_generated_concept_relations(
+    session: Session,
+    *,
+    valid_connection_ids: set[int],
+    valid_edge_ids: set[int],
+) -> int:
+    stale_count = 0
+    connections = list(
+        session.execute(
+            select(ConnectionRecord).where(
+                ConnectionRecord.connection_type == "shared_concept",
+                ConnectionRecord.created_by == "system",
+            )
+        ).scalars()
+    )
+    for connection in connections:
+        if connection.id in valid_connection_ids or connection.status in {
+            "ignored",
+            "archived",
+        }:
+            continue
+        connection.status = "stale"
+        connection.updated_at = datetime.now(UTC)
+        stale_count += 1
+
+    edges = list(
+        session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.label.in_(("shared concept", "shared context")),
+                GraphEdgeRecord.created_by.in_(("system", "subagent:concept-linker")),
+            )
+        ).scalars()
+    )
+    for edge in edges:
+        if edge.id in valid_edge_ids or edge.status in {"ignored", "archived"}:
+            continue
+        edge.status = "stale"
+        edge.updated_at = datetime.now(UTC)
+        stale_count += 1
+    if stale_count:
+        session.flush()
+    return stale_count
 
 
 def _prune_stale_graph_insights(session: Session, valid_normalized: set[str]) -> int:
@@ -1049,14 +1118,14 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
         tuple[int, GraphEdgeRecord, GraphNodeRecord, GraphNodeRecord]
     ] = []
     for edge in edges:
-        source = node_by_id.get(edge.source_node_id)
-        target = node_by_id.get(edge.target_node_id)
-        if source is None or target is None:
+        edge_source = node_by_id.get(edge.source_node_id)
+        edge_target = node_by_id.get(edge.target_node_id)
+        if edge_source is None or edge_target is None:
             continue
         haystack = " ".join(
             [
-                source.label,
-                target.label,
+                edge_source.label,
+                edge_target.label,
                 edge.type,
                 edge.reason or "",
                 edge.evidence or "",
@@ -1064,7 +1133,7 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
         )
         score = len(tokens & _tokenize(haystack))
         if score >= 2:
-            edge_matches.append((score, edge, source, target))
+            edge_matches.append((score, edge, edge_source, edge_target))
 
     if not matches and not edge_matches:
         return _insufficient(question)
@@ -1076,14 +1145,18 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
         edge_matches.sort(
             key=lambda item: (item[0], item[1].confidence or 0), reverse=True
         )
-        _, edge, source, target = edge_matches[0]
-        evidence = _parse_json_list(edge.evidence) or [source.label, target.label]
+        _, edge, edge_source, edge_target = edge_matches[0]
+        evidence = _parse_json_list(edge.evidence) or [
+            edge_source.label,
+            edge_target.label,
+        ]
         return {
             "status": "answered",
             "question": question,
-            "answer": edge.reason or f"{source.label} is connected to {target.label}.",
+            "answer": edge.reason
+            or f"{edge_source.label} is connected to {edge_target.label}.",
             "confidence": round((edge.confidence or 0) / 100, 2),
-            "relatedNodes": [source.label, target.label],
+            "relatedNodes": [edge_source.label, edge_target.label],
             "connections": [
                 {
                     "id": edge.id,
@@ -1265,14 +1338,30 @@ def _generate_graph_insights(session: Session) -> int:
             if insight.provider and insight.provider != "deterministic"
             else "system",
             confidence=insight.confidence or 0.7,
-            status=insight.status or "suggested",
+            status=_graph_status_for_insight(insight),
             model=insight.model or "graph-insight.v1",
+            provider=insight.provider or "deterministic",
+            prompt_version=insight.prompt_version or PROMPT_VERSION,
         )
         if node is None:
             continue
         _connect_insight_to_sources(session, insight, node)
 
     return 0
+
+
+def _graph_status_for_insight(insight: InsightRecord) -> str:
+    """Translate insight workflow states into the graph moderation lifecycle."""
+    status = (insight.status or "suggested").strip().lower()
+    if status in {"confirmed", "accepted", "applied", "reviewed", "converted_to_note"}:
+        return "confirmed"
+    if status in {"ignored", "dismissed"} or insight.dismissed_at is not None:
+        return "ignored"
+    if status in {"archived", "expired"}:
+        return "archived"
+    if status in {"stale", "error"}:
+        return status
+    return "suggested"
 
 
 def _upsert_content_insight(
@@ -1520,7 +1609,13 @@ async def infer_from_graph_with_ai(session: Session, question: str) -> dict[str,
         }
     )
     try:
-        ai_result = await generate_graph_answer(config, prompt, system)
+        ai_result = await generate_graph_answer(
+            config,
+            prompt,
+            system,
+            session=session,
+            prompt_version="graph-infer.v1",
+        )
     except (GraphAIUnavailable, Exception) as exc:
         return {
             **evidence_base,
@@ -1713,12 +1808,13 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
     if node is None:
         raise HTTPException(status_code=404, detail="Graph node not found")
     note_ids = _parse_json_list(node.source_note_ids)
-    notes = [
-        session.get(NoteRecord, note_id)
-        for note_id in note_ids
-        if isinstance(note_id, int)
-    ]
-    notes = [note for note in notes if note is not None]
+    notes: list[NoteRecord] = []
+    for note_id in note_ids:
+        if not isinstance(note_id, int):
+            continue
+        source_note = session.get(NoteRecord, note_id)
+        if source_note is not None:
+            notes.append(source_note)
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
@@ -1728,7 +1824,7 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
             )
         ).scalars()
     )
-    edge_types = {}
+    edge_types: dict[str, int] = {}
     for edge in edges:
         edge_types[edge.type] = edge_types.get(edge.type, 0) + 1
     synthetic_summary = node.summary or _build_node_summary(
@@ -1885,6 +1981,7 @@ def _upsert_concept_node(session: Session, concept: ConceptRecord) -> GraphNodeR
         created_by=concept.extracted_by,
         model=concept.model,
         provider=concept.provider,
+        prompt_version=PROMPT_VERSION,
         status=concept.status,
         graph_metadata={
             "normalizedName": concept.normalized_name,
@@ -1913,7 +2010,8 @@ def _upsert_note_connection(
             ConnectionRecord.connection_type == connection_type,
         )
     ).scalar_one_or_none()
-    if conn is None:
+    created = conn is None
+    if created:
         conn = ConnectionRecord(
             source_note_id=source_note_id,
             target_note_id=target_note_id,
@@ -1921,6 +2019,7 @@ def _upsert_note_connection(
         )
         session.add(conn)
         session.flush()
+    assert conn is not None
     conn.confidence = confidence
     conn.reason = reason
     conn.evidence = _dump_json(evidence)
@@ -1932,7 +2031,8 @@ def _upsert_note_connection(
     conn.provider = "deterministic"
     conn.model = "backlink-parser"
     conn.prompt_version = PROMPT_VERSION
-    conn.status = status
+    if created or conn.status not in {"confirmed", "ignored", "archived"}:
+        conn.status = status
     conn.updated_at = datetime.now(UTC)
     return conn
 
@@ -2160,7 +2260,7 @@ def _extract_content_concepts(note: NoteRecord) -> list[str]:
 
     # Capture explicit proper names that often act as entities/concepts.
     for match in re.finditer(
-        r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text
+        r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:[ \t]+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text
     ):
         name = " ".join(match.group(1).split())
         normalized = normalize_concept_name(name)
@@ -2400,6 +2500,8 @@ def _upsert_typed_node(
     confidence: float = 0.7,
     status: str = "suggested",
     model: str = "",
+    provider: str = "deterministic",
+    prompt_version: str = PROMPT_VERSION,
 ) -> GraphNodeRecord | None:
     normalized_label = normalize_concept_name(label)
     if not normalized_label:
@@ -2440,6 +2542,8 @@ def _upsert_typed_node(
         confidence=confidence,
         created_by=created_by,
         model=model or "deterministic",
+        provider=provider,
+        prompt_version=prompt_version,
         status=status,
         source_quality="extracted",
         learning_value=node_type[:20],

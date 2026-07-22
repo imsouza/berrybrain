@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { apiFetch, getApiUrl } from "@/contexts/workspace-context";
 
 const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
 const RECOMMENDED_MODEL = "qwen/qwen3.5-397b-instruct";
@@ -188,7 +188,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
       onboarding_completed: "true",
     };
     try {
-      const response = await fetch(`${getApiUrl()}/api/v1/settings/batch`, {
+      const response = await apiFetch(`${getApiUrl()}/api/v1/settings/batch`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

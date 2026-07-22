@@ -53,9 +53,9 @@ def create_concept_note(concept_id: int) -> dict:
                 f"# {concept.name}",
                 "",
                 concept.description
-                or "Nota permanente criada a partir de conceito detectado.",
+                or "Permanent note created from a detected concept.",
                 "",
-                "## Evidencias",
+                "## Evidence",
                 concept.source_evidence,
             ]
         )

@@ -27,6 +27,7 @@ from berrybrain_api.models import (
     GeneratedMetadataRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
+    ModelInvocationRecord,
     InsightRecord,
     JobRecord,
     NoteRecord,
@@ -37,6 +38,8 @@ from berrybrain_api.models import (
     WorkerStatus,
 )
 from berrybrain_api.settings_store import (
+    decode_setting_value,
+    encode_setting_value,
     get_setting,
     list_settings,
     set_setting,
@@ -106,10 +109,11 @@ def _set_values(session, values: dict[str, str]) -> None:
     }
     for key, value in values.items():
         setting = existing.get(key)
+        stored_value = encode_setting_value(key, value)
         if setting is None:
-            session.add(SettingRecord(key=key, value=value))
+            session.add(SettingRecord(key=key, value=stored_value))
         else:
-            setting.value = value
+            setting.value = stored_value
 
 
 def _record_ai_test(
@@ -119,8 +123,11 @@ def _record_ai_test(
     latency_ms: int | None = None,
     api_url: str = "",
     method: str = "",
+    model: str = "",
+    key_revision: str = "",
 ) -> str:
     tested_at = datetime.now(UTC).isoformat()
+    tested_model = model or _setting_value(session, "ai_model")
     _set_values(
         session,
         {
@@ -129,7 +136,9 @@ def _record_ai_test(
             "ai_last_test_latency_ms": "" if latency_ms is None else str(latency_ms),
             "ai_last_test_error": error,
             "ai_last_test_url": api_url.rstrip("/"),
-            "ai_last_test_key_revision": _current_ai_key_revision(session),
+            "ai_last_test_key_revision": key_revision
+            or _current_ai_key_revision(session),
+            "ai_last_test_model": tested_model.strip(),
             "ai_last_test_method": method,
         },
     )
@@ -139,6 +148,13 @@ def _record_ai_test(
 
 def _new_key_revision() -> str:
     return secrets.token_urlsafe(18)
+
+
+def _setting_value(session, key: str) -> str:
+    setting = session.execute(
+        select(SettingRecord).where(SettingRecord.key == key)
+    ).scalar_one_or_none()
+    return decode_setting_value(key, setting.value) if setting is not None else ""
 
 
 def _current_ai_key_revision(session) -> str:
@@ -198,6 +214,7 @@ class AiModelsRequest(BaseModel):
 
 class BatchUpdateSettingsRequest(BaseModel):
     values: dict[str, str]
+    aiTestRevision: str = ""
 
 
 class WipeDataRequest(BaseModel):
@@ -205,6 +222,7 @@ class WipeDataRequest(BaseModel):
 
 
 WIPE_MODELS = [
+    ModelInvocationRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
     EmbeddingRecord,
@@ -245,7 +263,9 @@ def get_ai_config(request: Request) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == key.replace("__", "/"))
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return (
+                decode_setting_value(key.replace("__", "/"), row.value) if row else ""
+            )
 
         api_url = _get("ai_api_url") or _get("ai_custom_url")
         return {
@@ -276,7 +296,7 @@ def get_graph_config(request: Request) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == key)
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return decode_setting_value(key, row.value) if row else ""
 
         return {
             "provider": _get("graph_ai_provider") or _get("ai_provider") or "local",
@@ -302,7 +322,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == k)
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return decode_setting_value(k, row.value) if row else ""
 
         api_url = payload.url or _get("ai_api_url") or _get("ai_custom_url")
         api_key = payload.key or _get("ai_api_key")
@@ -396,6 +416,8 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 latency_ms,
                 api_url=base,
                 method="chat_completions",
+                model=model,
+                key_revision=(test_revision := _new_key_revision()),
             )
             return {
                 "connected": True,
@@ -403,6 +425,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 "models": models,
                 "latencyMs": latency_ms,
                 "testedAt": tested_at,
+                "keyRevision": test_revision,
             }
         except Exception as error:
             message = _provider_error(error)
@@ -414,6 +437,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 latency_ms,
                 api_url=base,
                 method="chat_completions" if payload.model.strip() else "models",
+                model=payload.model,
             )
             return {
                 "connected": False,
@@ -428,7 +452,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
 def get_ai_status(request: Request) -> dict:
     with SessionLocal() as session:
         values = {
-            row.key: row.value
+            row.key: decode_setting_value(row.key, row.value)
             for row in session.execute(select(SettingRecord)).scalars()
         }
     provider = values.get("ai_provider") or "local"
@@ -444,10 +468,13 @@ def get_ai_status(request: Request) -> dict:
     )
     consent = values.get("remote_content_consent", "false").lower() == "true"
     last_test = values.get("ai_last_test_status") or "untested"
+    tested_model = values.get("ai_last_test_model", "")
+    model_matches = not tested_model or tested_model == values.get("ai_model", "")
     tested_configuration_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == api_url.rstrip("/")
         and values.get("ai_last_test_key_revision", "")
         == values.get("ai_key_revision", "")
+        and model_matches
         and values.get("ai_last_test_method") == "chat_completions"
     )
     if not tested_configuration_matches:
@@ -487,6 +514,8 @@ def get_ai_status(request: Request) -> dict:
 def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
     if not payload.values or len(payload.values) > 100:
         raise HTTPException(status_code=400, detail="Invalid settings batch")
+    if len(payload.aiTestRevision) > 128:
+        raise HTTPException(status_code=400, detail="Invalid AI test revision")
     if any(not key or len(key) > 128 or "\x00" in key for key in payload.values):
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
@@ -497,7 +526,14 @@ def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
             if key not in SECRET_KEYS or bool(value.strip())
         }
         if "ai_api_key" in values:
-            values["ai_key_revision"] = _new_key_revision()
+            requested_revision = payload.aiTestRevision.strip()
+            tested_revision = _setting_value(session, "ai_last_test_key_revision")
+            values["ai_key_revision"] = (
+                requested_revision
+                if requested_revision
+                and secrets.compare_digest(requested_revision, tested_revision)
+                else _new_key_revision()
+            )
         _set_values(session, values)
         session.commit()
         return {"status": "saved", "count": len(values)}
@@ -516,8 +552,8 @@ def clear_ai_key() -> dict:
                 "ai_last_test_latency_ms": "",
                 "ai_last_test_error": "",
                 "ai_last_test_url": "",
-                "ai_last_test_key_fingerprint": "",
                 "ai_last_test_key_revision": "",
+                "ai_last_test_model": "",
                 "ai_last_test_method": "",
                 "ai_key_revision": "",
             },

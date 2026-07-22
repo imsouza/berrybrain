@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import HTTPException
@@ -345,6 +346,7 @@ class GraphWriteService:
                 _node_state(existing),
                 reversible=False,
             )
+        assert existing is not None
         before = {} if created else _node_state(existing)
         if not created:
             combined_ids = {
@@ -409,7 +411,7 @@ class GraphWriteService:
         target_node_id: int,
         edge_type: str,
         reason: str,
-        evidence: list[dict[str, Any] | str],
+        evidence: Sequence[dict[str, Any] | str],
         confidence: float,
         source_note_ids: list[int] | None = None,
         created_by: str = "system",
@@ -442,7 +444,7 @@ class GraphWriteService:
             )
         if created_by == "ai":
             self._validate_ai_evidence(
-                evidence,
+                list(evidence),
                 source_note_ids or [],
                 provider,
                 model,
@@ -459,7 +461,8 @@ class GraphWriteService:
                 GraphEdgeRecord.type == canonical_type,
             )
         ).scalar_one_or_none()
-        if edge is None:
+        created = edge is None
+        if created:
             edge = GraphEdgeRecord(
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
@@ -467,8 +470,9 @@ class GraphWriteService:
             )
             self.session.add(edge)
             self.session.flush()
+        assert edge is not None
         before = _edge_state(edge)
-        merged_evidence = _json_list(edge.evidence) + evidence
+        merged_evidence = _json_list(edge.evidence) + list(evidence)
         unique_evidence = {
             _json_dump(item) if isinstance(item, dict) else str(item): item
             for item in merged_evidence
@@ -483,7 +487,8 @@ class GraphWriteService:
         edge.provider = provider
         edge.model = model
         edge.prompt_version = prompt_version
-        edge.status = status
+        if created or edge.status not in {"confirmed", "ignored", "archived"}:
+            edge.status = status
         edge.updated_at = datetime.now(UTC)
         metadata = {"pipeline_run_id": pipeline_run_id} if pipeline_run_id else {}
         edge.ai_notes = _json_dump(metadata) if metadata else edge.ai_notes
@@ -976,6 +981,7 @@ class GraphWriteService:
                 status_code=409, detail="Graph mutation cannot be undone"
             )
         before = json.loads(log.before_state or "{}")
+        target: GraphNodeRecord | GraphEdgeRecord | None
         if log.action_type == "GRAPH_NODES_MERGED":
             self._undo_node_merge(before)
             target = self.session.get(GraphNodeRecord, int(log.target_id))

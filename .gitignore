@@ -21,3 +21,4 @@ apps/web/playwright-report/
 
 # build artifacts
 *.tsbuildinfo
+apps/api/uv.lock

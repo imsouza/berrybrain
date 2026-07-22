@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { t } from "@/i18n";
 
 type CommandResult = {
@@ -33,12 +33,26 @@ export function CommandPalette({
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const defaultOnCreate = onCreateNote || (() => {});
-
-  const commands: CommandResult[] = [
-    { type: "command", label: t("newNote"), detail: t("startDraft"), action: () => { (onCreateDraft || defaultOnCreate)(); onClose(); } },
-    { type: "command", label: t("scanVault"), detail: t("syncVault"), action: () => { onScanVault(); onClose(); } },
-  ];
+  const commands = useMemo<CommandResult[]>(() => [
+    {
+      type: "command",
+      label: t("newNote"),
+      detail: t("startDraft"),
+      action: () => {
+        (onCreateDraft || onCreateNote)?.();
+        onClose();
+      },
+    },
+    {
+      type: "command",
+      label: t("scanVault"),
+      detail: t("syncVault"),
+      action: () => {
+        onScanVault();
+        onClose();
+      },
+    },
+  ], [onClose, onCreateDraft, onCreateNote, onScanVault]);
 
   useEffect(() => {
     if (open) {
@@ -89,7 +103,7 @@ export function CommandPalette({
     })();
 
     return () => { cancelled = true; };
-  }, [query, open]);
+  }, [apiUrl, commands, onClose, onNavigate, open, query]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
