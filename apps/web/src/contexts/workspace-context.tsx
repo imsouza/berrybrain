@@ -13,11 +13,6 @@ export function appPath(p: string) {
   const basePath = process.env.NEXT_PUBLIC_BERRYBRAIN_BASE_PATH || "";
   return `${basePath}${p}`;
 }
-function getRuntimeBasePath() {
-  if (typeof window === "undefined") return "";
-  const pathname = window.location.pathname;
-  return pathname === "/berrybrain" || pathname.startsWith("/berrybrain/") ? "/berrybrain" : "";
-}
 function encode(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 function readCsrf(): string {
   if (typeof document === "undefined") return "";
@@ -120,7 +115,11 @@ const DEMO_STATS: Stats = {
 };
 
 function demoNoteSummaries(): NoteSummary[] {
-  return DEMO_NOTE_DETAILS.map(({ content: _content, ...note }) => note);
+  return DEMO_NOTE_DETAILS.map((note) => ({
+    title: note.title,
+    path: note.path,
+    folder: note.folder,
+  }));
 }
 
 function demoContentMap() {
@@ -184,7 +183,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000);
   }, []);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     if (demo) return;
     try {
       const [nr, jr, sr, insR] = await Promise.all([
@@ -197,7 +196,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       if (sr.ok) setStats(await sr.json());
       if (insR.ok) setInsights((await insR.json()).insights || []);
     } catch {}
-  }
+  }, [api, demo]);
 
   async function openNote(path: string) {
     if (demo) {
@@ -213,11 +212,12 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     setActive(n); setDraft(n.content); draftRef.current = n.content; setSaveConflict(null); setRightOpen(false); setAutosave("saved");
   }
 
-  async function persistDraft(baseContentHash?: string) {
+  const persistDraft = useCallback(async (baseContentHash?: string) => {
     if (!active) return;
     if (demo) {
-      setDemoContents((current) => ({ ...current, [active.path]: draft }));
-      setActive({ ...active, content: draft });
+      const contentToSave = draftRef.current;
+      setDemoContents((current) => ({ ...current, [active.path]: contentToSave }));
+      setActive({ ...active, content: contentToSave });
       setSaveConflict(null);
       setAutosave("saved");
       return;
@@ -265,11 +265,11 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       toast("The API is unavailable. Your draft is still available.", "error");
       setAutosave("unsaved");
     }
-  }
+  }, [active, api, demo, toast]);
 
-  async function save() {
+  const save = useCallback(async () => {
     await persistDraft();
-  }
+  }, [persistDraft]);
 
   async function resolveSaveConflict(strategy: "reload" | "overwrite") {
     if (!active || !saveConflict) return;
@@ -356,7 +356,13 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     if (r.ok) { await loadAll(); toast("Vault scanned."); }
   }
 
-  async function closeNote() { setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); loadAll(); }
+  const closeNote = useCallback(async () => {
+    setActive(null);
+    setDraft("");
+    draftRef.current = "";
+    setSaveConflict(null);
+    await loadAll();
+  }, [loadAll]);
 
   async function download() {
     if (!active) return;
@@ -393,21 +399,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }
 
   const renameSent = useRef(false);
-  const handleDraft = useCallback((val: string) => {
-    setDraft(val);
-    draftRef.current = val;
-    setAutosave((current) => current === "conflict" ? "conflict" : "unsaved");
-    if (val.length > 50 && active && /^(rascunho|nota-sem-titulo)/i.test(active.title) && !renameSent.current) {
-      renameSent.current = true;
-      aiRename(active.path);
-    }
-  }, [active]);
-
-  useEffect(() => {
-    if (active) renameSent.current = false;
-  }, [active]);
-
-  async function aiRename(path: string) {
+  const aiRename = useCallback(async (path: string) => {
     if (demo) return;
     try {
       await apiFetch(`${api}/api/v1/jobs`, {
@@ -416,9 +408,23 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
         body: JSON.stringify({ type: "GENERATE_NOTE_TITLE", payload: { note_path: path } }),
       });
     } catch {}
-  }
+  }, [api, demo]);
 
-  useEffect(() => { loadAll(); }, []);
+  const handleDraft = useCallback((val: string) => {
+    setDraft(val);
+    draftRef.current = val;
+    setAutosave((current) => current === "conflict" ? "conflict" : "unsaved");
+    if (val.length > 50 && active && /^(rascunho|nota-sem-titulo)/i.test(active.title) && !renameSent.current) {
+      renameSent.current = true;
+      aiRename(active.path);
+    }
+  }, [active, aiRename]);
+
+  useEffect(() => {
+    if (active) renameSent.current = false;
+  }, [active]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => {
     if (demo) return;
     const iv = setInterval(() => { apiFetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);
@@ -429,7 +435,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(save, 3000);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [draft]);
+  }, [active, autosave, draft, save]);
   useEffect(() => {
     function h(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(o => !o); return; }
@@ -437,7 +443,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       if (e.key === "Escape") { if (active) closeNote(); if (cmdOpen) setCmdOpen(false); }
     }
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
-  }, [draft, active]);
+  }, [active, closeNote, cmdOpen, save]);
 
   return (
     <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>

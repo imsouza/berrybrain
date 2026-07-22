@@ -121,9 +121,9 @@ def generate_insight_notification(insight_id: int) -> dict:
         notification = _create_notification(
             session=session,
             notification_type="insight_ready",
-            title="Insight pronto",
+            title="Insight ready",
             description=insight.title,
-            action="Ver insight",
+            action="View insight",
             action_url="/insights",
             related_insight_id=insight_id,
         )
@@ -136,9 +136,9 @@ def create_from_failed_job(job_id: int, error_message: str | None = None) -> dic
         notification = _create_notification(
             session=session,
             notification_type="job_failed",
-            title="Job falhou",
-            description="Verifique erros no Monitor.",
-            action="Ver monitor",
+            title="Job failed",
+            description=error_message or "Review the failure in Monitor.",
+            action="View Monitor",
             action_url="/monitor",
             related_job_id=job_id,
         )

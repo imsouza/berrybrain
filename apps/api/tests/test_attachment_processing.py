@@ -11,9 +11,11 @@ from sqlalchemy.orm import sessionmaker
 from berrybrain_api.attachment_processing import (
     _extract_image_ocr,
     _extract_pdf_text,
+    _extract_text,
     _transcribe_faster_whisper,
     _transcribe_media,
     process_attachment,
+    validate_attachment_extractor,
 )
 from berrybrain_api.cognitive_layer import index_knowledge_base, retrieve_kb
 from berrybrain_api.database import Base
@@ -40,6 +42,95 @@ class AttachmentProcessingTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.session.close()
         self.tmp.cleanup()
+
+    def test_processing_rejects_missing_records_paths_and_extractors(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Attachment not found"):
+            process_attachment(self.session, self.vault, 999)
+        with self.assertRaisesRegex(ValueError, "Unsupported attachment extractor"):
+            validate_attachment_extractor("shell-command")
+
+        orphan = NoteAttachmentRecord(
+            note_id=999,
+            note_path="missing.md",
+            filename="orphan.txt",
+            stored_path="orphan.txt",
+            mime_type="text/plain",
+            declared_mime_type="text/plain",
+            checksum="a" * 64,
+            category="other",
+            size_bytes=1,
+        )
+        self.session.add(orphan)
+        self.session.commit()
+        with self.assertRaisesRegex(ValueError, "Attachment note not found"):
+            process_attachment(self.session, self.vault, orphan.id)
+
+        note = NoteRecord(
+            title="Attachment boundary",
+            slug="attachment-boundary",
+            path="attachment-boundary.md",
+            content="# Boundary",
+            content_hash="boundary",
+        )
+        self.session.add(note)
+        self.session.flush()
+        escaped = NoteAttachmentRecord(
+            note_id=note.id,
+            note_path=note.path,
+            filename="escape.txt",
+            stored_path="../escape.txt",
+            mime_type="text/plain",
+            declared_mime_type="text/plain",
+            checksum="b" * 64,
+            category="other",
+            size_bytes=1,
+        )
+        self.session.add(escaped)
+        self.session.commit()
+        with self.assertRaisesRegex(ValueError, "Invalid attachment path"):
+            process_attachment(self.session, self.vault, escaped.id)
+
+        missing = NoteAttachmentRecord(
+            note_id=note.id,
+            note_path=note.path,
+            filename="missing.txt",
+            stored_path="missing.txt",
+            mime_type="text/plain",
+            declared_mime_type="text/plain",
+            checksum="c" * 64,
+            category="other",
+            size_bytes=1,
+        )
+        self.session.add(missing)
+        self.session.commit()
+        with self.assertRaisesRegex(ValueError, "Attachment file not found"):
+            process_attachment(self.session, self.vault, missing.id)
+
+    def test_extractor_selection_rejects_incompatible_media_modes(self) -> None:
+        path = self.vault / "fixture.bin"
+        path.write_bytes(b"fixture")
+        image = SimpleNamespace(category="image", mime_type="image/png")
+        audio = SimpleNamespace(category="audio", mime_type="audio/mpeg")
+        other = SimpleNamespace(category="other", mime_type="application/octet-stream")
+        common = {
+            "ocr_executable": "tesseract",
+            "ocr_language": "eng",
+            "transcription_executable": "whisper",
+            "transcription_model": "base",
+            "timeout_seconds": 1,
+        }
+        self.assertEqual(
+            _extract_text(path, image, extractor="faster-whisper", **common)[1],
+            "unsupported",
+        )
+        self.assertEqual(
+            _extract_text(path, audio, extractor="tesseract", **common)[1],
+            "unsupported",
+        )
+        self.assertEqual(
+            _extract_text(path, other, extractor="tesseract", **common)[1],
+            "unsupported",
+        )
 
     def test_text_attachment_becomes_extraction_and_graph_source(self) -> None:
         note = NoteRecord(

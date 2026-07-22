@@ -13,9 +13,9 @@ from berrybrain_api.models import AutomationLogRecord, GraphEdgeRecord, GraphNod
 
 class GraphWriteServiceTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite://")
-        Base.metadata.create_all(engine)
-        self.session = sessionmaker(bind=engine)()
+        self.engine = create_engine("sqlite://")
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(bind=self.engine)()
         self.writer = GraphWriteService(self.session)
         self.left = self.writer.upsert_node(
             node_type="conceito",
@@ -30,6 +30,7 @@ class GraphWriteServiceTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
 
     def test_node_normalization_and_deduplication(self) -> None:
         duplicate = self.writer.upsert_node(
@@ -111,6 +112,57 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(edge.provider, "nvidia-nim")
         self.assertIn("pipeline_run_id", edge.ai_notes)
 
+    def test_invalid_nodes_edges_and_ai_provenance_are_rejected(self) -> None:
+        with self.assertRaises(HTTPException) as invalid_node:
+            self.writer.upsert_node(node_type="unknown", label="Unsupported")
+        self.assertEqual(invalid_node.exception.status_code, 422)
+
+        valid = {
+            "source_node_id": self.left.id,
+            "target_node_id": self.right.id,
+            "edge_type": "related",
+            "reason": "A traceable relationship.",
+            "evidence": ["note:1"],
+            "confidence": 0.8,
+        }
+        invalid_cases = (
+            ({"edge_type": "unknown"}, 422),
+            ({"target_node_id": self.left.id}, 422),
+            ({"status": "unknown"}, 422),
+            ({"reason": ""}, 422),
+            ({"evidence": []}, 422),
+            ({"target_node_id": 9999}, 404),
+        )
+        for changes, status_code in invalid_cases:
+            with self.subTest(changes=changes):
+                with self.assertRaises(HTTPException) as raised:
+                    self.writer.upsert_edge(**(valid | changes))
+                self.assertEqual(raised.exception.status_code, status_code)
+
+        ai = valid | {
+            "created_by": "ai",
+            "evidence": [
+                {
+                    "sourceNoteId": 1,
+                    "targetNoteId": 2,
+                    "sourceChunkId": 10,
+                    "targetChunkId": 20,
+                    "startLine": 1,
+                    "endLine": 2,
+                    "excerpt": "Evidence",
+                    "hash": "sha256:test",
+                }
+            ],
+        }
+        for changes in (
+            {"source_note_ids": []},
+            {"source_note_ids": [1, 2]},
+        ):
+            with self.subTest(ai_changes=changes):
+                with self.assertRaises(HTTPException) as raised:
+                    self.writer.upsert_edge(**(ai | changes))
+                self.assertEqual(raised.exception.status_code, 422)
+
     def test_status_change_and_undo_are_persistent(self) -> None:
         edge = self.writer.upsert_edge(
             source_node_id=self.left.id,
@@ -132,6 +184,67 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(restored.status, "suggested")
         self.assertIsNotNone(mutation.reverted_at)
         self.assertIsNotNone(mutation.reverted_by_log_id)
+
+    def test_graph_panel_mutations_validate_persist_and_delete_safely(self) -> None:
+        edge = self.writer.upsert_edge(
+            source_node_id=self.left.id,
+            target_node_id=self.right.id,
+            edge_type="related",
+            reason="A user-reviewable relationship.",
+            evidence=["note:1"],
+            confidence=0.7,
+        )
+
+        node = self.writer.set_node_status(self.left.id, "confirmed")
+        self.assertEqual(node.status, "confirmed")
+        self.assertEqual(
+            self.writer.set_node_user_notes(node.id, "My interpretation").user_notes,
+            "My interpretation",
+        )
+        enriched = self.writer.update_node_enrichment(
+            node.id,
+            {
+                "ai_summary": "A grounded summary.",
+                "provider": "deterministic",
+                "ignored": "not allowed",
+            },
+        )
+        self.assertEqual(enriched.ai_summary, "A grounded summary.")
+        self.assertEqual(
+            self.writer.set_edge_user_notes(edge.id, "Reviewed evidence").user_notes,
+            "Reviewed evidence",
+        )
+
+        invalid_calls = (
+            lambda: self.writer.set_node_status(9999, "confirmed"),
+            lambda: self.writer.set_node_status(node.id, "unknown"),
+            lambda: self.writer.set_edge_status(9999, "confirmed"),
+            lambda: self.writer.set_edge_status(edge.id, "unknown"),
+            lambda: self.writer.set_node_user_notes(9999, "missing"),
+            lambda: self.writer.set_edge_user_notes(9999, "missing"),
+            lambda: self.writer.update_node_enrichment(9999, {"ai_summary": "x"}),
+            lambda: self.writer.update_node_enrichment(node.id, {"ignored": "x"}),
+        )
+        for call in invalid_calls:
+            with self.subTest(call=call):
+                with self.assertRaises(HTTPException):
+                    call()
+
+        note = self.writer.upsert_node(
+            node_type="note",
+            label="Vault source",
+            source_note_ids=[10],
+        )
+        with self.assertRaises(HTTPException) as protected_note:
+            self.writer.delete_node(note.id)
+        self.assertEqual(protected_note.exception.status_code, 409)
+
+        self.assertTrue(self.writer.delete_edge(edge.id, reason="Reviewed removal"))
+        self.assertFalse(self.writer.delete_edge(edge.id))
+        deleted = self.writer.delete_node(self.right.id)
+        self.assertEqual(deleted.id, self.right.id)
+        with self.assertRaises(HTTPException):
+            self.writer.delete_node(9999)
 
     def test_manual_evidence_and_type_changes_are_versioned(self) -> None:
         edge = self.writer.upsert_edge(

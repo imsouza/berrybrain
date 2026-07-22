@@ -81,6 +81,7 @@ const footerGroups = [
       ["Docs", "/docs"],
       ["Open BerryBrain", "/brain"],
       ["GitHub", GITHUB_URL],
+      ["♥ Donate", "https://ko-fi.com/berrybrain"],
     ],
   },
   {
@@ -254,7 +255,7 @@ export function PublicShell({
           </nav>
           <div className="flex items-center gap-2">
             {accessState === "checking" ? (
-              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" aria-label="Checking access" />
+              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" role="status" aria-label="Checking access" />
             ) : accessState === "setup" ? (
               <a href={appPath("/setup")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
                 Setup
@@ -429,7 +430,7 @@ function LandingContent() {
     { title: "One command, full stack", body: "Docker starts the web app, authenticated API, and cognitive worker on infrastructure you control.", icon: DockerIcon },
     { title: "Attachments become evidence", body: "PDFs, images, audio, and video become searchable chunks with page or timestamp provenance.", icon: DocsIcon },
     { title: "Autopilot you can inspect", body: "Leases, retries, recovery, and idempotency keep background processing resilient and visible in Monitor.", icon: GraphIcon },
-    { title: "A release you can verify", body: "Protected CI, container scans, signed images, SBOMs, and a public audit back the v1.0 release.", icon: GithubIcon },
+    { title: "A release you can verify", body: "Protected CI, cognitive benchmarks, container scans, signed images, SBOMs, and evidence-based scorecards back the v1.1 release.", icon: GithubIcon },
   ];
   const pipeline = [
     ["Capture", "Write a note or attach a source. The original remains available in your vault."],
@@ -484,7 +485,7 @@ function LandingContent() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
               <span className="size-1.5 rounded-full bg-accent" />
-              v1.0.0 · Local-first · Evidence-backed
+              v1.1.0 · Local-first · Evidence-backed
             </span>
             <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
               Turn the notes you already own into knowledge you can navigate.
@@ -511,7 +512,7 @@ function LandingContent() {
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["Release", "v1.0.0"],
+                ["Release", "v1.1.0"],
                 ["Deploy", "Docker"],
                 ["Source", "Markdown"],
                 ["Models", "Local/cloud"],
@@ -673,7 +674,7 @@ function LandingContent() {
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
               Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
             </p>
-            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-accent underline-offset-4 hover:underline">
+            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-foreground decoration-accent underline-offset-4 hover:underline">
               Read the technical documentation
               <span aria-hidden="true">→</span>
             </a>
@@ -682,7 +683,7 @@ function LandingContent() {
             {maturityItems.map(([title, body], index) => (
               <article key={title} className="bb-card p-5">
                 <div className="flex items-start gap-4">
-                  <span className="mt-0.5 text-xs font-semibold text-accent">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="mt-0.5 rounded-sm bg-accent-soft px-1.5 py-0.5 text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")}</span>
                   <div>
                     <h3 className="text-sm font-semibold">{title}</h3>
                     <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
@@ -726,7 +727,7 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.0 and is covered by the public release audit. “Conditional” means availability depends on plan, configuration, or workflow.
+          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.1 and is covered by release evidence. “Conditional” means availability depends on plan, configuration, or workflow.
         </p>
       </section>
 
@@ -1058,7 +1059,7 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
           <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
             A local-first cognitive workspace that turns owned Markdown, attachments, and model-assisted analysis into explainable knowledge.
           </p>
-          <p className="mt-4 text-xs text-muted">BerryBrain v1.0.0 · Self-hosted · Non-commercial license</p>
+          <p className="mt-4 text-xs text-muted">BerryBrain v1.1.0 · Self-hosted · Non-commercial license</p>
           <a href="mailto:contato@optlabs.com.br" className="mt-2 inline-flex text-xs text-muted underline-offset-4 hover:text-foreground hover:underline">
             contato@optlabs.com.br
           </a>

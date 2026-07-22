@@ -13,20 +13,39 @@ from berrybrain_api.models import (
     InsightRecord,
     NoteRecord,
 )
-from berrybrain_api.second_brain import expand_knowledge_graph
+from berrybrain_api.second_brain import (
+    _extract_content_concepts,
+    expand_knowledge_graph,
+)
 from berrybrain_api.services import build_graph, get_active_insights
 
 
 class MaturationRegressionTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine(
+        self.engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False}
         )
-        Base.metadata.create_all(bind=engine)
-        self.session = sessionmaker(bind=engine)()
+        Base.metadata.create_all(bind=self.engine)
+        self.session = sessionmaker(bind=self.engine)()
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
+
+    def test_concept_extraction_does_not_cross_markdown_lines(self) -> None:
+        note = NoteRecord(
+            title="Temporal Source Alpha",
+            content=(
+                "# Temporal Source Alpha\n\n"
+                "## Temporal Coupling Fixture\n\n"
+                "This paragraph starts on another line."
+            ),
+        )
+
+        concepts = _extract_content_concepts(note)
+
+        self.assertIn("Temporal Coupling Fixture", concepts)
+        self.assertNotIn("Temporal Coupling Fixture This", concepts)
 
     def test_realistic_vault_builds_explainable_graph_edges(self) -> None:
         notes = [
@@ -198,6 +217,48 @@ class MaturationRegressionTest(unittest.TestCase):
         )
         self.assertNotIn(technical.title, [node["title"] for node in graph["nodes"]])
         self.assertFalse(graph["edges"])
+
+    def test_reviewed_insight_status_is_mapped_to_graph_status(self) -> None:
+        note = NoteRecord(
+            title="Distributed tracing",
+            slug="distributed-tracing",
+            path="distributed-tracing.md",
+            content="Distributed tracing connects spans across services.",
+            content_hash="distributed-tracing-v1",
+        )
+        self.session.add(note)
+        self.session.flush()
+        insight = InsightRecord(
+            type="hypothesis",
+            title="Tracing exposes cross-service latency",
+            description="Distributed tracing reveals latency that local logs cannot explain.",
+            why_it_matters="It supports diagnosing system-wide performance failures.",
+            suggested_action="Compare traces with service-level logs.",
+            graph_impact="Connects tracing evidence to the distributed systems note.",
+            related_notes=json.dumps([note.id]),
+            evidence=json.dumps(["Distributed tracing", "cross-service latency"]),
+            status="accepted",
+            priority=8,
+            confidence=0.86,
+            provider="deterministic",
+            model="regression-fixture",
+        )
+        self.session.add(insight)
+        self.session.commit()
+
+        expand_knowledge_graph(self.session)
+
+        graph_node = (
+            self.session.query(GraphNodeRecord)
+            .filter_by(type="insight", source="insight", source_id=insight.id)
+            .one()
+        )
+        self.assertEqual(graph_node.status, "confirmed")
+        self.assertTrue(
+            self.session.query(GraphEdgeRecord)
+            .filter_by(source_node_id=graph_node.id)
+            .count()
+        )
 
 
 if __name__ == "__main__":

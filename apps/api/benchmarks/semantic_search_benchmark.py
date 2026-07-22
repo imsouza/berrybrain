@@ -228,7 +228,9 @@ def build_fixture_database(
                 connection_type="semantic_similarity",
                 confidence=95,
                 reason=f"Both notes provide evidence about {topic.title}.",
-                evidence=json.dumps([paths_by_topic[topic.key][0], paths_by_topic[topic.key][1]]),
+                evidence=json.dumps(
+                    [paths_by_topic[topic.key][0], paths_by_topic[topic.key][1]]
+                ),
                 created_by="benchmark",
                 provider="deterministic-fixture",
                 model="benchmark-semantic-v1",
@@ -243,7 +245,11 @@ def build_fixture_database(
         queries.extend(
             (
                 BenchmarkQuery(topic.title, topic.key, expected),
-                BenchmarkQuery(topic.terms.split()[0] + " " + topic.terms.split()[1], topic.key, expected),
+                BenchmarkQuery(
+                    topic.terms.split()[0] + " " + topic.terms.split()[1],
+                    topic.key,
+                    expected,
+                ),
                 BenchmarkQuery(topic.semantic_queries[0], topic.key, expected),
                 BenchmarkQuery(topic.semantic_queries[1], topic.key, expected),
             )
@@ -277,8 +283,7 @@ def _ndcg(results: list[str], expected: set[str], k: int) -> float:
         if path in expected
     )
     ideal = sum(
-        1.0 / math.log2(rank + 1)
-        for rank in range(1, min(k, len(expected)) + 1)
+        1.0 / math.log2(rank + 1) for rank in range(1, min(k, len(expected)) + 1)
     )
     return dcg / ideal if ideal else 0.0
 
@@ -310,7 +315,9 @@ def run_benchmark(notes_per_topic: int = 10) -> BenchmarkMetrics:
             query_vector = None
             if query.topic is not None:
                 topic_index = next(
-                    index for index, topic in enumerate(TOPICS) if topic.key == query.topic
+                    index
+                    for index, topic in enumerate(TOPICS)
+                    if topic.key == query.topic
                 )
                 query_vector = _topic_vector(topic_index)
             started = time.perf_counter()
@@ -391,18 +398,22 @@ def run_benchmark(notes_per_topic: int = 10) -> BenchmarkMetrics:
         )
         metrics.meets_initial_targets = (
             metrics.recall_at_10 >= 0.85
-            and metrics.mean_reciprocal_rank >= 0.70
+            and metrics.mean_reciprocal_rank >= 0.75
             and metrics.latency_p95_ms <= 500
             and metrics.indexing_coverage >= 0.995
             and metrics.stale_evidence_count == 0
         )
         return metrics
     finally:
+        engine = session.get_bind()
         session.close()
+        engine.dispose()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="BerryBrain semantic retrieval benchmark")
+    parser = argparse.ArgumentParser(
+        description="BerryBrain semantic retrieval benchmark"
+    )
     parser.add_argument(
         "--notes-per-topic",
         type=int,

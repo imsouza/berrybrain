@@ -6,17 +6,18 @@ from sqlalchemy.orm import sessionmaker
 import berrybrain_api.models  # noqa: F401
 from berrybrain_api.database import Base
 from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
-from berrybrain_api.services import graph_quality_report
+from berrybrain_api.services import build_graph, graph_quality_report
 
 
 class GraphQualityReportTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite://")
-        Base.metadata.create_all(engine)
-        self.session = sessionmaker(bind=engine)()
+        self.engine = create_engine("sqlite://")
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(bind=self.engine)()
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
 
     def test_report_detects_structural_quality_problems(self) -> None:
         hub = GraphNodeRecord(type="concept", label="Hub", created_by="system")
@@ -69,6 +70,20 @@ class GraphQualityReportTest(unittest.TestCase):
         self.assertEqual(report["issueCounts"]["edgesWithoutEvidence"], 1)
         self.assertEqual(report["issueCounts"]["unstableClusters"], 1)
         self.assertEqual(len(report["issues"]["mergeSuggestions"]), 1)
+
+    def test_graph_projection_is_read_only(self) -> None:
+        self.session.add_all(
+            [
+                GraphNodeRecord(type="concept", label="Duplicate"),
+                GraphNodeRecord(type="concept", label=" duplicate "),
+            ]
+        )
+        self.session.commit()
+
+        projected = build_graph(self.session)
+
+        self.assertEqual(projected["stats"]["node_count"], 2)
+        self.assertEqual(self.session.query(GraphNodeRecord).count(), 2)
 
 
 if __name__ == "__main__":

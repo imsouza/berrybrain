@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
@@ -25,6 +26,7 @@ type WorkspaceSidebarProps = {
 
 export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: WorkspaceSidebarProps = {}) {
   const w = useWorkspace();
+  const notes = w.notes;
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [attentionCount, setAttentionCount] = useState(0);
@@ -71,7 +73,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     };
   }, [w.api, dismissedAt, w.demo]);
 
-  async function loadFolders() {
+  const loadFolders = useCallback(async () => {
     if (w.demo) {
       setFolders([]);
       return;
@@ -82,20 +84,20 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       const payload = await response.json();
       setFolders(payload.folders || []);
     } catch {}
-  }
+  }, [w.api, w.demo]);
 
   useEffect(() => {
     loadFolders();
-  }, [w.api, w.notes.length, w.demo]);
+  }, [loadFolders, notes.length]);
 
   const notesByFolder = useMemo(() => {
-    const map = new Map<string, typeof w.notes>();
-    for (const note of w.notes) {
+    const map = new Map<string, typeof notes>();
+    for (const note of notes) {
       const folder = note.folder || note.path.split("/").slice(0, -1).join("/") || "inbox";
       map.set(folder, [...(map.get(folder) || []), note]);
     }
     return map;
-  }, [w.notes]);
+  }, [notes]);
 
   const visibleFolders = useMemo(() => {
     const merged = new Map<string, FolderInfo>();
@@ -176,7 +178,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <img src={berrylogo.src} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} />
+        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-2xl transition-opacity hover:opacity-80" priority onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} />
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v1.0.0</div>
 

@@ -1,1 +1,1 @@
-"""Reproducible quality benchmarks for BerryBrain retrieval."""
+"""Reproducible quality benchmarks for BerryBrain release gates."""
