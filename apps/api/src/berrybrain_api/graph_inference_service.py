@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
+from berrybrain_api.jobs import EXPAND_KNOWLEDGE_GRAPH, create_job
 from berrybrain_api.models import GraphInferenceRecord, InsightRecord
 from berrybrain_api.modules.graph_inference.domain import (
     InferenceNotSavableError,
@@ -15,7 +16,6 @@ from berrybrain_api.modules.graph_inference.domain import (
     MissingGroundedEvidenceError,
     build_insight_draft,
 )
-from berrybrain_api.second_brain import expand_knowledge_graph
 from berrybrain_api.services import create_insight, serialize_insight
 
 PROMPT_VERSION = "graph-inference.v2"
@@ -129,11 +129,10 @@ def create_insight_from_persisted_inference(
             },
             ensure_ascii=False,
         ),
+        autocommit=False,
     )
     inference.insight_id = insight.id
     inference.updated_at = datetime.now(UTC)
-    session.commit()
-    expand_knowledge_graph(session)
     create_automation_log(
         session,
         "INSIGHT_CREATED_FROM_INFERENCE",
@@ -143,8 +142,26 @@ def create_insight_from_persisted_inference(
         {"inferenceId": inference.id, "status": inference.status},
         {"insightId": insight.id, "type": insight.type},
         False,
+        autocommit=False,
     )
-    return {"status": "created", "insight": serialize_insight(insight)}
+    create_job(
+        session,
+        EXPAND_KNOWLEDGE_GRAPH,
+        {
+            "insight_id": insight.id,
+            "idempotency_key": f"insight-graph:{insight.id}",
+            "trigger": "graph_inference",
+        },
+        max_attempts=2,
+        autocommit=False,
+    )
+    session.commit()
+    session.refresh(insight)
+    return {
+        "status": "created",
+        "graphUpdate": "queued",
+        "insight": serialize_insight(insight),
+    }
 
 
 def _json(value: Any) -> str:

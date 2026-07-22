@@ -227,6 +227,19 @@ class SecurityAuthTest(unittest.TestCase):
             user.failed_login_count = 0
             session.commit()
 
+    def _authenticated_client(
+        self, email: str, password: str = "StrongPass123"
+    ) -> tuple[TestClient, str]:
+        app = import_module("berrybrain_api.main").app
+        client = TestClient(app)
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        self.assertEqual(login.status_code, 200, login.text)
+        self.assertEqual(login.json()["status"], "authenticated")
+        return client, login.json()["csrfToken"]
+
     def test_admin_requires_session_and_configured_email(self) -> None:
         app = import_module("berrybrain_api.main").app
         unauthenticated = TestClient(app)
@@ -372,6 +385,161 @@ class SecurityAuthTest(unittest.TestCase):
         )
         self.assertEqual(archived.status_code, 200)
         self.assertEqual(archived.json()["profile"]["status"], "archived")
+
+    def test_account_security_lifecycle_persists_and_revokes_sessions(self) -> None:
+        self._create_user("lifecycle@example.com")
+        client, csrf = self._authenticated_client("lifecycle@example.com")
+        headers = {"X-CSRF-Token": csrf}
+
+        me = client.get("/api/v1/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertFalse(me.json()["isAdmin"])
+
+        profile = client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "Lifecycle User"},
+            headers=headers,
+        )
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.json()["user"]["displayName"], "Lifecycle User")
+
+        wrong_password = client.post(
+            "/api/v1/auth/change-password",
+            json={
+                "current_password": "WrongPass123!",
+                "new_password": "ReplacementPass123!",
+            },
+            headers=headers,
+        )
+        self.assertEqual(wrong_password.status_code, 400)
+
+        changed = client.post(
+            "/api/v1/auth/change-password",
+            json={
+                "current_password": "StrongPass123",
+                "new_password": "ReplacementPass123!",
+            },
+            headers=headers,
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.json()["status"], "password_changed")
+
+        replacement_client, replacement_csrf = self._authenticated_client(
+            "lifecycle@example.com", "ReplacementPass123!"
+        )
+        replacement_headers = {"X-CSRF-Token": replacement_csrf}
+        changed_email = replacement_client.post(
+            "/api/v1/auth/change-email",
+            json={
+                "password": "ReplacementPass123!",
+                "email": "lifecycle-renamed@example.com",
+            },
+            headers=replacement_headers,
+        )
+        self.assertEqual(changed_email.status_code, 200)
+        self.assertEqual(changed_email.json()["status"], "email_changed")
+        renamed_csrf = changed_email.json()["csrfToken"]
+        renamed_me = replacement_client.get("/api/v1/auth/me")
+        self.assertEqual(
+            renamed_me.json()["user"]["email"], "lifecycle-renamed@example.com"
+        )
+
+        two_factor = replacement_client.post(
+            "/api/v1/auth/2fa",
+            json={"password": "ReplacementPass123!", "enabled": True},
+            headers={"X-CSRF-Token": renamed_csrf},
+        )
+        self.assertEqual(two_factor.status_code, 200)
+        self.assertTrue(two_factor.json()["user"]["twoFactorEnabled"])
+
+        logout_all = replacement_client.post(
+            "/api/v1/auth/logout-all",
+            headers={"X-CSRF-Token": renamed_csrf},
+        )
+        self.assertEqual(logout_all.status_code, 200)
+        self.assertGreaterEqual(logout_all.json()["revokedSessions"], 1)
+        self.assertEqual(replacement_client.get("/api/v1/auth/me").status_code, 401)
+
+    def test_admin_user_management_lifecycle_is_audited(self) -> None:
+        self._create_user("admin@example.com")
+        admin, csrf = self._authenticated_client("admin@example.com")
+        headers = {"X-CSRF-Token": csrf}
+
+        created = admin.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "managed@example.com",
+                "password": "ManagedPass123!",
+                "display_name": "Managed User",
+                "email_verified": True,
+                "two_factor_enabled": False,
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        user_id = created.json()["user"]["id"]
+
+        updated = admin.patch(
+            f"/api/v1/admin/users/{user_id}",
+            json={"display_name": "Managed Updated", "two_factor_enabled": True},
+            headers=headers,
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.json()["user"]["twoFactorEnabled"])
+
+        locked = admin.post(
+            f"/api/v1/admin/users/{user_id}/lock",
+            json={"reason": "security test"},
+            headers=headers,
+        )
+        self.assertEqual(locked.status_code, 200)
+        self.assertIsNotNone(locked.json()["user"]["lockedUntil"])
+        unlocked = admin.post(
+            f"/api/v1/admin/users/{user_id}/unlock",
+            json={"reason": "security test complete"},
+            headers=headers,
+        )
+        self.assertEqual(unlocked.status_code, 200)
+        self.assertIsNone(unlocked.json()["user"]["lockedUntil"])
+
+        password = admin.post(
+            f"/api/v1/admin/users/{user_id}/set-password",
+            json={"password": "ManagedReplacement123!"},
+            headers=headers,
+        )
+        self.assertEqual(password.status_code, 200)
+        forced = admin.post(
+            f"/api/v1/admin/users/{user_id}/force-password-reset",
+            json={"reason": "rotation policy"},
+            headers=headers,
+        )
+        self.assertEqual(forced.status_code, 200)
+        self.assertTrue(forced.json()["user"]["forcePasswordReset"])
+        revoked = admin.post(
+            f"/api/v1/admin/users/{user_id}/revoke-sessions",
+            json={"reason": "security test"},
+            headers=headers,
+        )
+        self.assertEqual(revoked.status_code, 200)
+
+        events = admin.get("/api/v1/admin/audit-events", params={"limit": 500})
+        self.assertEqual(events.status_code, 200)
+        actions = {event["action"] for event in events.json()["events"]}
+        self.assertTrue(
+            {
+                "ADMIN_USER_CREATED",
+                "ADMIN_USER_UPDATED",
+                "ADMIN_USER_LOCKED",
+                "ADMIN_USER_UNLOCKED",
+                "ADMIN_PASSWORD_SET",
+                "ADMIN_FORCE_PASSWORD_RESET",
+                "ADMIN_SESSIONS_REVOKED",
+            }.issubset(actions)
+        )
+
+        deleted = admin.delete(f"/api/v1/admin/users/{user_id}", headers=headers)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["status"], "deleted")
 
 
 if __name__ == "__main__":

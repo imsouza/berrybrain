@@ -1,12 +1,12 @@
 {
   "name": "@berrybrain/web",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "clean": "rm -rf .next"
@@ -19,6 +19,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/eslintrc": "^3.3.6",
     "@playwright/test": "^1.61.1",
     "@types/node": "^22.0.0",

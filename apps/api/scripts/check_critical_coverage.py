@@ -11,6 +11,13 @@ CRITICAL_THRESHOLDS = {
     "src/berrybrain_api/backup.py": 85.0,
     "src/berrybrain_api/review_service.py": 80.0,
     "src/berrybrain_api/attachment_processing.py": 70.0,
+    "src/berrybrain_api/maturity_service.py": 90.0,
+    "src/berrybrain_api/settings_store.py": 90.0,
+    "src/berrybrain_api/routers/settings.py": 90.0,
+    "src/berrybrain_api/routers/security_tokens.py": 95.0,
+    "src/berrybrain_api/ai_gateway.py": 85.0,
+    "src/berrybrain_api/model_invocation_service.py": 85.0,
+    "src/berrybrain_api/modules/model_router/domain.py": 90.0,
 }
 
 

@@ -20,7 +20,7 @@ class SemanticBenchmarkTest(unittest.TestCase):
 
     def test_quality_targets(self) -> None:
         self.assertGreaterEqual(self.metrics.recall_at_10, 0.85)
-        self.assertGreaterEqual(self.metrics.mean_reciprocal_rank, 0.70)
+        self.assertGreaterEqual(self.metrics.mean_reciprocal_rank, 0.75)
         self.assertGreaterEqual(self.metrics.ndcg_at_10, 0.85)
         self.assertEqual(self.metrics.unexpected_zero_result_rate, 0.0)
         self.assertEqual(self.metrics.negative_rejection_rate, 1.0)

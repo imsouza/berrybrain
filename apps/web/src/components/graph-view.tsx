@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "@/i18n";
 
 type GNode = {
@@ -70,8 +70,6 @@ const EDGE_COLORS: Record<string, string> = {
 };
 
 const BG = "#FBF4EC";
-const TEXT_SEC = "#7A6A5C";
-
 interface LN { x: number; y: number; vx: number; vy: number; r: number; node: GNode }
 export type GraphLayoutMode = "brain" | "radial" | "type" | "connections";
 
@@ -165,7 +163,7 @@ export function GraphCanvas({
 
   const tctx = useRef(tooltipCtx(data));
   useEffect(() => { tctx.current = tooltipCtx(data); }, [data]);
-  const highlighted = new Set(highlightedIds);
+  const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
 
   const initLayout = useCallback(() => {
     const now = performance.now();
@@ -239,7 +237,7 @@ export function GraphCanvas({
       else simRef.current = false;
     };
     requestAnimationFrame(sim);
-  }, [data]);
+  }, [data, layoutMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -343,7 +341,7 @@ export function GraphCanvas({
     }
     render();
     return () => cancelAnimationFrame(raf);
-  }, [data, zoom, pan, selectedId, highlightedIds]);
+  }, [data, zoom, pan, selectedId, highlighted]);
 
   const toWorld = (cx: number, cy: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };

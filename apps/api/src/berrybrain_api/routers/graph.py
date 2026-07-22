@@ -522,7 +522,14 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
         )
 
         try:
-            result = await generate_graph_answer(config, prompt, system)
+            result = await generate_graph_answer(
+                config,
+                prompt,
+                system,
+                session=session,
+                prompt_version="node-enrich.v1",
+                correlation_id=f"graph-node:{node.id}",
+            )
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
@@ -665,7 +672,14 @@ async def generate_connection_insight(edge_id: int) -> dict:
         )
 
         try:
-            result = await generate_graph_answer(config, prompt, system)
+            result = await generate_graph_answer(
+                config,
+                prompt,
+                system,
+                session=session,
+                prompt_version="connection-insight.v1",
+                correlation_id=f"graph-edge:{edge.id}",
+            )
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:

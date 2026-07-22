@@ -1,6 +1,6 @@
 [project]
 name = "berrybrain-worker"
-version = "0.1.0"
+version = "1.1.0"
 description = "BerryBrain local worker"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,3 +14,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -29,15 +29,31 @@ jobs:
           pip install -e .
           pip install coverage mypy ruff==0.6.9
       - name: Ruff check
-        run: ruff check src tests scripts
+        run: ruff check src tests scripts benchmarks
       - name: Ruff format check
-        run: ruff format --check src tests scripts
+        run: ruff format --check src tests scripts benchmarks
       - name: MyPy progressive check
-        run: mypy --ignore-missing-imports src/berrybrain_api/config.py src/berrybrain_api/jobs.py src/berrybrain_api/settings_store.py
+        run: >-
+          mypy --ignore-missing-imports
+          src/berrybrain_api/config.py
+          src/berrybrain_api/jobs.py
+          src/berrybrain_api/settings_store.py
+          src/berrybrain_api/ai_gateway.py
+          src/berrybrain_api/model_invocation_service.py
+          src/berrybrain_api/maturity_service.py
+          src/berrybrain_api/worker_inbox.py
+          src/berrybrain_api/graph_write_service.py
+          src/berrybrain_api/second_brain.py
+          src/berrybrain_api/modules/graph_inference/domain.py
+          src/berrybrain_api/modules/model_router/domain.py
+          src/berrybrain_api/modules/jobs/domain.py
+          src/berrybrain_api/graph_inference_service.py
       - name: API tests
-        run: PYTHONPATH=src coverage run -m unittest discover tests
+        run: PYTHONPATH=src coverage run --branch --source=src/berrybrain_api -m unittest discover tests
+      - name: Cognitive maturity release gate
+        run: PYTHONPATH=src python -m benchmarks.maturity_release_gate
       - name: API coverage
         run: |
-          coverage report --fail-under=60
+          coverage report --fail-under=80
           coverage json -o coverage.json
           python scripts/check_critical_coverage.py coverage.json

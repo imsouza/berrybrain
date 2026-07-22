@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import Engine, inspect, text
+from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 6
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 
 
@@ -40,6 +41,16 @@ MIGRATIONS = (
         version=4,
         name="persisted-graph-inferences",
         description="Adds auditable graph inference records linked to saved insights.",
+    ),
+    SchemaMigration(
+        version=5,
+        name="model-invocation-ledger",
+        description="Adds privacy-preserving model invocation provenance and diagnostics.",
+    ),
+    SchemaMigration(
+        version=6,
+        name="worker-inbox-and-claim-tokens",
+        description="Adds exactly-once worker terminal-message consumption per claim.",
     ),
 )
 
@@ -76,6 +87,7 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
         for migration in MIGRATIONS:
             if migration.version <= previous:
                 continue
+            _apply_migration_ddl(connection, migration.version)
             connection.execute(
                 text(
                     "INSERT INTO schema_migrations "
@@ -95,6 +107,78 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
         "toVersion": get_schema_version(bind),
         "applied": applied,
     }
+
+
+def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 6:
+        job_columns = {
+            str(row[1])
+            for row in connection.execute(text("PRAGMA table_info(jobs)")).all()
+        }
+        if job_columns and "claim_token" not in job_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE jobs ADD COLUMN claim_token "
+                    "VARCHAR(64) NOT NULL DEFAULT ''"
+                )
+            )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS worker_inbox (
+                    id INTEGER PRIMARY KEY,
+                    message_id VARCHAR(220) NOT NULL UNIQUE,
+                    job_id INTEGER NOT NULL,
+                    message_type VARCHAR(40) NOT NULL,
+                    claim_token VARCHAR(64) NOT NULL DEFAULT '',
+                    status VARCHAR(30) NOT NULL DEFAULT 'processed',
+                    received_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        for column in ("message_id", "job_id", "message_type"):
+            connection.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_worker_inbox_{column} "
+                    f"ON worker_inbox ({column})"
+                )
+            )
+        return
+    if version != 5:
+        return
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS model_invocations (
+                id INTEGER PRIMARY KEY,
+                capability VARCHAR(80) NOT NULL,
+                provider VARCHAR(80) NOT NULL,
+                model VARCHAR(160) NOT NULL DEFAULT '',
+                prompt_version VARCHAR(80) NOT NULL DEFAULT '',
+                status VARCHAR(30) NOT NULL,
+                remote BOOLEAN NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL DEFAULT 0,
+                attempt_count INTEGER NOT NULL DEFAULT 1,
+                input_units INTEGER NOT NULL DEFAULT 0,
+                output_units INTEGER NOT NULL DEFAULT 0,
+                estimated_cost_usd FLOAT NOT NULL DEFAULT 0,
+                error_class VARCHAR(120) NOT NULL DEFAULT '',
+                error_message TEXT NOT NULL DEFAULT '',
+                correlation_id VARCHAR(128) NOT NULL DEFAULT '',
+                started_at DATETIME NOT NULL,
+                completed_at DATETIME
+            )
+            """
+        )
+    )
+    for column in ("capability", "provider", "status", "correlation_id"):
+        connection.execute(
+            text(
+                f"CREATE INDEX IF NOT EXISTS ix_model_invocations_{column} "
+                f"ON model_invocations ({column})"
+            )
+        )
 
 
 def downgrade_schema(bind: Engine, target_version: int) -> dict[str, int]:

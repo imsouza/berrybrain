@@ -27,6 +27,7 @@ def init_database() -> None:
         assert_schema_compatible,
     )
     from berrybrain_api.search import init_fts
+    from berrybrain_api.settings_store import migrate_secret_settings
 
     assert_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
@@ -36,6 +37,7 @@ def init_database() -> None:
 
     with SessionLocal() as session:
         init_fts(session)
+        migrate_secret_settings(session)
 
 
 def ensure_default_profile() -> None:
@@ -88,6 +90,7 @@ def ensure_sqlite_columns(bind=None) -> None:
             "pipeline_run_id": "TEXT NOT NULL DEFAULT ''",
             "idempotency_key": "TEXT NOT NULL DEFAULT ''",
             "claimed_by": "TEXT NOT NULL DEFAULT ''",
+            "claim_token": "TEXT NOT NULL DEFAULT ''",
             "lease_expires_at": "DATETIME",
         }
         with database_engine.begin() as connection:

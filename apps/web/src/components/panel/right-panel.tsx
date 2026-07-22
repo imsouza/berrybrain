@@ -19,28 +19,29 @@ type NoteConnection = {
 
 export function RightPanel() {
   const w = useWorkspace();
+  const activePath = w.active?.path;
   const [steps, setSteps] = useState<Step[]>([]);
   const [stepInfo, setStepInfo] = useState({ completed: 0, total: 0, running: 0, failed: 0 });
   const [connections, setConnections] = useState<NoteConnection[]>([]);
 
   useEffect(() => {
-    if (!w.active || w.demo) { setSteps([]); return; }
+    if (!activePath || w.demo) { setSteps([]); return; }
     const fetchStatus = () => {
-      fetch(`${w.api}/api/v1/notes/${w.active!.path.split("/").map(encodeURIComponent).join("/")}/status`)
+      fetch(`${w.api}/api/v1/notes/${activePath.split("/").map(encodeURIComponent).join("/")}/status`)
         .then(r => r.json()).then(d => { setSteps(d.steps || []); setStepInfo(d); }).catch(() => {});
     };
     fetchStatus();
     const iv = setInterval(fetchStatus, 4000);
     return () => clearInterval(iv);
-  }, [w.active?.path, w.api, w.demo]);
+  }, [activePath, w.api, w.demo]);
 
   useEffect(() => {
-    if (!w.active || w.demo) { setConnections([]); return; }
-    fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`)
+    if (!activePath || w.demo) { setConnections([]); return; }
+    fetch(`${w.api}/api/v1/connections/${activePath.split("/").map(encodeURIComponent).join("/")}`)
       .then(r => r.json())
       .then(d => setConnections(d.connections || []))
       .catch(() => setConnections([]));
-  }, [w.active?.path, w.api, w.demo]);
+  }, [activePath, w.api, w.demo]);
 
   const statusIcon = (s: string) => {
     if (s === "completed") return <span className="size-1.5 rounded-full bg-emerald-400 shrink-0" />;
