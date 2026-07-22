@@ -4,102 +4,195 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic version tag to build and publish
+        required: true
+        type: string
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  images:
-    name: ${{ matrix.service }} image
-    runs-on: ubuntu-latest
+  build:
+    name: ${{ matrix.service.name }} ${{ matrix.arch.name }} image
+    runs-on: ${{ matrix.arch.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - service: api
+        service:
+          - name: api
             dockerfile: apps/api/Dockerfile
-          - service: worker
+          - name: worker
             dockerfile: apps/worker/Dockerfile
-          - service: web
+          - name: web
             dockerfile: apps/web/Dockerfile
+        arch:
+          - name: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
-      - uses: docker/setup-qemu-action@v3
+      - id: release
+        name: Resolve immutable release coordinates
+        shell: bash
+        env:
+          SERVICE: ${{ matrix.service.name }}
+          ARCH: ${{ matrix.arch.name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "image=$REGISTRY/${GITHUB_REPOSITORY_OWNER,,}/berrybrain-$SERVICE" >> "$GITHUB_OUTPUT"
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/berrybrain-${{ matrix.service }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=sha,format=long
-
-      - id: build
-        name: Build and push immutable image
+      - name: Build and push native architecture image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          file: ${{ matrix.service.dockerfile }}
+          platforms: ${{ matrix.arch.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}-${{ steps.release.outputs.arch }}
+            ${{ steps.release.outputs.image }}:sha-${{ steps.release.outputs.sha }}-${{ steps.release.outputs.arch }}
+          labels: |
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.revision=${{ steps.release.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
           provenance: mode=max
           sbom: true
+
+  manifest:
+    name: ${{ matrix.service }} multi-architecture manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, web]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - id: release
+        name: Resolve immutable release coordinates
+        shell: bash
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "image=$REGISTRY/${GITHUB_REPOSITORY_OWNER,,}/berrybrain-$SERVICE" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: manifest
+        name: Publish immutable multi-architecture manifest
+        shell: bash
+        env:
+          IMAGE: ${{ steps.release.outputs.image }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:sha-$SHA" \
+            "$IMAGE:$VERSION-amd64" \
+            "$IMAGE:$VERSION-arm64"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" | awk '$1 == "Digest:" {print $2; exit}')"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve manifest digest for $IMAGE:$VERSION" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.0
 
-      - name: Sign image digests with GitHub OIDC
+      - name: Sign manifest digest with GitHub OIDC
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          while IFS= read -r tag; do
-            [ -n "$tag" ] && cosign sign --yes "${tag}@${DIGEST}"
-          done <<< "$TAGS"
+          IMAGE: ${{ steps.release.outputs.image }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
 
       - name: Generate image SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/${{ github.repository_owner }}/berrybrain-${{ matrix.service }}@${{ steps.build.outputs.digest }}
+          image: ${{ steps.release.outputs.image }}@${{ steps.manifest.outputs.digest }}
           format: spdx-json
           output-file: berrybrain-${{ matrix.service }}.spdx.json
-          artifact-name: berrybrain-${{ matrix.service }}-${{ github.ref_name }}.spdx.json
+          artifact-name: berrybrain-${{ matrix.service }}-${{ env.RELEASE_TAG }}.spdx.json
           upload-artifact-retention: 90
 
       - name: Attest SBOM with GitHub OIDC
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          IMAGE: ghcr.io/${{ github.repository_owner }}/berrybrain-${{ matrix.service }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          IMAGE: ${{ steps.release.outputs.image }}
         run: >-
           cosign attest --yes
           --predicate "berrybrain-${{ matrix.service }}.spdx.json"
           --type spdxjson
-          "${IMAGE}@${DIGEST}"
+          "$IMAGE@$DIGEST"
 
   release:
     name: Publish GitHub release
-    needs: images
-    runs-on: ubuntu-latest
+    needs: manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
       - name: Create release from verified tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: >-
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
           || gh release create "$TAG" --repo "$GITHUB_REPOSITORY"
