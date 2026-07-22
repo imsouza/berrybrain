@@ -1,7 +1,9 @@
 import unittest
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import create_engine
+from fastapi import HTTPException
+
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
@@ -11,6 +13,8 @@ from berrybrain_api.services import (
     store_embedding,
 )
 from berrybrain_api.jobs import (
+    CANCELLED,
+    CANCEL_REQUESTED,
     COMPLETED,
     DEAD_LETTER,
     FAILED,
@@ -19,6 +23,7 @@ from berrybrain_api.jobs import (
     PENDING,
     SUPERSEDED,
     UPDATE_GRAPH_STATS,
+    acknowledge_job_cancellation,
     affected_job_types_for_note_update,
     calculate_pipeline_progress,
     claim_next_job,
@@ -27,8 +32,14 @@ from berrybrain_api.jobs import (
     enqueue_note_changed_jobs,
     fail_job,
     list_jobs,
+    normalize_utc,
+    parse_json,
+    renew_job_lease,
+    request_job_cancellation,
     retry_job,
     serialize_job,
+    serialize_datetime,
+    should_generate_note_title,
     utc_now,
 )
 from berrybrain_api.models import (
@@ -36,6 +47,7 @@ from berrybrain_api.models import (
     ChunkRecord,
     JobRecord,
     NoteRecord,
+    WorkerInboxRecord,
 )
 
 
@@ -62,6 +74,64 @@ class JobServiceTest(unittest.TestCase):
         self.assertIsNotNone(claimed.started_at)
         self.assertIsNotNone(claimed.lease_expires_at)
         self.assertEqual(claimed.claimed_by, "api-worker")
+
+    def test_pending_and_running_jobs_cancel_without_retry(self) -> None:
+        pending = create_job(self.session, "PARSE_NOTE", {"note_path": "pending.md"})
+        cancelled = request_job_cancellation(self.session, pending.id)
+        self.assertEqual(cancelled.status, CANCELLED)
+        self.assertIsNotNone(cancelled.completed_at)
+        self.assertIsNone(claim_next_job(self.session))
+
+        running = create_job(self.session, "PARSE_NOTE", {"note_path": "running.md"})
+        claimed = claim_next_job(self.session)
+        self.assertEqual(claimed.id, running.id)
+        requested = request_job_cancellation(self.session, running.id)
+        self.assertEqual(requested.status, CANCEL_REQUESTED)
+
+        failed = fail_job(self.session, running.id, "provider timeout")
+        self.assertEqual(failed.status, CANCELLED)
+        self.assertIsNone(failed.error_message)
+        self.assertEqual(
+            acknowledge_job_cancellation(self.session, running.id).status, CANCELLED
+        )
+        actions = set(
+            self.session.execute(select(AutomationLogRecord.action_type)).scalars()
+        )
+        self.assertIn("CANCEL_JOB", actions)
+        self.assertIn("JOB_CANCELLED", actions)
+
+    def test_completion_cannot_override_requested_cancellation(self) -> None:
+        job = create_job(self.session, "PARSE_NOTE", {"note_path": "cancel.md"})
+        claim_next_job(self.session)
+        request_job_cancellation(self.session, job.id)
+
+        with self.assertRaises(HTTPException) as conflict:
+            complete_job(self.session, job.id)
+        self.assertEqual(conflict.exception.status_code, 409)
+        self.assertEqual(self.session.get(JobRecord, job.id).status, CANCEL_REQUESTED)
+
+        acknowledged = acknowledge_job_cancellation(self.session, job.id)
+        self.assertEqual(acknowledged.status, CANCELLED)
+
+    def test_job_boundary_helpers_fail_closed_and_normalize_dates(self) -> None:
+        self.assertEqual(parse_json("not-json"), {})
+        self.assertIsNone(serialize_datetime(None))
+        naive = datetime(2026, 1, 2, 3, 4, 5)
+        self.assertEqual(normalize_utc(naive).tzinfo, UTC)
+        self.assertTrue(serialize_datetime(naive).endswith("Z"))
+        self.assertTrue(should_generate_note_title("inbox/rascunho.md"))
+        self.assertTrue(should_generate_note_title("inbox/rascunho-2.md"))
+        self.assertTrue(should_generate_note_title("inbox/nota-sem-titulo.md"))
+        self.assertFalse(should_generate_note_title("notes/docker.md"))
+
+        with self.assertRaises(HTTPException) as missing:
+            renew_job_lease(self.session, 999)
+        self.assertEqual(missing.exception.status_code, 404)
+
+        pending = create_job(self.session, "PARSE_NOTE", {"note_path": "pending.md"})
+        with self.assertRaises(HTTPException) as not_running:
+            renew_job_lease(self.session, pending.id)
+        self.assertEqual(not_running.exception.status_code, 409)
 
     def test_create_job_dedupes_active_idempotency_key(self) -> None:
         payload = {
@@ -173,6 +243,21 @@ class JobServiceTest(unittest.TestCase):
         self.assertEqual(job.status, DEAD_LETTER)
         self.assertEqual(job.error_message, "Stale running job exhausted attempts")
 
+    def test_stale_cancel_request_finishes_without_replay(self) -> None:
+        job = create_job(
+            self.session, "ASSIMILATE_NOTE", {"note_path": "cancel-stale.md"}
+        )
+        claim_next_job(self.session)
+        request_job_cancellation(self.session, job.id)
+        job = self.session.get(JobRecord, job.id)
+        job.lease_expires_at = utc_now() - timedelta(minutes=1)
+        self.session.commit()
+
+        self.assertIsNone(claim_next_job(self.session))
+        self.session.refresh(job)
+        self.assertEqual(job.status, CANCELLED)
+        self.assertIsNotNone(job.completed_at)
+
     def test_claim_skips_jobs_with_exhausted_attempts(self) -> None:
         exhausted = create_job(
             self.session, "PARSE_NOTE", {"note_path": "a.md"}, max_attempts=2
@@ -209,12 +294,46 @@ class JobServiceTest(unittest.TestCase):
         job = create_job(self.session, "PARSE_NOTE", {"note_path": "dup.md"})
         claimed = claim_next_job(self.session)
 
-        first_complete = complete_job(self.session, claimed.id)
-        second_complete = complete_job(self.session, claimed.id)
+        claim_token = claimed.claim_token
+        first_complete = complete_job(self.session, claimed.id, claim_token=claim_token)
+        completed_at = first_complete.completed_at
+        second_complete = complete_job(
+            self.session, claimed.id, claim_token=claim_token
+        )
 
         self.assertEqual(first_complete.id, job.id)
         self.assertEqual(second_complete.status, "completed")
+        self.assertEqual(second_complete.completed_at, completed_at)
+        inbox = self.session.execute(select(WorkerInboxRecord)).scalars().all()
+        self.assertEqual(len(inbox), 1)
+        self.assertEqual(inbox[0].message_type, "complete")
         self.assertIsNone(claim_next_job(self.session))
+
+    def test_stale_worker_token_cannot_complete_new_claim(self) -> None:
+        job = create_job(
+            self.session,
+            "PARSE_NOTE",
+            {"note_path": "claim-token.md"},
+            max_attempts=3,
+        )
+        first_claim = claim_next_job(self.session)
+        first_token = first_claim.claim_token
+        first_claim.lease_expires_at = utc_now() - timedelta(minutes=1)
+        self.session.commit()
+
+        second_claim = claim_next_job(self.session)
+        second_token = second_claim.claim_token
+        self.assertNotEqual(first_token, second_token)
+
+        with self.assertRaises(HTTPException) as stale:
+            complete_job(self.session, job.id, claim_token=first_token)
+        self.assertEqual(stale.exception.status_code, 409)
+
+        completed = complete_job(self.session, job.id, claim_token=second_token)
+        self.assertEqual(completed.status, COMPLETED)
+        inbox = self.session.execute(select(WorkerInboxRecord)).scalars().all()
+        self.assertEqual(len(inbox), 1)
+        self.assertEqual(inbox[0].claim_token, second_token)
 
     def test_fail_with_retries_resets_to_pending(self) -> None:
         job = create_job(

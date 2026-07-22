@@ -14,16 +14,17 @@ const DOC_SECTIONS: DocSection[] = [
     title: "Introduction",
     md: `## Introduction
 
-Welcome to the **BerryBrain** documentation. BerryBrain is a local-first, evidence-first
-**second brain**: it turns the notes you already write into a connected knowledge system
-with a graph, AI-assisted insights, and a full audit trail of every automated decision.
+Welcome to the **BerryBrain** documentation. BerryBrain is a local-first, evidence-oriented
+**second brain**: it turns a real Markdown vault into searchable evidence, a typed knowledge
+graph, grounded AI-assisted insights, and an audit trail of cognitive and operational work.
 
 BerryBrain is **free and source-available for non-commercial use**. There is no central
 BerryBrain account, SaaS tenant, or paid feature gate. The source code, license, and
 installation path live on GitHub.
 
-This guide covers the project idea, architecture, self-hosting model, AI providers, vault
-workflow, and operational notes. Use the table of contents on the left to jump to any topic.`,
+This guide explains what BerryBrain is, what it is not, how RAG differs from fine-tuning,
+the cognitive and software architecture, self-hosting, providers, reliability, security,
+quality gates, and daily workflows.`,
   },
   {
     id: "quickstart",
@@ -40,7 +41,7 @@ docker compose up -d
 
 Open:
 
-- Web: \`http://localhost:3000\`
+- Web: \`http://localhost:3000/berrybrain\`
 - API health: \`http://localhost:8000/health\`
 
 ### Public page behavior
@@ -92,7 +93,7 @@ https://github.com/imsouza/berrybrain
     title: "What is BerryBrain",
     md: `## What is BerryBrain
 
-BerryBrain is not a notes app and not a chatbot. It is a **structured thinking system**:
+BerryBrain is not merely a notes app and not a chatbot. It is a **personal knowledge system**:
 
 - You capture plain Markdown notes (the only source of truth).
 - An **autopilot** pipeline parses, classifies, assimilates, embeds, connects, and expands them.
@@ -100,7 +101,39 @@ BerryBrain is not a notes app and not a chatbot. It is a **structured thinking s
 - AI assistance is **evidence-first**: every output records *who* (provider), *what* (model),
   *how* (prompt version), *status*, and *which notes* supported the claim.
 
-The result is a private cognitive layer you can query, inspect, and trust.`,
+The result is a private cognitive layer you can query and inspect. Model output remains a
+candidate until BerryBrain validates evidence and persists provenance; confidence is not a
+guarantee of truth.`,
+  },
+  {
+    id: "rag-or-finetuning",
+    title: "RAG, GraphRAG, or fine-tuning?",
+    md: `## RAG, GraphRAG, or fine-tuning?
+
+BerryBrain is a **hybrid retrieval-augmented knowledge application**. It uses RAG and
+graph-assisted retrieval, but it does **not** fine-tune or train a model on your vault.
+
+| Technique | Used? | What happens |
+| --- | --- | --- |
+| RAG | Yes | Relevant note chunks and attachment evidence are retrieved before generation. |
+| Hybrid retrieval | Yes | Lexical, semantic, graph, chunk, and structured evidence can be combined. |
+| Graph-assisted RAG | Yes | Typed nodes, edges, neighborhoods, and evidence participate in inference. |
+| Fine-tuning | No | Model weights are never changed by BerryBrain. |
+| LoRA/training/checkpoints | No | BerryBrain produces no private model or adapter. |
+
+Keeping knowledge outside model weights means a note can be updated, deleted, cited, backed
+up, or reprocessed immediately. Fine-tuning would not provide that lifecycle or provenance.
+
+### What Ask does
+
+1. Retrieves real note chunks, graph nodes/edges, and relevant structured state.
+2. Routes the bounded request through the configured Local or Cloud provider.
+3. Validates whether the answer is supported by evidence.
+4. Persists an auditable inference record with provider, model, prompt version, and sources.
+5. Creates an insight only when the result is grounded and the user requests it.
+
+Provider failures and job diagnostics cannot become Knowledge Insights. Insufficient evidence
+produces an explicit knowledge gap instead of an invented relationship.`,
   },
   {
     id: "concepts",
@@ -146,7 +179,7 @@ BerryBrain is composed of small services:
 | **api** | FastAPI backend: local auth, setup, notes, jobs, graph, insights, connections. |
 | **web** | Next.js app: public project pages and self-hosted workspace UI. |
 | **worker** | Runs the autopilot pipeline (parse → classify → assimilate → embed → connect → expand → insights). |
-| **nginx** | Reverse proxy: TLS, static assets, and \`/api\` routing to the API. |
+| **reverse proxy (operator supplied)** | TLS and the public entrypoint. Caddy, nginx, or a tunnel can be used. |
 
 Data flow:
 
@@ -157,6 +190,44 @@ Data flow:
 
 The API should **never** be publicly exposed directly. Publish the reverse-proxy/web entrypoint
 and route API calls through the same origin.`,
+  },
+  {
+    id: "cognitive-architecture",
+    title: "Cognitive architecture",
+    md: `## Cognitive architecture
+
+BerryBrain separates four concerns instead of asking one model to do everything.
+
+### Knowledge Base
+
+Markdown and extracted attachments become deterministic chunks, embeddings, metadata, and
+searchable evidence. SQLite is the built-in store; Qdrant and Chroma are optional external
+vector adapters. Retrieval can combine lexical, vector, chunk, and graph signals.
+
+### Knowledge Graph
+
+The graph persists notes, concepts, topics, entities, contexts, sources, attachments, gaps,
+insights, review questions, study paths, and clusters. AI-generated relationships require a
+reason, evidence, confidence, provider, model, prompt version, origin, status, and timestamps.
+
+### Semantic Data Layer
+
+Structured state such as pending jobs, stale work, graph health, settings, review state, and
+provider failures is queried independently from note knowledge. This boundary keeps system
+diagnostics in Monitor/Activity instead of presenting them as cognitive discoveries.
+
+### Model Router
+
+The router applies provider preference, remote-content consent, model availability, bounded
+timeouts, retry policy, concurrency, cancellation, and circuit state. Every invocation writes
+privacy-preserving telemetry without storing prompts, notes, retrieved passages, keys, or
+model output.
+
+### Retrieval Orchestrator
+
+Graph questions and cognitive queries decide whether to use the Knowledge Base, Knowledge
+Graph, Semantic Data Layer, or a combination. The browser never owns the source evidence;
+persisted server records are authoritative.`,
   },
   {
     id: "system-requirements",
@@ -245,7 +316,7 @@ Expose **only** the web entrypoint. Do **not** expose the API port publicly.`,
 1. Clone the repository from GitHub.
 2. Configure \`.env\`.
 3. Start the Docker stack.
-4. Choose **Setup** on the landing page and create the local owner account when prompted.
+4. Open \`http://localhost:3000/berrybrain\`, choose **Setup**, and create the local owner.
 5. The guided tour opens. You may skip the tour, but not provider configuration.
 6. Choose Local or Cloud AI and finish the required provider setup.
 
@@ -582,10 +653,11 @@ or logs.`,
 - **Monitor / Jobs**: queue, execution, and errors for each autopilot task.
 - **Activity**: a readable history of what the system did.
 - **Diagnostics**: recover stuck or failed jobs.
-- **Health**: worker, Ollama, cloud provider, and graph status.
+- **Health**: Worker, selected provider, graph state, model reliability, and Queue SLO.
 - **Graph expand**: recompute connections from current notes.
 
-Use these to observe the pipeline and recover from failures without losing data.`,
+Inactive providers are configuration choices, not alerts. Use Monitor to observe the active
+pipeline and recover actionable failures without losing data.`,
   },
   {
     id: "reliability",
@@ -595,7 +667,7 @@ Use these to observe the pipeline and recover from failures without losing data.
 The Autopilot persists work before execution and treats each note version as immutable input.
 
 - Structured pipeline runs, job dependencies, note version, content hash, and idempotency key.
-- Atomic claim, lease, heartbeat, timeout, retry with backoff, circuit breaker, and dead-letter state.
+- Atomic claim, lease, heartbeat, cooperative cancellation, timeout, retry with backoff, circuit breaker, and dead-letter state.
 - Superseded pipelines cannot overwrite results from a newer note version.
 - AI failures remain visible failures; they do not become empty successful results.
 - Canonical graph writes prevent duplicate nodes and edges during retry or reprocessing.
@@ -603,6 +675,51 @@ The Autopilot persists work before execution and treats each note version as imm
 
 Technical failures belong in **Monitor** and **Activity**. Knowledge insights remain limited to
 claims supported by notes, concepts, connections, or processed attachments.`,
+  },
+  {
+    id: "software-engineering",
+    title: "Software engineering",
+    md: `## Software engineering
+
+BerryBrain uses evidence-driven engineering. Feature presence is not enough: behavior needs
+tests, metrics, failure states, migration behavior, rollback, and user-visible feedback.
+
+### Architectural direction
+
+The project is migrating legacy modules by vertical slice toward Clean Architecture:
+
+1. **Domain** — framework-free policies and invariants.
+2. **Application** — use cases, orchestration, ports, and transactions.
+3. **Adapters** — SQLAlchemy repositories, providers, filesystem, HTTP, and vector stores.
+4. **Delivery** — FastAPI routes, Next.js screens, Worker bootstrap, and Docker.
+
+Graph-inference decisions, model routing, and Queue SLO evaluation already have isolated
+domain policies and architecture tests. Remaining legacy boundaries are documented rather
+than hidden.
+
+### Reliability patterns
+
+- Durable job outbox and claim-scoped exactly-once Worker inbox.
+- Idempotency keys, note content hashes, dependencies, leases, and heartbeats.
+- Cooperative cancellation, bounded retry, dead letters, and stale-job recovery.
+- Provider timeout, concurrency cap, circuit breaker, and cooldown recovery.
+- Canonical graph identity and mutation events to prevent retry duplicates.
+- Versioned schemas and fail-closed future-schema detection.
+- Checksummed backup, staged migration, integrity check, and coordinated DB/vault rollback.
+
+### Quality gates
+
+- API, Worker, and production-browser suites.
+- Branch and critical-module coverage gates.
+- Ruff, formatting, progressive MyPy, ESLint, and TypeScript.
+- Cognitive benchmarks for retrieval, grounding, provenance, insight usefulness, stale cleanup,
+  idempotency, and graph projection performance.
+- Automated WCAG A/AA, keyboard, reduced-motion, LCP, CLS, JavaScript transfer, and interaction
+  latency budgets.
+- Dependency, secret, CodeQL, container, SBOM, and signed-image workflows.
+
+See the repository's requirements traceability, architecture plan, maturity scorecard, and
+operations runbook for the current evidence and remaining gates.`,
   },
   {
     id: "settings",
@@ -627,7 +744,8 @@ storage. Your notes remain in the vault.`,
 
 - **Logs**: \`docker compose logs -f api web worker\`.
 - **Status**: \`docker compose ps\`.
-- **Updates**: pull the latest code, then rebuild/restart Docker Compose.
+- **Updates**: back up first, deploy a reviewed tag or exact commit, validate health, and keep
+  the previous revision available for rollback. Do not run a blind \`git pull\` on stateful data.
 - **Backups**: create manifest-backed backups that include checksums and can validate before restore.
 - **Restore**: use the authenticated maintenance flow; corrupted or path-traversing archives are rejected.
 - **Migrations**: startup applies versioned schema migrations before serving workspace data.
@@ -642,18 +760,20 @@ Expose only the web entrypoint; keep the API internal.`,
     title: "Verification & release status",
     md: `## Verification & release status
 
-Current local verification evidence from 13 July 2026:
+Current local verification evidence from 22 July 2026:
 
-- **API**: 156 unit and integration tests pass.
-- **Worker**: 34 tests pass, including disposable-database integration paths.
-- **Browser**: 13 production Playwright checks pass, including owner login, keyboard flow, mobile layout, and degraded Home behavior.
-- **Static gates**: Ruff, formatting, MyPy, TypeScript, lint, and production build pass.
-- **Containers**: local Trivy policy reports zero fixable HIGH/CRITICAL findings.
-- **Supply chain**: SPDX SBOM generation and a signed immutable release workflow are defined.
+- **API**: 276 tests plus 51 subtests pass; branch coverage is 81% and the critical-module gate passes.
+- **Worker**: 37 tests pass, including disposable-database integration and cancellation paths.
+- **Browser**: 26 production Playwright checks pass, covering auth, onboarding, notes, graph inference, Monitor, accessibility, mobile layout, and performance.
+- **Cognitive gate**: retrieval, grounding, provenance, insight quality, diagnostic isolation, stale cleanup, idempotency, and graph projection pass.
+- **Scale fixture**: 5,000 graph nodes and 20,000 edges serialize under the 2.5 s p95 and 16 MiB budgets.
+- **Static gates**: Ruff, formatting, progressive MyPy, ESLint, TypeScript, and production build pass.
+- **Supply chain**: tagged AMD64/ARM64 images include SPDX SBOMs, provenance, and OIDC signatures.
 
-This evidence validates the local worktree. It is not a published release certificate. Branch
-protection, required remote checks, signed registry artifacts, ten consecutive green \`main\`
-runs, and an external clean-machine audit remain release governance gates.`,
+BerryBrain is a functional second brain, not a claimed 100% mature one. Current evidence-based
+scores are 86/100 cognitive and 84/100 engineering. Remaining gates include 30-day usefulness
+outcomes, manual screen-reader evidence, historical restore fixtures, an external disaster
+recovery drill, and further legacy-boundary isolation.`,
   },
   {
     id: "troubleshooting",
@@ -702,7 +822,14 @@ Verify \`NEXT_PUBLIC_BERRYBRAIN_BASE_PATH=/berrybrain\` and
 - **Edge** — a relationship between two nodes.
 - **Insight** — a finding with confidence and evidence.
 - **Evidence** — the recorded provenance of an AI-assisted result.
-- **Brain View** — the default graph view of confirmed/suggested nodes.`,
+- **RAG** — retrieval of relevant evidence before a model generates an answer.
+- **Graph-assisted RAG** — retrieval that also uses graph nodes, edges, and neighborhoods.
+- **Fine-tuning** — changing model weights through training; BerryBrain does not do this.
+- **Model Router** — the policy boundary selecting provider/model and recording execution.
+- **Queue SLO** — the target for pending age, stale running work, and dead letters.
+- **Brain View** — the default graph view of confirmed/suggested nodes.
+- **Source-available** — source can be inspected and used under the project license; this is
+  not the same as an OSI-approved open-source license.`,
   },
 ];
 
@@ -732,7 +859,8 @@ function DocsContent() {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Documentation</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">BerryBrain Docs</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-          Project overview, architecture, self-hosting notes, and links to the source.
+          Product model, RAG and graph architecture, software engineering, security,
+          self-hosting, operations, and measured maturity.
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <a
@@ -808,7 +936,15 @@ type FaqItem = { q: string; a: string };
 const FAQ_ITEMS: FaqItem[] = [
   {
     q: "What is BerryBrain?",
-    a: "A local-first, evidence-first knowledge system. It connects your notes, concepts, graph, and AI-assisted insights while keeping the source attached to every claim.",
+    a: "A local-first, evidence-oriented second brain. It combines a Markdown vault, hybrid retrieval, a persistent knowledge graph, structured system data, and grounded AI-assisted inference while keeping source evidence attached to knowledge claims.",
+  },
+  {
+    q: "Is BerryBrain a RAG application?",
+    a: "Yes, but not only RAG. It uses hybrid retrieval over chunks, embeddings, graph neighborhoods, and structured data. The retrieved evidence can ground a model answer, while the graph, jobs, insight lifecycle, provenance, and user controls remain persistent systems outside the model.",
+  },
+  {
+    q: "Does BerryBrain fine-tune a model on my notes?",
+    a: "No. BerryBrain never changes model weights and creates no LoRA adapter or checkpoint. Your knowledge stays in files, chunks, embeddings, and graph records so it can be updated, deleted, backed up, and cited immediately.",
   },
   {
     q: "Is my data private?",
@@ -816,7 +952,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Do I need an AI provider to use it?",
-    a: "No. Without AI you still get deterministic insights and the lexical knowledge graph. Cloud or local models unlock richer embeddings, connections, and graph insights.",
+    a: "Yes for the complete cognitive workflow. First-run onboarding requires an explicit Local/Ollama or Cloud provider configuration. Markdown files and deterministic parsing still exist without successful inference, but Ask, enrichment, and model-backed insight generation require a working provider.",
   },
   {
     q: "What is Ollama and do I need it?",
@@ -836,7 +972,11 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Can I self-host?",
-    a: "Yes. Deploy with Docker Compose and expose only the web/reverse-proxy entrypoint.",
+    a: "Yes. Docker Compose starts Web, API, and Worker. The default URL is `/berrybrain`; expose only the HTTPS web/reverse-proxy entrypoint and keep the raw API private.",
+  },
+  {
+    q: "Is BerryBrain open source?",
+    a: "BerryBrain is source-available under a non-commercial license, not OSI-approved open source. Personal, educational, research, and internal non-commercial self-hosting are allowed; commercial use requires written permission.",
   },
   {
     q: "How do I request data access or deletion?",

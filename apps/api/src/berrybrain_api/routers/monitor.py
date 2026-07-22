@@ -5,12 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from berrybrain_api.database import SessionLocal, engine
+from berrybrain_api.ai_gateway import provider_resilience_snapshot
 from berrybrain_api.jobs import list_jobs, parse_json, serialize_datetime
 from berrybrain_api.models import (
     ConnectionRecord,
     EmbeddingRecord,
     GeneratedMetadataRecord,
     InsightRecord,
+    ModelInvocationRecord,
     NoteRecord,
     WorkerStatus,
 )
@@ -38,10 +40,32 @@ def monitor_stats() -> dict:
         completed = [j for j in jobs if j.status == "completed"]
         failed = [j for j in jobs if j.status == "failed"]
         pending = [j for j in jobs if j.status == "pending"]
-        types = {}
+        types: dict[str, int] = {}
         for j in completed:
             types[j.type] = types.get(j.type, 0) + 1
         running = [j for j in jobs if j.status == "running"]
+        invocations = list(
+            session.execute(
+                select(ModelInvocationRecord)
+                .order_by(ModelInvocationRecord.started_at.desc())
+                .limit(200)
+            ).scalars()
+        )
+        finished_invocations = [
+            item for item in invocations if item.status in {"completed", "failed"}
+        ]
+        successful_invocations = [
+            item for item in finished_invocations if item.status == "completed"
+        ]
+        provider_totals: dict[str, dict[str, int]] = {}
+        for item in invocations:
+            provider = item.provider or "unknown"
+            bucket = provider_totals.setdefault(
+                provider, {"total": 0, "completed": 0, "failed": 0}
+            )
+            bucket["total"] += 1
+            if item.status in {"completed", "failed"}:
+                bucket[item.status] += 1
         return {
             "schema": schema_diagnostic(engine),
             "notes": session.query(NoteRecord).count(),
@@ -63,6 +87,43 @@ def monitor_stats() -> dict:
                         and (datetime.now() - j.completed_at).total_seconds() < 3600
                     ]
                 ),
+            },
+            "model_invocations": {
+                "total": len(invocations),
+                "completed": len(successful_invocations),
+                "failed": len(
+                    [item for item in invocations if item.status == "failed"]
+                ),
+                "cancelled": len(
+                    [item for item in invocations if item.status == "cancelled"]
+                ),
+                "success_rate": round(
+                    len(successful_invocations) / len(finished_invocations), 4
+                )
+                if finished_invocations
+                else None,
+                "average_latency_ms": round(
+                    sum(item.latency_ms for item in successful_invocations)
+                    / len(successful_invocations)
+                )
+                if successful_invocations
+                else None,
+                "by_provider": provider_totals,
+                "recent_failures": [
+                    {
+                        "capability": item.capability,
+                        "provider": item.provider,
+                        "model": item.model,
+                        "error_class": item.error_class,
+                        "error_message": item.error_message,
+                        "when": item.completed_at.isoformat()
+                        if item.completed_at
+                        else item.started_at.isoformat(),
+                    }
+                    for item in invocations
+                    if item.status == "failed"
+                ][:5],
+                "circuits": provider_resilience_snapshot(),
             },
             "running_jobs": [
                 {

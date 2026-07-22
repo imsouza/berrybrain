@@ -200,6 +200,8 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
             system,
             timeout=80,
             max_tokens=1024,
+            session=session,
+            prompt_version="cognitive-query.v1",
         )
     except TimeoutError:
         return _fallback_answer(

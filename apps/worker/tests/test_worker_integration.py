@@ -1,16 +1,20 @@
 """Worker integration tests against disposable in-memory DB.
 
-Starts the real FastAPI app with in-memory SQLite, runs worker functions
-against it via httpx.AsyncClient + ASGITransport. Mocks only AI calls.
+Starts the real FastAPI app with a disposable SQLite database, runs worker
+functions against it via TestClient, and mocks only AI calls.
 """
 
+import asyncio
 import os
 import tempfile
 import unittest
+from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import httpx
+from fastapi.testclient import TestClient
 
 os.environ["BERRYBRAIN_VAULT_WATCHER_ENABLED"] = "false"
 
@@ -33,7 +37,26 @@ SESSIONLOCAL_MODULES = (
 )
 
 
-class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
+class AsyncTestClientAdapter:
+    """Expose a live TestClient to the async worker API contract."""
+
+    def __init__(self, client: TestClient) -> None:
+        self._client = client
+
+    async def _run(self, method: Callable[..., httpx.Response], *args, **kwargs):
+        return await asyncio.to_thread(method, *args, **kwargs)
+
+    async def get(self, *args: Any, **kwargs: Any) -> httpx.Response:
+        return await self._run(self._client.get, *args, **kwargs)
+
+    async def post(self, *args: Any, **kwargs: Any) -> httpx.Response:
+        return await self._run(self._client.post, *args, **kwargs)
+
+    async def put(self, *args: Any, **kwargs: Any) -> httpx.Response:
+        return await self._run(self._client.put, *args, **kwargs)
+
+
+class WorkerIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from sqlalchemy import create_engine
@@ -122,65 +145,76 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
         cls.settings.api_token = cls.original_api_token
         cls.tmp_dir.cleanup()
 
-    def _make_client(self) -> httpx.AsyncClient:
-        # Use ASGITransport for async requests
-        transport = httpx.ASGITransport(app=self.app)
-        return httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
+    def _make_client(self) -> TestClient:
+        return TestClient(
+            self.app,
             headers={"Authorization": f"Bearer {self.settings.api_token}"},
         )
 
-    async def _create_note(
-        self, client: httpx.AsyncClient, title: str = "Test Note"
-    ) -> dict:
+    def _create_note(self, client: TestClient, title: str = "Test Note") -> dict:
+        del client
+        from berrybrain_api.database import SessionLocal
+        from berrybrain_api.jobs import enqueue_note_changed_jobs
+        from berrybrain_api.sync import sync_note_record
+        from berrybrain_api.vault import create_note
+
         type(self).note_counter += 1
         unique_title = f"{title} {type(self).note_counter}"
-        resp = await client.post(
-            "/api/v1/notes",
-            json={
-                "title": unique_title,
-                "folder": "inbox",
-                "content": f"# {unique_title}\n\nHello world",
-            },
+        note = create_note(
+            self.settings.vault_path,
+            unique_title,
+            "inbox",
+            f"# {unique_title}\n\nHello world",
         )
-        assert resp.status_code == 201, resp.text
-        return resp.json()
+        with SessionLocal() as session:
+            record = sync_note_record(
+                session, self.settings.vault_path, str(note["path"])
+            )
+            note["id"] = record.id
+            enqueue_note_changed_jobs(
+                session, record.path, "NOTE_CREATED", record.content_hash
+            )
+        return note
 
-    async def test_claim_and_complete_job_lifecycle(self):
+    def _claim_job(self, client: TestClient) -> tuple[dict, dict[str, str]]:
+        resp = client.post("/api/v1/jobs/claim")
+        self.assertEqual(resp.status_code, 200)
+        job = resp.json()["job"]
+        self.assertIsNotNone(job)
+        token = str(job.get("claim_token") or "")
+        self.assertTrue(token)
+        return job, {"X-BerryBrain-Claim-Token": token}
+
+    def test_claim_and_complete_job_lifecycle(self):
         """Create a note → jobs are enqueued → claim → complete → status=completed."""
-        async with self._make_client() as client:
-            await self._create_note(client)
+        with self._make_client() as client:
+            self._create_note(client)
 
             # list pending jobs
-            resp = await client.get("/api/v1/jobs", params={"status": "pending"})
+            resp = client.get("/api/v1/jobs", params={"status": "pending"})
             self.assertEqual(resp.status_code, 200)
             jobs = resp.json()["jobs"]
             self.assertGreater(len(jobs), 0)
 
             # claim one
-            resp = await client.post("/api/v1/jobs/claim")
-            self.assertEqual(resp.status_code, 200)
-            claimed = resp.json()["job"]
-            self.assertIsNotNone(claimed)
+            claimed, headers = self._claim_job(client)
             self.assertIn(claimed["status"], ("running", "pending"))
             job_id = claimed["id"]
 
             # complete it
-            resp = await client.post(f"/api/v1/jobs/{job_id}/complete")
+            resp = client.post(f"/api/v1/jobs/{job_id}/complete", headers=headers)
             self.assertEqual(resp.status_code, 200)
 
             # verify completed
-            resp = await client.get("/api/v1/jobs", params={"status": "completed"})
+            resp = client.get("/api/v1/jobs", params={"status": "completed"})
             completed = resp.json()["jobs"]
             self.assertTrue(any(j["id"] == job_id for j in completed))
 
-    async def test_fail_job_records_error(self):
+    def test_fail_job_records_error(self):
         """Claim a job → fail it enough times → status=failed with error_message."""
-        async with self._make_client() as client:
-            await self._create_note(client)
-            resp = await client.post("/api/v1/jobs/claim")
-            claimed = resp.json()["job"]
+        with self._make_client() as client:
+            self._create_note(client)
+            claimed, headers = self._claim_job(client)
             job_id = claimed["id"]
 
             # fail_job only marks FAILED when attempts >= max_attempts;
@@ -194,25 +228,27 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 j.attempts = j.max_attempts
                 s.commit()
 
-            resp = await client.post(
+            resp = client.post(
                 f"/api/v1/jobs/{job_id}/fail",
                 json={"error_message": "test failure"},
+                headers=headers,
             )
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["job"]["status"], "dead_letter")
 
-            resp = await client.get("/api/v1/jobs", params={"status": "dead_letter"})
+            resp = client.get("/api/v1/jobs", params={"status": "dead_letter"})
             failed = resp.json()["jobs"]
             self.assertTrue(any(j["id"] == job_id for j in failed))
 
-    async def test_worker_process_parse_note(self):
+    def test_worker_process_parse_note(self):
         """Worker process_parse_note works against real API with mocked AI."""
         import berrybrain_worker.main as worker_main
+        from berrybrain_worker.api_client import _claim_tokens
 
-        async with self._make_client() as client:
-            await self._create_note(client)
-            resp = await client.post("/api/v1/jobs/claim")
-            job = resp.json()["job"]
+        with self._make_client() as client:
+            self._create_note(client)
+            job, _headers = self._claim_job(client)
+            _claim_tokens[int(job["id"])] = str(job["claim_token"])
             self.assertEqual(job["type"], "PARSE_NOTE")
             payload = job.get("payload", {})
 
@@ -226,61 +262,63 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 from berrybrain_worker.config import WorkerSettings
 
                 settings = WorkerSettings()
-                await worker_main.process_parse_note(client, settings, job, payload)
+                settings.api_url = "http://testserver"
+                asyncio.run(
+                    worker_main.process_parse_note(
+                        AsyncTestClientAdapter(client), settings, job, payload
+                    )
+                )
             finally:
                 worker_main.ollama_call = original
 
             # job should be completed
-            resp = await client.get("/api/v1/jobs?status=completed")
+            resp = client.get("/api/v1/jobs?status=completed")
             completed = resp.json()["jobs"]
             self.assertTrue(
                 any(j["id"] == job["id"] for j in completed),
                 f"Job {job['id']} not in completed list",
             )
 
-    async def test_worker_claim_respects_pipeline_order(self):
+    def test_worker_claim_respects_pipeline_order(self):
         """First claim returns PARSE_NOTE (first in pipeline) when multiple jobs exist."""
-        async with self._make_client() as client:
-            await self._create_note(client, "Note A")
-            await self._create_note(client, "Note B")
+        with self._make_client() as client:
+            self._create_note(client, "Note A")
+            self._create_note(client, "Note B")
 
             # claim first
-            resp = await client.post("/api/v1/jobs/claim")
-            job1 = resp.json()["job"]
+            job1, _headers1 = self._claim_job(client)
 
             # claim second
-            resp = await client.post("/api/v1/jobs/claim")
-            job2 = resp.json()["job"]
+            job2, _headers2 = self._claim_job(client)
 
             # at least one should be PARSE_NOTE
             types = {job1["type"], job2["type"]}
             self.assertIn("PARSE_NOTE", types)
 
-    async def test_jobs_health_endpoint(self):
+    def test_jobs_health_endpoint(self):
         """Jobs health returns status and counts."""
-        async with self._make_client() as client:
-            resp = await client.get("/api/v1/jobs/health")
+        with self._make_client() as client:
+            resp = client.get("/api/v1/jobs/health")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertIn("status", data)
             self.assertIn("counts", data)
             self.assertIn("pending", data["counts"])
 
-    async def test_pipeline_progress_endpoint(self):
+    def test_pipeline_progress_endpoint(self):
         """Pipeline progress endpoint returns notes with active jobs."""
-        async with self._make_client() as client:
-            await self._create_note(client)
-            resp = await client.get("/api/v1/jobs/pipeline-progress")
+        with self._make_client() as client:
+            self._create_note(client)
+            resp = client.get("/api/v1/jobs/pipeline-progress")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertIn("notes", data)
 
-    async def test_stale_job_recovery(self):
+    def test_stale_job_recovery(self):
         """Stale running job gets recovered on next claim."""
-        async with self._make_client() as client:
-            await self._create_note(client)
-            resp = await client.post("/api/v1/jobs/claim")
-            job = resp.json()["job"]
+        with self._make_client() as client:
+            self._create_note(client)
+            job, _headers = self._claim_job(client)
             job_id = job["id"]
 
             # force stale: set started_at to 45 min ago
@@ -295,15 +333,15 @@ class WorkerIntegrationTest(unittest.IsolatedAsyncioTestCase):
                 s.commit()
 
             # claim should recover the stale job and return a running job
-            resp = await client.post("/api/v1/jobs/claim")
+            resp = client.post("/api/v1/jobs/claim")
             recovered = resp.json()["job"]
             self.assertIsNotNone(recovered)
             self.assertIn(recovered["status"], ("running", "pending"))
 
-    async def test_heartbeat_endpoint(self):
+    def test_heartbeat_endpoint(self):
         """Worker heartbeat posts stats successfully."""
-        async with self._make_client() as client:
-            resp = await client.post(
+        with self._make_client() as client:
+            resp = client.post(
                 "/api/v1/worker/heartbeat",
                 json={"jobs_processed": 5, "errors": 1, "ollama_healthy": True},
             )

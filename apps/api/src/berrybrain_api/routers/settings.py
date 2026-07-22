@@ -27,6 +27,7 @@ from berrybrain_api.models import (
     GeneratedMetadataRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
+    ModelInvocationRecord,
     InsightRecord,
     JobRecord,
     NoteRecord,
@@ -37,6 +38,8 @@ from berrybrain_api.models import (
     WorkerStatus,
 )
 from berrybrain_api.settings_store import (
+    decode_setting_value,
+    encode_setting_value,
     get_setting,
     list_settings,
     set_setting,
@@ -106,10 +109,11 @@ def _set_values(session, values: dict[str, str]) -> None:
     }
     for key, value in values.items():
         setting = existing.get(key)
+        stored_value = encode_setting_value(key, value)
         if setting is None:
-            session.add(SettingRecord(key=key, value=value))
+            session.add(SettingRecord(key=key, value=stored_value))
         else:
-            setting.value = value
+            setting.value = stored_value
 
 
 def _record_ai_test(
@@ -150,7 +154,7 @@ def _setting_value(session, key: str) -> str:
     setting = session.execute(
         select(SettingRecord).where(SettingRecord.key == key)
     ).scalar_one_or_none()
-    return setting.value if setting is not None else ""
+    return decode_setting_value(key, setting.value) if setting is not None else ""
 
 
 def _current_ai_key_revision(session) -> str:
@@ -218,6 +222,7 @@ class WipeDataRequest(BaseModel):
 
 
 WIPE_MODELS = [
+    ModelInvocationRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
     EmbeddingRecord,
@@ -258,7 +263,9 @@ def get_ai_config(request: Request) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == key.replace("__", "/"))
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return (
+                decode_setting_value(key.replace("__", "/"), row.value) if row else ""
+            )
 
         api_url = _get("ai_api_url") or _get("ai_custom_url")
         return {
@@ -289,7 +296,7 @@ def get_graph_config(request: Request) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == key)
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return decode_setting_value(key, row.value) if row else ""
 
         return {
             "provider": _get("graph_ai_provider") or _get("ai_provider") or "local",
@@ -315,7 +322,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
             row = session.execute(
                 select(SettingRecord).where(SettingRecord.key == k)
             ).scalar_one_or_none()
-            return row.value if row else ""
+            return decode_setting_value(k, row.value) if row else ""
 
         api_url = payload.url or _get("ai_api_url") or _get("ai_custom_url")
         api_key = payload.key or _get("ai_api_key")
@@ -445,7 +452,7 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
 def get_ai_status(request: Request) -> dict:
     with SessionLocal() as session:
         values = {
-            row.key: row.value
+            row.key: decode_setting_value(row.key, row.value)
             for row in session.execute(select(SettingRecord)).scalars()
         }
     provider = values.get("ai_provider") or "local"

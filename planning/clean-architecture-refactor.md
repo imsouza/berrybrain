@@ -2,7 +2,7 @@
 
 Status: active, incremental migration
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## Objective
 
@@ -72,8 +72,8 @@ Target contexts:
 - [x] Maintain API, worker, web, security, and container CI workflows.
 - [x] Add requirement IDs and a traceability matrix.
 - [x] Establish cognitive and engineering scorecards.
-- [ ] Raise repository-wide coverage gate from 60% to 80% in measured increments.
-- [ ] Eliminate current ESLint warnings before enforcing zero-warning CI.
+- [x] Raise repository-wide coverage gate from 60% to 80% in measured increments.
+- [x] Eliminate current ESLint warnings and enforce zero-warning CI.
 
 Exit: every subsequent change maps to a requirement and automated test.
 
@@ -91,35 +91,35 @@ Exit: every subsequent change maps to a requirement and automated test.
 - [x] Extract the inference-to-insight decision into a framework-free domain module.
 - [x] Inject the database session for the migrated endpoints.
 - [x] Add domain, integration, tamper-resistance, gap, and architecture tests.
-- [ ] Replace direct graph expansion after insight creation with a transactional outbox event.
-- [ ] Add Playwright coverage for the visible button states and graph refresh.
+- [x] Replace direct graph expansion after insight creation with the transactional, idempotent job outbox; projection is worker-owned and architecture-tested.
+- [x] Add Playwright coverage for the visible button states and graph refresh.
 
 Exit: a saved inference is auditable and cannot be forged by client-supplied evidence.
 
 ### Phase 2 - Settings and Model Router
 
-- [ ] Create `ModelCapability`, `ProviderPolicy`, and `RoutingDecision` domain types.
+- [x] Create `ModelCapability`, `ProviderPolicy`, and `RoutingDecision` domain types.
 - [ ] Move provider selection, consent, health, timeout, and fallback into one application use case.
 - [ ] Replace provider-specific branches in routers and jobs with a `ModelGateway` port.
-- [ ] Persist each invocation with latency, outcome, prompt version, provider, model, and error class.
-- [ ] Encrypt secrets at rest and keep secret values out of API responses and logs.
-- [ ] Add provider contract tests for NIM, OpenAI-compatible APIs, and local adapters.
-- [ ] Add circuit breaker, bounded retry, concurrency limit, and cancellation.
-- [ ] Expose user-readable provider diagnostics in Monitor, not Knowledge Insights.
+- [x] Persist each invocation with latency, outcome, prompt version, provider, model, and error class without prompt content.
+- [x] Encrypt secrets at rest and keep secret values out of API responses and logs.
+- [x] Add provider contract tests for NIM, OpenAI-compatible APIs, and local adapters.
+- [x] Add circuit breaker, bounded retry, concurrency limit, cancellation accounting, and cooldown recovery.
+- [x] Expose user-readable provider diagnostics in Monitor, not Knowledge Insights.
 
 Exit: all AI execution is observable, policy-driven, and independently testable.
 
 ### Phase 3 - Knowledge Graph and Knowledge Insights
 
-- [ ] Move canonical node/edge identity rules into the Graph domain.
+- [x] Move canonical node/edge identity rules into the canonical graph writer.
 - [ ] Introduce repository ports for nodes, edges, evidence, and graph snapshots.
-- [ ] Enforce edge invariants: origin, reason, evidence, confidence, status, and provenance.
+- [x] Enforce edge invariants: origin, reason, evidence, confidence, status, and provenance.
 - [ ] Make node/edge confirmation, ignore, archive, merge, and delete transactional use cases.
-- [ ] Route all graph writes through one canonical writer and event stream.
-- [ ] Split technical diagnostics from knowledge insight generation at the domain boundary.
-- [ ] Add insight usefulness feedback and expiry/recalculation policies.
-- [ ] Benchmark edge precision and unsupported claims against versioned fixtures.
-- [ ] Add property tests for deduplication, merge, and idempotent rebuilds.
+- [x] Route graph mutations through one canonical writer with mutation events.
+- [x] Split technical diagnostics from knowledge insight generation at the domain boundary.
+- [x] Add insight usefulness feedback and expiry/recalculation policies.
+- [x] Benchmark edge precision and unsupported claims against versioned fixtures.
+- [x] Add permutation/regression tests for deduplication, merge, and idempotent rebuilds.
 
 Exit: graph state is deterministic, explainable, versioned, and reversible.
 
@@ -130,8 +130,8 @@ Exit: graph state is deterministic, explainable, versioned, and reversible.
 - [ ] Add vector-store ports with SQLite fallback and Qdrant/Chroma adapters.
 - [ ] Implement incremental index update, deletion, and recovery.
 - [ ] Add hybrid retrieval fusion, reranking, diversity, and citation validation.
-- [ ] Publish Recall@10 and MRR benchmarks using reproducible fixtures.
-- [ ] Prevent stale chunks and embeddings from surviving note changes/deletes.
+- [x] Publish Recall@10 and MRR benchmarks using reproducible fixtures.
+- [x] Prevent stale chunks, edges, and generated knowledge from remaining active after source changes.
 - [ ] Add attachment source locations to every citation.
 
 Exit: clean-install indexing and retrieval quality are reproducible.
@@ -139,12 +139,12 @@ Exit: clean-install indexing and retrieval quality are reproducible.
 ### Phase 5 - Vault and Attachments
 
 - [ ] Isolate filesystem access behind a Vault port.
-- [ ] Make note save atomic and distinguish persistence success from downstream job failure.
-- [ ] Enforce attachment size/type/path controls before storage.
-- [ ] Add extractor sandbox limits for CPU, memory, time, decompression, and output size.
+- [x] Make note save atomic and distinguish persistence success from downstream job failure.
+- [x] Enforce attachment size/type/path controls before storage.
+- [x] Add extractor sandbox limits for CPU, memory, time, decompression, and output size.
 - [ ] Complete PDF/OCR/image/audio/video transcription only after phases 1-4 pass their gates.
 - [ ] Preserve page, timestamp, frame, and source-file evidence in chunks and graph nodes.
-- [ ] Add malicious file, corrupt file, and large-file test fixtures.
+- [x] Add malicious file, corrupt file, and large-file test fixtures.
 
 Exit: every indexed attachment is safe, attributable, and removable.
 
@@ -152,11 +152,12 @@ Exit: every indexed attachment is safe, attributable, and removable.
 
 - [ ] Reduce worker `main.py` to bootstrap, dispatch, and lifecycle management.
 - [ ] Create one handler per job type with typed payloads.
-- [ ] Add job idempotency keys, leases, heartbeats, cancellation, retry classes, and dead letters.
-- [ ] Persist stage progress and user-readable outcomes.
-- [ ] Use an outbox/inbox pair for API-worker consistency.
-- [ ] Add crash/restart, duplicate delivery, provider timeout, and stale lease integration tests.
-- [ ] Define queue SLOs and alert only on actionable conditions.
+- [x] Add job idempotency keys, leases, heartbeats, retry classes, and dead letters.
+- [x] Add cooperative cancellation for queued and running jobs, including persisted states, worker polling, terminal acknowledgement, stale recovery, Activity events, and Monitor action.
+- [x] Persist stage progress and user-readable outcomes.
+- [x] Complete the outbox/inbox consistency path: durable idempotent jobs are the outbox; claim-scoped terminal messages use a persisted exactly-once inbox; graph inference has no synchronous duplicate projection path.
+- [x] Add crash/restart, duplicate delivery, provider timeout, and stale lease integration tests.
+- [x] Define queue SLOs for pending age, stale running work, and dead letters; expose only actionable violations in Monitor.
 
 Exit: the pipeline resumes safely after interruption and never processes silently forever.
 
@@ -169,20 +170,20 @@ Exit: the pipeline resumes safely after interruption and never processes silentl
 - [ ] Remove direct `localStorage` outside a versioned persistence adapter.
 - [ ] Use query caching/invalidation for graph, Home, Insights, and Activity consistency.
 - [ ] Add runtime response validation for critical endpoints.
-- [ ] Meet WCAG 2.2 AA keyboard, contrast, focus, reduced-motion, and screen-reader gates.
-- [ ] Set performance budgets for LCP, INP, bundle size, and large graph rendering.
+- [ ] Complete the WCAG 2.2 AA manual screen-reader and contrast audit; automated A/AA, keyboard, focus, and reduced-motion gates pass.
+- [x] Extend the landing LCP/CLS/JS budgets with a <= 200 ms browser INP candidate; the API graph projection gate passes at p95 1.74 s for 5,000 nodes/20,000 edges including JSON serialization.
 
 Exit: UI state reflects canonical server state and failures are actionable.
 
 ### Phase 8 - Security, backup, and release
 
 - [ ] Complete threat models for self-hosted, reverse-proxy, and public-network deployments.
-- [ ] Add rate limiting, lockout policy, session rotation, CSRF, CSP, and secure-cookie tests.
-- [ ] Produce SBOM, signed images, provenance attestations, and pinned release dependencies.
-- [ ] Test encrypted backup and restore across supported schema versions.
-- [ ] Add secret scanning and a documented key-rotation incident procedure.
-- [ ] Validate empty first-run state contains no personal vault, key, or user data.
-- [ ] Run release smoke tests from a clean machine and a restored backup.
+- [x] Add rate limiting, lockout policy, session rotation, CSRF, CSP, and secure-cookie tests.
+- [x] Produce SBOM, signed images, and provenance attestations for release images.
+- [ ] Test encrypted backup and restore across every supported schema version; staged v4 -> v6 migration, explicit v5 -> v6 DDL, integrity validation, full-vault replacement, and coordinated rollback are covered.
+- [x] Add secret scanning and a documented key-rotation incident procedure.
+- [x] Validate empty first-run state contains no personal vault, key, or user data.
+- [ ] Run the documented release smoke test and disaster-recovery drill on an external clean machine; the runbook/Compose contract is automated.
 
 Exit: release is reproducible, recoverable, and has no critical/high open security findings.
 

@@ -550,6 +550,15 @@ def upload_note_attachment(note_path: str, payload: AttachmentUploadRequest) -> 
         }
 
 
+@router.get("/{note_path:path}/download")
+def download_note_endpoint(note_path: str):
+    settings = get_settings()
+    path = resolve_note_path(settings.vault_path, note_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Note not found")
+    return FileResponse(path, filename=path.name, media_type="text/markdown")
+
+
 @router.get("/{note_path:path}")
 def read_note_endpoint(note_path: str) -> dict:
     settings = get_settings()
@@ -561,6 +570,25 @@ def read_note_endpoint(note_path: str) -> dict:
         if record:
             note["id"] = record.id
     return note
+
+
+@router.put("/{note_path:path}/rename")
+def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
+    settings = get_settings()
+    result = rename_note(settings.vault_path, note_path, payload.title)
+    with SessionLocal() as session:
+        record = session.execute(
+            select(NoteRecord).where(NoteRecord.path == note_path)
+        ).scalar_one_or_none()
+        if record is not None:
+            new_path = str(result["path"])
+            record.path = new_path
+            record.title = payload.title
+            session.commit()
+            _update_internal_links(session, note_path, new_path)
+        else:
+            sync_note_record(session, settings.vault_path, str(result["path"]))
+    return result
 
 
 @router.put("/{note_path:path}")
@@ -616,29 +644,6 @@ def delete_note_endpoint(note_path: str) -> dict:
     return result
 
 
-@router.put("/{note_path:path}/rename")
-def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
-    from sqlalchemy import select
-
-    from berrybrain_api.models import NoteRecord
-
-    settings = get_settings()
-    result = rename_note(settings.vault_path, note_path, payload.title)
-    with SessionLocal() as session:
-        record = session.execute(
-            select(NoteRecord).where(NoteRecord.path == note_path)
-        ).scalar_one_or_none()
-        if record is not None:
-            new_path = str(result["path"])
-            record.path = new_path
-            record.title = payload.title
-            session.commit()
-            _update_internal_links(session, note_path, new_path)
-        else:
-            sync_note_record(session, settings.vault_path, str(result["path"]))
-    return result
-
-
 def _update_internal_links(session, old_path: str, new_path: str) -> None:
     from sqlalchemy import select
 
@@ -662,23 +667,17 @@ def _update_internal_links(session, old_path: str, new_path: str) -> None:
     session.commit()
 
 
-@router.get("/{note_path:path}/download")
-def download_note_endpoint(note_path: str):
-    settings = get_settings()
-    path = resolve_note_path(settings.vault_path, note_path)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Note not found")
-    return FileResponse(path, filename=path.name, media_type="text/markdown")
-
-
 @router.post("/clip")
 def clip_web_content(payload: ClipRequest):
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     settings = get_settings()
-    now = datetime.utcnow().isoformat()
-    markdown = f"# {payload.title}\n\n> Fonte: {payload.url}\n> Clipped: {now}\n\n{payload.content}"
-    result = create_note(settings.vault_path, payload.title, markdown, folder="inbox")
+    now = datetime.now(UTC).isoformat()
+    markdown = (
+        f"# {payload.title}\n\n> Source: {payload.url}\n"
+        f"> Clipped: {now}\n\n{payload.content}"
+    )
+    result = create_note(settings.vault_path, payload.title, "inbox", markdown)
     with SessionLocal() as session:
         sync_note_record(session, settings.vault_path, str(result["path"]))
         enqueue_note_changed_jobs(

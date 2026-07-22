@@ -4,6 +4,12 @@ import asyncio
 
 import httpx
 
+_claim_tokens: dict[int, str] = {}
+
+
+class JobCancellationRequested(Exception):
+    pass
+
 
 async def assert_api_ready(client: httpx.AsyncClient, api_url: str) -> None:
     last_error = None
@@ -23,11 +29,24 @@ async def claim_next_job(client: httpx.AsyncClient, api_url: str) -> dict | None
     response = await client.post(f"{api_url}/api/v1/jobs/claim")
     response.raise_for_status()
     payload = response.json()
-    return payload.get("job")
+    job = payload.get("job")
+    if job:
+        token = str(job.get("claim_token") or "")
+        if token:
+            _claim_tokens[int(job["id"])] = token
+    return job
+
+
+def _claim_headers(job_id: int) -> dict[str, str]:
+    token = _claim_tokens.get(job_id, "")
+    return {"X-BerryBrain-Claim-Token": token} if token else {}
 
 
 async def renew_job_lease(client: httpx.AsyncClient, api_url: str, job_id: int) -> None:
-    response = await client.post(f"{api_url}/api/v1/jobs/{job_id}/renew-lease")
+    response = await client.post(
+        f"{api_url}/api/v1/jobs/{job_id}/renew-lease",
+        headers=_claim_headers(job_id),
+    )
     response.raise_for_status()
 
 
@@ -73,8 +92,38 @@ async def upsert_metadata(
 
 
 async def complete_job(client: httpx.AsyncClient, api_url: str, job_id: int) -> None:
-    response = await client.post(f"{api_url}/api/v1/jobs/{job_id}/complete")
+    response = await client.post(
+        f"{api_url}/api/v1/jobs/{job_id}/complete",
+        headers=_claim_headers(job_id),
+    )
+    if response.status_code == 409:
+        try:
+            detail = str(response.json().get("detail", ""))
+        except ValueError:
+            detail = ""
+        if "cancellation" in detail.lower():
+            raise JobCancellationRequested(detail)
     response.raise_for_status()
+    _claim_tokens.pop(job_id, None)
+
+
+async def is_job_cancellation_requested(
+    client: httpx.AsyncClient, api_url: str, job_id: int
+) -> bool:
+    response = await client.get(f"{api_url}/api/v1/jobs/{job_id}/cancellation")
+    response.raise_for_status()
+    return bool(response.json().get("cancelRequested", False))
+
+
+async def acknowledge_job_cancellation(
+    client: httpx.AsyncClient, api_url: str, job_id: int
+) -> None:
+    response = await client.post(
+        f"{api_url}/api/v1/jobs/{job_id}/cancelled",
+        headers=_claim_headers(job_id),
+    )
+    response.raise_for_status()
+    _claim_tokens.pop(job_id, None)
 
 
 async def fail_job(
@@ -86,8 +135,10 @@ async def fail_job(
     response = await client.post(
         f"{api_url}/api/v1/jobs/{job_id}/fail",
         json={"error_message": error_message},
+        headers=_claim_headers(job_id),
     )
     response.raise_for_status()
+    _claim_tokens.pop(job_id, None)
 
 
 async def send_heartbeat(

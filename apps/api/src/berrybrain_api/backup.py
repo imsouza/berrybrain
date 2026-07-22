@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 from zipfile import ZipFile
 from xml.etree import ElementTree
 
@@ -208,6 +209,8 @@ def create_backup() -> dict[str, object]:
             "service_tokens",
             "note_attachments",
             "attachment_extractions",
+            "model_invocations",
+            "worker_inbox",
         ):
             row = session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
             meta["tables"][table] = row
@@ -258,35 +261,71 @@ def restore_backup(backup_id: str) -> dict[str, object]:
 
     db = Path(_db_path())
     src_db = src / db.name
+    restore_id = uuid4().hex
+    staged_db: Path | None = None
+    staged_vault: Path | None = None
     migration = {
         "fromVersion": backup_schema,
         "toVersion": backup_schema,
         "applied": [],
     }
     if src_db.exists():
-        database_engine.dispose()
-        shutil.copy2(src_db, db)
-        restore_engine = create_engine(
-            f"sqlite:///{db}", connect_args={"check_same_thread": False}
-        )
+        db.parent.mkdir(parents=True, exist_ok=True)
+        staged_db = db.with_name(f".{db.name}.restore-{restore_id}")
+        shutil.copy2(src_db, staged_db)
         try:
-            Base.metadata.create_all(bind=restore_engine)
-            ensure_sqlite_columns(restore_engine)
-            migration = apply_schema_migrations(restore_engine)
-        finally:
-            restore_engine.dispose()
+            restore_engine = create_engine(
+                f"sqlite:///{staged_db}", connect_args={"check_same_thread": False}
+            )
+            try:
+                actual_schema = get_schema_version(restore_engine)
+                if actual_schema != backup_schema:
+                    raise ValueError(
+                        "Backup schema metadata does not match its database "
+                        f"({backup_schema} != {actual_schema})"
+                    )
+                Base.metadata.create_all(bind=restore_engine)
+                ensure_sqlite_columns(restore_engine)
+                migration = apply_schema_migrations(restore_engine)
+                with restore_engine.connect() as connection:
+                    integrity = connection.execute(
+                        text("PRAGMA integrity_check")
+                    ).scalar()
+                if str(integrity).lower() != "ok":
+                    raise ValueError(
+                        f"Restored database failed integrity check: {integrity}"
+                    )
+            finally:
+                restore_engine.dispose()
+        except Exception:
+            _remove_restore_path(staged_db)
+            raise
 
     vault = get_settings().vault_path
     src_vault = src / "vault"
     restored_files = 0
     if src_vault.is_dir():
-        for item in src_vault.iterdir():
-            dest = vault / item.name
-            if item.is_dir():
-                shutil.copytree(item, dest, dirs_exist_ok=True)
-            else:
-                shutil.copy2(item, dest)
+        vault.parent.mkdir(parents=True, exist_ok=True)
+        staged_vault = vault.parent / f".{vault.name}.restore-{restore_id}"
+        try:
+            shutil.copytree(src_vault, staged_vault)
+        except Exception:
+            _remove_restore_path(staged_db)
+            _remove_restore_path(staged_vault)
+            raise
         restored_files = sum(1 for item in src_vault.glob("**/*") if item.is_file())
+
+    try:
+        _commit_prepared_restore(
+            database_path=db,
+            staged_database=staged_db,
+            vault_path=vault,
+            staged_vault=staged_vault,
+            restore_id=restore_id,
+        )
+    finally:
+        _remove_restore_path(staged_db)
+        _remove_restore_path(staged_vault)
 
     return {
         "id": backup_id,
@@ -297,6 +336,73 @@ def restore_backup(backup_id: str) -> dict[str, object]:
         "restoredFiles": restored_files,
         "tables": metadata.get("tables", {}),
     }
+
+
+def _commit_prepared_restore(
+    *,
+    database_path: Path,
+    staged_database: Path | None,
+    vault_path: Path,
+    staged_vault: Path | None,
+    restore_id: str,
+) -> None:
+    rollback_database = database_path.with_name(
+        f".{database_path.name}.rollback-{restore_id}"
+    )
+    rollback_vault = vault_path.parent / f".{vault_path.name}.rollback-{restore_id}"
+    database_replaced = False
+    vault_replaced = False
+    vault_moved = False
+    _dispose_database_engines()
+    try:
+        if staged_database is not None and database_path.exists():
+            shutil.copy2(database_path, rollback_database)
+        if staged_vault is not None:
+            if vault_path.exists():
+                os.replace(vault_path, rollback_vault)
+                vault_moved = True
+            os.replace(staged_vault, vault_path)
+            vault_replaced = True
+        if staged_database is not None:
+            os.replace(staged_database, database_path)
+            database_replaced = True
+    except Exception:
+        if database_replaced:
+            if rollback_database.exists():
+                os.replace(rollback_database, database_path)
+            else:
+                database_path.unlink(missing_ok=True)
+        if vault_replaced:
+            _remove_restore_path(vault_path)
+        if vault_moved and rollback_vault.exists():
+            os.replace(rollback_vault, vault_path)
+        _remove_restore_path(rollback_database)
+        _remove_restore_path(rollback_vault)
+        raise
+    else:
+        _remove_restore_path(rollback_database)
+        _remove_restore_path(rollback_vault)
+
+
+def _dispose_database_engines() -> None:
+    # SessionLocal can be rebound by an embedding host or test harness. Dispose every
+    # distinct engine that may still hold SQLite connections to the inode being replaced.
+    engines = [database_engine, SessionLocal.kw.get("bind")]
+    disposed: set[int] = set()
+    for bound_engine in engines:
+        if bound_engine is None or id(bound_engine) in disposed:
+            continue
+        bound_engine.dispose()
+        disposed.add(id(bound_engine))
+
+
+def _remove_restore_path(path: Path | None) -> None:
+    if path is None or not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
 
 def delete_backup(backup_id: str) -> dict[str, object]:
@@ -406,6 +512,7 @@ PORTABLE_TABLES = (
     "graph_nodes",
     "graph_edges",
     "attachment_extractions",
+    "model_invocations",
 )
 
 

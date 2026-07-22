@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
 
 # --- App ---
 
-app = FastAPI(title="BerryBrain API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="BerryBrain API", version="1.1.0", lifespan=lifespan)
 settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
@@ -232,7 +232,12 @@ def search(q: str, limit: int = 10):
     with SessionLocal() as session:
         query_vector = None
         try:
-            query_vector = generate_query_embedding(get_ai_config(session), q)
+            query_vector = generate_query_embedding(
+                get_ai_config(session),
+                q,
+                session=session,
+                prompt_version="hybrid-search-query.v1",
+            )
         except Exception:
             pass
         return {"results": hybrid_search(session, q, limit, query_vector)}
@@ -318,43 +323,11 @@ def list_metadata_endpoint(note_path: str | None = None, limit: int = 20):
 
 
 @app.post("/api/v1/system/reset", dependencies=[Depends(require_admin)])
-def reset_system(payload: ResetRequest):
-    import shutil
-    from pathlib import Path
-
-    from berrybrain_api.database import engine
-    from berrybrain_api.models import Base
-
-    cfg = get_settings()
-    if payload.confirm != "berrybrain-reset-all":
-        raise HTTPException(status_code=400, detail="Invalid reset confirmation")
-
-    md = Path("/app/data")
-    vault = cfg.vault_path
-
-    with SessionLocal() as s:
-        s.close()
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    if vault.exists():
-        shutil.rmtree(vault, ignore_errors=True)
-        vault.mkdir(parents=True, exist_ok=True)
-        for d in ["inbox", "estudos", "permanentes", "revisao", "anexos", "templates"]:
-            (vault / d).mkdir(parents=True, exist_ok=True)
-
-    if md.exists():
-        shutil.rmtree(md, ignore_errors=True)
-        md.mkdir(parents=True, exist_ok=True)
-        for d in ["backups", "generated", "jobs", "logs", "sqlite", "vector"]:
-            (md / d).mkdir(parents=True, exist_ok=True)
-
-    from berrybrain_api.database import init_database
-
-    init_database()
-
-    return {"status": "reset", "message": "Todos os dados foram apagados."}
+def reset_system(_payload: ResetRequest):
+    raise HTTPException(
+        status_code=410,
+        detail="This legacy reset route is disabled. Use Settings > Danger zone.",
+    )
 
 
 @app.get("/api/v1/system/audit")
@@ -399,7 +372,7 @@ def audit_system():
         by_type = Counter()
         by_reason = Counter()
         for job in failed_rows:
-            by_type[job.job_type] += 1
+            by_type[job.type] += 1
             error = job.error_message or "unknown"
             tag = error.split(":")[0].split("\n")[0][:80]
             by_reason[tag] += 1
@@ -466,7 +439,7 @@ def list_activity(limit: int = 50) -> dict:
                     {
                         "id": job.id,
                         "action": job.type,
-                        "description": f"{job.type} falhou",
+                        "description": f"{job.type} failed",
                         "technicalDescription": job.type,
                         "when": serialize_datetime(job.created_at),
                         "type": "failed",

@@ -4,6 +4,7 @@ import json
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -13,6 +14,10 @@ from sqlalchemy.orm import Session
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.models import JobRecord, NoteRecord
 from berrybrain_api.redaction import redact_text
+from berrybrain_api.worker_inbox import (
+    consume_worker_message,
+    worker_message_processed,
+)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -20,6 +25,8 @@ COMPLETED = "completed"
 FAILED = "failed"
 DEAD_LETTER = "dead_letter"
 SUPERSEDED = "superseded"
+CANCEL_REQUESTED = "cancel_requested"
+CANCELLED = "cancelled"
 PARSE_NOTE = "PARSE_NOTE"
 CLASSIFY_NOTE = "CLASSIFY_NOTE"
 ASSIMILATE_NOTE = "ASSIMILATE_NOTE"
@@ -228,6 +235,7 @@ def create_job(
     job_type: str,
     payload: dict[str, Any],
     max_attempts: int = 3,
+    autocommit: bool = True,
 ) -> JobRecord:
     note_path = str(payload.get("note_path") or "")
     note_id = int(payload.get("note_id") or 0)
@@ -266,8 +274,11 @@ def create_job(
         max_attempts=max_attempts,
     )
     session.add(job)
-    session.commit()
-    session.refresh(job)
+    if autocommit:
+        session.commit()
+        session.refresh(job)
+    else:
+        session.flush()
     return job
 
 
@@ -452,6 +463,7 @@ def claim_next_job(
                 started_at=now,
                 lease_expires_at=lease_expires_at,
                 claimed_by=claimed_by[:120],
+                claim_token=uuid4().hex,
             )
         ),
     )
@@ -467,7 +479,7 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
     cutoff = utc_now() - timedelta(minutes=stale_after_minutes)
     stale_count = 0
     running_jobs = session.execute(
-        select(JobRecord).where(JobRecord.status == RUNNING)
+        select(JobRecord).where(JobRecord.status.in_([RUNNING, CANCEL_REQUESTED]))
     ).scalars()
 
     for job in running_jobs:
@@ -480,7 +492,11 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
             and normalize_utc(job.started_at) <= cutoff
         )
         if lease_expired or legacy_started_expired:
-            if job.attempts >= job.max_attempts:
+            if job.status == CANCEL_REQUESTED:
+                job.status = CANCELLED
+                job.completed_at = utc_now()
+                job.error_message = None
+            elif job.attempts >= job.max_attempts:
                 job.status = DEAD_LETTER
                 job.completed_at = utc_now()
                 job.error_message = "Stale running job exhausted attempts"
@@ -490,6 +506,7 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
             job.started_at = None
             job.lease_expires_at = None
             job.claimed_by = ""
+            job.claim_token = ""
             stale_count += 1
             create_automation_log(
                 session,
@@ -553,9 +570,13 @@ def _job_dependencies_satisfied(session: Session, job: JobRecord) -> bool:
 
 
 def renew_job_lease(
-    session: Session, job_id: int, lease_minutes: int = 30
+    session: Session,
+    job_id: int,
+    lease_minutes: int = 30,
+    claim_token: str = "",
 ) -> JobRecord:
     job = get_job_or_404(session, job_id)
+    _validate_claim_token(job, claim_token)
     if job.status != RUNNING:
         raise HTTPException(status_code=409, detail="Job is not running")
     job.lease_expires_at = utc_now() + timedelta(minutes=lease_minutes)
@@ -564,11 +585,89 @@ def renew_job_lease(
     return job
 
 
-def complete_job(session: Session, job_id: int) -> JobRecord:
+def request_job_cancellation(session: Session, job_id: int) -> JobRecord:
     job = get_job_or_404(session, job_id)
+    if job.status in {CANCEL_REQUESTED, CANCELLED}:
+        return job
+    if job.status not in {PENDING, RUNNING}:
+        raise HTTPException(status_code=409, detail="Job can no longer be cancelled")
+
+    previous_status = job.status
+    job.status = CANCELLED if previous_status == PENDING else CANCEL_REQUESTED
+    job.error_message = None
+    if job.status == CANCELLED:
+        job.completed_at = utc_now()
+        job.claimed_by = ""
+        job.claim_token = ""
+        job.lease_expires_at = None
+    create_automation_log(
+        session,
+        action_type="CANCEL_JOB",
+        target_type="job",
+        target_id=str(job.id),
+        description=f"Cancellation requested for job {job.type}",
+        before_state={"status": previous_status},
+        after_state={"status": job.status},
+        reversible=False,
+        autocommit=False,
+    )
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def acknowledge_job_cancellation(
+    session: Session, job_id: int, claim_token: str = ""
+) -> JobRecord:
+    job = get_job_or_404(session, job_id)
+    if job.status == CANCELLED:
+        return job
+    if job.status != CANCEL_REQUESTED:
+        raise HTTPException(
+            status_code=409, detail="Job cancellation was not requested"
+        )
+    if worker_message_processed(session, job, "cancelled", claim_token):
+        return job
+    _validate_claim_token(job, claim_token)
+    if not consume_worker_message(session, job, "cancelled", claim_token):
+        return job
+    job.status = CANCELLED
+    job.error_message = None
+    job.claimed_by = ""
+    job.claim_token = ""
+    job.lease_expires_at = None
+    job.completed_at = utc_now()
+    create_automation_log(
+        session,
+        action_type="JOB_CANCELLED",
+        target_type="job",
+        target_id=str(job.id),
+        description=f"Cancelled job {job.type}",
+        before_state={"status": CANCEL_REQUESTED},
+        after_state={"status": CANCELLED},
+        reversible=False,
+        autocommit=False,
+    )
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def complete_job(session: Session, job_id: int, claim_token: str = "") -> JobRecord:
+    job = get_job_or_404(session, job_id)
+    if job.status == CANCEL_REQUESTED:
+        raise HTTPException(status_code=409, detail="Job cancellation requested")
+    if job.status == CANCELLED:
+        return job
+    if worker_message_processed(session, job, "complete", claim_token):
+        return job
+    _validate_claim_token(job, claim_token)
+    if not consume_worker_message(session, job, "complete", claim_token):
+        return job
     job.status = COMPLETED
     job.error_message = None
     job.claimed_by = ""
+    job.claim_token = ""
     job.lease_expires_at = None
     job.completed_at = utc_now()
     session.commit()
@@ -576,19 +675,33 @@ def complete_job(session: Session, job_id: int) -> JobRecord:
     return job
 
 
-def fail_job(session: Session, job_id: int, error_message: str) -> JobRecord:
+def fail_job(
+    session: Session,
+    job_id: int,
+    error_message: str,
+    claim_token: str = "",
+) -> JobRecord:
     job = get_job_or_404(session, job_id)
+    if job.status in {CANCEL_REQUESTED, CANCELLED}:
+        return acknowledge_job_cancellation(session, job_id, claim_token)
+    if worker_message_processed(session, job, "fail", claim_token):
+        return job
+    _validate_claim_token(job, claim_token)
+    if not consume_worker_message(session, job, "fail", claim_token):
+        return job
     job.error_message = redact_text(error_message)[:4000]
     job.completed_at = utc_now()
 
     if job.attempts >= job.max_attempts:
         job.status = DEAD_LETTER
         job.claimed_by = ""
+        job.claim_token = ""
         job.lease_expires_at = None
     else:
         job.status = PENDING
         job.started_at = None
         job.claimed_by = ""
+        job.claim_token = ""
         job.lease_expires_at = None
 
     session.commit()
@@ -608,6 +721,7 @@ def retry_job(session: Session, job_id: int) -> JobRecord:
     job.started_at = None
     job.completed_at = None
     job.claimed_by = ""
+    job.claim_token = ""
     job.lease_expires_at = None
     create_automation_log(
         session,
@@ -657,6 +771,7 @@ def serialize_job(job: JobRecord) -> dict[str, Any]:
         "max_attempts": job.max_attempts,
         "error_message": job.error_message,
         "claimed_by": job.claimed_by,
+        "claim_token": job.claim_token,
         "created_at": serialize_datetime(job.created_at),
         "started_at": serialize_datetime(job.started_at),
         "lease_expires_at": serialize_datetime(job.lease_expires_at),
@@ -669,6 +784,11 @@ def get_job_or_404(session: Session, job_id: int) -> JobRecord:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+def _validate_claim_token(job: JobRecord, claim_token: str) -> None:
+    if claim_token and claim_token != job.claim_token:
+        raise HTTPException(status_code=409, detail="Job claim token is stale")
 
 
 def compact_json(value: object) -> str:

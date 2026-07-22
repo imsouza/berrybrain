@@ -20,14 +20,15 @@ from berrybrain_api.models import (
 
 class SecondBrainPhase1Test(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine(
+        self.engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False}
         )
-        Base.metadata.create_all(bind=engine)
-        self.session = sessionmaker(bind=engine)()
+        Base.metadata.create_all(bind=self.engine)
+        self.session = sessionmaker(bind=self.engine)()
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
 
     def test_expand_knowledge_graph_persists_explainable_nodes_and_edges(self) -> None:
         source = NoteRecord(
@@ -231,7 +232,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
         original_generate = second_brain.generate_graph_answer
         original_config = second_brain.get_ai_config
 
-        async def fake_generate(config, prompt, system):
+        async def fake_generate(config, prompt, system, **kwargs):
             return {
                 "connections": [
                     {
@@ -332,7 +333,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
         called = {}
 
-        async def fake_generate(config, prompt, system, timeout=90):
+        async def fake_generate(config, prompt, system, timeout=90, **kwargs):
             called["prompt"] = prompt
             return {
                 "status": "answered",
