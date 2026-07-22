@@ -762,7 +762,7 @@ Expose only the web entrypoint; keep the API internal.`,
 
 Current local verification evidence from 22 July 2026:
 
-- **API**: 276 tests plus 51 subtests pass; branch coverage is 81% and the critical-module gate passes.
+- **API**: 278 tests plus 55 subtests pass; branch coverage is 81% and the critical-module gate passes.
 - **Worker**: 37 tests pass, including disposable-database integration and cancellation paths.
 - **Browser**: 26 production Playwright checks pass, covering auth, onboarding, notes, graph inference, Monitor, accessibility, mobile layout, and performance.
 - **Cognitive gate**: retrieval, grounding, provenance, insight quality, diagnostic isolation, stale cleanup, idempotency, and graph projection pass.

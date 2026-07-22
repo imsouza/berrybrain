@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -13,6 +14,7 @@ from berrybrain_api.vault import (
     create_note,
     extract_internal_links,
     parse_markdown_note,
+    resolve_note_path,
 )
 
 
@@ -126,6 +128,32 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
             self.assertEqual(second["path"], "inbox/rascunho-2.md")
             self.assertTrue((vault_path / "inbox" / "rascunho.md").exists())
             self.assertTrue((vault_path / "inbox" / "rascunho-2.md").exists())
+
+    def test_resolve_note_path_rejects_paths_outside_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault_path = Path(temp_dir) / "vault"
+
+            for unsafe_path in (
+                "../outside.md",
+                "inbox/../../outside.md",
+                "/tmp/outside.md",
+                "inbox\\outside.md",
+            ):
+                with self.subTest(path=unsafe_path), self.assertRaises(HTTPException):
+                    resolve_note_path(vault_path, unsafe_path)
+
+    def test_resolve_note_path_rejects_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            vault_path = root / "vault"
+            inbox = vault_path / "inbox"
+            inbox.mkdir(parents=True)
+            outside = root / "outside.md"
+            outside.write_text("outside", encoding="utf-8")
+            (inbox / "linked.md").symlink_to(outside)
+
+            with self.assertRaises(HTTPException):
+                resolve_note_path(vault_path, "inbox/linked.md")
 
 
 if __name__ == "__main__":

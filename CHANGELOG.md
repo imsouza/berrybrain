@@ -35,7 +35,7 @@ All notable BerryBrain changes are documented here.
 
 ### Verification
 
-- 276 API tests plus 51 subtests.
+- 278 API tests plus 55 subtests.
 - 37 Worker tests.
 - 26 production-browser tests.
 - 81% branch coverage with a critical-module coverage gate.
