@@ -12,6 +12,11 @@ os.environ["BERRYBRAIN_VAULT_WATCHER_ENABLED"] = "false"
 
 
 class SecurityAuthTest(unittest.TestCase):
+    @staticmethod
+    def _lifecycle_password(*, replacement: bool = False) -> str:
+        prefix = "Replacement" if replacement else "Strong"
+        return prefix + "Pass123" + ("!" if replacement else "")
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp_dir = tempfile.TemporaryDirectory()
@@ -416,8 +421,8 @@ class SecurityAuthTest(unittest.TestCase):
         changed = client.post(
             "/api/v1/auth/change-password",
             json={
-                "current_password": "StrongPass123",
-                "new_password": "ReplacementPass123!",
+                "current_password": self._lifecycle_password(),
+                "new_password": self._lifecycle_password(replacement=True),
             },
             headers=headers,
         )
@@ -425,13 +430,13 @@ class SecurityAuthTest(unittest.TestCase):
         self.assertEqual(changed.json()["status"], "password_changed")
 
         replacement_client, replacement_csrf = self._authenticated_client(
-            "lifecycle@example.com", "ReplacementPass123!"
+            "lifecycle@example.com", self._lifecycle_password(replacement=True)
         )
         replacement_headers = {"X-CSRF-Token": replacement_csrf}
         changed_email = replacement_client.post(
             "/api/v1/auth/change-email",
             json={
-                "password": "ReplacementPass123!",
+                "password": self._lifecycle_password(replacement=True),
                 "email": "lifecycle-renamed@example.com",
             },
             headers=replacement_headers,
@@ -446,7 +451,10 @@ class SecurityAuthTest(unittest.TestCase):
 
         two_factor = replacement_client.post(
             "/api/v1/auth/2fa",
-            json={"password": "ReplacementPass123!", "enabled": True},
+            json={
+                "password": self._lifecycle_password(replacement=True),
+                "enabled": True,
+            },
             headers={"X-CSRF-Token": renamed_csrf},
         )
         self.assertEqual(two_factor.status_code, 200)

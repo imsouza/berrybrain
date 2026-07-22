@@ -619,7 +619,7 @@ because features exist.
 
 Current local release evidence (22 July 2026):
 
-- API: 276 tests pass, plus 51 subtests.
+- API: 278 tests pass, plus 55 subtests.
 - Worker: 37 tests pass.
 - Browser: 26 production Playwright tests pass.
 - Branch coverage: 81%; critical-module coverage gate passes.
