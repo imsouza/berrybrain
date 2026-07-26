@@ -16,7 +16,6 @@ from berrybrain_api.models import (
     NoteRecord,
 )
 
-
 ASSIMILATION_JOB_TYPES = {
     "ASSIMILATE_NOTE",
     "EXTRACT_CONCEPTS",

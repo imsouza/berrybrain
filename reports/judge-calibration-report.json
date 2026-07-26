@@ -1,0 +1,28 @@
+{
+  "calibrated": true,
+  "comparable": 30,
+  "disagreed": 1,
+  "false_acceptance_rate": 0.0,
+  "false_rejection_rate": 0.0,
+  "gates": {
+    "fa_max": 0.05,
+    "fr_max": 0.1,
+    "min_evals": 100,
+    "min_reviews": 30,
+    "weighted_kappa_min": 0.7
+  },
+  "human_review_jsonl_fields": [
+    "committee_id",
+    "artifact_type",
+    "artifact_id",
+    "reviewer",
+    "verdict",
+    "score",
+    "notes"
+  ],
+  "matched": 29,
+  "status": "calibrated",
+  "total_evaluations": 100,
+  "total_human_reviews": 30,
+  "weighted_kappa": 0.9801
+}

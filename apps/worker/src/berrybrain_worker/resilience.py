@@ -23,13 +23,13 @@ def retry_delay_seconds(retry: int) -> float:
 
 def is_permanent_job_error(exc: Exception) -> bool:
     if isinstance(
-        exc, (asyncio.TimeoutError, httpx.TimeoutException, httpx.ConnectError)
+        exc, asyncio.TimeoutError | httpx.TimeoutException | httpx.ConnectError
     ):
         return False
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return status < 500 and status not in {408, 409, 425, 429}
-    if isinstance(exc, (CloudError, OllamaError)):
+    if isinstance(exc, CloudError | OllamaError):
         return False
     return isinstance(exc, ValueError)
 
@@ -57,6 +57,7 @@ def humanize_job_type(job_type: str) -> str:
         "ENRICH_GRAPH_NODE": "AI node enrichment",
         "VALIDATE_GRAPH_NODE_WITH_WEB": "web validation",
         "REASON_GRAPH_CONNECTION": "connection reasoning",
+        "JUDGE_ARTIFACT": "artifact quality evaluation",
     }
     return labels.get(job_type, job_type.replace("_", " ").lower())
 
@@ -66,7 +67,7 @@ def format_job_failure(job_type: str, exc: Exception, permanent: bool = False) -
     detail = str(exc).strip()
     lowered = detail.lower()
 
-    if isinstance(exc, (asyncio.TimeoutError, httpx.TimeoutException)):
+    if isinstance(exc, asyncio.TimeoutError | httpx.TimeoutException):
         return (
             f"{step.capitalize()} timed out. Check the selected AI provider, then retry "
             "the job from Monitor."
@@ -82,7 +83,7 @@ def format_job_failure(job_type: str, exc: Exception, permanent: bool = False) -
             f"{step.capitalize()} failed because a service returned HTTP {status}. "
             "Check provider or API availability, then retry from Monitor."
         )
-    if isinstance(exc, (CloudError, OllamaError)):
+    if isinstance(exc, CloudError | OllamaError):
         if "invalid json" in lowered or "json response is not an object" in lowered:
             return (
                 f"{step.capitalize()} received an invalid AI response. Retry with the "

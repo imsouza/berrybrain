@@ -1,9 +1,9 @@
 import unittest
 
+import berrybrain_worker.main as worker_main
 from berrybrain_worker.cloud_gateway import CloudError
 from berrybrain_worker.config import WorkerSettings
 from berrybrain_worker.ollama_gateway import OllamaError
-import berrybrain_worker.main as worker_main
 
 
 class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):

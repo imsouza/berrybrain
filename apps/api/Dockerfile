@@ -3,6 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
+ARG BERRYBRAIN_PREFETCH_WHISPER_MODEL=false
 
 WORKDIR /build
 RUN apt-get update \
@@ -10,7 +11,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY apps/api ./apps/api
 RUN pip install --no-cache-dir ./apps/api
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', revision='0d3d19a32d3338f10357c0889762bd8d64bbdeba', local_dir='/opt/berrybrain/models/faster-whisper-tiny.en')"
+RUN if [ "$BERRYBRAIN_PREFETCH_WHISPER_MODEL" = "true" ]; then \
+      python -c "from huggingface_hub import snapshot_download; snapshot_download('Systran/faster-whisper-tiny.en', revision='0d3d19a32d3338f10357c0889762bd8d64bbdeba', local_dir='/opt/berrybrain/models/faster-whisper-tiny.en')"; \
+    else \
+      mkdir -p /opt/berrybrain/models; \
+    fi
 
 WORKDIR /app
 COPY scripts/validate-env.sh scripts/prepare-runtime-dirs.sh ./scripts/

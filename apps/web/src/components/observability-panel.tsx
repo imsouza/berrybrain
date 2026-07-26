@@ -19,45 +19,6 @@ type WorkerInfo = {
   ollama_healthy: boolean;
 } | null;
 
-type MaturityReport = {
-  status: "mature" | "measuring";
-  eligibleFor100Percent: boolean;
-  structuralReady: boolean;
-  metrics: {
-    nodeProvenanceCoverage: number;
-    edgeProvenanceCoverage: number;
-    insightGroundingCoverage: number;
-    inferenceGroundingCoverage: number;
-    diagnosticLeakageRate: number;
-    unresolvedArtifactCount: number;
-    archivedStaleArtifactCount: number;
-  };
-  insightOutcomes: {
-    observationDays: number;
-    windowDays: number;
-    reviewed: number;
-    minimumReviewed: number;
-    usefulnessRate: number;
-  };
-  blockers: string[];
-};
-
-type JobHealth = {
-  status: string;
-  slo: {
-    status: "healthy" | "at_risk" | "breached";
-    oldestPendingAgeSeconds: number;
-    staleRunningCount: number;
-    deadLetterCount: number;
-    violations: Array<{
-      code: string;
-      severity: "warning" | "critical";
-      message: string;
-      count: number;
-    }>;
-  };
-};
-
 type Props = {
   open: boolean;
   apiUrl: string;
@@ -66,14 +27,20 @@ type Props = {
 
 type Tab = "jobs" | "health" | "logs" | "stats";
 
+type JudgeStatus = {
+  mode: string;
+  status: "deterministic" | "shadow" | "enforcing" | "committee" | "NOT_CALIBRATED";
+};
+
 export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("jobs");
   const [jobs, setJobs] = useState<any[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [worker, setWorker] = useState<WorkerInfo>(null);
   const [stats, setStats] = useState<any>(null);
-  const [maturity, setMaturity] = useState<MaturityReport | null>(null);
-  const [jobHealth, setJobHealth] = useState<JobHealth | null>(null);
+  const [jobHealth, setJobHealth] = useState<any>(null);
+  const [maturity, setMaturity] = useState<any>(null);
+  const [judgeStatus, setJudgeStatus] = useState<JudgeStatus | null>(null);
   const [filter, setFilter] = useState("");
   const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
@@ -86,32 +53,39 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
       setLogs([]);
       setWorker(null);
       setStats(null);
-      setMaturity(null);
       setJobHealth(null);
+      setMaturity(null);
+      setJudgeStatus(null);
       return;
     }
     async function load() {
       try {
-        const [jRes, lRes, wRes, sRes, mRes, hRes] = await Promise.all([
+        const [jRes, lRes, wRes, sRes, hRes, mRes, jm] = await Promise.all([
           fetch(`${apiUrl}/api/v1/jobs?limit=50`),
           fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
           fetch(`${apiUrl}/api/v1/worker/status`),
           fetch(`${apiUrl}/api/v1/monitor/stats`),
-          fetch(`${apiUrl}/api/v1/cognitive/maturity`),
           fetch(`${apiUrl}/api/v1/jobs/health`),
+          fetch(`${apiUrl}/api/v1/cognitive/maturity`),
+          fetch(`${apiUrl}/api/v1/judge/scorecard`),
         ]);
         const j = await jRes.json();
         const l = await lRes.json();
         const w = await wRes.json();
         const s = await sRes.json();
-        const m = mRes.ok ? await mRes.json() : null;
-        const h = hRes.ok ? await hRes.json() : null;
+        const h = await hRes.json().catch(() => null);
+        const m = await mRes.json().catch(() => null);
+        const jmData = await jm.json().catch(() => ({}));
         setJobs(j.jobs || []);
         setLogs(l.logs || []);
         setWorker(w.worker);
         setStats(s);
-        setMaturity(m);
         setJobHealth(h);
+        setMaturity(m);
+        setJudgeStatus({
+          mode: jmData.mode || "deterministic",
+          status: jmData.calibrated ? jmData.mode : "NOT_CALIBRATED",
+        });
       } catch {}
     }
     load();
@@ -121,26 +95,26 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
   const isFailedJob = (job: any) => job.status === "failed" || job.status === "dead_letter";
   const loadData = async () => {
-    const [jRes, lRes, wRes, sRes, mRes, hRes] = await Promise.all([
+    const [jRes, lRes, wRes, sRes, hRes, mRes] = await Promise.all([
       fetch(`${apiUrl}/api/v1/jobs?limit=50`),
       fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
       fetch(`${apiUrl}/api/v1/worker/status`),
       fetch(`${apiUrl}/api/v1/monitor/stats`),
-      fetch(`${apiUrl}/api/v1/cognitive/maturity`),
       fetch(`${apiUrl}/api/v1/jobs/health`),
+      fetch(`${apiUrl}/api/v1/cognitive/maturity`),
     ]);
     const j = await jRes.json();
     const l = await lRes.json();
     const w = await wRes.json();
     const s = await sRes.json();
-    const m = mRes.ok ? await mRes.json() : null;
-    const h = hRes.ok ? await hRes.json() : null;
+    const h = await hRes.json().catch(() => null);
+    const m = await mRes.json().catch(() => null);
     setJobs(j.jobs || []);
     setLogs(l.logs || []);
     setWorker(w.worker);
     setStats(s);
-    setMaturity(m);
     setJobHealth(h);
+    setMaturity(m);
   };
 
   async function retryJob(jobId: number) {
@@ -165,11 +139,11 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
     try {
       const response = await fetch(`${apiUrl}/api/v1/jobs/${jobId}/cancel`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.detail || "Cancellation failed.");
+      if (!response.ok) throw new Error(payload.detail || "Cancel failed.");
       await loadData();
       setJobActionStatus(`Cancellation requested for job #${jobId}.`);
     } catch (error) {
-      setJobActionStatus(error instanceof Error ? error.message : "Cancellation failed.");
+      setJobActionStatus(error instanceof Error ? error.message : "Cancel failed.");
     } finally {
       setCancellingJobId(null);
     }
@@ -189,6 +163,16 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
     completed: jobs.filter((j) => j.status === "completed").length,
     failed: jobs.filter(isFailedJob).length,
   };
+  const queueSloLabel =
+    jobHealth?.slo?.status === "healthy"
+      ? "Within target"
+      : jobHealth?.slo?.status === "at_risk"
+        ? "Approaching limit"
+        : "Action required";
+  const maturityLabel =
+    maturity?.status === "mature" || maturity?.overall?.status === "mature"
+      ? "Mature"
+      : "Measuring real outcomes";
 
   if (!open) return null;
 
@@ -276,7 +260,6 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                     const dot =
                       job.status === "completed" ? "bg-emerald-400" :
                       isFailedJob(job) ? "bg-red-400" :
-                      job.status === "cancel_requested" ? "bg-amber-400" :
                       job.status === "running" ? "bg-blue-400" : "bg-zinc-300";
                     return (
                       <div key={job.id} className="group rounded-xl bg-black/[0.02] px-4 py-3 transition hover:bg-black/[0.04]">
@@ -300,13 +283,13 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                               {retryingJobId === job.id ? "Retrying..." : "Retry"}
                             </button>
                           )}
-                          {(job.status === "pending" || job.status === "running" || job.status === "cancel_requested") && (
+                          {["pending", "running"].includes(job.status) && (
                             <button
                               className="bb-action shrink-0 px-2.5 py-1 text-[11px] font-medium"
-                              disabled={cancellingJobId === job.id || job.status === "cancel_requested"}
+                              disabled={cancellingJobId === job.id}
                               onClick={() => cancelJob(job.id)}
                             >
-                              {job.status === "cancel_requested" || cancellingJobId === job.id ? "Cancelling..." : "Cancel"}
+                              {cancellingJobId === job.id ? "Cancelling..." : "Cancel"}
                             </button>
                           )}
                         </div>
@@ -330,6 +313,51 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
           {tab === "health" && (
             <div className="space-y-4 pt-2">
+              <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="text-xs font-medium text-muted">Queue SLO</div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className={`inline-block size-2 rounded-full ${
+                    jobHealth?.slo?.status === "healthy"
+                      ? "bg-emerald-400"
+                      : jobHealth?.slo?.status === "at_risk"
+                        ? "bg-amber-400"
+                        : "bg-red-400"
+                  }`} />
+                  <span className="text-sm font-medium">{queueSloLabel}</span>
+                </div>
+                <div className="mt-2 text-[10px] text-muted">
+                  Pending {jobHealth?.slo?.pending ?? counts.pending} · Running {jobHealth?.slo?.running ?? counts.running} · Stale {jobHealth?.slo?.staleRunning ?? 0}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="text-xs font-medium text-muted">Cognitive maturity</div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className={`inline-block size-2 rounded-full ${maturityLabel === "Mature" ? "bg-emerald-400" : "bg-blue-400"}`} />
+                  <span className="text-sm font-medium">{maturityLabel}</span>
+                </div>
+                <div className="mt-2 text-[10px] text-muted">
+                  Evidence-based maturity report from notes, graph, insights, and provenance.
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="text-xs font-medium text-muted">Model reliability</div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className={`inline-block size-2 rounded-full ${
+                    (stats?.model_invocations?.failed ?? 0) > 0 ? "bg-amber-400" : "bg-emerald-400"
+                  }`} />
+                  <span className="text-sm font-medium">
+                    {stats?.model_invocations?.success_rate == null
+                      ? "No model calls yet"
+                      : `${Math.round(stats.model_invocations.success_rate * 100)}% success`}
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] text-muted">
+                  {stats?.model_invocations?.total ?? 0} calls · {stats?.model_invocations?.failed ?? 0} failed · {stats?.model_invocations?.cancelled ?? 0} cancelled
+                </div>
+              </div>
+
               <div className="rounded-2xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Worker</div>
                 {worker ? (
@@ -359,6 +387,23 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               </div>
 
+              {judgeStatus && (
+                <div className="rounded-2xl bg-black/[0.02] p-5">
+                  <div className="text-xs font-medium text-muted">Judge</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className={`inline-block size-2 rounded-full ${
+                      judgeStatus.status === "NOT_CALIBRATED" ? "bg-amber-400" : "bg-emerald-400"
+                    }`} />
+                    <span className="text-sm font-medium">
+                      Judge: {judgeStatus.status === "NOT_CALIBRATED" ? "deterministic (not calibrated)" : judgeStatus.status}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[10px] text-muted">
+                    Mode: {judgeStatus.mode} · Calibrated: {judgeStatus.status !== "NOT_CALIBRATED" ? "Yes" : "No"}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl bg-black/[0.02] p-5">
                 <div className="mb-3 text-xs font-medium text-muted">Summary</div>
                 <div className="grid grid-cols-4 gap-4">
@@ -375,115 +420,6 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                   ))}
                 </div>
               </div>
-
-              {jobHealth?.slo && (
-                <div className="rounded-2xl bg-black/[0.02] p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs font-medium text-muted">Queue SLO</div>
-                      <div className="mt-2 text-sm font-semibold">
-                        {jobHealth.slo.status === "healthy"
-                          ? "Within target"
-                          : jobHealth.slo.status === "at_risk"
-                            ? "Approaching limit"
-                            : "Action required"}
-                      </div>
-                    </div>
-                    <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
-                      jobHealth.slo.status === "healthy"
-                        ? "bg-emerald-500/10 text-emerald-700"
-                        : jobHealth.slo.status === "at_risk"
-                          ? "bg-amber-500/10 text-amber-700"
-                          : "bg-red-500/10 text-red-700"
-                    }`}>
-                      {jobHealth.slo.status.replace("_", " ")}
-                    </span>
-                  </div>
-                  <div className="mt-3 text-[11px] text-muted">
-                    Oldest pending: {Math.round(jobHealth.slo.oldestPendingAgeSeconds / 60)} min · Stale active: {jobHealth.slo.staleRunningCount} · Dead letter: {jobHealth.slo.deadLetterCount}
-                  </div>
-                  {jobHealth.slo.violations.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {jobHealth.slo.violations.map((violation) => (
-                        <div key={violation.code} className="rounded-lg bg-black/[0.03] px-3 py-2 text-[11px] text-foreground">
-                          {violation.message} ({violation.count})
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {maturity && (
-                <div className="rounded-2xl bg-black/[0.02] p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs font-medium text-muted">Cognitive maturity</div>
-                      <div className="mt-2 text-sm font-semibold">
-                        {maturity.eligibleFor100Percent ? "Mature" : "Measuring real outcomes"}
-                      </div>
-                    </div>
-                    <span className={`rounded-md px-2 py-1 text-[10px] font-semibold ${maturity.structuralReady ? "bg-emerald-500/10 text-emerald-700" : "bg-amber-500/10 text-amber-700"}`}>
-                      {maturity.structuralReady ? "Structure ready" : "Structure incomplete"}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] text-muted sm:grid-cols-4">
-                    <MaturityMetric label="Node provenance" value={maturity.metrics.nodeProvenanceCoverage} />
-                    <MaturityMetric label="Edge provenance" value={maturity.metrics.edgeProvenanceCoverage} />
-                    <MaturityMetric label="Insight grounding" value={maturity.metrics.insightGroundingCoverage} />
-                    <MaturityMetric label="Inference grounding" value={maturity.metrics.inferenceGroundingCoverage} />
-                  </div>
-                  <div className="mt-4 text-[11px] text-muted">
-                    Outcomes: {maturity.insightOutcomes.reviewed}/{maturity.insightOutcomes.minimumReviewed} reviewed · {maturity.insightOutcomes.observationDays}/{maturity.insightOutcomes.windowDays} days · {Math.round(maturity.insightOutcomes.usefulnessRate * 100)}% useful
-                  </div>
-                  {maturity.blockers.length > 0 && (
-                    <ul className="mt-3 space-y-1 text-[11px] text-muted">
-                      {maturity.blockers.slice(0, 4).map((blocker) => <li key={blocker}>• {blocker}</li>)}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {stats?.model_invocations && (
-                <div className="rounded-2xl bg-black/[0.02] p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs font-medium text-muted">Model reliability</div>
-                      <div className="mt-2 text-sm font-semibold">
-                        {stats.model_invocations.success_rate == null
-                          ? "No measured calls yet"
-                          : `${Math.round(stats.model_invocations.success_rate * 100)}% successful`}
-                      </div>
-                    </div>
-                    <span className="text-[11px] tabular-nums text-muted">
-                      {stats.model_invocations.average_latency_ms == null
-                        ? "No latency data"
-                        : `${stats.model_invocations.average_latency_ms} ms average`}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <StatBlock label="Completed" value={stats.model_invocations.completed} />
-                    <StatBlock label="Failed" value={stats.model_invocations.failed} />
-                    <StatBlock label="Cancelled" value={stats.model_invocations.cancelled} />
-                  </div>
-                  {stats.model_invocations.recent_failures?.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <div className="text-[11px] text-muted">Recent provider failures</div>
-                      {stats.model_invocations.recent_failures.slice(0, 3).map((failure: any, index: number) => (
-                        <div key={`${failure.when}-${index}`} className="rounded-lg bg-black/[0.03] px-3 py-2 text-[11px]">
-                          <div className="font-medium">{failure.capability} · {failure.provider}</div>
-                          <div className="mt-1 text-muted">{failure.error_message || failure.error_class}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {stats.model_invocations.circuits?.some((circuit: any) => circuit.status === "open") && (
-                    <div className="mt-4 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800">
-                      Provider circuit open. Automatic calls resume after the cooldown.
-                    </div>
-                  )}
-                </div>
-              )}
 
               {stats?.running_jobs && stats.running_jobs.length > 0 && (
                 <div className="rounded-2xl bg-black/[0.02] p-5">
@@ -536,6 +472,14 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
           {tab === "stats" && stats && (
             <div className="space-y-4 pt-2">
+              <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium text-muted">Install Mode</div>
+                  <div className="text-[10px] text-muted">
+                    {stats?.vault_graph_pipeline?.vault?.exists ? "Active vault" : "No vault"} · SQLite KB
+                  </div>
+                </div>
+              </div>
               <div className="rounded-2xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Vault</div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -604,15 +548,6 @@ function StatBlock({ label, value }: { label: string; value: number }) {
     <div className="rounded-xl bg-black/[0.03] px-3 py-2 text-center">
       <div className="text-lg font-semibold tabular-nums">{value}</div>
       <div className="text-[10px] text-muted/60">{label}</div>
-    </div>
-  );
-}
-
-function MaturityMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg bg-black/[0.03] px-2.5 py-2">
-      <div className="font-semibold tabular-nums text-foreground">{Math.round(value * 100)}%</div>
-      <div className="mt-0.5">{label}</div>
     </div>
   );
 }

@@ -126,8 +126,8 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
   { apiUrl, user, onClose, onChanged },
   ref,
 ) {
-  const [displayName, setDisplayName] = useState(user.displayName);
-  const [email, setEmail] = useState(user.email);
+  const [displayName, setDisplayName] = useState(user.displayName || "");
+  const [email, setEmail] = useState(user.email || "");
   const [emailPassword, setEmailPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -136,8 +136,8 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   useEffect(() => {
-    setDisplayName(user.displayName);
-    setEmail(user.email);
+    setDisplayName(user.displayName || "");
+    setEmail(user.email || "");
   }, [user]);
 
   const call = useCallback(
@@ -182,7 +182,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold">Account settings</h2>
-          <p className="mt-1 text-[11px] text-muted">{user.email}</p>
+          <p className="mt-1 text-[11px] text-muted">{user.email || "Local owner"}</p>
         </div>
         <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-xs text-muted hover:text-foreground">
           Close

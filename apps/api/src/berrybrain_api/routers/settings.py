@@ -4,14 +4,45 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from berrybrain_api.config import get_settings as get_app_settings
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.models import (
+    AIGatewayInvocationRecord,
+    ArtifactEvaluationRecord,
+    AttachmentExtractionRecord,
+    AutomationLogRecord,
+    ChunkRecord,
+    ConceptRecord,
+    ConnectionRecord,
+    EmbeddingRecord,
+    GeneratedMetadataRecord,
+    GraphEdgeRecord,
+    GraphInferenceRecord,
+    GraphNodeRecord,
+    HumanReviewRecord,
+    InsightRecord,
+    JobRecord,
+    JudgeVerdictRecord,
+    MetricRecord,
+    ModelInvocationRecord,
+    NoteAttachmentRecord,
+    NoteRecord,
+    NotificationRecord,
+    ReviewItemRecord,
+    SettingRecord,
+    TagRecord,
+    WorkerInboxRecord,
+    WorkerStatus,
+)
 from berrybrain_api.security import (
     assert_csrf,
     get_session_user,
@@ -19,33 +50,14 @@ from berrybrain_api.security import (
     require_session_user,
     verify_service_token,
 )
-from berrybrain_api.models import (
-    AutomationLogRecord,
-    ConceptRecord,
-    ConnectionRecord,
-    EmbeddingRecord,
-    GeneratedMetadataRecord,
-    GraphEdgeRecord,
-    GraphNodeRecord,
-    ModelInvocationRecord,
-    InsightRecord,
-    JobRecord,
-    NoteRecord,
-    NoteAttachmentRecord,
-    NotificationRecord,
-    SettingRecord,
-    TagRecord,
-    WorkerStatus,
-)
 from berrybrain_api.settings_store import (
     decode_setting_value,
     encode_setting_value,
     get_setting,
     list_settings,
-    set_setting,
     serialize_setting,
+    set_setting,
 )
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
@@ -88,16 +100,24 @@ def _provider_error(error: Exception) -> str:
             error.code,
             f"The provider returned HTTP {error.code} while testing the connection.",
         )
-    if isinstance(error, (TimeoutError, urllib.error.URLError)):
+    if isinstance(error, TimeoutError | urllib.error.URLError):
         reason = getattr(error, "reason", None)
         if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower():
             return "The provider did not respond within 15 seconds."
         return (
             "The provider could not be reached. Check the URL and network connection."
         )
-    if isinstance(error, (_json.JSONDecodeError, KeyError, TypeError, ValueError)):
+    if isinstance(error, _json.JSONDecodeError | KeyError | TypeError | ValueError):
         return "The provider returned an invalid response."
     return "The provider connection test failed."
+
+
+def _provider_model_id(item) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("id") or item.get("name") or item.get("model") or "").strip()
 
 
 def _set_values(session, values: dict[str, str]) -> None:
@@ -108,8 +128,8 @@ def _set_values(session, values: dict[str, str]) -> None:
         ).scalars()
     }
     for key, value in values.items():
-        setting = existing.get(key)
         stored_value = encode_setting_value(key, value)
+        setting = existing.get(key)
         if setting is None:
             session.add(SettingRecord(key=key, value=stored_value))
         else:
@@ -222,16 +242,26 @@ class WipeDataRequest(BaseModel):
 
 
 WIPE_MODELS = [
-    ModelInvocationRecord,
+    WorkerInboxRecord,
+    ReviewItemRecord,
+    HumanReviewRecord,
+    JudgeVerdictRecord,
+    ArtifactEvaluationRecord,
+    GraphInferenceRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
+    ChunkRecord,
     EmbeddingRecord,
+    AttachmentExtractionRecord,
     GeneratedMetadataRecord,
     ConnectionRecord,
     ConceptRecord,
     InsightRecord,
     NotificationRecord,
     AutomationLogRecord,
+    AIGatewayInvocationRecord,
+    ModelInvocationRecord,
+    MetricRecord,
     JobRecord,
     WorkerStatus,
     TagRecord,
@@ -260,12 +290,11 @@ def get_ai_config(request: Request) -> dict:
     with SessionLocal() as session:
 
         def _get(key: str) -> str:
+            setting_key = key.replace("__", "/")
             row = session.execute(
-                select(SettingRecord).where(SettingRecord.key == key.replace("__", "/"))
+                select(SettingRecord).where(SettingRecord.key == setting_key)
             ).scalar_one_or_none()
-            return (
-                decode_setting_value(key.replace("__", "/"), row.value) if row else ""
-            )
+            return decode_setting_value(setting_key, row.value) if row else ""
 
         api_url = _get("ai_api_url") or _get("ai_custom_url")
         return {
@@ -361,10 +390,13 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
             req.add_header("Accept", "application/json")
             with urllib.request.urlopen(req, timeout=15) as response:
                 d = _json.loads(response.read())
+            raw_models = (
+                d if isinstance(d, list) else d.get("data") or d.get("models") or []
+            )
             models = [
-                {"id": m["id"]}
-                for m in (d.get("data", []) or [])
-                if m.get("id") and len(m.get("id", "")) < 80
+                {"id": model_id}
+                for item in raw_models
+                if (model_id := _provider_model_id(item)) and len(model_id) < 120
             ]
             model = payload.model.strip()
             if not model:
@@ -427,7 +459,13 @@ def get_ai_models(payload: AiModelsRequest) -> dict:
                 "testedAt": tested_at,
                 "keyRevision": test_revision,
             }
-        except Exception as error:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            _json.JSONDecodeError,
+        ) as error:
             message = _provider_error(error)
             latency_ms = max(1, round((time.perf_counter() - started) * 1000))
             tested_at = _record_ai_test(
@@ -608,9 +646,10 @@ def wipe_all_data(payload: WipeDataRequest) -> dict:
             session.execute(delete(model))
             deleted_rows[table] = int(count)
         try:
-            session.execute(text("DELETE FROM notes_fts"))
-        except Exception:
-            pass
+            with session.begin_nested():
+                session.execute(text("DELETE FROM notes_fts"))
+        except SQLAlchemyError:
+            deleted_rows["notes_fts"] = 0
         if payload.reset_settings:
             count = (
                 session.execute(
@@ -638,9 +677,7 @@ def _wipe_vault_files(vault_path: Path) -> int:
             item.unlink()
             deleted += 1
         elif item.is_dir():
-            try:
+            with suppress(OSError):
                 item.rmdir()
-            except OSError:
-                pass
     vault_path.mkdir(parents=True, exist_ok=True)
     return deleted

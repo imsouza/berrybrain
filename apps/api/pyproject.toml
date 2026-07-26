@@ -1,14 +1,14 @@
 [project]
 name = "berrybrain-api"
-version = "1.1.0"
+version = "0.1.1"
 description = "BerryBrain local API"
 requires-python = ">=3.11"
 dependencies = [
+  "anyio>=4.0,<4.10",
   "argon2-cffi>=23.1.0",
-  "cryptography>=42.0.0",
-  "fastapi>=0.115.0",
+  "fastapi>=0.140.0,<0.141.0",
   "faster-whisper>=1.2.1,<2.0",
-  "httpx>=0.28.0",
+  "httpx>=0.28.0,<0.29.0",
   "pydantic-settings>=2.4.0",
   "pypdf>=5.0.0",
   "sqlalchemy>=2.0.0",
@@ -22,6 +22,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["B008", "B905", "E501"]

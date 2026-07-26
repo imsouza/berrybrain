@@ -173,14 +173,14 @@ def create_note_endpoint(payload: CreateNoteRequest) -> dict:
 @router.get("/{note_path:path}/status")
 def get_note_processing_status(note_path: str) -> dict:
     from berrybrain_api.jobs import (
-        PARSE_NOTE,
-        CLASSIFY_NOTE,
         ASSIMILATE_NOTE,
-        GENERATE_EMBEDDING,
+        CLASSIFY_NOTE,
+        EXPAND_KNOWLEDGE_GRAPH,
         FIND_CONNECTIONS,
+        GENERATE_EMBEDDING,
         GENERATE_INSIGHTS,
         GENERATE_NOTE_TITLE,
-        EXPAND_KNOWLEDGE_GRAPH,
+        PARSE_NOTE,
     )
 
     pipeline_order = [
@@ -206,6 +206,7 @@ def get_note_processing_status(note_path: str) -> dict:
 
     with SessionLocal() as session:
         from sqlalchemy import select
+
         from berrybrain_api.models import JobRecord
 
         jobs = list(
@@ -428,7 +429,10 @@ def delete_attachment(attachment_id: int) -> dict:
 def list_note_attachments(note_path: str) -> dict:
     settings = get_settings()
     with SessionLocal() as session:
-        record = sync_note_record(session, settings.vault_path, note_path)
+        try:
+            record = sync_note_record(session, settings.vault_path, note_path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Note not found") from exc
         attachments = list(
             session.execute(
                 select(NoteAttachmentRecord)
@@ -574,6 +578,10 @@ def read_note_endpoint(note_path: str) -> dict:
 
 @router.put("/{note_path:path}/rename")
 def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
+    from sqlalchemy import select
+
+    from berrybrain_api.models import NoteRecord
+
     settings = get_settings()
     result = rename_note(settings.vault_path, note_path, payload.title)
     with SessionLocal() as session:
@@ -674,8 +682,10 @@ def clip_web_content(payload: ClipRequest):
     settings = get_settings()
     now = datetime.now(UTC).isoformat()
     markdown = (
-        f"# {payload.title}\n\n> Source: {payload.url}\n"
-        f"> Clipped: {now}\n\n{payload.content}"
+        f"# {payload.title}\n\n"
+        f"> Source: {payload.url}\n"
+        f"> Clipped: {now}\n\n"
+        f"{payload.content}"
     )
     result = create_note(settings.vault_path, payload.title, "inbox", markdown)
     with SessionLocal() as session:

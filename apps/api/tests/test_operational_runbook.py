@@ -1,6 +1,5 @@
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")

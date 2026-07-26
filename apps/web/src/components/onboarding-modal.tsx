@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, getApiUrl } from "@/contexts/workspace-context";
+import { getApiUrl } from "@/contexts/workspace-context";
+import {
+  CLOUD_PROVIDER_PRESETS,
+  normalizeModelIds,
+  providerIdForUrl,
+  providerLabelForUrl,
+} from "@/lib/cloud-providers";
 
-const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
-const RECOMMENDED_MODEL = "qwen/qwen3.5-397b-instruct";
+const NVIDIA_NIM_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_CLOUD_API_URL || "";
+const RECOMMENDED_MODEL = process.env.NEXT_PUBLIC_BERRYBRAIN_RECOMMENDED_MODEL || "";
+const DEFAULT_OLLAMA_BASE_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_OLLAMA_BASE_URL || "";
+const DEFAULT_LOCAL_MODEL = process.env.NEXT_PUBLIC_BERRYBRAIN_LOCAL_MODEL || "";
 
 type MeResponse = {
   user?: { email?: string; displayName?: string };
@@ -58,13 +66,15 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
   const [modeSelected, setModeSelected] = useState(false);
   const [help, setHelp] = useState<"local" | "cloud" | null>(null);
   const [apiUrl, setApiUrl] = useState(NVIDIA_NIM_URL);
+  const [cloudProviderId, setCloudProviderId] = useState(() => providerIdForUrl(NVIDIA_NIM_URL));
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
-  const [localUrl, setLocalUrl] = useState("http://host.docker.internal:11434");
-  const [localModel, setLocalModel] = useState("qwen3:8b");
+  const [localUrl, setLocalUrl] = useState(DEFAULT_OLLAMA_BASE_URL);
+  const [localModel, setLocalModel] = useState(DEFAULT_LOCAL_MODEL);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
+  const [modelsStatus, setModelsStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
@@ -146,6 +156,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
     const url = apiUrl.trim() || NVIDIA_NIM_URL;
     setLoadingModels(true);
     setModelsError("");
+    setModelsStatus("");
     try {
       const r = await fetch(`${getApiUrl()}/api/v1/settings/ai/models`, {
         method: "POST",
@@ -154,18 +165,35 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
         body: JSON.stringify({ url, key: apiKey.trim() }),
       });
       const data = await r.json();
-      if (!r.ok || !data.connected) throw new Error(data.error || data.detail || "Provider connection failed");
-      const ids: string[] = Array.isArray(data?.models)
-        ? data.models.map((m: { id?: string }) => m?.id).filter(Boolean)
-        : [];
-      if (!ids.includes(RECOMMENDED_MODEL)) ids.unshift(RECOMMENDED_MODEL);
+      const loadedIds = normalizeModelIds(data?.models);
+      const ids = RECOMMENDED_MODEL && !loadedIds.includes(RECOMMENDED_MODEL)
+        ? [RECOMMENDED_MODEL, ...loadedIds]
+        : loadedIds;
       setModels(ids);
-      if (!model.trim()) setModel(RECOMMENDED_MODEL);
+      if (ids.length === 1 && !model.trim()) setModel(ids[0]);
+      if (!r.ok) throw new Error(data.error || data.detail || "Provider connection failed");
+      if (data.requiresModel) {
+        setModelsStatus(ids.length ? "Models loaded. Select one, then finish setup." : "Provider responded, but no models were returned.");
+        return;
+      }
+      if (!data.connected) throw new Error(data.error || data.detail || "Provider connection failed");
+      setModelsStatus(ids.length ? "Models loaded. Select one, then finish setup." : "Connected, but no models were returned.");
+      if (!model.trim() && RECOMMENDED_MODEL) setModel(RECOMMENDED_MODEL);
     } catch (err) {
       setModelsError(err instanceof Error ? err.message : "Failed to load models");
     } finally {
       setLoadingModels(false);
     }
+  }
+
+  function selectCloudProvider(providerId: string) {
+    setCloudProviderId(providerId);
+    setModels([]);
+    setModel("");
+    setModelsError("");
+    setModelsStatus("");
+    const provider = CLOUD_PROVIDER_PRESETS.find((item) => item.id === providerId);
+    if (provider) setApiUrl(provider.url);
   }
 
   async function finish(provider: "local" | "cloud" = mode) {
@@ -188,7 +216,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
       onboarding_completed: "true",
     };
     try {
-      const response = await apiFetch(`${getApiUrl()}/api/v1/settings/batch`, {
+      const response = await fetch(`${getApiUrl()}/api/v1/settings/batch`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -283,7 +311,7 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                   {help === "local" && (
                     <ul className="mt-2 grid gap-1 border-t border-border pt-2 text-[11px] leading-5 text-muted">
                       <li>1. Install Ollama and start it (ollama serve).</li>
-                      <li>2. Pull a model, e.g. ollama pull qwen3:14b.</li>
+                      <li>2. Pull the local model configured for this instance.</li>
                       <li>3. Nothing leaves your machine; no API key needed.</li>
                     </ul>
                   )}
@@ -342,12 +370,33 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
               {mode === "cloud" && (
                 <div className="mt-4 grid gap-3">
                   <label className="block text-xs text-muted">
-                    Provider URL
+                    Cloud provider
+                    <select
+                      value={cloudProviderId}
+                      onChange={(e) => selectCloudProvider(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                    >
+                      <option value="">Select a provider</option>
+                      {CLOUD_PROVIDER_PRESETS.map((provider) => (
+                        <option key={provider.id} value={provider.id}>{provider.label}</option>
+                      ))}
+                      <option value="custom">Custom OpenAI-compatible provider</option>
+                    </select>
+                  </label>
+                  <label className="block text-xs text-muted">
+                    {providerLabelForUrl(apiUrl)} URL
                     <input
                       value={apiUrl}
-                      onChange={(e) => setApiUrl(e.target.value)}
+                      onChange={(e) => {
+                        setApiUrl(e.target.value);
+                        setCloudProviderId(providerIdForUrl(e.target.value));
+                        setModels([]);
+                        setModel("");
+                        setModelsError("");
+                        setModelsStatus("");
+                      }}
                       className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      placeholder={NVIDIA_NIM_URL}
+                      placeholder="https://provider.example/v1"
                     />
                   </label>
                   <label className="block text-xs text-muted">
@@ -385,7 +434,10 @@ export function OnboardingModal({ demo = false }: { demo?: boolean }) {
                       </button>
                     </div>
                     {modelsError && <span className="mt-1 block text-xs text-red-400">{modelsError}</span>}
-                    <span className="mt-1 block text-[11px] text-muted">Recommended: {RECOMMENDED_MODEL}</span>
+                    {modelsStatus && <span className="mt-1 block text-[11px] text-muted">{modelsStatus}</span>}
+                    {RECOMMENDED_MODEL && (
+                      <span className="mt-1 block text-[11px] text-muted">Recommended: {RECOMMENDED_MODEL}</span>
+                    )}
                   </label>
                 </div>
               )}

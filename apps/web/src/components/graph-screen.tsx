@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
+import { formatEvidenceLabel, humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
+import { diagnosticMessages, isFilterHidden, type PipelineDiagnostic } from "@/lib/diagnostics";
 
 const EDGE_COLORS: Record<string, string> = {
   explicit_link: "#3C8F5A",
@@ -148,7 +150,7 @@ function getAvailableGraphActions(
   return [
     {
       id: "confirm-node",
-      label: item.type === "insight" ? "Apply Insight" : "Confirm Node",
+      label: item.type === "insight" ? "Apply insight" : "Confirm",
       variant: "primary",
       visible: status === "suggested",
       disabled: false,
@@ -156,7 +158,7 @@ function getAvailableGraphActions(
     },
     {
       id: "ignore-node",
-      label: item.type === "insight" ? "Ignore Insight" : "Ignore Node",
+      label: item.type === "insight" ? "Ignore insight" : "Ignore",
       variant: "secondary",
       visible: status === "suggested",
       disabled: false,
@@ -164,7 +166,7 @@ function getAvailableGraphActions(
     },
     {
       id: "reprocess-node",
-      label: "Reprocess node",
+      label: "Reprocess",
       variant: "secondary",
       visible: true,
       disabled: false,
@@ -172,7 +174,7 @@ function getAvailableGraphActions(
     },
     {
       id: "enrich-node-ai",
-      label: "Enrich with AI",
+      label: "Improve with AI",
       variant: "secondary",
       visible: true,
       disabled: false,
@@ -180,7 +182,7 @@ function getAvailableGraphActions(
     },
     {
       id: "validate-node-web",
-      label: "Validate with web",
+      label: "Check online",
       variant: "secondary",
       visible: options.researchModeEnabled,
       disabled: !options.researchModeEnabled,
@@ -222,35 +224,6 @@ function formatInferenceEvidence(
   item: NonNullable<InferenceResult["evidence"]>[number],
 ): string {
   return formatEvidenceLabel(item);
-}
-
-function parseMaybeJson(value: string): unknown {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return value;
-  }
-}
-
-function formatEvidenceLabel(item: unknown): string {
-  const parsed = typeof item === "string" ? parseMaybeJson(item) : item;
-  if (typeof parsed === "string") {
-    return parsed
-      .replace(/\bexplainedConnections\b/g, "explained connections")
-      .replace(/\bgraphNotes\b/g, "graph notes")
-      .replace(/\bjobsByType\.[A-Z0-9_]+\b/g, "system activity")
-      .replace(/\bGENERATE_NOTE_TITLE\b/g, "automatic title generation");
-  }
-  if (!parsed || typeof parsed !== "object") return "";
-  const record = parsed as Record<string, unknown>;
-  const parts = [
-    record.title || record.label || record.source || "",
-    record.text || record.reference || record.path || record.reason || "",
-    record.whyRelevant || record.quoteOrSummary || "",
-  ].filter(Boolean);
-  return parts.join(": ") || "Evidence available in technical details.";
 }
 
 function GraphListView({
@@ -349,6 +322,24 @@ export function GraphScreen({
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProvider, setFilterProvider] = useState("all");
   const [filterConfidence, setFilterConfidence] = useState(0);
+  const [pipelineDiag, setPipelineDiag] = useState<{ code: string; text: string }[]>([]);
+  useEffect(() => {
+    // Check data before graphData is declared (line 391) - use data directly
+    const d = data as { nodes: GraphNode[] } | null | undefined;
+    if (apiUrl === "__demo__" || !d || d.nodes.length > 0) return;
+    let cancelled = false;
+    apiFetch("/api/v1/debug/vault-graph-pipeline")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (cancelled || !p) return;
+        const msgs = diagnosticMessages(p as PipelineDiagnostic);
+        if (!cancelled) setPipelineDiag(msgs);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, data]);
   const [showInsightNodes, setShowInsightNodes] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("bb_graph_show_insight_nodes") !== "0";
@@ -523,10 +514,11 @@ export function GraphScreen({
     reload();
   }
 
-  async function runInference() {
-    const text = query.trim();
+  async function runInference(questionOverride?: string) {
+    const text = (questionOverride ?? query).trim();
     if (!text) return;
     if (apiUrl === "__demo__") return;
+    if (questionOverride) setQuery(text);
     setInferLoading(true);
     setInference(null);
     setInferenceSaveStatus("");
@@ -793,22 +785,23 @@ export function GraphScreen({
         </div>
         <div className="flex-1" />
         <form
-          className="relative z-50 flex min-w-[240px] flex-1 basis-[320px] items-center gap-1 sm:min-w-[280px] lg:max-w-[520px]"
+          className="relative z-50 order-last flex min-w-[260px] flex-1 basis-full items-center gap-2 rounded-lg border border-accent/30 bg-surface/80 p-1.5 sm:basis-[360px] lg:order-none lg:max-w-[560px]"
           onSubmit={(e) => {
             e.preventDefault();
             runInference();
           }}
         >
+          <span className="shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wide text-accent">Ask</span>
           <input
             type="text"
-            className="h-8 min-w-0 flex-1 rounded-lg border border-border/50 bg-surface px-3 text-[11px] outline-none focus:border-accent"
-            placeholder={t("graphSearchPlaceholder")}
+            className="h-9 min-w-0 flex-1 rounded-md border border-border/50 bg-panel px-3 text-sm outline-none placeholder:text-muted/55 focus:border-accent"
+            placeholder="Ask your graph about a note, concept, connection, job, or missing context..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <button
             type="submit"
-            className="bb-action h-8 min-w-14 shrink-0 px-3 text-[11px] font-medium"
+            className="bb-action h-9 min-w-16 shrink-0 px-3 text-xs font-semibold"
             disabled={inferLoading || !query.trim()}
           >
             {inferLoading ? "..." : t("ask")}
@@ -878,7 +871,12 @@ export function GraphScreen({
               <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">{t("graphInference")}</span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
-            <p className="text-sm text-foreground">{inference.answer}</p>
+            <p className={`text-sm leading-relaxed ${inference.status === "error" ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+            {inference.status === "error" && (
+              <p className="mt-2 rounded-lg bg-panel px-2 py-1 text-[11px] text-muted">
+                Check Settings, AI / Provider and try again. Local Ollama needs a reachable URL and installed model; cloud mode needs a verified key, model, and consent.
+              </p>
+            )}
             {!!inference.relatedNodes?.length && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {relatedInferenceNodes.map((node) => (
@@ -944,6 +942,14 @@ export function GraphScreen({
       ) : graphData ? (
           filtered.nodes.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+              {pipelineDiag.map((d) => (
+                <div key={d.code} className="text-xs font-medium text-warning">
+                  {d.text}
+                </div>
+              ))}
+              {graphData && graphData.nodes.length > 0 && isFilterHidden(graphData, { filterType, filterStatus, filterProvider, filterConfidence }) && (
+                <p className="text-xs text-muted/60">{t("filterHidden")}</p>
+              )}
               <div className="text-sm font-medium text-muted/60">{t("graphEmpty")}</div>
               <p className="text-xs text-muted/40">{t("graphEmptyDesc")}</p>
               {apiUrl === "__demo__" && (
@@ -1027,49 +1033,68 @@ export function GraphScreen({
       </div>
 
       {selectedNode && showDetail && (
-        <div className="absolute inset-x-0 bottom-0 top-[49px] z-30 overflow-y-auto border-l border-border/50 bg-panel/98 p-4 shadow-lg backdrop-blur sm:left-auto sm:w-[360px]">
-          <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="absolute inset-x-0 bottom-0 top-[49px] z-30 flex flex-col border-l border-border/50 bg-panel/98 shadow-xl backdrop-blur sm:left-auto sm:w-[430px]">
+          <div className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-border/50 bg-surface/50 p-5">
             <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-accent">{selectedNode.type}</div>
-              <h3 className="truncate text-sm font-medium text-foreground">{nodeSummary?.title || selectedNode.label}</h3>
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-widest text-accent">{humanNodeType(selectedNode.type)}</div>
+              <h3 className="break-words text-base font-semibold leading-snug text-foreground">{nodeSummary?.title || selectedNode.label}</h3>
+              <div className="mt-2 flex flex-wrap gap-1">
+                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{humanStatus(nodeSummary?.status || selectedNode.status)}</span>
+                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)}</span>
+                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{humanOrigin(nodeSummary?.createdBy || selectedNode.createdBy)}</span>
+              </div>
             </div>
-            <button className="text-[10px] text-muted hover:text-foreground" onClick={() => setShowDetail(false)}>X</button>
+            <button className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-border/50 text-[10px] text-muted hover:bg-border hover:text-foreground" onClick={() => setShowDetail(false)}>✕</button>
           </div>
-
+          
+          <div className="flex-1 overflow-y-auto p-5">
             {summaryLoading ? (
               <div className="text-xs text-muted">{t("loadingNodeSummary")}</div>
             ) : (
-              <div className="space-y-3 text-[11px] text-muted/75">
-                <p className="rounded-lg bg-surface p-3 text-foreground/80">
-                  {nodeSummary?.aiSummary || nodeSummary?.summary || selectedNode.aiSummary || selectedNode.summary || t("summaryNotGenerated")}
-                </p>
-                <div>{nodeSummary?.whyThisExists || t("nodeFromRealData")}</div>
+              <div className="space-y-4 text-[12px] text-muted/80">
+                <section>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What this is</div>
+                    <button
+                      className="bb-action px-3 py-1.5 text-[10px] font-medium text-accent"
+                      onClick={() => runInference(`Explain "${nodeSummary?.title || selectedNode.label}" and show the evidence behind it.`)}
+                    >
+                      Ask about this
+                    </button>
+                  </div>
+                  <div className="rounded-xl border border-border/40 bg-surface/40 p-4 text-[13px] leading-relaxed text-foreground/90 shadow-sm">
+                    {nodeSummary?.aiSummary || nodeSummary?.summary || selectedNode.aiSummary || selectedNode.summary || t("summaryNotGenerated")}
+                  </div>
+                </section>
+                {nodeSummary?.whyThisExists && (
+                  <div className="text-[11px] italic text-muted/60">{nodeSummary.whyThisExists}</div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
-                  <Meta label={t("status")} value={nodeSummary?.status || selectedNode.status || "-"} />
+                  <Meta label={t("status")} value={humanStatus(nodeSummary?.status || selectedNode.status)} />
                   <Meta label={t("confidence")} value={formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)} />
-                  <Meta label={t("origin")} value={nodeSummary?.createdBy || selectedNode.createdBy || "-"} />
+                  <Meta label={t("origin")} value={humanOrigin(nodeSummary?.createdBy || selectedNode.createdBy)} />
                   <Meta label={t("model")} value={nodeSummary?.createdByModel || selectedNode.createdByModel || "-"} />
-                  <Meta label="Validation" value={nodeSummary?.validationStatus || selectedNode.validationStatus || "unvalidated"} />
-                  <Meta label="Quality" value={nodeSummary?.sourceQuality || selectedNode.sourceQuality || "note_only"} />
+                  <Meta label="Review" value={humanStatus(nodeSummary?.validationStatus || selectedNode.validationStatus || "unvalidated")} />
+                  <Meta label="Evidence" value={formatEvidenceLabel(nodeSummary?.sourceQuality || selectedNode.sourceQuality || "note_only")} />
                 </div>
 
                 {(nodeSummary?.aiContext || selectedNode.aiContext || nodeSummary?.learningValue || selectedNode.learningValue || nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
-                  <section className="border-t border-border/30 pt-3">
-                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">AI understanding</div>
+                  <section className="border-t border-border/30 pt-4">
+                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What BerryBrain understands</div>
                     {(nodeSummary?.aiContext || selectedNode.aiContext) && (
-                      <p className="rounded-lg bg-surface p-2 text-[11px] text-foreground/80">{nodeSummary?.aiContext || selectedNode.aiContext}</p>
+                      <div className="mb-3 rounded-xl border border-border/30 bg-surface p-3 text-[12px] leading-relaxed text-foreground/80 shadow-sm">{nodeSummary?.aiContext || selectedNode.aiContext}</div>
                     )}
                     {(nodeSummary?.learningValue || selectedNode.learningValue) && (
-                      <p className="mt-2 text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Learning value:</span> {nodeSummary?.learningValue || selectedNode.learningValue}</p>
+                      <p className="mt-2 text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Why it matters:</span> {nodeSummary?.learningValue || selectedNode.learningValue}</p>
                     )}
                     {(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
-                      <p className="mt-2 break-words text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Source evidence:</span> {formatEvidenceLabel(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence)}</p>
+                      <p className="mt-2 break-words text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Evidence:</span> {formatEvidenceLabel(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence)}</p>
                     )}
                   </section>
                 )}
 
                 <section className="border-t border-border/30 pt-3">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Graph notes</div>
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Your notes about this item</div>
                   {nodeSummary?.aiNotes && (
                     <p className="mb-2 rounded-lg bg-surface p-2 text-[10px] text-muted/70">{t("aiSubagent")} {nodeSummary.aiNotes}</p>
                   )}
@@ -1095,9 +1120,11 @@ export function GraphScreen({
                   </section>
                 )}
 
-                <section className="border-t border-border/30 pt-3">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Explained connections</div>
-                <div className="space-y-2">
+                <section className="border-t border-border/30 pt-4">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+                    Connections
+                  </div>
+                <div className="space-y-3">
                   {(nodeSummary?.connections?.length ? nodeSummary.connections : selectedEdges).slice(0, 6).map((edge, index) => {
                     const simpleEdge = edge as GraphEdge;
                     const detailedEdge = edge as NodeSummary["connections"][number];
@@ -1127,10 +1154,10 @@ export function GraphScreen({
                         <div className="mt-2 flex flex-wrap items-center gap-1">
                           <span className="rounded-full bg-panel px-2 py-0.5 text-[9px] text-muted/60">{isInsightEdge ? "citation" : detailedEdge.status || simpleEdge.status || "suggested"}</span>
                           {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
-                            <button disabled={actionLoading === `confirm-connection-${detailedEdge.id}`} className="rounded-md bg-accent px-2 py-0.5 text-[9px] text-white disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "confirmed")}>Confirm Connection</button>
+                            <button disabled={actionLoading === `confirm-connection-${detailedEdge.id}`} className="rounded-md bg-accent px-2 py-0.5 text-[9px] text-white disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "confirmed")}>Confirm</button>
                           )}
                           {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
-                            <button disabled={actionLoading === `ignore-connection-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "ignored")}>Ignore Connection</button>
+                            <button disabled={actionLoading === `ignore-connection-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "ignored")}>Ignore</button>
                           )}
                           {!!detailedEdge.id && (detailedEdge.type || simpleEdge.type) !== "insight_suggested" && (
                             <button disabled={actionLoading === `save-insight-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => generateConnectionInsight(detailedEdge.id)}>Save as insight</button>
@@ -1167,6 +1194,7 @@ export function GraphScreen({
               {nodeActionStatus && <div className="rounded-lg bg-surface p-2 text-[10px] text-muted/70">{nodeActionStatus}</div>}
             </div>
           )}
+          </div>
         </div>
       )}
     </div>

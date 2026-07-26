@@ -9,10 +9,10 @@ class WorkerSettings(BaseSettings):
     api_url: str = "http://localhost:8000"
     api_token: str = ""
     ollama_base_url: str = "http://localhost:11434"
-    main_model: str = "qwen3:8b"
-    fast_model: str = "gemma3:4b"
-    embedding_model: str = "bge-m3"
-    reasoning_model: str = "deepseek-r1:8b"
+    main_model: str = ""
+    fast_model: str = ""
+    embedding_model: str = ""
+    reasoning_model: str = ""
     loop_interval_seconds: int = 5
     max_consecutive_empty: int = 30
     ollama_timeout: int = 120

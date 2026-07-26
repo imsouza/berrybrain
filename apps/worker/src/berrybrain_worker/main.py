@@ -2,6 +2,7 @@ import asyncio
 import json
 import re
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 
 import httpx
@@ -55,6 +56,7 @@ from berrybrain_worker.resilience import (
     timeout_for_job,
 )
 
+JobHandler = Callable[[httpx.AsyncClient, WorkerSettings, dict, dict], Awaitable[None]]
 _ai_config: dict = {"provider": "local"}  # cached from API
 _last_config_fetch = 0.0
 UNTRUSTED_CONTENT_POLICY = (
@@ -101,6 +103,23 @@ async def main() -> None:
     async with httpx.AsyncClient(timeout=10, headers=headers) as client:
         await assert_api_ready(client, settings.api_url)
         await fetch_ai_config(client, settings.api_url)
+        try:
+            from berrybrain_worker.parity import check_api_parity
+
+            parity = await check_api_parity(client, settings.api_url)
+            if parity["warnings"]:
+                for w in parity["warnings"]:
+                    print(f"PARITY WARN: {w}")
+            if not parity.get("ok"):
+                print(
+                    "PARITY FAIL: API reports an unusable state "
+                    f"(codes={sorted({d['code'] for d in parity.get('pipeline', {}).get('diagnostics', [])})}). "
+                    "Worker will start but jobs may fail until you fix the API."
+                )
+            else:
+                print("Parity OK")
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"Parity check unavailable: {exc}")
         ollama_ok = await check_health(effective_ollama_base_url(settings), timeout=5)
         if ollama_ok:
             print(f"Ollama ready: {effective_ollama_base_url(settings)}")
@@ -248,61 +267,14 @@ async def process_job(
 ) -> None:
     job_type = job["type"]
     payload = job.get("payload", {})
-
-    if job_type == "PARSE_NOTE":
-        await process_parse_note(client, settings, job, payload)
-    elif job_type == "CLASSIFY_NOTE":
-        await process_classify_note(client, settings, job, payload)
-    elif job_type == "ASSIMILATE_NOTE":
-        await process_assimilate_note(client, settings, job, payload)
-    elif job_type == "EXTRACT_CONCEPTS":
-        await process_extract_concepts(client, settings, job, payload)
-    elif job_type == "EXTRACT_ENTITIES":
-        await process_extract_entities(client, settings, job, payload)
-    elif job_type == "DETECT_TOPICS":
-        await process_detect_topics(client, settings, job, payload)
-    elif job_type == "EXTRACT_CONTEXT":
-        await process_extract_context(client, settings, job, payload)
-    elif job_type == "GENERATE_EMBEDDING":
-        await process_generate_embedding(client, settings, job, payload)
-    elif job_type == "FIND_CONNECTIONS":
-        await process_find_connections(client, settings, job, payload)
-    elif job_type == "GENERATE_FLASHCARDS":
+    if job_type == "GENERATE_FLASHCARDS":
         raise ValueError(
             "GENERATE_FLASHCARDS is disabled; flashcards/review removed from product"
         )
-    elif job_type == "GENERATE_INSIGHTS":
-        await process_generate_insights(client, settings, job, payload)
-    elif job_type == "GENERATE_GRAPH_INSIGHTS":
-        await process_generate_graph_insights(client, settings, job, payload)
-    elif job_type == "GENERATE_NOTE_TITLE":
-        await process_generate_note_title(client, settings, job, payload)
-    elif job_type == "EXPAND_KNOWLEDGE_GRAPH":
-        await process_expand_knowledge_graph(client, settings, job, payload)
-    elif job_type == "PROCESS_ATTACHMENT":
-        await process_attachment(client, settings, job, payload)
-    elif job_type == "GENERATE_INFERRED_CONNECTIONS":
-        await process_generate_inferred_connections(client, settings, job, payload)
-    elif job_type == "GENERATE_NODE_SUMMARY":
-        await process_generate_node_summary(client, settings, job, payload)
-    elif job_type == "UPDATE_GRAPH_CLUSTERS":
-        await process_update_graph_clusters(client, settings, job, payload)
-    elif job_type == "UPDATE_GRAPH_STATS":
-        await process_update_graph_stats(client, settings, job, payload)
-    elif job_type == "EXPAND_CONCEPT_TO_NOTE":
-        await process_expand_concept_to_note(client, settings, job, payload)
-    elif job_type == "CREATE_NOTE_FROM_INSIGHT":
-        await process_create_note_from_insight(client, settings, job, payload)
-    elif job_type == "CREATE_REVIEW_FROM_INSIGHT":
-        await process_create_review_from_insight(client, settings, job, payload)
-    elif job_type == "ENRICH_GRAPH_NODE":
-        await process_enrich_graph_node(client, settings, job, payload)
-    elif job_type == "VALIDATE_GRAPH_NODE_WITH_WEB":
-        await process_validate_graph_node_web(client, settings, job, payload)
-    elif job_type == "REASON_GRAPH_CONNECTION":
-        await process_reason_graph_connection(client, settings, job, payload)
-    else:
+    handler = job_handlers().get(job_type)
+    if handler is None:
         raise ValueError(f"Unsupported job type: {job_type}")
+    await handler(client, settings, job, payload)
 
 
 async def fetch_ai_config(client: httpx.AsyncClient, api_url: str) -> dict:
@@ -1419,6 +1391,56 @@ async def complete_graph_insights_with_deterministic_fallback(
     await complete_job(client, settings.api_url, int(job["id"]))
 
 
+async def process_judge_artifact(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    artifact_type = payload.get("artifact_type")
+    artifact_id = payload.get("artifact_id")
+
+    if not artifact_type or not artifact_id:
+        raise ValueError("JUDGE_ARTIFACT requires artifact_type and artifact_id")
+
+    response = await client.post(
+        f"{settings.api_url}/api/v1/judge/evaluate-artifact-internal",
+        json={"artifact_type": artifact_type, "artifact_id": int(artifact_id)},
+    )
+    response.raise_for_status()
+
+    res = response.json()
+    if res.get("status") == "error":
+        raise ValueError(f"Judge validation failed: {res.get('message')}")
+
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_hipp_index(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    # MVP: Log only
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_hipp_delete(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    # MVP: Log only
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_hipp_reconcile(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    # MVP: Log only
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
+async def process_hipp_rebuild(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    # MVP: Log only
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
 async def process_generate_graph_insights(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
@@ -1473,7 +1495,7 @@ async def process_generate_graph_insights(
     def is_knowledge_evidence(item: object) -> bool:
         if isinstance(item, dict):
             source = str(item.get("source") or "").lower()
-            keys = {str(key).lower() for key in item.keys()}
+            keys = {str(key).lower() for key in item}
             if source in {"knowledge_base", "knowledge_graph"}:
                 return True
             if keys & {
@@ -1748,7 +1770,7 @@ async def process_create_note_from_insight(
     if isinstance(evidence, list) and evidence:
         body_parts.append("\n## Evidence\n\n")
         for e in evidence:
-            body_parts.append(f"- {str(e)}\n")
+            body_parts.append(f"- {e!s}\n")
     if insight.get("suggestedAction"):
         body_parts.append(f"\n## Suggested action\n\n{insight['suggestedAction']}\n")
     body_parts.append(
@@ -1867,12 +1889,44 @@ async def process_create_review_from_insight(
 def _extract_insight_id_from_payload(payload: dict) -> int | None:
     raw = payload if isinstance(payload, dict) else {}
     if isinstance(raw.get("payload"), str):
-        try:
+        with suppress(json.JSONDecodeError):
             raw = json.loads(raw["payload"])
-        except json.JSONDecodeError:
-            pass
     vid = raw.get("insight_id")
     return int(vid) if vid is not None else None
+
+
+def job_handlers() -> dict[str, JobHandler]:
+    return {
+        "PARSE_NOTE": process_parse_note,
+        "CLASSIFY_NOTE": process_classify_note,
+        "ASSIMILATE_NOTE": process_assimilate_note,
+        "EXTRACT_CONCEPTS": process_extract_concepts,
+        "EXTRACT_ENTITIES": process_extract_entities,
+        "DETECT_TOPICS": process_detect_topics,
+        "EXTRACT_CONTEXT": process_extract_context,
+        "GENERATE_EMBEDDING": process_generate_embedding,
+        "FIND_CONNECTIONS": process_find_connections,
+        "GENERATE_INSIGHTS": process_generate_insights,
+        "GENERATE_GRAPH_INSIGHTS": process_generate_graph_insights,
+        "GENERATE_NOTE_TITLE": process_generate_note_title,
+        "EXPAND_KNOWLEDGE_GRAPH": process_expand_knowledge_graph,
+        "PROCESS_ATTACHMENT": process_attachment,
+        "GENERATE_INFERRED_CONNECTIONS": process_generate_inferred_connections,
+        "GENERATE_NODE_SUMMARY": process_generate_node_summary,
+        "UPDATE_GRAPH_CLUSTERS": process_update_graph_clusters,
+        "UPDATE_GRAPH_STATS": process_update_graph_stats,
+        "EXPAND_CONCEPT_TO_NOTE": process_expand_concept_to_note,
+        "CREATE_NOTE_FROM_INSIGHT": process_create_note_from_insight,
+        "CREATE_REVIEW_FROM_INSIGHT": process_create_review_from_insight,
+        "ENRICH_GRAPH_NODE": process_enrich_graph_node,
+        "VALIDATE_GRAPH_NODE_WITH_WEB": process_validate_graph_node_web,
+        "REASON_GRAPH_CONNECTION": process_reason_graph_connection,
+        "JUDGE_ARTIFACT": process_judge_artifact,
+        "HIPP_INDEX": process_hipp_index,
+        "HIPP_DELETE": process_hipp_delete,
+        "HIPP_RECONCILE": process_hipp_reconcile,
+        "HIPP_REBUILD": process_hipp_rebuild,
+    }
 
 
 if __name__ == "__main__":

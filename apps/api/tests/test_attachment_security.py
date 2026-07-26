@@ -1,5 +1,5 @@
-import unittest
 import io
+import unittest
 import zipfile
 
 from berrybrain_api.attachment_security import (

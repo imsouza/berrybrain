@@ -8,6 +8,13 @@ on:
 jobs:
   worker:
     runs-on: ubuntu-latest
+    env:
+      BERRYBRAIN_ENV: test
+      BERRYBRAIN_DATABASE_URL: sqlite:////tmp/berrybrain-ci-worker.db
+      BERRYBRAIN_VAULT_PATH: /tmp/berrybrain-ci-worker-vault
+      BERRYBRAIN_API_TOKEN: ci-token
+      BERRYBRAIN_SESSION_SECRET: ci-session-secret-change-me-32-bytes
+      BERRYBRAIN_REQUIRE_AUTH: "true"
     defaults:
       run:
         working-directory: apps/worker

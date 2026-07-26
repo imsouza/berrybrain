@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     vault_watcher_enabled: bool = True
     vault_watcher_interval_seconds: int = 10
     api_token: str = ""
-    allowed_hosts: str = "localhost,127.0.0.1,testserver,optlabs.com.br"
+    allowed_hosts: str = "localhost,127.0.0.1,testserver"
     max_request_body_bytes: int = 25 * 1024 * 1024
     trust_x_forwarded_for: bool = False
     cors_origins: str = "http://localhost:3000"
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     searxng_url: str = "http://localhost:8888"
     public_app_url: str = "http://localhost:3000"
     backend_url: str = "http://localhost:8000"
-    session_secret: str = "dev-change-me"
+    session_secret: str = ""
     session_cookie_name: str = "bb_session"
     session_secure_cookie: bool = False
     csrf_cookie_name: str = "bb_csrf"
@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     auth_otp_resend_cooldown_seconds: int = 60
     admin_email: str = "admin@local.berrybrain"
     owner_username: str = "admin"
+    enable_default_owner: bool = False
+    default_owner_password: str = ""
+    default_owner_force_password_reset: bool = False
     attachment_ocr_executable: str = "tesseract"
     attachment_ocr_language: str = "eng"
     attachment_transcription_executable: str = "faster-whisper"
@@ -67,9 +70,8 @@ class Settings(BaseSettings):
     smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")
     smtp_user: str = Field(default="", validation_alias="SMTP_USER")
     smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
-    smtp_from: str = Field(
-        default="contato@optlabs.com.br", validation_alias="SMTP_FROM"
-    )
+    smtp_from: str = Field(default="", validation_alias="SMTP_FROM")
+    support_email: str = ""
 
     model_config = SettingsConfigDict(
         env_prefix="BERRYBRAIN_",

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Thread
-from typing import Callable
 
 from sqlalchemy.orm import Session
 

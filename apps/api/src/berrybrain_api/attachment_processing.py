@@ -16,9 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
+from berrybrain_api.extractor_sandbox import sandboxed_subprocess_kwargs
 from berrybrain_api.generated_metadata import upsert_generated_metadata
 from berrybrain_api.graph_write_service import GraphWriteService
-from berrybrain_api.extractor_sandbox import sandboxed_subprocess_kwargs
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
     GraphNodeRecord,

@@ -1,3 +1,5 @@
+from contextlib import suppress
+
 import httpx
 
 
@@ -109,7 +111,7 @@ async def log_ai_call(
     target_type: str = "system",
     target_id: str = "worker",
 ) -> None:
-    try:
+    with suppress(Exception):
         await api_client.post(
             f"{api_url}/api/v1/automation-logs",
             json={
@@ -128,5 +130,3 @@ async def log_ai_call(
                 "reversible": False,
             },
         )
-    except Exception:
-        pass
