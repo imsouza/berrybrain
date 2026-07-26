@@ -5,7 +5,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 
 export function ResizeHandle() {
   const w = useWorkspace();
-  const { setSidebarWidth } = w;
+  const setSidebarWidth = w.setSidebarWidth;
   const dragging = useRef(false);
 
   useEffect(() => {

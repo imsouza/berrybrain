@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-const OWNER_PASSWORD = ["E2e", "Owner", "Pass", "123"].join("");
+const OWNER_PASSWORD = process.env.E2E_OWNER_PASSWORD || "BerryBrain123!";
 
 async function authenticate(context: BrowserContext) {
   const status = await context.request.get("/api/v1/setup/status");
@@ -50,6 +50,29 @@ async function openWorkspace(page: Page, context: BrowserContext) {
       timeout: 15_000,
     });
   }
+}
+
+async function mockCreatedNote(page: Page, content = "", suffix: string | number = Date.now()) {
+  await page.route("**/api/v1/notes", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: Number(String(suffix).replace(/\D/g, "").slice(-6)) || 9002,
+        title: "rascunho",
+        path: `inbox/e2e-draft-${suffix}.md`,
+        folder: "inbox",
+        content,
+        content_hash: `e2e-${suffix}`,
+        links: [],
+        frontmatter: {},
+      }),
+    });
+  });
 }
 
 test.describe("Public owner entry", () => {
@@ -132,8 +155,25 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByRole("textbox", { name: "Editor" })).toHaveCount(0);
 
     await page.route("**/api/v1/notes", async (route) => {
-      if (route.request().method() === "POST") await new Promise((resolve) => setTimeout(resolve, 250));
-      await route.continue();
+      if (route.request().method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: 9001,
+          title: "rascunho",
+          path: "inbox/e2e-quick-note.md",
+          folder: "inbox",
+          content: "A short idea that is not a note yet.",
+          content_hash: "e2e",
+          links: [],
+          frontmatter: {},
+        }),
+      });
     });
     await page.getByRole("button", { name: "Create note" }).click();
     await expect(page.getByText("Creating note...").first()).toBeVisible();
@@ -146,12 +186,31 @@ test.describe("Authenticated workspace quality", () => {
     page,
     context,
   }) => {
+    let savedProvider = "";
+    await page.route("**/api/v1/settings/batch", async (route) => {
+      const payload = route.request().postDataJSON() as { values?: Record<string, string> };
+      savedProvider = payload.values?.ai_provider || "";
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    });
     const csrf = await authenticate(context);
     const reset = await context.request.put("/api/v1/settings/onboarding_completed", {
       data: { value: "false" },
       headers: { "X-CSRF-Token": csrf },
     });
     expect(reset.ok(), await reset.text()).toBeTruthy();
+    await page.route("**/api/v1/settings", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          settings: [{ key: "onboarding_completed", value: "false" }],
+        }),
+      });
+    });
 
     await page.goto("/brain");
     await expect(page.getByRole("heading", { name: "Capture first, organize later." })).toBeVisible();
@@ -161,19 +220,89 @@ test.describe("Authenticated workspace quality", () => {
     const finish = page.getByRole("button", { name: "Finish" });
     await expect(finish).toBeDisabled();
     await page.getByRole("button", { name: "Local", exact: true }).click();
-    await expect(page.getByLabel("Ollama model")).toHaveValue("qwen3:8b");
+    await expect(page.getByLabel("Ollama model")).toHaveValue("");
+    await page.getByLabel("Ollama URL").fill("http://local-e2e-provider.invalid");
+    await page.getByLabel("Ollama model").fill("local-e2e-model");
     await expect(finish).toBeEnabled();
     await finish.click();
     await expect(page.getByRole("heading", { name: "Choose how BerryBrain uses AI." })).toBeHidden();
+    expect(savedProvider).toBe("local");
+  });
+
+  test("loads cloud models from provider presets during setup", async ({
+    page,
+    context,
+  }) => {
+    let savedValues: Record<string, string> = {};
+    await page.route("**/api/v1/settings/batch", async (route) => {
+      const payload = route.request().postDataJSON() as { values?: Record<string, string> };
+      savedValues = payload.values || {};
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    });
+    await page.route("**/api/v1/settings/ai/models", async (route) => {
+      const payload = route.request().postDataJSON() as { url?: string; key?: string; model?: string };
+      expect(payload.url).toBe("https://integrate.api.nvidia.com/v1");
+      expect(payload.key).toBe("cloud-e2e-key");
+      expect(payload.model || "").toBe("");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          connected: false,
+          requiresModel: true,
+          provider: "nvidia-nim",
+          models: [{ id: "nvidia/e2e-model-a" }, { id: "nvidia/e2e-model-b" }],
+          error: "Models loaded. Select a model to verify generation access.",
+        }),
+      });
+    });
+    const csrf = await authenticate(context);
+    const reset = await context.request.put("/api/v1/settings/onboarding_completed", {
+      data: { value: "false" },
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(reset.ok(), await reset.text()).toBeTruthy();
+    await page.route("**/api/v1/settings", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          settings: [{ key: "onboarding_completed", value: "false" }],
+        }),
+      });
+    });
+
+    await page.goto("/brain");
+    await page.getByRole("button", { name: "Skip" }).click();
+    await page.getByRole("button", { name: "Cloud API" }).click();
+    await page.getByLabel("Cloud provider").selectOption("nvidia-nim");
+    await expect(page.getByLabel("NVIDIA NIM URL")).toHaveValue("https://integrate.api.nvidia.com/v1");
+    await page.getByLabel("API key").fill("cloud-e2e-key");
+    await page.getByRole("button", { name: "Load models" }).click();
+    await expect(page.getByLabel("Model")).toContainText("nvidia/e2e-model-a");
+    await page.getByLabel("Model").selectOption("nvidia/e2e-model-a");
+
+    const finish = page.getByRole("button", { name: "Finish" });
+    await expect(finish).toBeEnabled();
+    await finish.click();
+    expect(savedValues.ai_provider).toBe("cloud");
+    expect(savedValues.ai_api_url).toBe("https://integrate.api.nvidia.com/v1");
+    expect(savedValues.ai_model).toBe("nvidia/e2e-model-a");
   });
 
   test("supports the main keyboard workflow", async ({ page, context }) => {
     await openWorkspace(page, context);
+    await mockCreatedNote(page, "", "keyboard");
 
     await page.keyboard.press("Control+KeyK");
     const palette = page.getByRole("dialog", { name: "Command palette" });
     await expect(palette).toBeVisible();
     await expect(palette.getByRole("textbox")).toBeFocused();
+    await expect(palette.getByRole("option", { name: /New note/ })).toBeVisible();
 
     await page.keyboard.press("Enter");
     await expect(palette).toBeHidden();
@@ -190,6 +319,7 @@ test.describe("Authenticated workspace quality", () => {
 
   test("shows functional note actions above the editor toolbar", async ({ page, context }) => {
     await openWorkspace(page, context);
+    await mockCreatedNote(page, "Action note", "actions");
     await page.keyboard.press("Control+KeyK");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();

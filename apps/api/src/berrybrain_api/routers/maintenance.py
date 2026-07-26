@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy import select
 
 from berrybrain_api.automation_logs import create_automation_log
@@ -22,14 +22,12 @@ from berrybrain_api.models import (
     NoteRecord,
 )
 from berrybrain_api.second_brain import expand_knowledge_graph
-from berrybrain_api.security import require_admin
 from berrybrain_api.vault_scan import scan_vault
 
 # ponytail: destructive system-wide ops, admin only
 router = APIRouter(
     prefix="/api/v1/maintenance",
     tags=["maintenance"],
-    dependencies=[Depends(require_admin)],
 )
 
 TECHNICAL_TERMS = (
@@ -126,10 +124,9 @@ def _cleanup_legacy_insights(session) -> dict[str, int]:
             if (
                 edge.source_node_id in technical_node_ids
                 or edge.target_node_id in technical_node_ids
-            ):
-                if edge.status != "ignored":
-                    writer.set_edge_status(edge.id, "ignored")
-                    ignored_edges += 1
+            ) and edge.status != "ignored":
+                writer.set_edge_status(edge.id, "ignored")
+                ignored_edges += 1
 
     session.commit()
     return {

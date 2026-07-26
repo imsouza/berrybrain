@@ -10,6 +10,9 @@ import { readCsrf } from "@/components/public-site/user-menu";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 const GITHUB_URL = "https://github.com/imsouza/berrybrain";
+const APP_VERSION = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || "local";
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_BERRYBRAIN_SUPPORT_EMAIL || "support email not configured";
+const supportText = (prefix: string) => `${prefix} ${SUPPORT_EMAIL}.`;
 
 const legalContent: Record<string, { title: string; body: string[] }> = {
   security: {
@@ -27,9 +30,10 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
     body: [
       "BerryBrain is local-first. User notes remain in the configured vault unless the user enables external providers.",
       "When cloud AI, email, or external enrichment is configured, BerryBrain records provider, model, purpose, status, and evidence so the user can understand what left the local system.",
+      "Provider API keys are stored server-side, encrypted at rest, and masked in client responses.",
       "Account data is separated from note content. Security events may include timestamps, IP-derived request metadata, session state, and administrative actions needed to protect the service.",
       "Knowledge data is processed to build notes, concepts, graph edges, insights, and retrieval indexes. The product should never hide whether a result came from local processing or a configured external provider.",
-      "For privacy requests, contact contato@optlabs.com.br.",
+      supportText("For privacy requests, contact"),
     ],
   },
   "gdpr-lgpd": {
@@ -39,7 +43,7 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
       "Self-hosted operators control access, correction, export, and deletion of their local instance data. Local vault files remain under the operator's storage control.",
       "Processing purposes include local authentication, instance security, note indexing, graph construction, retrieval, insight generation, and optional provider integrations configured by the local owner.",
       "For LGPD and GDPR requests, include enough context to verify ownership. Do not include passwords, API keys, tokens, or private notes in email.",
-      "Privacy and data protection contact: contato@optlabs.com.br.",
+      supportText("Privacy and data protection contact:"),
     ],
   },
   terms: {
@@ -49,13 +53,13 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
       "The system may use local or configured cloud providers. Provider use must be configured by the local owner.",
       "Users should not store content they do not have the right to process. Automated insights, graph connections, and generated summaries are assistance outputs and should be reviewed before relying on them.",
       "Account misuse, abuse automation, credential stuffing, or attempts to bypass protective controls may lead to local lockout or instance restrictions.",
-      "Support and account requests: contato@optlabs.com.br.",
+      supportText("Support and account requests:"),
     ],
   },
   contact: {
     title: "Contact",
     body: [
-      "For support, security reports, privacy requests, or project questions, contact contato@optlabs.com.br.",
+      supportText("For support, security reports, privacy requests, or project questions, contact"),
       "Please do not send passwords, API keys, private notes, or recovery codes by email.",
       "For support, include the page, browser, approximate time, and what action failed. For security reports, include reproducible steps and impact without accessing data that is not yours.",
       "For privacy requests, include enough context for the self-hosted operator or maintainer to understand the request.",
@@ -255,7 +259,7 @@ export function PublicShell({
           </nav>
           <div className="flex items-center gap-2">
             {accessState === "checking" ? (
-              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" role="status" aria-label="Checking access" />
+              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" aria-label="Checking access" />
             ) : accessState === "setup" ? (
               <a href={appPath("/setup")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
                 Setup
@@ -430,7 +434,7 @@ function LandingContent() {
     { title: "One command, full stack", body: "Docker starts the web app, authenticated API, and cognitive worker on infrastructure you control.", icon: DockerIcon },
     { title: "Attachments become evidence", body: "PDFs, images, audio, and video become searchable chunks with page or timestamp provenance.", icon: DocsIcon },
     { title: "Autopilot you can inspect", body: "Leases, retries, recovery, and idempotency keep background processing resilient and visible in Monitor.", icon: GraphIcon },
-    { title: "A release you can verify", body: "Protected CI, cognitive benchmarks, container scans, signed images, SBOMs, and evidence-based scorecards back the v1.1 release.", icon: GithubIcon },
+    { title: "A release you can verify", body: "API, worker, web, browser E2E, benchmark, calibration, security, and architecture gates back the v1.2.0 release candidate.", icon: GithubIcon },
   ];
   const pipeline = [
     ["Capture", "Write a note or attach a source. The original remains available in your vault."],
@@ -440,12 +444,12 @@ function LandingContent() {
     ["Act", "Review gaps, apply insights, confirm suggestions, and choose the next study step."],
   ];
   const maturityItems = [
-    ["Hybrid memory", "Markdown chunks, lexical signals, vectors, and graph context work together during retrieval."],
-    ["Graph integrity", "Canonical nodes and edges require source evidence, confidence, status, provider, and prompt trace."],
+    ["Hybrid memory", "Markdown chunks, lexical signals, vector stores, graph context, and optional HippoRAG work together during retrieval."],
+    ["Graph integrity", "Canonical nodes and edges carry source evidence, confidence, status, provider/model trace, and Judge evaluation where needed."],
     ["Cognitive sources", "PDFs, documents, images, audio, and video become searchable evidence with page or timestamp provenance."],
     ["Recoverable jobs", "Leases, heartbeats, idempotency, retries, dead-letter handling, and stale-job recovery protect the pipeline."],
-    ["Portable recovery", "Manifest-backed backups verify checksums and restore the vault, database, settings, and derived knowledge."],
-    ["Owner security", "One-time setup, Argon2id, signed sessions, CSRF checks, rate limits, lockout, and audit events protect access."],
+    ["Provider setup", "Cloud presets fill provider URLs automatically, model lists are normalized, and keys stay masked and encrypted at rest."],
+    ["Release gates", "The validated scope closes API, worker, web, E2E, benchmark, judge calibration, security, and architecture checks."],
   ];
   const comparisonColumns = [
     { label: "BerryBrain", note: "Source-available cognitive layer" },
@@ -460,6 +464,8 @@ function LandingContent() {
     ["Explainable AI insights", "Implemented", "Not native", "Conditional", "Not native"],
     ["Evidence per connection", "Implemented", "Not native", "Not native", "Not native"],
     ["Retrieval / semantic search", "Implemented", "Not native", "Conditional", "Not native"],
+    ["RAG Judge / quality gate", "Implemented", "Not native", "Not native", "Not native"],
+    ["Optional HippoRAG multi-hop retrieval", "Implemented", "Not native", "Not native", "Not native"],
     ["Provider/model trace", "Implemented", "Not native", "Not native", "Not native"],
     ["Collaboration workspace", "Not native", "Conditional", "Implemented", "Not native"],
     ["Local source files and data portability", "Implemented", "Implemented", "Conditional", "Implemented"],
@@ -485,7 +491,7 @@ function LandingContent() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
               <span className="size-1.5 rounded-full bg-accent" />
-              v1.1.0 · Local-first · Evidence-backed
+              v{APP_VERSION} · Local-first · Evidence-backed
             </span>
             <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
               Turn the notes you already own into knowledge you can navigate.
@@ -512,9 +518,9 @@ function LandingContent() {
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["Release", "v1.1.0"],
-                ["Deploy", "Docker"],
-                ["Source", "Markdown"],
+                ["Release", `v${APP_VERSION}`],
+                ["Gates", "Validated"],
+                ["Tests", "273 pass"],
                 ["Models", "Local/cloud"],
               ].map(([label, value]) => (
                 <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
@@ -674,7 +680,7 @@ function LandingContent() {
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
               Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
             </p>
-            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-foreground decoration-accent underline-offset-4 hover:underline">
+            <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-foreground underline-offset-4 hover:text-accent hover:underline">
               Read the technical documentation
               <span aria-hidden="true">→</span>
             </a>
@@ -683,7 +689,7 @@ function LandingContent() {
             {maturityItems.map(([title, body], index) => (
               <article key={title} className="bb-card p-5">
                 <div className="flex items-start gap-4">
-                  <span className="mt-0.5 rounded-sm bg-accent-soft px-1.5 py-0.5 text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")}</span>
+                  <span className="mt-0.5 text-xs font-semibold text-foreground">{String(index + 1).padStart(2, "0")}</span>
                   <div>
                     <h3 className="text-sm font-semibold">{title}</h3>
                     <p className="mt-2 text-sm leading-6 text-muted">{body}</p>
@@ -727,7 +733,7 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.1 and is covered by release evidence. “Conditional” means availability depends on plan, configuration, or workflow.
+          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.2.0 and is covered by the current release-candidate validation. “Conditional” means availability depends on plan, configuration, or workflow.
         </p>
       </section>
 
@@ -1059,9 +1065,9 @@ function Footer({ onOpenModal }: { onOpenModal: (key: string) => void }) {
           <p className="mt-4 max-w-sm text-sm leading-6 text-muted">
             A local-first cognitive workspace that turns owned Markdown, attachments, and model-assisted analysis into explainable knowledge.
           </p>
-          <p className="mt-4 text-xs text-muted">BerryBrain v1.1.0 · Self-hosted · Non-commercial license</p>
-          <a href="mailto:contato@optlabs.com.br" className="mt-2 inline-flex text-xs text-muted underline-offset-4 hover:text-foreground hover:underline">
-            contato@optlabs.com.br
+          <p className="mt-4 text-xs text-muted">BerryBrain v{APP_VERSION} · Self-hosted · Non-commercial license</p>
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="mt-2 inline-flex text-xs text-muted underline-offset-4 hover:text-foreground hover:underline">
+            {SUPPORT_EMAIL}
           </a>
           <a
             href={GITHUB_URL}

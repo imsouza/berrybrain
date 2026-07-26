@@ -289,8 +289,53 @@ class ConceptRecord(Base):
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     source_evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    quality_gate_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending"
+    )
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AIGatewayInvocationRecord(Base):
+    __tablename__ = "ai_gateway_invocations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    capability: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    outcome: Mapped[str] = mapped_column(String(50), nullable=False, default="success")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ArtifactEvaluationRecord(Base):
+    __tablename__ = "artifact_evaluations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    artifact_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # node, edge, connection, insight
+    artifact_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    verdict: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # passed, review, rejected, insufficient_evidence, error
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    rubric: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}"
+    )  # JSON containing scores per criteria
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_used: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class ConnectionRecord(Base):
@@ -312,6 +357,11 @@ class ConnectionRecord(Base):
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="suggested")
+    quality_gate_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending"
+    )
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -339,7 +389,11 @@ class InsightRecord(Base):
     reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_context: Mapped[str] = mapped_column(Text, nullable=False, default="")
     fingerprint: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    quality_gate_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending"
+    )
     quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     feedback_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_recalculated_at: Mapped[datetime | None] = mapped_column(
@@ -540,6 +594,11 @@ class GraphNodeRecord(Base):
     validation_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="unvalidated"
     )
+    quality_gate_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending"
+    )
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
@@ -573,6 +632,11 @@ class GraphEdgeRecord(Base):
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="suggested")
+    quality_gate_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending"
+    )
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -590,3 +654,61 @@ class NotificationRecord(Base):
     related_job_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MetricRecord(Base):
+    __tablename__ = "metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    unit: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    formula: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    version: Mapped[str] = mapped_column(String(50), nullable=False, default="1.0")
+    window: Mapped[str] = mapped_column(String(50), nullable=False, default="all_time")
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sources: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    measured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class JudgeVerdictRecord(Base):
+    """Individual verdict emitted by a single judge in a (possibly multi-judge) evaluation.
+
+    A committee run (`ArtifactEvaluationRecord`) groups N verdicts via `committee_id`.
+    The summary verdict on the parent ArtifactEvaluationRecord is derived from these rows.
+    """
+
+    __tablename__ = "judge_verdicts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    committee_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    artifact_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    artifact_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    judge_slot: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False)
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    rubric: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_summary: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class HumanReviewRecord(Base):
+    """Human reviewer verdict against a committee run, importable from the
+    `judge_human_review.jsonl` format. Powers the §9 scorecard calibration gates.
+    """
+
+    __tablename__ = "judge_human_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    committee_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    artifact_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    artifact_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    reviewer: Mapped[str] = mapped_column(String(120), nullable=False)
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

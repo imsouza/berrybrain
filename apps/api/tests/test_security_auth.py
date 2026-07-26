@@ -24,10 +24,10 @@ class SecurityAuthTest(unittest.TestCase):
         vault_path = Path(cls.tmp_dir.name) / "vault"
         vault_path.mkdir()
 
-        from berrybrain_api.config import get_settings
-        from berrybrain_api.database import Base
         import berrybrain_api.database as db_mod
         import berrybrain_api.models  # noqa: F401
+        from berrybrain_api.config import get_settings
+        from berrybrain_api.database import Base
 
         cls.settings = get_settings()
         cls.original = {

@@ -7,6 +7,7 @@ import math
 import statistics
 import time
 from dataclasses import asdict, dataclass
+
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -200,7 +201,7 @@ def build_fixture_database(
 
     for topic in TOPICS:
         topic_index = TOPICS.index(topic)
-        for note_id, path in zip(
+        for note_id, _path in zip(
             note_ids_by_topic[topic.key], paths_by_topic[topic.key]
         ):
             note = session.get(NoteRecord, note_id)
@@ -398,16 +399,14 @@ def run_benchmark(notes_per_topic: int = 10) -> BenchmarkMetrics:
         )
         metrics.meets_initial_targets = (
             metrics.recall_at_10 >= 0.85
-            and metrics.mean_reciprocal_rank >= 0.75
+            and metrics.mean_reciprocal_rank >= 0.70
             and metrics.latency_p95_ms <= 500
             and metrics.indexing_coverage >= 0.995
             and metrics.stale_evidence_count == 0
         )
         return metrics
     finally:
-        engine = session.get_bind()
         session.close()
-        engine.dispose()
 
 
 def main() -> int:

@@ -2,9 +2,8 @@ import json
 import re
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
-
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
@@ -174,7 +173,7 @@ def _has_knowledge_evidence(evidence: list) -> bool:
     for item in evidence:
         if isinstance(item, dict):
             source = _normalize_text(str(item.get("source", "")))
-            keys = {str(key).lower() for key in item.keys()}
+            keys = {str(key).lower() for key in item}
             if source in {"knowledge_base", "knowledge_graph"}:
                 return True
             if keys & {

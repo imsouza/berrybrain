@@ -254,6 +254,15 @@ export function HomeView() {
           <AutopilotProgressCard summary={summary} status={progressStatus} onOpenMonitor={() => w.setMonitorOpen(true)} />
         </div>
 
+        {noNotes && (
+          <FirstRunGuide
+            onCreate={() => createNote()}
+            onScan={w.scanVault}
+            onGraph={() => w.setGraphOpen(true)}
+            onSettings={() => w.setSettingsOpen(true)}
+          />
+        )}
+
         <StatsGrid summary={summary} />
 
         <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
@@ -282,6 +291,65 @@ export function HomeView() {
         </div>
       </div>
     </div>
+  );
+}
+
+function FirstRunGuide({
+  onCreate,
+  onScan,
+  onGraph,
+  onSettings,
+}: {
+  onCreate: () => void;
+  onScan: () => void;
+  onGraph: () => void;
+  onSettings: () => void;
+}) {
+  const steps = [
+    {
+      title: "Capture",
+      text: "Write a quick thought or create an empty note.",
+      action: "New note",
+      onClick: onCreate,
+    },
+    {
+      title: "Import",
+      text: "Already have Markdown files? Scan the vault.",
+      action: "Scan vault",
+      onClick: onScan,
+    },
+    {
+      title: "Connect",
+      text: "Open the graph after notes are processed.",
+      action: "Open graph",
+      onClick: onGraph,
+    },
+    {
+      title: "Configure",
+      text: "Set local or cloud AI before using Ask.",
+      action: "Settings",
+      onClick: onSettings,
+    },
+  ];
+
+  return (
+    <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="First steps">
+      {steps.map((step, index) => (
+        <button
+          key={step.title}
+          type="button"
+          className="bb-card bb-card--interactive p-4 text-left"
+          onClick={step.onClick}
+        >
+          <div className="flex items-center gap-2">
+            <span className="grid size-6 place-items-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent">{index + 1}</span>
+            <span className="text-sm font-semibold text-foreground">{step.title}</span>
+          </div>
+          <p className="mt-2 min-h-10 text-xs leading-5 text-muted/65">{step.text}</p>
+          <span className="mt-3 inline-flex rounded-md border border-border/60 px-2 py-1 text-[11px] font-medium text-muted">{step.action}</span>
+        </button>
+      ))}
+    </section>
   );
 }
 
@@ -562,7 +630,7 @@ function StatsGrid({ summary }: { summary: HomeSummary }) {
         <StatCard label={t("notes")} value={s.notes.total} detail={`+${s.notes.createdToday} ${t("oneCreatedToday")} · ${s.notes.unassimilated} ${t("notAssimilated")}`} />
         <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")} · ${percent(s.connections.averageConfidence)} ${t("confidence")}`} />
         <StatCard label={t("concepts")} value={s.concepts.total} detail={`${s.concepts.newToday} ${t("newToday")} · ${s.concepts.withoutPermanentNote} ${t("withoutNote")}`} />
-        <StatCard label={t("jobs")} value={s.jobs.pending} detail={`${tf("activeJobsCount", { count: s.jobs.active })} · ${s.jobs.failed} ${t("errors")}`} />
+        <StatCard label={t("jobs")} value={s.jobs.total} detail={`${s.jobs.pending} ${t("pending")} · ${tf("activeJobsCount", { count: s.jobs.active })} · ${s.jobs.failed} ${t("errors")}`} />
         <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? t("online") : t("local")} detail={`${s.ai.embeddings} ${t("embeddings")} · ${s.ai.metadata} ${t("metadata")}`} />
       </div>
     </Section>

@@ -11,13 +11,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.ai_gateway import (
-    GraphAIUnavailable,
     UNTRUSTED_CONTENT_POLICY,
+    GraphAIUnavailable,
+    _cloud_embedding,
     _cloud_json,
     _invoke_provider,
     _loads_json_object,
+    _ollama_embedding,
     _ollama_json,
     _reset_provider_resilience_for_tests,
+    check_router_status,
     generate_graph_answer,
     generate_query_embedding,
     get_ai_config,
@@ -114,16 +117,18 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
         error = urllib.error.HTTPError(
             config["cloud_api_url"], 401, "Unauthorized", None, None
         )
-        with patch(
-            "berrybrain_api.ai_gateway.urllib.request.urlopen",
-            side_effect=error,
+        with (
+            patch(
+                "berrybrain_api.ai_gateway.urllib.request.urlopen",
+                side_effect=error,
+            ),
+            self.assertRaisesRegex(GraphAIUnavailable, "authentication failed"),
         ):
-            with self.assertRaisesRegex(GraphAIUnavailable, "authentication failed"):
-                await generate_graph_answer(
-                    config,
-                    "question",
-                    "Answer only from evidence",
-                )
+            await generate_graph_answer(
+                config,
+                "question",
+                "Answer only from evidence",
+            )
 
     async def test_local_embedding_fails_fast_when_ollama_is_unavailable(self) -> None:
         config = {
@@ -137,11 +142,11 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
                 side_effect=OSError("connection refused"),
             ) as urlopen,
             patch("berrybrain_api.ai_gateway.time.sleep"),
-        ):
-            with self.assertRaisesRegex(
+            self.assertRaisesRegex(
                 GraphAIUnavailable, "Ollama embedding provider is unavailable"
-            ):
-                generate_query_embedding(config, "semantic query", timeout=30)
+            ),
+        ):
+            generate_query_embedding(config, "semantic query", timeout=30)
 
         self.assertEqual(urlopen.call_count, 3)
         self.assertEqual(urlopen.call_args.args[0], "http://ollama.test/api/tags")
@@ -342,9 +347,9 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
                     "berrybrain_api.ai_gateway.urllib.request.urlopen",
                     side_effect=error,
                 ),
+                self.assertRaisesRegex(GraphAIUnavailable, message),
             ):
-                with self.assertRaisesRegex(GraphAIUnavailable, message):
-                    _cloud_json(config, "question", "system", 30, 100)
+                _cloud_json(config, "question", "system", 30, 100)
 
         self.assertEqual(
             _loads_json_object('prefix {"answer":"embedded"} suffix'),
@@ -364,6 +369,104 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
             )
         with self.assertRaisesRegex(GraphAIUnavailable, "Ollama provider"):
             _ollama_json({}, "question", "system", 30, 100)
+
+    def test_router_status_reports_dedicated_judge_and_hipporag_models(self) -> None:
+        status = check_router_status(
+            {
+                "provider": "local",
+                "ollama_base_url": "http://ollama.test",
+                "ollama_model": "main",
+                "judge_provider": "cloud",
+                "judge_model": "judge-cloud",
+                "hipporag_provider": "local",
+                "hipporag_model": "hippo-local",
+                "cloud_api_url": "https://provider.test/v1",
+                "cloud_api_key": "secret",
+                "remote_content_consent": "true",
+            }
+        )
+
+        self.assertEqual(status["generation"]["provider"], "local")
+        self.assertEqual(status["judge"]["provider"], "cloud")
+        self.assertEqual(status["judge"]["model"], "judge-cloud")
+        self.assertEqual(status["hipporag"]["provider"], "local")
+        self.assertEqual(status["hipporag"]["model"], "hippo-local")
+
+    def test_router_status_reports_unconfigured_routes(self) -> None:
+        status = check_router_status(
+            {"provider": "cloud", "remote_content_consent": "true"}
+        )
+
+        self.assertFalse(status["generation"]["configured"])
+        self.assertFalse(status["embedding"]["configured"])
+        self.assertIn("not configured", status["generation"]["error"])
+
+    def test_cloud_json_humanizes_rate_limit_and_generic_http_errors(self) -> None:
+        config = {
+            "cloud_api_url": "https://provider.test/v1",
+            "cloud_api_key": "secret",
+            "cloud_model": "model",
+        }
+        rate_limited = urllib.error.HTTPError(
+            config["cloud_api_url"], 429, "Too Many Requests", None, None
+        )
+        unavailable = urllib.error.HTTPError(
+            config["cloud_api_url"], 503, "Unavailable", None, None
+        )
+        with (
+            patch(
+                "berrybrain_api.ai_gateway.urllib.request.urlopen",
+                side_effect=rate_limited,
+            ),
+            self.assertRaisesRegex(GraphAIUnavailable, "rate limit"),
+        ):
+            _cloud_json(config, "prompt", "system", 1, 10)
+        with (
+            patch(
+                "berrybrain_api.ai_gateway.urllib.request.urlopen",
+                side_effect=unavailable,
+            ),
+            self.assertRaisesRegex(GraphAIUnavailable, "HTTP 503"),
+        ):
+            _cloud_json(config, "prompt", "system", 1, 10)
+
+    def test_embedding_helpers_accept_cloud_and_ollama_payload_shapes(self) -> None:
+        cloud_response = FakeHTTPResponse(
+            json.dumps({"data": [{"embedding": [0.1, 0.2]}]}).encode("utf-8")
+        )
+        ollama_health = FakeHTTPResponse(b"{}")
+        ollama_response = FakeHTTPResponse(
+            json.dumps({"embedding": [0.3, 0.4]}).encode("utf-8")
+        )
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            return_value=cloud_response,
+        ):
+            self.assertEqual(
+                _cloud_embedding(
+                    {
+                        "cloud_api_url": "https://provider.test/v1",
+                        "cloud_api_key": "secret",
+                    },
+                    "embed",
+                    "text",
+                    1,
+                ),
+                [0.1, 0.2],
+            )
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            side_effect=[ollama_health, ollama_response],
+        ):
+            self.assertEqual(
+                _ollama_embedding(
+                    {"ollama_base_url": "http://ollama.test"},
+                    "embed",
+                    "text",
+                    1,
+                ),
+                [0.3, 0.4],
+            )
 
 
 if __name__ == "__main__":

@@ -282,6 +282,27 @@ def create_job(
     return job
 
 
+def enqueue_job(
+    session: Session,
+    job_type: str,
+    payload: dict[str, Any],
+    *,
+    priority: int = 0,
+    max_attempts: int = 3,
+    autocommit: bool = True,
+) -> JobRecord:
+    queued_payload = dict(payload)
+    if priority:
+        queued_payload.setdefault("priority", priority)
+    return create_job(
+        session,
+        job_type,
+        queued_payload,
+        max_attempts=max_attempts,
+        autocommit=autocommit,
+    )
+
+
 def enqueue_note_changed_jobs(
     session: Session,
     note_path: str,

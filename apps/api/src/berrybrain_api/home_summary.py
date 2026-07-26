@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.jobs import (
     COMPLETED,
     FAILED,
@@ -17,7 +18,6 @@ from berrybrain_api.jobs import (
     serialize_datetime,
     utc_now,
 )
-from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.models import (
     AutomationLogRecord,
     ConceptRecord,
@@ -35,7 +35,7 @@ from berrybrain_api.models import (
 )
 from berrybrain_api.review_service import serialize_review
 from berrybrain_api.services import _is_visible_insight
-
+from berrybrain_api.settings_store import decode_setting_value
 
 JOB_LABELS = {
     "PARSE_NOTE": "Analyzing note",
@@ -54,6 +54,7 @@ JOB_LABELS = {
     "GENERATE_GRAPH_INSIGHTS": "Generating graph insights",
     "UPDATE_GRAPH_STATS": "Updating graph stats",
     "GENERATE_NOTE_TITLE": "Applying automatic title",
+    "JUDGE_ARTIFACT": "Evaluating artifact quality",
 }
 
 ACTIVITY_LABELS = {
@@ -100,6 +101,11 @@ def build_home_summary(session: Session) -> dict[str, Any]:
 
     ai_config = _ai_config(session)
     connections = list(session.execute(select(ConnectionRecord)).scalars())
+    graph_edges = list(
+        session.execute(
+            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+        ).scalars()
+    )
     concepts = list(session.execute(select(ConceptRecord)).scalars())
     raw_insights = list(
         session.execute(
@@ -173,7 +179,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     )
 
     progress_state = _progress_state(worker, running_jobs, pending_jobs, failed_jobs)
-    current_step = _current_step(running_jobs, pending_jobs)
+    current_step = _current_step(running_jobs, pending_jobs, completed_jobs)
 
     summary = {
         "status": {
@@ -193,7 +199,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             "lastProcessingAt": serialize_datetime(_last_processing_at(jobs, notes)),
         },
         "progress": {
-            "mode": "determinate" if total_jobs else "determinate",
+            "mode": "determinate",
             "percent": progress_percent,
             "active": len(running_jobs),
             "pending": len(pending_jobs),
@@ -214,11 +220,14 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 "unassimilated": len(unassimilated),
             },
             "connections": {
-                "total": len(connections),
+                "total": len(graph_edges) or len(connections),
                 "createdToday": sum(
-                    1 for c in connections if _same_day(c.created_at, today)
-                ),
-                "averageConfidence": _average_confidence(connections),
+                    1 for e in graph_edges if _same_day(e.created_at, today)
+                )
+                or sum(1 for c in connections if _same_day(c.created_at, today)),
+                "averageConfidence": _average_confidence_edges(graph_edges)
+                if graph_edges
+                else _average_confidence(connections),
             },
             "concepts": {
                 "total": len(concepts),
@@ -270,9 +279,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         "needsAttention": needs_attention,
         "jobsByType": {
             JOB_LABELS.get(job_type, job_type.replace("_", " ").title()): count
-            for job_type, count in Counter(
-                job.type for job in pending_jobs + running_jobs
-            ).items()
+            for job_type, count in Counter(job.type for job in jobs).items()
         },
     }
 
@@ -326,7 +333,7 @@ def list_recent_connections(session: Session, limit: int = 20) -> list[dict[str,
 
 def _ai_config(session: Session) -> dict[str, str]:
     rows = session.execute(select(SettingRecord)).scalars()
-    values = {row.key: row.value for row in rows}
+    values = {row.key: decode_setting_value(row.key, row.value) for row in rows}
     cloud_url = values.get("ai_api_url") or values.get("ai_custom_url", "")
     test_matches = (
         values.get("ai_last_test_url", "").rstrip("/") == cloud_url.rstrip("/")
@@ -403,7 +410,11 @@ def _progress_state(
     return "completed"
 
 
-def _current_step(running_jobs: list[JobRecord], pending_jobs: list[JobRecord]) -> str:
+def _current_step(
+    running_jobs: list[JobRecord],
+    pending_jobs: list[JobRecord],
+    completed_jobs: list[JobRecord],
+) -> str:
     job = (
         sorted(running_jobs, key=lambda item: item.started_at or item.created_at)[0]
         if running_jobs
@@ -413,6 +424,16 @@ def _current_step(running_jobs: list[JobRecord], pending_jobs: list[JobRecord]) 
         job = sorted(pending_jobs, key=lambda item: item.created_at)[0]
     if job is None:
         return "All set"
+
+    if job.type == "GENERATE_EMBEDDING":
+        completed = len([j for j in completed_jobs if j.type == "GENERATE_EMBEDDING"])
+        total = (
+            completed
+            + len([j for j in running_jobs if j.type == "GENERATE_EMBEDDING"])
+            + len([j for j in pending_jobs if j.type == "GENERATE_EMBEDDING"])
+        )
+        return f"Processando embeddings: {completed}/{total} concluidos"
+
     return JOB_LABELS.get(job.type, job.type.replace("_", " ").title())
 
 
@@ -795,12 +816,17 @@ def _last_result(
 def _average_confidence(connections: list[ConnectionRecord]) -> float:
     if not connections:
         return 0
-    return round(
-        sum(connection.confidence for connection in connections)
-        / len(connections)
-        / 100,
-        2,
-    )
+    raw = sum(connection.confidence for connection in connections) / len(connections)
+    # ConnectionRecord stores confidence as 0-100 integers
+    return round(raw / 100, 2)
+
+
+def _average_confidence_edges(edges: list[GraphEdgeRecord]) -> float:
+    if not edges:
+        return 0
+    raw = sum(edge.confidence for edge in edges) / len(edges)
+    # GraphEdgeRecord stores confidence as 0.0-1.0 floats
+    return round(raw, 2)
 
 
 def _concepts_without_notes(

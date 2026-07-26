@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { t } from "@/i18n";
 
 type GNode = {
@@ -70,6 +70,7 @@ const EDGE_COLORS: Record<string, string> = {
 };
 
 const BG = "#FBF4EC";
+
 interface LN { x: number; y: number; vx: number; vy: number; r: number; node: GNode }
 export type GraphLayoutMode = "brain" | "radial" | "type" | "connections";
 

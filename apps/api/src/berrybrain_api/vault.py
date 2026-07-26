@@ -1,13 +1,10 @@
-from pathlib import Path
-from dataclasses import dataclass
 import hashlib
-import os
-from pathlib import PurePosixPath
 import re
 import unicodedata
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
-
 
 SAFE_FOLDERS = {
     "inbox",
@@ -133,27 +130,27 @@ def ensure_vault(vault_path: Path) -> None:
 
 def resolve_note_path(vault_path: Path, note_path: str) -> Path:
     ensure_vault(vault_path)
-    relative = PurePosixPath(note_path)
+    normalized = str(note_path or "").strip()
+    parsed = PurePosixPath(normalized)
     if (
-        not note_path
-        or "\\" in note_path
-        or "\x00" in note_path
-        or relative.is_absolute()
-        or any(part in {"", ".", ".."} for part in relative.parts)
+        "\\" in normalized
+        or parsed.is_absolute()
+        or not parsed.parts
+        or any(part in {"", ".", ".."} for part in parsed.parts)
     ):
         raise HTTPException(status_code=400, detail="Invalid note path")
+    root = vault_path.resolve()
+    candidate = root.joinpath(*parsed.parts).resolve()
 
-    root = os.path.realpath(os.fspath(vault_path))
-    candidate = os.path.realpath(os.path.join(root, *relative.parts))
-    root_prefix = root.rstrip(os.sep) + os.sep
-    if not candidate.startswith(root_prefix):
-        raise HTTPException(status_code=400, detail="Invalid note path")
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid note path") from exc
 
-    path = Path(candidate)
-    if path.suffix != ".md":
+    if candidate.suffix != ".md":
         raise HTTPException(status_code=400, detail="Only Markdown notes are supported")
 
-    return path
+    return candidate
 
 
 def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:

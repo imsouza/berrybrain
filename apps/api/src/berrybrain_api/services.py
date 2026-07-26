@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 import json
-import hashlib
-import math
-import re
 import struct
-from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.graph_quality import (
+    _filter_nodes_by_view,
+    graph_quality_report,  # noqa: F401
+)
+from berrybrain_api.graph_write_service import GraphWriteService
+from berrybrain_api.insight_service import (  # noqa: F401
+    _is_visible_insight,
+    create_insight,
+    dismiss_insight,
+    get_active_insights,
+    insight_fingerprint,
+    migrate_legacy_insights,
+    score_insight_quality,
+    serialize_insight,
+)
 from berrybrain_api.models import (
     ChunkRecord,
     ConceptRecord,
@@ -20,10 +31,8 @@ from berrybrain_api.models import (
     EmbeddingRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
-    InsightRecord,
     NoteRecord,
 )
-from berrybrain_api.graph_write_service import GraphWriteService
 
 VALID_CONNECTION_TYPES = {
     "backlink",
@@ -78,6 +87,16 @@ def create_connection(
         status=status,
     )
     session.add(conn)
+    session.flush()
+    if provider:
+        from berrybrain_api.jobs import enqueue_job
+
+        enqueue_job(
+            session,
+            "JUDGE_ARTIFACT",
+            {"artifact_type": "connection", "artifact_id": conn.id},
+            priority=20,
+        )
     session.commit()
     session.refresh(conn)
     return conn
@@ -161,431 +180,6 @@ def serialize_connection(
     }
 
 
-def create_insight(
-    session: Session,
-    insight_type: str,
-    title: str,
-    description: str = "",
-    related_notes: list[int] | None = None,
-    priority: int = 0,
-    why_it_matters: str = "",
-    evidence: list[str] | None = None,
-    suggested_action: str = "",
-    graph_impact: str = "",
-    confidence: float = 0.5,
-    status: str = "suggested",
-    provider: str = "",
-    model: str = "",
-    prompt_version: str = "v1",
-    reasoning: str = "",
-    source_context: str = "",
-    autocommit: bool = True,
-) -> InsightRecord:
-    related = related_notes or []
-    source_evidence = evidence or []
-    diagnostic_types = {
-        "system_diagnostic",
-        "pipeline_bottleneck",
-        "provider_issue",
-        "job_backlog",
-        "worker_status",
-    }
-    if insight_type not in diagnostic_types:
-        missing = []
-        if not source_evidence:
-            missing.append("evidence")
-        if not why_it_matters.strip():
-            missing.append("why_it_matters")
-        if not suggested_action.strip():
-            missing.append("suggested_action")
-        if not graph_impact.strip():
-            missing.append("graph_impact")
-        if missing:
-            raise HTTPException(
-                status_code=422,
-                detail="Knowledge insight is incomplete: " + ", ".join(missing),
-            )
-    fingerprint = insight_fingerprint(
-        insight_type,
-        title,
-        related,
-        source_evidence,
-    )
-    existing = session.execute(
-        select(InsightRecord).where(
-            InsightRecord.fingerprint == fingerprint,
-            InsightRecord.status.not_in(("dismissed", "expired")),
-        )
-    ).scalar_one_or_none()
-    quality_score = score_insight_quality(
-        title=title,
-        description=description,
-        why_it_matters=why_it_matters,
-        evidence=source_evidence,
-        suggested_action=suggested_action,
-        graph_impact=graph_impact,
-        confidence=confidence,
-    )
-    adjusted_priority = max(0, priority - (2 if quality_score < 0.5 else 0))
-    adjusted_confidence = min(confidence, max(0.2, quality_score + 0.15))
-    now = datetime.now(UTC)
-    if existing is not None:
-        existing.title = title
-        existing.description = description
-        existing.related_notes = json.dumps(related, ensure_ascii=False)
-        existing.priority = max(existing.priority, adjusted_priority)
-        existing.why_it_matters = why_it_matters
-        existing.evidence = json.dumps(source_evidence, ensure_ascii=False)
-        existing.suggested_action = suggested_action
-        existing.graph_impact = graph_impact
-        existing.confidence = max(existing.confidence, adjusted_confidence)
-        existing.provider = provider or existing.provider
-        existing.model = model or existing.model
-        existing.prompt_version = prompt_version or existing.prompt_version
-        existing.reasoning = reasoning or existing.reasoning
-        existing.source_context = source_context or existing.source_context
-        existing.quality_score = max(existing.quality_score, quality_score)
-        existing.last_recalculated_at = now
-        existing.expires_at = now + timedelta(days=30)
-        existing.updated_at = now
-        if autocommit:
-            session.commit()
-            session.refresh(existing)
-        else:
-            session.flush()
-        return existing
-
-    insight = InsightRecord(
-        type=insight_type,
-        title=title,
-        description=description,
-        related_notes=json.dumps(related, ensure_ascii=False),
-        priority=adjusted_priority,
-        why_it_matters=why_it_matters,
-        evidence=json.dumps(source_evidence, ensure_ascii=False),
-        suggested_action=suggested_action,
-        graph_impact=graph_impact,
-        confidence=adjusted_confidence,
-        status=status,
-        provider=provider,
-        model=model,
-        prompt_version=prompt_version,
-        reasoning=reasoning,
-        source_context=source_context,
-        fingerprint=fingerprint,
-        quality_score=quality_score,
-        expires_at=now + timedelta(days=30),
-        last_recalculated_at=now,
-    )
-    session.add(insight)
-    if autocommit:
-        session.commit()
-        session.refresh(insight)
-    else:
-        session.flush()
-    return insight
-
-
-def insight_fingerprint(
-    insight_type: str,
-    title: str,
-    related_notes: list[int],
-    evidence: list[Any],
-) -> str:
-    normalized_evidence = sorted(
-        {
-            json.dumps(item, ensure_ascii=False, sort_keys=True).strip().lower()
-            for item in evidence
-            if str(item).strip()
-        }
-    )
-    title_tokens = sorted(
-        {
-            token
-            for token in re.findall(r"[\w-]+", title.lower(), flags=re.UNICODE)
-            if len(token) > 2
-        }
-    )
-    payload = {
-        "type": insight_type.strip().lower(),
-        "notes": sorted(set(related_notes)),
-        "evidence": normalized_evidence,
-        "title": [] if normalized_evidence else title_tokens,
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
-    ).hexdigest()
-
-
-def score_insight_quality(
-    *,
-    title: str,
-    description: str,
-    why_it_matters: str,
-    evidence: list[Any],
-    suggested_action: str,
-    graph_impact: str,
-    confidence: float,
-) -> float:
-    score = 0.0
-    score += 0.15 if len(title.strip()) >= 12 else 0.03
-    score += 0.15 if len(description.strip()) >= 50 else 0.04
-    score += 0.15 if len(why_it_matters.strip()) >= 30 else 0.0
-    score += 0.20 if len(evidence) >= 2 else (0.10 if evidence else 0.0)
-    score += 0.10 if len(suggested_action.strip()) >= 15 else 0.0
-    score += 0.10 if len(graph_impact.strip()) >= 15 else 0.0
-    score += 0.15 * max(0.0, min(1.0, confidence))
-    generic = {
-        "connection found",
-        "new insight",
-        "interesting concept",
-        "knowledge gap",
-        "related notes",
-    }
-    if title.strip().lower() in generic:
-        score -= 0.40
-    return round(max(0.0, min(1.0, score)), 4)
-
-
-def migrate_legacy_insights(session: Session) -> dict[str, int]:
-    """Archive unsupported legacy insights and backfill metadata on grounded ones."""
-    now = datetime.now(UTC)
-    archived = 0
-    upgraded = 0
-    for insight in session.execute(select(InsightRecord)).scalars():
-        if insight.status in {"archived", "dismissed", "expired"}:
-            continue
-        evidence = _parse_json_list(insight.evidence)
-        related_notes = [
-            int(value)
-            for value in _parse_json_list(insight.related_notes)
-            if str(value).isdigit()
-        ]
-        has_cognitive_fields = all(
-            str(value or "").strip()
-            for value in (
-                insight.description,
-                insight.why_it_matters,
-                insight.suggested_action,
-                insight.graph_impact,
-            )
-        )
-        if (
-            not evidence
-            or not related_notes
-            or not has_cognitive_fields
-            or not _is_visible_insight(insight)
-        ):
-            insight.status = "archived"
-            insight.dismissed_at = insight.dismissed_at or now
-            insight.updated_at = now
-            archived += 1
-            continue
-        fingerprint = insight_fingerprint(
-            insight.type,
-            insight.title,
-            related_notes,
-            evidence,
-        )
-        quality = score_insight_quality(
-            title=insight.title,
-            description=insight.description,
-            why_it_matters=insight.why_it_matters,
-            evidence=evidence,
-            suggested_action=insight.suggested_action,
-            graph_impact=insight.graph_impact,
-            confidence=insight.confidence,
-        )
-        changed = False
-        if not insight.fingerprint:
-            insight.fingerprint = fingerprint
-            changed = True
-        if not insight.quality_score:
-            insight.quality_score = quality
-            changed = True
-        if insight.expires_at is None and insight.status in {"suggested", "reviewed"}:
-            insight.expires_at = now + timedelta(days=30)
-            changed = True
-        if changed:
-            insight.last_recalculated_at = now
-            insight.updated_at = now
-            upgraded += 1
-    if archived or upgraded:
-        session.commit()
-    return {"archived": archived, "upgraded": upgraded}
-
-
-def get_active_insights(
-    session: Session,
-    limit: int = 20,
-) -> list[InsightRecord]:
-    migrate_legacy_insights(session)
-    now = datetime.now(UTC)
-    expired = list(
-        session.execute(
-            select(InsightRecord).where(
-                InsightRecord.expires_at.is_not(None),
-                InsightRecord.expires_at <= now,
-                InsightRecord.status.in_(("suggested", "reviewed")),
-            )
-        ).scalars()
-    )
-    for insight in expired:
-        insight.status = "expired"
-        insight.updated_at = now
-    if expired:
-        session.commit()
-    insights = list(
-        session.execute(
-            select(InsightRecord)
-            .where(InsightRecord.dismissed_at.is_(None))
-            .where(
-                InsightRecord.status.not_in(
-                    ("expired", "archived", "dismissed", "ignored")
-                )
-            )
-            .order_by(
-                InsightRecord.feedback_score.desc(),
-                InsightRecord.quality_score.desc(),
-                InsightRecord.priority.desc(),
-                InsightRecord.created_at.desc(),
-            )
-            .limit(limit * 3)
-        ).scalars()
-    )
-    return [insight for insight in insights if _is_visible_insight(insight)][:limit]
-
-
-def _is_visible_insight(insight: InsightRecord) -> bool:
-    title = insight.title or ""
-    description = getattr(insight, "description", "") or ""
-    provider = (getattr(insight, "provider", "") or "").lower()
-    model = (getattr(insight, "model", "") or "").lower()
-    insight_type = (getattr(insight, "type", "") or "").lower()
-    if insight_type in {
-        "system_diagnostic",
-        "pipeline_bottleneck",
-        "provider_issue",
-        "job_backlog",
-        "worker_status",
-    }:
-        return False
-    evidence = _parse_json_list(getattr(insight, "evidence", "[]"))
-    combined = " ".join(
-        [
-            title,
-            description,
-            getattr(insight, "why_it_matters", "") or "",
-            getattr(insight, "suggested_action", "") or "",
-            getattr(insight, "graph_impact", "") or "",
-            " ".join(str(item) for item in evidence),
-        ]
-    ).lower()
-    if any(
-        term in combined
-        for term in (
-            "explainedconnections",
-            "graphnotes",
-            "jobsbytype",
-            "generate_note_title",
-            "enrich_graph_node",
-            "semanticstate",
-            "raw json",
-            "pipeline bottleneck",
-            "jobrecord",
-            "pendingjobs",
-            "activejobs",
-            "failedjobs",
-        )
-    ):
-        return False
-    legacy_prefixes = (
-        "Nó central no grafo:",
-        "No central no grafo:",
-        "Conceito recorrente:",
-        "Lacuna detectada:",
-    )
-    if title.startswith(legacy_prefixes) and provider in {
-        "",
-        "system",
-        "deterministic",
-    }:
-        return False
-    if model == "graph-insight.v1" and provider in {"", "system", "deterministic"}:
-        return False
-    has_cognitive_fields = all(
-        [
-            (getattr(insight, "why_it_matters", "") or "").strip(),
-            (getattr(insight, "suggested_action", "") or "").strip(),
-            (getattr(insight, "graph_impact", "") or "").strip(),
-        ]
-    )
-    if provider in {"nvidia-nim", "cloud", "ai"}:
-        if len(evidence) < 2 or not has_cognitive_fields:
-            return False
-        if title.strip() == description.strip():
-            return False
-    return True
-
-
-def dismiss_insight(session: Session, insight_id: int) -> InsightRecord:
-    insight = session.get(InsightRecord, insight_id)
-    if insight is None:
-        raise HTTPException(status_code=404, detail="Insight not found")
-    insight.dismissed_at = datetime.now(UTC)
-    insight.ignored_at = datetime.now(UTC)
-    insight.status = "dismissed"
-    insight.feedback_score -= 1
-    insight.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(insight)
-    return insight
-
-
-def serialize_insight(insight: InsightRecord) -> dict[str, Any]:
-    try:
-        related = json.loads(insight.related_notes)
-    except json.JSONDecodeError:
-        related = []
-    return {
-        "id": insight.id,
-        "type": insight.type,
-        "title": insight.title,
-        "description": insight.description,
-        "relatedNotes": related,
-        "priority": insight.priority,
-        "whyItMatters": getattr(insight, "why_it_matters", ""),
-        "evidence": _parse_json_list(getattr(insight, "evidence", "[]")),
-        "suggestedAction": getattr(insight, "suggested_action", ""),
-        "graphImpact": getattr(insight, "graph_impact", ""),
-        "confidence": getattr(insight, "confidence", 0.5),
-        "status": getattr(insight, "status", "suggested"),
-        "provider": getattr(insight, "provider", ""),
-        "model": getattr(insight, "model", ""),
-        "promptVersion": getattr(insight, "prompt_version", "v1"),
-        "reasoning": getattr(insight, "reasoning", ""),
-        "sourceContext": getattr(insight, "source_context", ""),
-        "fingerprint": getattr(insight, "fingerprint", ""),
-        "qualityScore": getattr(insight, "quality_score", 0.0),
-        "feedbackScore": getattr(insight, "feedback_score", 0),
-        "expiresAt": insight.expires_at.isoformat()
-        if getattr(insight, "expires_at", None)
-        else None,
-        "lastRecalculatedAt": insight.last_recalculated_at.isoformat()
-        if getattr(insight, "last_recalculated_at", None)
-        else None,
-        "appliedAt": insight.applied_at.isoformat() if insight.applied_at else None,
-        "ignoredAt": insight.ignored_at.isoformat() if insight.ignored_at else None,
-        "createdAt": insight.created_at.isoformat() if insight.created_at else None,
-        "updatedAt": insight.updated_at.isoformat()
-        if getattr(insight, "updated_at", None)
-        else None,
-        "dismissedAt": insight.dismissed_at.isoformat()
-        if insight.dismissed_at
-        else None,
-    }
-
-
 def _parse_json_list(value: str) -> list[Any]:
     try:
         parsed = json.loads(value)
@@ -611,24 +205,18 @@ def resolve_note_id(session: Session, note_path: str) -> int:
     return note.id
 
 
-def _record_value(record: object, key: str, default: Any = "") -> Any:
-    if isinstance(record, Mapping):
-        return record.get(key, default)
-    return getattr(record, key, default)
-
-
-def _is_system_diagnostic_graph_node(node: object) -> bool:
-    if (_record_value(node, "type", "") or "").lower() != "insight":
+def _is_system_diagnostic_graph_node(node: GraphNodeRecord) -> bool:
+    if (getattr(node, "type", "") or "").lower() != "insight":
         return False
     combined = " ".join(
         [
-            _record_value(node, "label", "") or "",
-            _record_value(node, "title", "") or "",
-            _record_value(node, "summary", "") or "",
-            _record_value(node, "ai_summary", "") or "",
-            _record_value(node, "ai_context", "") or "",
-            _record_value(node, "source_evidence", "") or "",
-            _record_value(node, "graph_metadata", "") or "",
+            getattr(node, "label", "") or "",
+            getattr(node, "title", "") or "",
+            getattr(node, "summary", "") or "",
+            getattr(node, "ai_summary", "") or "",
+            getattr(node, "ai_context", "") or "",
+            getattr(node, "source_evidence", "") or "",
+            getattr(node, "graph_metadata", "") or "",
         ]
     ).lower()
     return any(
@@ -654,15 +242,13 @@ def build_graph(
     session: Session,
     max_depth: int = 2,
     view: str = "",
-) -> dict[str, Any]:
-    graph_nodes = list(session.execute(select(GraphNodeRecord.__table__)).mappings())
+) -> dict[str, list[dict]]:
+    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
     if graph_nodes:
         graph_edges = list(
             session.execute(
-                select(GraphEdgeRecord.__table__).where(
-                    GraphEdgeRecord.status != "ignored"
-                )
-            ).mappings()
+                select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+            ).scalars()
         )
         graph_nodes = [
             node for node in graph_nodes if not _is_system_diagnostic_graph_node(node)
@@ -671,45 +257,44 @@ def build_graph(
             graph_nodes = [
                 node
                 for node in graph_nodes
-                if node.get("status", "suggested") != "ignored"
+                if getattr(node, "status", "suggested") != "ignored"
             ]
-        node_ids = {
-            int(node["id"]): f"{node['type']}_{node['id']}" for node in graph_nodes
-        }
+        node_ids = {node.id: f"{node.type}_{node.id}" for node in graph_nodes}
         nodes = []
         for node in graph_nodes:
-            metadata = _parse_json_dict(node.get("metadata", "{}"))
-            generated_at = node.get("generated_at")
+            metadata = _parse_json_dict(getattr(node, "graph_metadata", "{}"))
             nodes.append(
                 {
-                    "id": node_ids[int(node["id"])],
-                    "recordId": node["id"],
-                    "label": node["label"],
-                    "title": node.get("title", "") or node["label"],
-                    "summary": node.get("summary", ""),
-                    "aiNotes": node.get("ai_notes", ""),
-                    "userNotes": node.get("user_notes", ""),
-                    "type": node["type"],
-                    "source": node.get("source", ""),
-                    "sourceId": node["source_id"],
+                    "id": node_ids[node.id],
+                    "recordId": node.id,
+                    "label": node.label,
+                    "title": getattr(node, "title", "") or node.label,
+                    "summary": getattr(node, "summary", ""),
+                    "aiNotes": getattr(node, "ai_notes", ""),
+                    "userNotes": getattr(node, "user_notes", ""),
+                    "type": node.type,
+                    "source": getattr(node, "source", ""),
+                    "sourceId": node.source_id,
                     "sourceNoteIds": _parse_json_list(
-                        node.get("source_note_ids", "[]")
+                        getattr(node, "source_note_ids", "[]")
                     ),
-                    "status": node.get("status", "suggested"),
-                    "confidence": node.get("confidence", 0.5),
-                    "createdBy": node.get("created_by", "system"),
-                    "createdByModel": node.get("created_by_model", ""),
-                    "aiSummary": node.get("ai_summary", ""),
-                    "aiContext": node.get("ai_context", ""),
-                    "sourceEvidence": node.get("source_evidence", ""),
-                    "learningValue": node.get("learning_value", ""),
-                    "sourceQuality": node.get("source_quality", ""),
-                    "validationStatus": node.get("validation_status", "unvalidated"),
-                    "provider": node.get("provider", ""),
-                    "model": node.get("model", ""),
-                    "promptVersion": node.get("prompt_version", ""),
-                    "generatedAt": generated_at.isoformat()
-                    if isinstance(generated_at, datetime)
+                    "status": getattr(node, "status", "suggested"),
+                    "confidence": getattr(node, "confidence", 0.5),
+                    "createdBy": getattr(node, "created_by", "system"),
+                    "createdByModel": getattr(node, "created_by_model", ""),
+                    "aiSummary": getattr(node, "ai_summary", ""),
+                    "aiContext": getattr(node, "ai_context", ""),
+                    "sourceEvidence": getattr(node, "source_evidence", ""),
+                    "learningValue": getattr(node, "learning_value", ""),
+                    "sourceQuality": getattr(node, "source_quality", ""),
+                    "validationStatus": getattr(
+                        node, "validation_status", "unvalidated"
+                    ),
+                    "provider": getattr(node, "provider", ""),
+                    "model": getattr(node, "model", ""),
+                    "promptVersion": getattr(node, "prompt_version", ""),
+                    "generatedAt": getattr(node, "generated_at", None).isoformat()
+                    if getattr(node, "generated_at", None)
                     else None,
                     "path": metadata.get("path", ""),
                     "folder": metadata.get("folder", ""),
@@ -724,31 +309,31 @@ def build_graph(
         edges = []
         degrees: dict[str, int] = {node["id"]: 0 for node in nodes}
         for edge in graph_edges:
-            source = node_ids.get(int(edge["source_node_id"]))
-            target = node_ids.get(int(edge["target_node_id"]))
+            source = node_ids.get(edge.source_node_id)
+            target = node_ids.get(edge.target_node_id)
             if source is None or target is None:
                 continue
             if source not in visible_node_ids or target not in visible_node_ids:
                 continue
             edges.append(
                 {
-                    "id": edge["id"],
+                    "id": edge.id,
                     "source": source,
                     "target": target,
-                    "type": edge["type"],
-                    "label": edge.get("label", ""),
-                    "confidence": edge["confidence"],
-                    "reason": edge["reason"],
-                    "evidence": _parse_json_list(edge.get("evidence", "[]")),
-                    "aiNotes": edge.get("ai_notes", ""),
-                    "userNotes": edge.get("user_notes", ""),
+                    "type": edge.type,
+                    "label": getattr(edge, "label", ""),
+                    "confidence": edge.confidence,
+                    "reason": edge.reason,
+                    "evidence": _parse_json_list(getattr(edge, "evidence", "[]")),
+                    "aiNotes": getattr(edge, "ai_notes", ""),
+                    "userNotes": getattr(edge, "user_notes", ""),
                     "sourceNoteIds": _parse_json_list(
-                        edge.get("source_note_ids", "[]")
+                        getattr(edge, "source_note_ids", "[]")
                     ),
-                    "createdBy": edge["created_by"],
-                    "provider": edge.get("provider", ""),
-                    "model": edge.get("model", ""),
-                    "status": edge.get("status", "suggested"),
+                    "createdBy": edge.created_by,
+                    "provider": getattr(edge, "provider", ""),
+                    "model": getattr(edge, "model", ""),
+                    "status": getattr(edge, "status", "suggested"),
                 }
             )
             degrees[source] = degrees.get(source, 0) + 1
@@ -803,21 +388,21 @@ def build_graph(
             }
         )
 
-    fallback_node_ids = {n["id"] for n in nodes}
-    fallback_degrees: dict[str, int] = {node_id: 0 for node_id in fallback_node_ids}
+    node_ids = {n["id"] for n in nodes}
+    degrees: dict[str, int] = {n["id"]: 0 for n in nodes}
     for edge in edges:
-        fallback_degrees[edge["source"]] = fallback_degrees.get(edge["source"], 0) + 1
-        fallback_degrees[edge["target"]] = fallback_degrees.get(edge["target"], 0) + 1
+        degrees[edge["source"]] = degrees.get(edge["source"], 0) + 1
+        degrees[edge["target"]] = degrees.get(edge["target"], 0) + 1
 
     for node in nodes:
-        node["connectionsCount"] = fallback_degrees.get(node["id"], 0)
+        node["connectionsCount"] = degrees.get(node["id"], 0)
 
     orphan_count = 0
-    for node_id, deg in fallback_degrees.items():
+    for _node_id, deg in degrees.items():
         if deg == 0:
             orphan_count += 1
 
-    central = sorted(fallback_degrees.items(), key=lambda x: x[1], reverse=True)[:5]
+    central = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:5]
 
     return {
         "nodes": nodes,
@@ -1356,371 +941,3 @@ def validate_node_with_web(
 # ---------------------------------------------------------------------------
 # Graph quality report
 # ---------------------------------------------------------------------------
-
-
-def graph_quality_report(session: Session) -> dict:
-    """Generate a quality report for the knowledge graph."""
-    from sqlalchemy import func
-
-    total_nodes = session.query(func.count(GraphNodeRecord.id)).scalar() or 0
-    total_edges = session.query(func.count(GraphEdgeRecord.id)).scalar() or 0
-
-    nodes_with_summary = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(GraphNodeRecord.summary.isnot(None), GraphNodeRecord.summary != "")
-        .scalar()
-        or 0
-    )
-
-    nodes_with_evidence = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(
-            GraphNodeRecord.source_evidence.isnot(None),
-            GraphNodeRecord.source_evidence != "",
-        )
-        .scalar()
-        or 0
-    )
-
-    nodes_with_ai_context = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(
-            GraphNodeRecord.ai_context.isnot(None), GraphNodeRecord.ai_context != ""
-        )
-        .scalar()
-        or 0
-    )
-    visible_nodes = total_nodes - (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(GraphNodeRecord.status == "ignored")
-        .scalar()
-        or 0
-    )
-    visible_nodes_with_summary = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(
-            GraphNodeRecord.status != "ignored",
-            GraphNodeRecord.summary.isnot(None),
-            GraphNodeRecord.summary != "",
-        )
-        .scalar()
-        or 0
-    )
-    visible_nodes_with_evidence = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(
-            GraphNodeRecord.status != "ignored",
-            GraphNodeRecord.source_evidence.isnot(None),
-            GraphNodeRecord.source_evidence != "",
-        )
-        .scalar()
-        or 0
-    )
-    visible_nodes_with_ai_context = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(
-            GraphNodeRecord.status != "ignored",
-            GraphNodeRecord.ai_context.isnot(None),
-            GraphNodeRecord.ai_context != "",
-        )
-        .scalar()
-        or 0
-    )
-
-    confirmed_nodes = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(GraphNodeRecord.status == "confirmed")
-        .scalar()
-        or 0
-    )
-
-    ignored_nodes = (
-        session.query(func.count(GraphNodeRecord.id))
-        .filter(GraphNodeRecord.status == "ignored")
-        .scalar()
-        or 0
-    )
-
-    confirmed_edges = (
-        session.query(func.count(GraphEdgeRecord.id))
-        .filter(GraphEdgeRecord.status == "confirmed")
-        .scalar()
-        or 0
-    )
-
-    ignored_edges = (
-        session.query(func.count(GraphEdgeRecord.id))
-        .filter(GraphEdgeRecord.status == "ignored")
-        .scalar()
-        or 0
-    )
-
-    nodes_with_reason = (
-        session.query(func.count(GraphEdgeRecord.id))
-        .filter(GraphEdgeRecord.reason.isnot(None), GraphEdgeRecord.reason != "")
-        .scalar()
-        or 0
-    )
-
-    visible_node_rows = list(
-        session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.status.not_in(("ignored", "archived"))
-            )
-        ).scalars()
-    )
-    visible_edge_rows = list(
-        session.execute(
-            select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status.not_in(("ignored", "archived"))
-            )
-        ).scalars()
-    )
-    degree = {node.id: 0 for node in visible_node_rows}
-    for edge in visible_edge_rows:
-        if edge.source_node_id in degree:
-            degree[edge.source_node_id] += 1
-        if edge.target_node_id in degree:
-            degree[edge.target_node_id] += 1
-
-    from berrybrain_api.graph_write_service import (
-        SYMMETRIC_EDGE_TYPES,
-        canonical_edge_type,
-        has_traceable_ai_evidence,
-        normalize_graph_label,
-    )
-
-    node_groups: dict[tuple[str, str], list[GraphNodeRecord]] = {}
-    for node in visible_node_rows:
-        key = (node.type, normalize_graph_label(node.label or ""))
-        if key[1]:
-            node_groups.setdefault(key, []).append(node)
-    duplicate_nodes = [
-        {
-            "type": key[0],
-            "normalizedLabel": key[1],
-            "nodeIds": [node.id for node in group],
-            "labels": [node.label for node in group],
-        }
-        for key, group in node_groups.items()
-        if len(group) > 1
-    ]
-
-    edge_groups: dict[tuple[int, int, str], list[GraphEdgeRecord]] = {}
-    for edge in visible_edge_rows:
-        try:
-            edge_type = canonical_edge_type(edge.type)
-        except HTTPException:
-            edge_type = edge.type
-        source_id, target_id = edge.source_node_id, edge.target_node_id
-        if edge_type in SYMMETRIC_EDGE_TYPES and source_id > target_id:
-            source_id, target_id = target_id, source_id
-        edge_groups.setdefault((source_id, target_id, edge_type), []).append(edge)
-    duplicate_edges = [
-        {
-            "sourceNodeId": key[0],
-            "targetNodeId": key[1],
-            "type": key[2],
-            "edgeIds": [edge.id for edge in group],
-        }
-        for key, group in edge_groups.items()
-        if len(group) > 1
-    ]
-
-    generic_labels = {
-        "general",
-        "misc",
-        "notes",
-        "other",
-        "rascunho",
-        "study",
-        "topic",
-        "untitled",
-    }
-    generic_nodes = [
-        {"id": node.id, "label": node.label, "type": node.type}
-        for node in visible_node_rows
-        if len(normalize_graph_label(node.label or "")) < 3
-        or normalize_graph_label(node.label or "") in generic_labels
-    ]
-    orphan_nodes = [
-        {"id": node.id, "label": node.label, "type": node.type}
-        for node in visible_node_rows
-        if degree.get(node.id, 0) == 0
-    ]
-    hub_threshold = max(8, math.ceil(max(1, len(visible_node_rows)) * 0.25))
-    artificial_hubs = [
-        {
-            "id": node.id,
-            "label": node.label,
-            "type": node.type,
-            "degree": degree.get(node.id, 0),
-            "threshold": hub_threshold,
-        }
-        for node in visible_node_rows
-        if degree.get(node.id, 0) > hub_threshold
-        and (node.created_by in {"system", "ai"} or node.type != "note")
-    ]
-    edges_without_evidence = []
-    for edge in visible_edge_rows:
-        try:
-            evidence = json.loads(edge.evidence or "[]")
-        except (json.JSONDecodeError, TypeError):
-            evidence = []
-        if not edge.reason.strip() or not isinstance(evidence, list) or not evidence:
-            edges_without_evidence.append(
-                {
-                    "id": edge.id,
-                    "sourceNodeId": edge.source_node_id,
-                    "targetNodeId": edge.target_node_id,
-                    "type": edge.type,
-                    "missingReason": not edge.reason.strip(),
-                    "missingEvidence": not evidence,
-                }
-            )
-    ai_edges_without_traceable_evidence = [
-        {
-            "id": edge.id,
-            "sourceNodeId": edge.source_node_id,
-            "targetNodeId": edge.target_node_id,
-            "type": edge.type,
-        }
-        for edge in visible_edge_rows
-        if edge.created_by == "ai" and not has_traceable_ai_evidence(edge)
-    ]
-    unstable_clusters = [
-        {"id": node.id, "label": node.label, "degree": degree.get(node.id, 0)}
-        for node in visible_node_rows
-        if node.type == "cluster" and degree.get(node.id, 0) < 2
-    ]
-
-    return {
-        "total_nodes": total_nodes,
-        "total_edges": total_edges,
-        "coverage": {
-            "nodes_with_summary": nodes_with_summary,
-            "nodes_with_evidence": nodes_with_evidence,
-            "nodes_with_ai_context": nodes_with_ai_context,
-            "pct_with_summary": round(nodes_with_summary / total_nodes * 100, 1)
-            if total_nodes
-            else 0,
-            "pct_with_evidence": round(nodes_with_evidence / total_nodes * 100, 1)
-            if total_nodes
-            else 0,
-            "pct_with_ai_context": round(nodes_with_ai_context / total_nodes * 100, 1)
-            if total_nodes
-            else 0,
-        },
-        "visibleCoverage": {
-            "visible_nodes": visible_nodes,
-            "nodes_with_summary": visible_nodes_with_summary,
-            "nodes_with_evidence": visible_nodes_with_evidence,
-            "nodes_with_ai_context": visible_nodes_with_ai_context,
-            "pct_with_summary": round(
-                visible_nodes_with_summary / visible_nodes * 100, 1
-            )
-            if visible_nodes
-            else 0,
-            "pct_with_evidence": round(
-                visible_nodes_with_evidence / visible_nodes * 100, 1
-            )
-            if visible_nodes
-            else 0,
-            "pct_with_ai_context": round(
-                visible_nodes_with_ai_context / visible_nodes * 100, 1
-            )
-            if visible_nodes
-            else 0,
-        },
-        "status": {
-            "confirmed_nodes": confirmed_nodes,
-            "ignored_nodes": ignored_nodes,
-            "pending_nodes": total_nodes - confirmed_nodes - ignored_nodes,
-            "confirmed_edges": confirmed_edges,
-            "ignored_edges": ignored_edges,
-            "pending_edges": total_edges - confirmed_edges - ignored_edges,
-        },
-        "edges_with_reason": nodes_with_reason,
-        "pct_edges_with_reason": round(nodes_with_reason / total_edges * 100, 1)
-        if total_edges
-        else 0,
-        "issues": {
-            "orphans": orphan_nodes,
-            "duplicateNodes": duplicate_nodes,
-            "duplicateEdges": duplicate_edges,
-            "artificialHubs": artificial_hubs,
-            "genericNodes": generic_nodes,
-            "edgesWithoutEvidence": edges_without_evidence,
-            "aiEdgesWithoutTraceableEvidence": ai_edges_without_traceable_evidence,
-            "unstableClusters": unstable_clusters,
-            "mergeSuggestions": duplicate_nodes,
-        },
-        "issueCounts": {
-            "orphans": len(orphan_nodes),
-            "duplicateNodes": len(duplicate_nodes),
-            "duplicateEdges": len(duplicate_edges),
-            "artificialHubs": len(artificial_hubs),
-            "genericNodes": len(generic_nodes),
-            "edgesWithoutEvidence": len(edges_without_evidence),
-            "aiEdgesWithoutTraceableEvidence": len(ai_edges_without_traceable_evidence),
-            "unstableClusters": len(unstable_clusters),
-        },
-    }
-
-
-def _filter_nodes_by_view(nodes: list[dict], view: str) -> list[dict]:
-    """Filter nodes based on view parameter.
-
-    Default (empty view): hide headings, topics without context, system nodes without enrichment.
-    Views:
-    - enriched: nodes with aiContext or aiSummary
-    - raw: nodes without aiContext (system/content-based)
-    - validated: nodes with validationStatus=validated
-    - needs_review: nodes with validationStatus=needs_review or conflict_found
-    - hidden: nodes with status=ignored or type=heading
-    """
-    view_lower = view.lower()
-
-    if view_lower == "enriched":
-        return [n for n in nodes if n.get("aiContext") or n.get("aiSummary")]
-
-    if view_lower == "raw":
-        return [n for n in nodes if not n.get("aiContext") and not n.get("aiSummary")]
-
-    if view_lower == "validated":
-        return [n for n in nodes if n.get("validationStatus") == "validated"]
-
-    if view_lower == "needs_review":
-        return [
-            n
-            for n in nodes
-            if n.get("validationStatus") in ("needs_review", "conflict_found")
-        ]
-
-    if view_lower == "hidden":
-        return [
-            n
-            for n in nodes
-            if n.get("status") == "ignored" or n.get("type") == "heading"
-        ]
-
-    # Default Brain View: hide low-quality nodes
-    return [
-        n
-        for n in nodes
-        if not (
-            n.get("type") == "heading"
-            or n.get("status") == "ignored"
-            or (
-                n.get("type") in ("topico", "topic")
-                and not n.get("aiContext")
-                and not n.get("aiSummary")
-            )
-            or (
-                n.get("source") in ("content", "system")
-                and not n.get("aiContext")
-                and not n.get("aiSummary")
-                and not n.get("sourceEvidence")
-            )
-        )
-    ]

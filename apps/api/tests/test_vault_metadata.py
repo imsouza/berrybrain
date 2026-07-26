@@ -97,7 +97,7 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
         session.commit()
         session.refresh(note)
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(HTTPException):
             upsert_generated_metadata(
                 session,
                 note.id,

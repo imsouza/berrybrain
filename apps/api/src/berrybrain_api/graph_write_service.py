@@ -2,94 +2,29 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
+from contextlib import suppress
 from datetime import UTC, datetime
-from collections.abc import Sequence
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.graph_contracts import (
+    CONCEPTUAL_NODE_TYPES,
+    SYMMETRIC_EDGE_TYPES,
+    VALID_STATUSES,
+    canonical_edge_type,
+    canonical_node_type,
+    normalize_graph_label,
+    stored_node_types,
+)
 from berrybrain_api.models import (
     AutomationLogRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
 )
 
-
-CANONICAL_NODE_TYPES = {
-    "note",
-    "concept",
-    "entity",
-    "topic",
-    "source",
-    "attachment",
-    "insight",
-    "context",
-    "gap",
-    "review_question",
-    "study_path",
-    "cluster",
-}
-
-NODE_TYPE_ALIASES = {
-    "nota": "note",
-    "conceito": "concept",
-    "entidade": "entity",
-    "topico": "topic",
-    "tópico": "topic",
-    "fonte": "source",
-    "web_source": "source",
-    "anexo": "attachment",
-    "contexto": "context",
-    "lacuna": "gap",
-}
-
-CANONICAL_EDGE_TYPES = {
-    "explicit_link",
-    "semantic_relation",
-    "prerequisite",
-    "example_of",
-    "contrasts_with",
-    "duplicates",
-    "applies_to",
-    "derived_from",
-    "mentions",
-    "supports",
-    "contradicts",
-}
-
-EDGE_TYPE_ALIASES = {
-    "backlink": "explicit_link",
-    "semantic": "semantic_relation",
-    "semantic_similarity": "semantic_relation",
-    "shared_concept": "semantic_relation",
-    "shared_context": "semantic_relation",
-    "related": "semantic_relation",
-    "duplicate": "duplicates",
-    "contrast": "contrasts_with",
-    "example": "example_of",
-    "application": "applies_to",
-    "source_supports": "supports",
-    "source_contradicts": "contradicts",
-    "source_expands": "derived_from",
-    "insight_evidence": "derived_from",
-    "insight_suggested": "derived_from",
-    "attachment_related": "derived_from",
-    "review_related": "derived_from",
-    "topic_note": "mentions",
-    "concept_note": "mentions",
-}
-
-SYMMETRIC_EDGE_TYPES = {
-    "semantic_relation",
-    "contrasts_with",
-    "duplicates",
-}
-
-VALID_STATUSES = {"suggested", "confirmed", "ignored", "archived", "stale", "error"}
-CONCEPTUAL_NODE_TYPES = {"concept", "entity", "topic", "context"}
 AI_EVIDENCE_FIELDS = {
     "sourceNoteId",
     "targetNoteId",
@@ -102,35 +37,8 @@ AI_EVIDENCE_FIELDS = {
 }
 
 
-def normalize_graph_label(value: str) -> str:
-    normalized = re.sub(r"[-_]+", " ", value.strip().lower())
-    return re.sub(r"\s+", " ", normalized)
-
-
-def canonical_node_type(value: str) -> str:
-    normalized = NODE_TYPE_ALIASES.get(value.strip().lower(), value.strip().lower())
-    if normalized not in CANONICAL_NODE_TYPES:
-        raise HTTPException(
-            status_code=422, detail=f"Unsupported graph node type: {value}"
-        )
-    return normalized
-
-
 def _stored_node_types(canonical_types: set[str]) -> set[str]:
-    return canonical_types | {
-        alias
-        for alias, canonical in NODE_TYPE_ALIASES.items()
-        if canonical in canonical_types
-    }
-
-
-def canonical_edge_type(value: str) -> str:
-    normalized = EDGE_TYPE_ALIASES.get(value.strip().lower(), value.strip().lower())
-    if normalized not in CANONICAL_EDGE_TYPES:
-        raise HTTPException(
-            status_code=422, detail=f"Unsupported graph edge type: {value}"
-        )
-    return normalized
+    return stored_node_types(canonical_types)
 
 
 def has_traceable_ai_evidence(edge: GraphEdgeRecord) -> bool:
@@ -138,10 +46,8 @@ def has_traceable_ai_evidence(edge: GraphEdgeRecord) -> bool:
         return True
     evidence = _json_list(edge.evidence)
     metadata = {}
-    try:
+    with suppress(json.JSONDecodeError, TypeError):
         metadata = json.loads(edge.ai_notes or "{}")
-    except (json.JSONDecodeError, TypeError):
-        pass
     return bool(
         edge.provider
         and edge.model
@@ -149,7 +55,7 @@ def has_traceable_ai_evidence(edge: GraphEdgeRecord) -> bool:
         and isinstance(metadata, dict)
         and metadata.get("pipeline_run_id")
         and any(
-            isinstance(item, dict) and AI_EVIDENCE_FIELDS <= set(item)
+            isinstance(item, dict) and set(item) >= AI_EVIDENCE_FIELDS
             for item in evidence
         )
     )
@@ -337,6 +243,15 @@ class GraphWriteService:
             )
             self.session.add(existing)
             self.session.flush()
+            if created_by == "ai":
+                from berrybrain_api.jobs import enqueue_job
+
+                enqueue_job(
+                    self.session,
+                    "JUDGE_ARTIFACT",
+                    {"artifact_type": "node", "artifact_id": existing.id},
+                    priority=20,
+                )
             self._record(
                 "GRAPH_NODE_CREATED",
                 "graph_node",
@@ -411,7 +326,7 @@ class GraphWriteService:
         target_node_id: int,
         edge_type: str,
         reason: str,
-        evidence: Sequence[dict[str, Any] | str],
+        evidence: list[dict[str, Any] | str],
         confidence: float,
         source_note_ids: list[int] | None = None,
         created_by: str = "system",
@@ -444,7 +359,7 @@ class GraphWriteService:
             )
         if created_by == "ai":
             self._validate_ai_evidence(
-                list(evidence),
+                evidence,
                 source_note_ids or [],
                 provider,
                 model,
@@ -461,8 +376,7 @@ class GraphWriteService:
                 GraphEdgeRecord.type == canonical_type,
             )
         ).scalar_one_or_none()
-        created = edge is None
-        if created:
+        if edge is None:
             edge = GraphEdgeRecord(
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
@@ -470,9 +384,17 @@ class GraphWriteService:
             )
             self.session.add(edge)
             self.session.flush()
-        assert edge is not None
+            if edge.created_by == "ai":
+                from berrybrain_api.jobs import enqueue_job
+
+                enqueue_job(
+                    self.session,
+                    "JUDGE_ARTIFACT",
+                    {"artifact_type": "edge", "artifact_id": edge.id},
+                    priority=20,
+                )
         before = _edge_state(edge)
-        merged_evidence = _json_list(edge.evidence) + list(evidence)
+        merged_evidence = _json_list(edge.evidence) + evidence
         unique_evidence = {
             _json_dump(item) if isinstance(item, dict) else str(item): item
             for item in merged_evidence
@@ -487,8 +409,7 @@ class GraphWriteService:
         edge.provider = provider
         edge.model = model
         edge.prompt_version = prompt_version
-        if created or edge.status not in {"confirmed", "ignored", "archived"}:
-            edge.status = status
+        edge.status = status
         edge.updated_at = datetime.now(UTC)
         metadata = {"pipeline_run_id": pipeline_run_id} if pipeline_run_id else {}
         edge.ai_notes = _json_dump(metadata) if metadata else edge.ai_notes
@@ -1076,7 +997,7 @@ class GraphWriteService:
                 detail="AI graph edges require provider, model, prompt version, and pipeline run",
             )
         if not any(
-            isinstance(item, dict) and AI_EVIDENCE_FIELDS <= set(item)
+            isinstance(item, dict) and set(item) >= AI_EVIDENCE_FIELDS
             for item in evidence
         ):
             raise HTTPException(

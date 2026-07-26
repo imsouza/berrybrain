@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        BERRYBRAIN_PREFETCH_WHISPER_MODEL: ${BERRYBRAIN_PREFETCH_WHISPER_MODEL:-false}
     restart: unless-stopped
     cpus: "${BERRYBRAIN_API_CPUS:-1.0}"
     mem_limit: "${BERRYBRAIN_API_MEMORY:-1g}"
@@ -12,6 +14,7 @@ services:
       BERRYBRAIN_CORS_ORIGINS: "${BERRYBRAIN_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
       BERRYBRAIN_ALLOWED_HOSTS: "${BERRYBRAIN_ALLOWED_HOSTS:-localhost,127.0.0.1,testserver},api"
       BERRYBRAIN_PUBLIC_APP_URL: "${BERRYBRAIN_PUBLIC_APP_URL:-http://localhost:3000}"
+      HIPPORAG_URL: "http://hipporag:8000"
     env_file:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     ports:
@@ -68,7 +71,8 @@ services:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     environment:
       BERRYBRAIN_API_URL: http://api:8000
-      BERRYBRAIN_PROMPT_DIR: /app/prompts
+      BERRYBRAIN_PROMPT_DIR: "${BERRYBRAIN_PROMPT_DIR:-}"
+      HIPPORAG_URL: "http://hipporag:8000"
       PYTHONDONTWRITEBYTECODE: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -92,6 +96,7 @@ services:
     image: searxng/searxng:latest
     profiles:
       - web-validation
+      - full
     environment:
       SEARXNG_BASE_URL: http://localhost:8888/
       SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
@@ -100,6 +105,79 @@ services:
     volumes:
       - searxng_config:/etc/searxng
 
+  ollama:
+    image: ollama/ollama:latest
+    profiles:
+      - ollama
+      - full
+    restart: unless-stopped
+    ports:
+      - "${BERRYBRAIN_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles:
+      - vector-qdrant
+      - full
+    restart: unless-stopped
+    ports:
+      - "${BERRYBRAIN_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6333/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  chroma:
+    image: chromadb/chroma:latest
+    profiles:
+      - vector-chroma
+      - full
+    restart: unless-stopped
+    ports:
+      - "${BERRYBRAIN_CHROMA_PORT:-8001}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/heartbeat').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  hipporag:
+    image: berrybrain-hipporag:local
+    build:
+      context: .
+      dockerfile: apps/hipporag/Dockerfile
+    profiles:
+      - cognitive-advanced
+      - full
+    restart: unless-stopped
+    cpus: "${BERRYBRAIN_HIPPORAG_CPUS:-1.0}"
+    mem_limit: "${BERRYBRAIN_HIPPORAG_MEMORY:-512m}"
+    environment:
+      HIPPORAG_DATA_DIR: /data
+      HIPPORAG_LLM_URL: "${HIPPORAG_LLM_URL:-}"
+      HIPPORAG_SERVICE_TOKEN: "${HIPPORAG_SERVICE_TOKEN:-}"
+    volumes:
+      - hipporag_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   berrybrain_data:
   searxng_config:
+  ollama_models:
+  qdrant_data:
+  chroma_data:
+  hipporag_data:

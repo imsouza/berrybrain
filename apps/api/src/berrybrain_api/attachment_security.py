@@ -6,7 +6,6 @@ import re
 import zipfile
 from pathlib import Path
 
-
 MIME_CATEGORIES = {
     "image": "image",
     "audio": "audio",

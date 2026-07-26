@@ -16,7 +16,7 @@ def discover_prompt_dir() -> Path:
         prompt_dir = candidate / "prompts"
         if prompt_dir.is_dir() and (prompt_dir / "insight-generate.v1.md").is_file():
             return prompt_dir
-    return Path("/app/prompts")
+    return module_path.parents[0] / "prompts"
 
 
 PROMPT_DIR = discover_prompt_dir()
