@@ -17,7 +17,6 @@ from berrybrain_api.models import (
     ReviewItemRecord,
 )
 
-
 SCHEDULER_VERSION = "sm2.berrybrain.v1"
 REVIEW_TYPES = {
     "explain",

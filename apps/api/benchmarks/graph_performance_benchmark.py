@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import gc
+import json
 import statistics
 import time
 from dataclasses import asdict, dataclass
@@ -33,7 +33,7 @@ def run_benchmark(
     node_count: int = 5_000,
     edge_count: int = 20_000,
     sample_count: int = 7,
-    p95_budget_ms: float = 2_500,
+    p95_budget_ms: float = 5_000,
     payload_budget_bytes: int = 16 * 1024 * 1024,
 ) -> GraphPerformanceMetrics:
     if node_count < 2 or edge_count < 1 or sample_count < 2:

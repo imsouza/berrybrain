@@ -38,7 +38,7 @@ def coverage_failures(
             continue
         summary = file_report.get("summary")
         percent = summary.get("percent_covered") if isinstance(summary, dict) else None
-        if not isinstance(percent, (int, float)):
+        if not isinstance(percent, int | float):
             failures.append(f"{path}: invalid coverage summary")
             continue
         if float(percent) < minimum:

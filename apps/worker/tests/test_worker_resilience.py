@@ -1,8 +1,7 @@
 import unittest
-import asyncio
 
-from berrybrain_worker.cloud_gateway import CloudError
 from berrybrain_worker import resilience
+from berrybrain_worker.cloud_gateway import CloudError
 
 
 class WorkerResilienceTest(unittest.TestCase):
@@ -35,7 +34,7 @@ class WorkerResilienceTest(unittest.TestCase):
 
     def test_format_job_failure_humanizes_timeout(self) -> None:
         message = resilience.format_job_failure(
-            "GENERATE_GRAPH_INSIGHTS", asyncio.TimeoutError()
+            "GENERATE_GRAPH_INSIGHTS", TimeoutError()
         )
 
         self.assertIn("timed out", message)
@@ -43,7 +42,7 @@ class WorkerResilienceTest(unittest.TestCase):
         self.assertNotIn("Traceback", message)
 
     def test_provider_timeout_is_transient(self) -> None:
-        self.assertFalse(resilience.is_permanent_job_error(asyncio.TimeoutError()))
+        self.assertFalse(resilience.is_permanent_job_error(TimeoutError()))
 
     def test_format_job_failure_humanizes_invalid_ai_json(self) -> None:
         message = resilience.format_job_failure(

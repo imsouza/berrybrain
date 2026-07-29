@@ -7,18 +7,21 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
-from zipfile import ZipFile
 from xml.etree import ElementTree
+from zipfile import ZipFile
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select, text
 
+from berrybrain_api import __version__
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import (
     Base,
     SessionLocal,
-    engine as database_engine,
     ensure_sqlite_columns,
+)
+from berrybrain_api.database import (
+    engine as database_engine,
 )
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
@@ -30,7 +33,6 @@ from berrybrain_api.schema_migrations import (
     apply_schema_migrations,
     get_schema_version,
 )
-from berrybrain_api import __version__
 
 
 def _resolve_backup_path(backup_id: str) -> Path:
@@ -209,8 +211,6 @@ def create_backup() -> dict[str, object]:
             "service_tokens",
             "note_attachments",
             "attachment_extractions",
-            "model_invocations",
-            "worker_inbox",
         ):
             row = session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
             meta["tables"][table] = row
@@ -385,8 +385,6 @@ def _commit_prepared_restore(
 
 
 def _dispose_database_engines() -> None:
-    # SessionLocal can be rebound by an embedding host or test harness. Dispose every
-    # distinct engine that may still hold SQLite connections to the inode being replaced.
     engines = [database_engine, SessionLocal.kw.get("bind")]
     disposed: set[int] = set()
     for bound_engine in engines:
@@ -546,7 +544,7 @@ def _write_portable_metadata_directory(path: Path, session) -> None:
 
 
 def _json_default(value):
-    if isinstance(value, (datetime,)):
+    if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, bytes):
         return {"binaryBytes": len(value)}

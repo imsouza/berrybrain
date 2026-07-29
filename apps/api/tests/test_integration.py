@@ -46,9 +46,9 @@ class IntegrationTest(unittest.TestCase):
 
         cls.db_url = f"sqlite:///{db_path}"
 
+        import berrybrain_api.models  # noqa: F401 — register all ORM models
         from berrybrain_api.config import get_settings
         from berrybrain_api.database import Base, SessionLocal, engine
-        import berrybrain_api.models  # noqa: F401 — register all ORM models
 
         cls.settings = get_settings()
         cls.original_database_url = cls.settings.database_url
@@ -85,10 +85,8 @@ class IntegrationTest(unittest.TestCase):
             except ImportError:
                 continue
             if hasattr(module, "SessionLocal"):
-                cls.patched_sessionlocal_modules.append(
-                    (module, getattr(module, "SessionLocal"))
-                )
-                setattr(module, "SessionLocal", new_session_local)
+                cls.patched_sessionlocal_modules.append((module, module.SessionLocal))
+                module.SessionLocal = new_session_local
         Base.metadata.create_all(bind=new_engine)
         from berrybrain_api.search import init_fts
 
@@ -120,7 +118,7 @@ class IntegrationTest(unittest.TestCase):
         db_mod.engine = cls.original_engine
         db_mod.SessionLocal = cls.original_session_local
         for module, original in reversed(cls.patched_sessionlocal_modules):
-            setattr(module, "SessionLocal", original)
+            module.SessionLocal = original
         cls.client.close()
         cls.admin_client.close()
         cls.settings.database_url = cls.original_database_url

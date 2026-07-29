@@ -1,0 +1,20 @@
+{
+  "status": "pass",
+  "checks": {
+    "no_personal_vault_content_tracked": true,
+    "no_derived_indexes_tracked": true,
+    "no_hardcoded_secret_tokens": true,
+    "api_keys_encrypted_at_rest": true,
+    "api_keys_masked_in_settings_api": true,
+    "exports_redact_sensitive_settings": true,
+    "external_research_mode_opt_in": true,
+    "hipporag_sidecar_not_public": true,
+    "redaction_has_code_and_tests": true
+  },
+  "failures": [],
+  "evidence": {
+    "trackedVault": [],
+    "derivedIndexes": [],
+    "secretHits": []
+  }
+}

@@ -333,6 +333,8 @@ def verify_email(
         audit_event(session, request, "EMAIL_VERIFIED", user, "user", str(user.id))
         # Email verification already proved possession; auto-login so the
         # legacy verification endpoint does not bounce to a second 2FA prompt.
+        user.failed_login_count = 0
+        user.locked_until = None
         session_token, csrf_token, _session = create_user_session(
             session, settings, request, user, remember_me=payload.remember_me
         )
@@ -412,6 +414,8 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
                 "delivery": delivery["status"],
                 "email": email,
             }
+        user.failed_login_count = 0
+        user.locked_until = None
         session_token, csrf_token, _session = create_user_session(
             session, settings, request, user, remember_me=payload.remember_me
         )

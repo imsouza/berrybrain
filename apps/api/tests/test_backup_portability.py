@@ -360,11 +360,14 @@ class BackupPortabilityTest(unittest.TestCase):
                         raise OSError("simulated database swap failure")
                     return real_replace(source, destination)
 
-                with patch(
-                    "berrybrain_api.backup.os.replace", side_effect=fail_database_swap
+                with (
+                    patch(
+                        "berrybrain_api.backup.os.replace",
+                        side_effect=fail_database_swap,
+                    ),
+                    self.assertRaisesRegex(OSError, "simulated"),
                 ):
-                    with self.assertRaisesRegex(OSError, "simulated"):
-                        restore_backup(str(backup["id"]))
+                    restore_backup(str(backup["id"]))
 
             self.assertTrue((vault / "live-only.md").exists())
             self.assertTrue((vault / "backup.md").exists())

@@ -1,9 +1,8 @@
 import json
 from typing import Any
 
-from pydantic import BaseModel
-
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,17 +15,17 @@ from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, get_session
+from berrybrain_api.graph_inference_service import (
+    persist_graph_inference,
+    serialize_graph_inference,
+)
+from berrybrain_api.graph_write_service import GraphWriteService
 from berrybrain_api.jobs import (
     ENRICH_GRAPH_NODE,
     PENDING,
     RUNNING,
     UPDATE_GRAPH_STATS,
     create_job,
-)
-from berrybrain_api.graph_write_service import GraphWriteService
-from berrybrain_api.graph_inference_service import (
-    persist_graph_inference,
-    serialize_graph_inference,
 )
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -522,14 +521,7 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
         )
 
         try:
-            result = await generate_graph_answer(
-                config,
-                prompt,
-                system,
-                session=session,
-                prompt_version="node-enrich.v1",
-                correlation_id=f"graph-node:{node.id}",
-            )
+            result = await generate_graph_answer(config, prompt, system)
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
@@ -672,14 +664,7 @@ async def generate_connection_insight(edge_id: int) -> dict:
         )
 
         try:
-            result = await generate_graph_answer(
-                config,
-                prompt,
-                system,
-                session=session,
-                prompt_version="connection-insight.v1",
-                correlation_id=f"graph-edge:{edge.id}",
-            )
+            result = await generate_graph_answer(config, prompt, system)
         except GraphAIUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:

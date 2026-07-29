@@ -4,17 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
-
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
 from berrybrain_api.models import ServiceTokenRecord
-from berrybrain_api.security import (
-    revoke_service_token,
-    rotate_service_token,
-    verify_service_token,
-)
 from berrybrain_api.routers.security_tokens import (
     RotateServiceTokenRequest,
     _require_owner,
@@ -22,6 +16,11 @@ from berrybrain_api.routers.security_tokens import (
     list_service_tokens,
     revoke_token,
     rotate_token,
+)
+from berrybrain_api.security import (
+    revoke_service_token,
+    rotate_service_token,
+    verify_service_token,
 )
 
 

@@ -2,19 +2,13 @@ import unittest
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
-
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
-from berrybrain_api.services import (
-    find_similar_chunk_notes,
-    find_similar_chunks_by_vector,
-    store_embedding,
-)
 from berrybrain_api.jobs import (
-    CANCELLED,
     CANCEL_REQUESTED,
+    CANCELLED,
     COMPLETED,
     DEAD_LETTER,
     FAILED,
@@ -37,8 +31,8 @@ from berrybrain_api.jobs import (
     renew_job_lease,
     request_job_cancellation,
     retry_job,
-    serialize_job,
     serialize_datetime,
+    serialize_job,
     should_generate_note_title,
     utc_now,
 )
@@ -48,6 +42,11 @@ from berrybrain_api.models import (
     JobRecord,
     NoteRecord,
     WorkerInboxRecord,
+)
+from berrybrain_api.services import (
+    find_similar_chunk_notes,
+    find_similar_chunks_by_vector,
+    store_embedding,
 )
 
 

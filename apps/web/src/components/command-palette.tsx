@@ -33,26 +33,13 @@ export function CommandPalette({
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const commands = useMemo<CommandResult[]>(() => [
-    {
-      type: "command",
-      label: t("newNote"),
-      detail: t("startDraft"),
-      action: () => {
-        (onCreateDraft || onCreateNote)?.();
-        onClose();
-      },
-    },
-    {
-      type: "command",
-      label: t("scanVault"),
-      detail: t("syncVault"),
-      action: () => {
-        onScanVault();
-        onClose();
-      },
-    },
-  ], [onClose, onCreateDraft, onCreateNote, onScanVault]);
+  const commands: CommandResult[] = useMemo(() => {
+    const create = onCreateDraft || onCreateNote || (() => {});
+    return [
+      { type: "command", label: t("newNote"), detail: t("startDraft"), action: () => { create(); onClose(); } },
+      { type: "command", label: t("scanVault"), detail: t("syncVault"), action: () => { onScanVault(); onClose(); } },
+    ];
+  }, [onClose, onCreateDraft, onCreateNote, onScanVault]);
 
   useEffect(() => {
     if (open) {

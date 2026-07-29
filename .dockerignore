@@ -5,10 +5,13 @@
 **/__pycache__
 **/.pytest_cache
 **/.ruff_cache
+**/.mypy_cache
+**/.venv
 **/node_modules
 data
 vault
 docs
+reports
 *.log
 .env
 .env.*

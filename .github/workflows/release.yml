@@ -25,7 +25,7 @@ jobs:
     runs-on: ${{ matrix.arch.runner }}
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     strategy:
@@ -171,6 +171,7 @@ jobs:
           output-file: berrybrain-${{ matrix.service }}.spdx.json
           artifact-name: berrybrain-${{ matrix.service }}-${{ env.RELEASE_TAG }}.spdx.json
           upload-artifact-retention: 90
+          upload-release-assets: false
 
       - name: Attest SBOM with GitHub OIDC
         env:

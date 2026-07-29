@@ -4,8 +4,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from berrybrain_api.database import SessionLocal, engine
 from berrybrain_api.ai_gateway import provider_resilience_snapshot
+from berrybrain_api.database import SessionLocal, engine
 from berrybrain_api.jobs import list_jobs, parse_json, serialize_datetime
 from berrybrain_api.models import (
     ConnectionRecord,
@@ -16,13 +16,13 @@ from berrybrain_api.models import (
     NoteRecord,
     WorkerStatus,
 )
+from berrybrain_api.schema_migrations import schema_diagnostic
 from berrybrain_api.services import (
     decode_embedding_vector,
     find_similar_chunk_notes,
     find_similar_notes,
     store_embedding,
 )
-from berrybrain_api.schema_migrations import schema_diagnostic
 
 router = APIRouter(prefix="/api/v1", tags=["monitor"])
 

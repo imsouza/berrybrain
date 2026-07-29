@@ -62,7 +62,6 @@ function Backlinks({ notePath }: { notePath: string }) {
 
 export function NoteEditor() {
   const w = useWorkspace();
-  const activePath = w.active?.path;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
@@ -73,6 +72,7 @@ export function NoteEditor() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
+    const activePath = w.active?.path;
     if (!activePath || w.demo) {
       setAttachments([]);
       return;
@@ -82,11 +82,11 @@ export function NoteEditor() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setAttachments(data?.attachments || []))
       .catch(() => setAttachments([]));
-  }, [activePath, w.api, w.demo]);
+  }, [w.active?.path, w.api, w.demo]);
 
   useEffect(() => {
     setMenuOpen(false);
-  }, [activePath]);
+  }, [w.active?.path]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -105,6 +105,7 @@ export function NoteEditor() {
   }, [menuOpen]);
 
   useEffect(() => {
+    const activePath = w.active?.path;
     if (!activePath || w.demo) {
       setPipelineProgress(null);
       return;
@@ -129,7 +130,7 @@ export function NoteEditor() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activePath, w.api, w.demo]);
+  }, [w.active?.path, w.api, w.demo]);
 
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;

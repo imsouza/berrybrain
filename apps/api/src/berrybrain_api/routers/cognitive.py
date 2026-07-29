@@ -1,13 +1,14 @@
-from pydantic import BaseModel
-
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from berrybrain_api.cognitive_layer import (
     answer_cognitive_query,
-    cognitive_config,
     cognitive_status,
     index_knowledge_base,
     orchestrate_retrieval,
+)
+from berrybrain_api.cognitive_state import (
+    cognitive_config,
     semantic_data_state,
 )
 from berrybrain_api.database import SessionLocal

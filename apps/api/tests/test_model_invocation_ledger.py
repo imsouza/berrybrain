@@ -10,13 +10,13 @@ from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.ai_gateway import GraphAIUnavailable, generate_graph_answer
 from berrybrain_api.database import Base
-from berrybrain_api.models import ModelInvocationRecord
 from berrybrain_api.model_invocation_service import (
     ModelInvocationHandle,
     _safe_error_message,
     finish_model_invocation,
     start_model_invocation,
 )
+from berrybrain_api.models import ModelInvocationRecord
 
 
 class ModelInvocationLedgerTest(unittest.IsolatedAsyncioTestCase):
@@ -67,18 +67,20 @@ class ModelInvocationLedgerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_failure_is_sanitized_and_persisted(self) -> None:
         leaked_key = "nvapi-super-secret-value"
-        with patch(
-            "berrybrain_api.ai_gateway._ollama_json",
-            side_effect=GraphAIUnavailable(f"provider rejected {leaked_key}"),
+        with (
+            patch(
+                "berrybrain_api.ai_gateway._ollama_json",
+                side_effect=GraphAIUnavailable(f"provider rejected {leaked_key}"),
+            ),
+            self.assertRaises(GraphAIUnavailable),
         ):
-            with self.assertRaises(GraphAIUnavailable):
-                await generate_graph_answer(
-                    self.config,
-                    "question",
-                    "system",
-                    session=self.session,
-                    prompt_version="ledger-failure.v1",
-                )
+            await generate_graph_answer(
+                self.config,
+                "question",
+                "system",
+                session=self.session,
+                prompt_version="ledger-failure.v1",
+            )
 
         record = self.session.execute(select(ModelInvocationRecord)).scalar_one()
         self.assertEqual(record.status, "failed")

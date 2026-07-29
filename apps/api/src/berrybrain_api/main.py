@@ -1,48 +1,51 @@
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from berrybrain_api.ai_gateway import generate_query_embedding, get_ai_config
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
-from berrybrain_api.ai_gateway import get_ai_config, generate_query_embedding
-from berrybrain_api.security import (
-    get_session_user,
-    require_admin,
-    verify_service_token,
-)
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import serialize_datetime
 from berrybrain_api.models import JobRecord, NoteRecord
-from berrybrain_api.search import hybrid_search
-from berrybrain_api.vault_watcher import VaultWatcher
-
 from berrybrain_api.routers import (
-    automation,
     auth,
+    automation,
     backup,
-    connections,
-    concepts,
     cognitive,
+    concepts,
+    connections,
     folders,
     graph,
+    hipporag,
     insights,
     jobs,
+    judge,
     maintenance,
+    metrics,
     monitor,
     notes,
     notifications,
     reviews,
     security_tokens,
-    settings as settings_router,
     vault,
 )
+from berrybrain_api.routers import (
+    settings as settings_router,
+)
+from berrybrain_api.search import hybrid_search
+from berrybrain_api.security import (
+    get_session_user,
+    require_admin,
+    verify_service_token,
+)
+from berrybrain_api.vault_watcher import VaultWatcher
 
 # --- Lifespan ---
 
@@ -50,18 +53,17 @@ from berrybrain_api.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = get_settings()
-    if cfg.session_secret == "dev-change-me":
+    if not cfg.session_secret:
+        raise RuntimeError("BERRYBRAIN_SESSION_SECRET must be set")
+    if len(cfg.session_secret) < 32:
         logging.getLogger("berrybrain").warning(
-            "INSECURE: BERRYBRAIN_SESSION_SECRET is the default value. "
+            "INSECURE: BERRYBRAIN_SESSION_SECRET is shorter than 32 characters. "
             "Set a strong random secret before exposing this service."
         )
     if cfg.environment.lower() in {"prod", "production"}:
         problems = []
-        if cfg.session_secret in {
-            "dev-change-me",
-            "change-me-with-32-plus-random-bytes",
-        }:
-            problems.append("BERRYBRAIN_SESSION_SECRET must be changed")
+        if len(cfg.session_secret) < 32:
+            problems.append("BERRYBRAIN_SESSION_SECRET must be at least 32 characters")
         if not cfg.session_secure_cookie:
             problems.append("BERRYBRAIN_SESSION_SECURE_COOKIE must be true")
         if "*" in cfg.cors_origins:
@@ -87,7 +89,7 @@ async def lifespan(app: FastAPI):
 
 # --- App ---
 
-app = FastAPI(title="BerryBrain API", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="BerryBrain API", version="0.1.0", lifespan=lifespan)
 settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
@@ -108,6 +110,8 @@ TOKEN_EXEMPT = {
     "/api/v1/setup",
     "/api/v1/auth",
     "/api/v1/admin",
+    "/api/v1/judge/mode",
+    "/api/v1/judge/scorecard",
 }
 
 SECURITY_HEADERS = {
@@ -119,64 +123,59 @@ SECURITY_HEADERS = {
 }
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Fail closed: every non-exempt route requires a valid shared token
-        # or a valid browser session. An empty api_token no longer disables auth.
-        if request.method == "OPTIONS":
-            return await call_next(request)
-        is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
-        if is_exempt:
-            return await call_next(request)
-        authorization = request.headers.get("Authorization", "")
-        bearer = (
-            authorization.removeprefix("Bearer ")
-            if authorization.startswith("Bearer ")
-            else ""
-        )
-        authorized = False
-        if bearer:
-            with SessionLocal() as session:
-                authorized = verify_service_token(session, settings, bearer)
-        if not authorized and request.cookies.get(settings.session_cookie_name):
-            with SessionLocal() as session:
-                authorized = get_session_user(session, settings, request) is not None
-        if not authorized:
-            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Fail closed: every non-exempt route requires a valid shared token
+    # or a valid browser session. An empty api_token no longer disables auth.
+    if request.method == "OPTIONS":
         return await call_next(request)
+    is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
+    if is_exempt:
+        return await call_next(request)
+    authorization = request.headers.get("Authorization", "")
+    bearer = (
+        authorization.removeprefix("Bearer ")
+        if authorization.startswith("Bearer ")
+        else ""
+    )
+    authorized = False
+    if bearer:
+        with SessionLocal() as session:
+            authorized = verify_service_token(session, settings, bearer)
+    if not authorized and request.cookies.get(settings.session_cookie_name):
+        with SessionLocal() as session:
+            authorized = get_session_user(session, settings, request) is not None
+    if not authorized:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    return await call_next(request)
 
 
-app.add_middleware(AuthMiddleware)
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        content_length = request.headers.get("content-length")
-        if (
-            content_length
-            and content_length.isdigit()
-            and int(content_length) > settings.max_request_body_bytes
-        ):
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if (
+        content_length
+        and content_length.isdigit()
+        and int(content_length) > settings.max_request_body_bytes
+    ):
+        return JSONResponse(
+            status_code=413, content={"detail": "Request body too large"}
+        )
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin and "*" not in origins and origin not in origins:
             return JSONResponse(
-                status_code=413, content={"detail": "Request body too large"}
+                status_code=403, content={"detail": "Origin not allowed"}
             )
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-            origin = request.headers.get("origin")
-            if origin and "*" not in origins and origin not in origins:
-                return JSONResponse(
-                    status_code=403, content={"detail": "Origin not allowed"}
-                )
-        response = await call_next(request)
-        for name, value in SECURITY_HEADERS.items():
-            response.headers.setdefault(name, value)
-        if request.url.scheme == "https":
-            response.headers.setdefault(
-                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-            )
-        return response
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
 
-
-app.add_middleware(SecurityHeadersMiddleware)
 
 # --- Routers ---
 
@@ -198,6 +197,9 @@ app.include_router(vault.router)
 app.include_router(settings_router.router)
 app.include_router(backup.router)
 app.include_router(automation.router)
+app.include_router(judge.router)
+app.include_router(hipporag.router)
+app.include_router(metrics.router)
 
 # --- Core endpoints ---
 
@@ -227,19 +229,32 @@ def status():
         }
 
 
+@app.get("/api/v1/model-router/status")
+def model_router_status():
+    from berrybrain_api.ai_gateway import check_router_status, get_ai_config
+
+    with SessionLocal() as session:
+        config = get_ai_config(session)
+        status = check_router_status(config)
+        return {"capabilities": status}
+
+
+@app.get("/api/v1/model-router/capabilities")
+def model_router_capabilities():
+    from berrybrain_api.ai_gateway import check_router_status, get_ai_config
+
+    with SessionLocal() as session:
+        config = get_ai_config(session)
+        status = check_router_status(config)
+        return {"capabilities": list(status.keys())}
+
+
 @app.get("/api/v1/search")
 def search(q: str, limit: int = 10):
     with SessionLocal() as session:
         query_vector = None
-        try:
-            query_vector = generate_query_embedding(
-                get_ai_config(session),
-                q,
-                session=session,
-                prompt_version="hybrid-search-query.v1",
-            )
-        except Exception:
-            pass
+        with suppress(Exception):
+            query_vector = generate_query_embedding(get_ai_config(session), q)
         return {"results": hybrid_search(session, q, limit, query_vector)}
 
 
@@ -323,10 +338,13 @@ def list_metadata_endpoint(note_path: str | None = None, limit: int = 20):
 
 
 @app.post("/api/v1/system/reset", dependencies=[Depends(require_admin)])
-def reset_system(_payload: ResetRequest):
+def reset_system(payload: ResetRequest):
+    _ = payload
     raise HTTPException(
         status_code=410,
-        detail="This legacy reset route is disabled. Use Settings > Danger zone.",
+        detail=(
+            "Danger zone reset moved to Settings. Use /api/v1/settings/danger/wipe."
+        ),
     )
 
 
@@ -372,7 +390,7 @@ def audit_system():
         by_type = Counter()
         by_reason = Counter()
         for job in failed_rows:
-            by_type[job.type] += 1
+            by_type[job.job_type] += 1
             error = job.error_message or "unknown"
             tag = error.split(":")[0].split("\n")[0][:80]
             by_reason[tag] += 1
@@ -396,7 +414,7 @@ def list_activity(limit: int = 50) -> dict:
     from berrybrain_api.automation_logs import (
         list_automation_logs,
     )
-    from berrybrain_api.jobs import PENDING, COMPLETED, FAILED
+    from berrybrain_api.jobs import COMPLETED, FAILED, PENDING
 
     with SessionLocal() as session:
         logs = list_automation_logs(session, limit=limit)
@@ -439,7 +457,7 @@ def list_activity(limit: int = 50) -> dict:
                     {
                         "id": job.id,
                         "action": job.type,
-                        "description": f"{job.type} failed",
+                        "description": f"{job.type} falhou",
                         "technicalDescription": job.type,
                         "when": serialize_datetime(job.created_at),
                         "type": "failed",
