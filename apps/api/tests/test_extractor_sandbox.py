@@ -64,9 +64,11 @@ class ExtractorSandboxTest(unittest.TestCase):
         libc.prctl.assert_called_once()
 
         libc.prctl.return_value = -1
-        with patch("berrybrain_api.extractor_sandbox.ctypes.get_errno", return_value=1):
-            with self.assertRaises(PermissionError):
-                _set_no_new_privileges()
+        with (
+            patch("berrybrain_api.extractor_sandbox.ctypes.get_errno", return_value=1),
+            self.assertRaises(PermissionError),
+        ):
+            _set_no_new_privileges()
 
 
 if __name__ == "__main__":

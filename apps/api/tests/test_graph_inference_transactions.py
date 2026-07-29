@@ -37,12 +37,14 @@ class GraphInferenceTransactionTest(unittest.TestCase):
             },
         )
 
-        with patch(
-            "berrybrain_api.graph_inference_service.create_job",
-            side_effect=RuntimeError("queue unavailable"),
+        with (
+            patch(
+                "berrybrain_api.graph_inference_service.create_job",
+                side_effect=RuntimeError("queue unavailable"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "queue unavailable"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "queue unavailable"):
-                create_insight_from_persisted_inference(self.session, inference.id)
+            create_insight_from_persisted_inference(self.session, inference.id)
         self.session.rollback()
 
         persisted = self.session.get(GraphInferenceRecord, inference.id)

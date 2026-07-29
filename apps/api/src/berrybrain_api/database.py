@@ -1,6 +1,8 @@
-from sqlalchemy import create_engine, inspect, text
 from collections.abc import Generator
+from pathlib import Path
 
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from berrybrain_api.config import get_settings
@@ -11,7 +13,30 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
-engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+
+
+def _ensure_sqlite_parent(database_url: str) -> None:
+    url = make_url(database_url)
+    if url.drivername != "sqlite":
+        return
+    database = url.database or ""
+    if not database or database == ":memory:":
+        return
+    try:
+        Path(database).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Some tests replace the engine after import while local .env may point to
+        # container-only paths such as /app/data. Let the actual DB connection
+        # surface a clear error if that path is used for real.
+        return
+
+
+_ensure_sqlite_parent(settings.database_url)
+_engine_url = make_url(settings.database_url)
+_connect_args = (
+    {"check_same_thread": False} if _engine_url.drivername == "sqlite" else {}
+)
+engine = create_engine(settings.database_url, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -27,17 +52,16 @@ def init_database() -> None:
         assert_schema_compatible,
     )
     from berrybrain_api.search import init_fts
-    from berrybrain_api.settings_store import migrate_secret_settings
 
     assert_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_columns()
     apply_schema_migrations(engine)
     ensure_default_profile()
+    ensure_default_owner()
 
     with SessionLocal() as session:
         init_fts(session)
-        migrate_secret_settings(session)
 
 
 def ensure_default_profile() -> None:
@@ -60,6 +84,50 @@ def ensure_default_profile() -> None:
                 )
             )
             session.commit()
+
+
+def ensure_default_owner() -> None:
+    settings = get_settings()
+    if not settings.enable_default_owner:
+        return
+    if settings.environment.lower() in {"prod", "production"}:
+        raise RuntimeError("BERRYBRAIN_ENABLE_DEFAULT_OWNER is forbidden in production")
+    if not settings.default_owner_password:
+        raise RuntimeError(
+            "BERRYBRAIN_DEFAULT_OWNER_PASSWORD must be set when default owner is enabled"
+        )
+
+    from sqlalchemy import select
+
+    from berrybrain_api.models import UserRecord
+    from berrybrain_api.security import (
+        hash_password,
+        normalize_email,
+        validate_email,
+        validate_password,
+    )
+
+    admin_email = validate_email(settings.admin_email)
+    validate_password(settings.default_owner_password)
+    with SessionLocal() as session:
+        existing = session.execute(
+            select(UserRecord).where(UserRecord.email == normalize_email(admin_email))
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+        session.add(
+            UserRecord(
+                email=normalize_email(admin_email),
+                display_name="Local Administrator",
+                password_hash=hash_password(
+                    settings.default_owner_password, settings.session_secret
+                ),
+                email_verified=True,
+                two_factor_enabled=False,
+                force_password_reset=settings.default_owner_force_password_reset,
+            )
+        )
+        session.commit()
 
 
 def ensure_sqlite_columns(bind=None) -> None:
@@ -159,6 +227,36 @@ def ensure_sqlite_columns(bind=None) -> None:
                     "WHERE idempotency_key != '' AND status IN ('pending', 'running')"
                 )
             )
+
+    if "users" in inspector.get_table_names():
+        existing_users = {column["name"] for column in inspector.get_columns("users")}
+        if "role" not in existing_users:
+            with database_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'viewer'"
+                    )
+                )
+
+    quality_columns = {
+        "quality_gate_status": "VARCHAR(50) NOT NULL DEFAULT 'pending'",
+        "quality_score": "FLOAT NOT NULL DEFAULT 0.0",
+        "latest_evaluation_id": "INTEGER",
+    }
+
+    for table_name in ["graph_nodes", "graph_edges", "connections", "insights"]:
+        if table_name in inspector.get_table_names():
+            existing_cols = {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+            with database_engine.begin() as connection:
+                for name, definition in quality_columns.items():
+                    if name not in existing_cols:
+                        connection.execute(
+                            text(
+                                f"ALTER TABLE {table_name} ADD COLUMN {name} {definition}"
+                            )
+                        )
 
     if "worker_status" in inspector.get_table_names():
         existing_ws = {

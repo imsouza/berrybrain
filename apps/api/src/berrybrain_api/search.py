@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from berrybrain_api.models import ChunkRecord, ConnectionRecord, NoteRecord
 from berrybrain_api.services import find_similar_chunks_by_vector
-
 
 SEARCH_STOPWORDS = {
     "a",

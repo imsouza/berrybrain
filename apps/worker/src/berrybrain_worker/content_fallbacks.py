@@ -153,8 +153,8 @@ def chunk_note_for_embedding(content: str, max_chars: int = 2400) -> list[dict]:
         if heading:
             level = len(heading.group(1))
             title = heading.group(2).strip()
-            heading_stack = heading_stack[: level - 1] + [title]
-        if current_lines and len("\n".join(current_lines + [line])) > max_chars:
+            heading_stack = [*heading_stack[: level - 1], title]
+        if current_lines and len("\n".join([*current_lines, line])) > max_chars:
             flush(index - 1)
         if not current_lines:
             start_line = index

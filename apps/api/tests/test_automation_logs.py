@@ -3,12 +3,12 @@ import unittest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from berrybrain_api.database import Base
 from berrybrain_api.automation_logs import (
     create_automation_log,
     list_automation_logs,
     serialize_automation_log,
 )
+from berrybrain_api.database import Base
 from berrybrain_api.jobs import enqueue_note_changed_jobs
 
 

@@ -1,0 +1,21 @@
+{
+  "status": "pass",
+  "checks": {
+    "package_domain_has_boundary_doc": true,
+    "package_application_has_boundary_doc": true,
+    "package_infrastructure_has_boundary_doc": true,
+    "package_shared_has_boundary_doc": true,
+    "package_ui_has_boundary_doc": true,
+    "package_config_has_boundary_doc": true,
+    "packages_domain_dependency_direction": true,
+    "packages_application_dependency_direction": true,
+    "packages_shared_dependency_direction": true,
+    "app_source_has_no_machine_absolute_paths": true,
+    "graph_contract_module_exists": true,
+    "worker_uses_job_handler_registry": true
+  },
+  "failures": [],
+  "evidence": {
+    "hardcodedAbsolute": []
+  }
+}

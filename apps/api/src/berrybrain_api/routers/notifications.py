@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from sqlalchemy import select
@@ -90,7 +90,7 @@ def mark_notification_read(notification_id: int) -> dict:
         notification = session.get(NotificationRecord, notification_id)
         if notification is None:
             return {"status": "not_found"}
-        notification.read_at = datetime.now(timezone.utc)
+        notification.read_at = datetime.now(UTC)
         session.commit()
         session.refresh(notification)
         return {"status": "read", "notification": {"id": notification.id, "read": True}}
@@ -104,7 +104,7 @@ def mark_all_notifications_read() -> dict:
                 select(NotificationRecord).where(NotificationRecord.read_at.is_(None))
             ).scalars()
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for n in notifications:
             n.read_at = now
         session.commit()
@@ -137,8 +137,8 @@ def create_from_failed_job(job_id: int, error_message: str | None = None) -> dic
             session=session,
             notification_type="job_failed",
             title="Job failed",
-            description=error_message or "Review the failure in Monitor.",
-            action="View Monitor",
+            description="Check errors in Monitor.",
+            action="Open Monitor",
             action_url="/monitor",
             related_job_id=job_id,
         )

@@ -1,5 +1,4 @@
-from fastapi import APIRouter
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
@@ -53,9 +52,9 @@ def create_concept_note(concept_id: int) -> dict:
                 f"# {concept.name}",
                 "",
                 concept.description
-                or "Permanent note created from a detected concept.",
+                or "Nota permanente criada a partir de conceito detectado.",
                 "",
-                "## Evidence",
+                "## Evidencias",
                 concept.source_evidence,
             ]
         )

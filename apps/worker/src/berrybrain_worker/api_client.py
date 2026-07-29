@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 import httpx
 
@@ -148,7 +149,7 @@ async def send_heartbeat(
     errors: int,
     ollama_healthy: bool = False,
 ) -> None:
-    try:
+    with suppress(Exception):
         await client.post(
             f"{api_url}/api/v1/worker/heartbeat",
             json={
@@ -157,5 +158,3 @@ async def send_heartbeat(
                 "ollama_healthy": ollama_healthy,
             },
         )
-    except Exception:
-        pass

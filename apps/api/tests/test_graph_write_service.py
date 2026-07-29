@@ -226,9 +226,8 @@ class GraphWriteServiceTest(unittest.TestCase):
             lambda: self.writer.update_node_enrichment(node.id, {"ignored": "x"}),
         )
         for call in invalid_calls:
-            with self.subTest(call=call):
-                with self.assertRaises(HTTPException):
-                    call()
+            with self.subTest(call=call), self.assertRaises(HTTPException):
+                call()
 
         note = self.writer.upsert_node(
             node_type="note",

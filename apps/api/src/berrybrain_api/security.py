@@ -265,7 +265,7 @@ def assert_rate_limit(
     failures = session.execute(
         select(func.count(LoginAttemptRecord.id)).where(
             LoginAttemptRecord.action == action,
-            LoginAttemptRecord.success == False,  # noqa: E712
+            LoginAttemptRecord.success.is_(False),
             LoginAttemptRecord.created_at >= since,
             identity_filter,
         )
@@ -363,7 +363,7 @@ def send_otp_email(
     msg.set_content(
         "Your BerryBrain security code is valid for "
         f"{settings.auth_otp_ttl_minutes} minutes.\n\nCode: {code}\n\n"
-        f"Purpose: {purpose}\nSupport: contato@optlabs.com.br"
+        f"Purpose: {purpose}\nSupport: {settings.support_email or settings.smtp_from or 'not configured'}"
     )
     try:
         if settings.smtp_port == 465:

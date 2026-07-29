@@ -6,11 +6,11 @@ from dataclasses import asdict, dataclass
 from benchmarks.cognitive_maturity_benchmark import (
     run_benchmark as run_cognitive_benchmark,
 )
-from benchmarks.insight_usefulness_benchmark import (
-    run_benchmark as run_insight_benchmark,
-)
 from benchmarks.graph_performance_benchmark import (
     run_benchmark as run_graph_performance_benchmark,
+)
+from benchmarks.insight_usefulness_benchmark import (
+    run_benchmark as run_insight_benchmark,
 )
 from benchmarks.semantic_search_benchmark import (
     run_benchmark as run_semantic_benchmark,

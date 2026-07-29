@@ -1,0 +1,654 @@
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from berrybrain_api.concept_extraction import (
+    _extract_note_concepts,
+    normalize_concept_name,
+)
+from berrybrain_api.connection_detection import _upsert_note_connection
+from berrybrain_api.deduplication import (
+    _delete_graph_node_with_edges,
+    _merge_duplicate_nodes,
+    _prune_generated_graph_insights,
+    _prune_generated_typed_nodes,
+    _prune_orphan_insight_nodes,
+    _prune_stale_concepts,
+    _prune_stale_graph_insights,
+    _prune_title_duplicate_typed_nodes,
+)
+from berrybrain_api.models import (
+    ConceptRecord,
+    ConnectionRecord,
+    GeneratedMetadataRecord,
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    NoteRecord,
+)
+
+# Constants from second_brain
+PROMPT_VERSION = "graph-expand.deterministic.v1"
+STOPWORDS = {
+    "a",
+    "as",
+    "de",
+    "do",
+    "da",
+    "das",
+    "dos",
+    "e",
+    "em",
+    "o",
+    "os",
+    "para",
+    "por",
+    "que",
+    "um",
+    "uma",
+    "com",
+    "sobre",
+    "qual",
+    "quais",
+    "relacao",
+    "relação",
+    "tem",
+    "ver",
+}
+
+
+def _parse_json_list(value: str | None) -> list[Any]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _second_brain_helper(name: str) -> Any:
+    from berrybrain_api import second_brain
+
+    return getattr(second_brain, name)
+
+
+def _dump_json(value: Any) -> str:
+    return _second_brain_helper("_dump_json")(value)
+
+
+def _note_lookup_key(value: str) -> str:
+    return _second_brain_helper("_note_lookup_key")(value)
+
+
+def _extract_topics_from_metadata(session: Session, metadata_by_note: dict) -> int:
+    return _second_brain_helper("_extract_topics_from_metadata")(
+        session, metadata_by_note
+    )
+
+
+def _extract_entities_from_metadata(session: Session, metadata_by_note: dict) -> int:
+    return _second_brain_helper("_extract_entities_from_metadata")(
+        session, metadata_by_note
+    )
+
+
+def _extract_context_from_metadata(session: Session, metadata_by_note: dict) -> int:
+    return _second_brain_helper("_extract_context_from_metadata")(
+        session, metadata_by_note
+    )
+
+
+def _extract_gaps_from_metadata(session: Session, metadata_by_note: dict) -> int:
+    return _second_brain_helper("_extract_gaps_from_metadata")(
+        session, metadata_by_note
+    )
+
+
+def _extract_sources_from_notes(session: Session, notes: list[NoteRecord]) -> int:
+    return _second_brain_helper("_extract_sources_from_notes")(session, notes)
+
+
+def _generate_deterministic_insights(session: Session) -> None:
+    _second_brain_helper("_generate_deterministic_insights")(session)
+
+
+def _generate_graph_insights(session: Session) -> int:
+    return _second_brain_helper("_generate_graph_insights")(session)
+
+
+def _ensure_graph_node_context(session: Session) -> int:
+    return _second_brain_helper("_ensure_graph_node_context")(session)
+
+
+def _ensure_graph_edge_traceability(session: Session) -> int:
+    return _second_brain_helper("_ensure_graph_edge_traceability")(session)
+
+
+def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
+    return _second_brain_helper("_migrate_active_ai_edge_evidence")(session)
+
+
+def expand_knowledge_graph(session: Session) -> dict[str, int]:
+    _merge_duplicate_nodes(session)
+
+    notes = list(session.execute(select(NoteRecord)).scalars())
+    metadata = list(session.execute(select(GeneratedMetadataRecord)).scalars())
+    metadata_by_note: dict[int, list[GeneratedMetadataRecord]] = defaultdict(list)
+    for record in metadata:
+        metadata_by_note[record.note_id].append(record)
+
+    note_nodes = {_node_key("note", n.id): _upsert_note_node(session, n) for n in notes}
+    _prune_generated_typed_nodes(session)
+    _prune_generated_graph_insights(session)
+    _prune_orphan_insight_nodes(session)
+    _prune_title_duplicate_typed_nodes(session, notes)
+    concept_to_note_ids: dict[str, set[int]] = defaultdict(set)
+    concept_sources: dict[str, list[str]] = defaultdict(list)
+    concept_models: dict[str, str] = {}
+
+    for note in notes:
+        for concept_name, evidence, model in _extract_note_concepts(
+            note, metadata_by_note.get(note.id, [])
+        ):
+            normalized = normalize_concept_name(concept_name)
+            if not normalized:
+                continue
+            concept_to_note_ids[normalized].add(note.id)
+            if evidence and evidence not in concept_sources[normalized]:
+                concept_sources[normalized].append(evidence)
+            if model:
+                concept_models[normalized] = model
+
+    _prune_stale_concepts(session, set(concept_to_note_ids))
+    _prune_stale_graph_insights(session, set(concept_to_note_ids))
+
+    concept_nodes: dict[str, GraphNodeRecord] = {}
+    concepts_count = 0
+    for normalized, note_ids in concept_to_note_ids.items():
+        concept = _upsert_concept(
+            session,
+            name=_display_concept_name(normalized),
+            normalized_name=normalized,
+            note_ids=sorted(note_ids),
+            evidence=concept_sources[normalized],
+            model=concept_models.get(normalized, ""),
+        )
+        concepts_count += 1
+        concept_nodes[normalized] = _upsert_concept_node(session, concept)
+
+    edges_count = 0
+    connections_count = 0
+    valid_shared_pairs: set[tuple[int, int]] = set()
+    for normalized, concept_node in concept_nodes.items():
+        for note_id in concept_to_note_ids[normalized]:
+            note_node = note_nodes.get(_node_key("note", note_id))
+            if note_node is None:
+                continue
+            edge = _upsert_graph_edge(
+                session,
+                note_node.id,
+                concept_node.id,
+                edge_type="shared_concept",
+                label="shared concept",
+                reason=f'The note mentions the concept "{concept_node.label}".',
+                evidence=[concept_node.label],
+                source_note_ids=[note_id],
+                created_by="system",
+                status="confirmed",
+            )
+            if edge:
+                edges_count += 1
+
+        note_ids = sorted(concept_to_note_ids[normalized])
+        if len(note_ids) > 1:
+            for index, source_id in enumerate(note_ids):
+                for target_id in note_ids[index + 1 :]:
+                    valid_shared_pairs.add((source_id, target_id))
+                    source_note = next(
+                        (note for note in notes if note.id == source_id), None
+                    )
+                    target_note = next(
+                        (note for note in notes if note.id == target_id), None
+                    )
+                    if source_note is None or target_note is None:
+                        continue
+                    reason = (
+                        f'The notes "{source_note.title}" and "{target_note.title}" '
+                        f'share the concept "{concept_node.label}".'
+                    )
+                    conn = _upsert_note_connection(
+                        session,
+                        source_id,
+                        target_id,
+                        connection_type="shared_concept",
+                        confidence=78,
+                        reason=reason,
+                        evidence=[
+                            concept_node.label,
+                            source_note.title,
+                            target_note.title,
+                        ],
+                        created_by="system",
+                        status="suggested",
+                    )
+                    if conn:
+                        connections_count += 1
+                    source_node = note_nodes.get(_node_key("note", source_id))
+                    target_node = note_nodes.get(_node_key("note", target_id))
+                    if source_node and target_node:
+                        edge = _upsert_graph_edge(
+                            session,
+                            source_node.id,
+                            target_node.id,
+                            edge_type="shared_concept",
+                            label="shared concept",
+                            reason=reason,
+                            evidence=_parse_json_list(conn.evidence),
+                            source_note_ids=[source_id, target_id],
+                            created_by="system",
+                            status="suggested",
+                        )
+                if edge:
+                    edges_count += 1
+
+    _mark_stale_shared_concept_connections(session, valid_shared_pairs)
+
+    note_to_concepts: dict[int, list[str]] = defaultdict(list)
+    for normalized, note_ids in concept_to_note_ids.items():
+        for note_id in note_ids:
+            note_to_concepts[note_id].append(normalized)
+    note_by_id = {note.id: note for note in notes}
+    for note_id, normalized_names in note_to_concepts.items():
+        note = note_by_id.get(note_id)
+        if note is None:
+            continue
+        limited = sorted(set(normalized_names))[:8]
+        for index, left_name in enumerate(limited):
+            for right_name in limited[index + 1 :]:
+                left = concept_nodes.get(left_name)
+                right = concept_nodes.get(right_name)
+                if left is None or right is None:
+                    continue
+                edge = _upsert_graph_edge(
+                    session,
+                    left.id,
+                    right.id,
+                    edge_type="shared_context",
+                    label="shared context",
+                    reason=(
+                        f'The concepts "{left.label}" and "{right.label}" appear '
+                        f'together in the note "{note.title}".'
+                    ),
+                    evidence=[note.title, left.label, right.label],
+                    source_note_ids=[note_id],
+                    created_by="subagent:concept-linker",
+                    status="suggested",
+                )
+                if edge:
+                    edges_count += 1
+
+    note_by_title = {_note_lookup_key(note.title): note for note in notes}
+    note_by_slug = {_note_lookup_key(note.slug): note for note in notes}
+    for source in notes:
+        for link in _parse_json_list(source.links):
+            target = note_by_title.get(_note_lookup_key(str(link))) or note_by_slug.get(
+                _note_lookup_key(str(link))
+            )
+            if target is None or target.id == source.id:
+                continue
+            conn = _upsert_note_connection(
+                session,
+                source.id,
+                target.id,
+                connection_type="backlink",
+                confidence=100,
+                reason=f'The note "{source.title}" references "{target.title}" through a backlink.',
+                evidence=[str(link), source.path, target.path],
+                created_by="backlink",
+                status="confirmed",
+            )
+            if conn:
+                connections_count += 1
+            source_node = note_nodes.get(_node_key("note", source.id))
+            target_node = note_nodes.get(_node_key("note", target.id))
+            if source_node and target_node:
+                edge = _upsert_graph_edge(
+                    session,
+                    source_node.id,
+                    target_node.id,
+                    edge_type="backlink",
+                    label="backlink",
+                    reason=conn.reason,
+                    evidence=_parse_json_list(conn.evidence),
+                    source_note_ids=[source.id, target.id],
+                    created_by="backlink",
+                    status="confirmed",
+                )
+                if edge:
+                    edges_count += 1
+
+    topics_count = _extract_topics_from_metadata(session, metadata_by_note)
+    entities_count = _extract_entities_from_metadata(session, metadata_by_note)
+    context_count = _extract_context_from_metadata(session, metadata_by_note)
+    gaps_count = _extract_gaps_from_metadata(session, metadata_by_note)
+    sources_count = _extract_sources_from_notes(session, notes)
+    _generate_deterministic_insights(session)
+    insights_count = _generate_graph_insights(session)
+
+    typed_nodes = (
+        session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.type.in_(
+                    ("topico", "entidade", "contexto", "lacuna", "fonte", "insight")
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for typed_node in typed_nodes:
+        source_ids = _parse_json_list(typed_node.source_note_ids)
+        for note_id in source_ids:
+            note_node = note_nodes.get(_node_key("note", note_id))
+            if not note_node:
+                continue
+            existing = session.execute(
+                select(GraphEdgeRecord).where(
+                    GraphEdgeRecord.source_node_id.in_((typed_node.id, note_node.id)),
+                    GraphEdgeRecord.target_node_id.in_((typed_node.id, note_node.id)),
+                )
+            ).first()
+            if existing:
+                continue
+            edge = _upsert_graph_edge(
+                session,
+                typed_node.id,
+                note_node.id,
+                edge_type="related",
+                label=f"{typed_node.type}↔note",
+                reason=f'"{typed_node.label}" was extracted from the note "{note_node.label}".',
+                evidence=[typed_node.label, note_node.label],
+                source_note_ids=[note_id],
+                created_by="system",
+                status="suggested",
+            )
+            if edge:
+                edges_count += 1
+
+    contextualized_nodes = _ensure_graph_node_context(session)
+    qualified_edges = _ensure_graph_edge_traceability(session)
+    ai_evidence_migration = _migrate_active_ai_edge_evidence(session)
+    visible_nodes = [
+        node
+        for node in session.execute(select(GraphNodeRecord)).scalars()
+        if node.status != "ignored"
+    ]
+    visible_edges = [
+        edge
+        for edge in session.execute(select(GraphEdgeRecord)).scalars()
+        if edge.status != "ignored"
+    ]
+
+    session.commit()
+    return {
+        "notes": len(notes),
+        "concepts": concepts_count,
+        "topics": topics_count,
+        "entities": entities_count,
+        "contexts": context_count,
+        "gaps": gaps_count,
+        "sources": sources_count,
+        "nodes": len(visible_nodes),
+        "edges": len(visible_edges),
+        "connections": connections_count,
+        "insights": insights_count,
+        "createdEdges": edges_count,
+        "contextualizedNodes": contextualized_nodes,
+        "qualifiedEdges": qualified_edges,
+        "aiEdgesEvidenceRecovered": ai_evidence_migration["recovered"],
+        "aiEdgesMarkedStale": ai_evidence_migration["stale"],
+    }
+
+
+def delete_graph_node(session: Session, node_id: int) -> bool:
+    node = session.get(GraphNodeRecord, node_id)
+    if node is None:
+        return False
+    _delete_graph_node_with_edges(session, node)
+    return True
+
+
+def set_node_status(session: Session, node_id: int, status: str) -> GraphNodeRecord:
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_node_status(node_id, status)
+
+
+def set_node_user_notes(session: Session, node_id: int, notes: str) -> GraphNodeRecord:
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_node_user_notes(node_id, notes)
+
+
+def set_edge_status(session: Session, edge_id: int, status: str) -> GraphEdgeRecord:
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_edge_status(edge_id, status)
+
+
+def set_edge_user_notes(session: Session, edge_id: int, notes: str) -> GraphEdgeRecord:
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session).set_edge_user_notes(edge_id, notes)
+
+
+def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
+    metadata = {
+        "path": note.path,
+        "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
+        "status": note.status,
+    }
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).upsert_node(
+        node_type="note",
+        label=note.title,
+        title=note.title,
+        summary=f"Vault note: {note.path}",
+        ai_notes=(
+            "Subagent graph-expander: vertex created from a real vault note; "
+            "the note path is the auditable source."
+        ),
+        source="note",
+        source_id=note.id,
+        source_note_ids=[note.id],
+        source_evidence=[note.path, note.title],
+        confidence=1.0,
+        created_by="system",
+        status="confirmed",
+        source_quality="vault_note",
+        learning_value="source",
+        graph_metadata=metadata,
+    )
+
+
+def _upsert_concept(
+    session: Session,
+    name: str,
+    normalized_name: str,
+    note_ids: list[int],
+    evidence: list[str],
+    model: str = "",
+) -> ConceptRecord:
+    concept = session.execute(
+        select(ConceptRecord).where(ConceptRecord.normalized_name == normalized_name)
+    ).scalar_one_or_none()
+    if concept is None:
+        concept = ConceptRecord(name=name, normalized_name=normalized_name)
+        session.add(concept)
+        session.flush()
+    concept.name = name
+    concept.description = concept.description or f'Detected concept: "{name}".'
+    concept.frequency = len(note_ids)
+    concept.related_note_ids = _dump_json(note_ids)
+    concept.extracted_by = "system"
+    concept.confidence = 0.7 if len(note_ids) == 1 else 0.85
+    concept.status = "suggested"
+    concept.provider = "deterministic"
+    concept.model = model or "metadata-parser"
+    concept.source_evidence = _dump_json(evidence[:8])
+    concept.updated_at = datetime.now(UTC)
+    return concept
+
+
+def _upsert_concept_node(session: Session, concept: ConceptRecord) -> GraphNodeRecord:
+    note_ids = _parse_json_list(concept.related_note_ids)
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    return GraphWriteService(session, autocommit=False).upsert_node(
+        node_type="concept",
+        label=concept.name,
+        title=concept.name,
+        summary=concept.description,
+        ai_notes=(
+            "Subagent concept-extractor: conceptual vertex created from metadata "
+            "and concepts extracted from related notes."
+        ),
+        source="concept_extraction",
+        source_id=concept.id,
+        source_note_ids=[int(value) for value in note_ids if str(value).isdigit()],
+        source_evidence=concept.source_evidence,
+        source_quality="extracted",
+        learning_value="concept",
+        confidence=concept.confidence,
+        created_by=concept.extracted_by,
+        model=concept.model,
+        provider=concept.provider,
+        status=concept.status,
+        graph_metadata={
+            "normalizedName": concept.normalized_name,
+            "frequency": concept.frequency,
+            "sourceEvidence": _parse_json_list(concept.source_evidence),
+            "relatedNoteCount": len(note_ids),
+        },
+    )
+
+
+def _upsert_graph_edge(
+    session: Session,
+    source_node_id: int,
+    target_node_id: int,
+    edge_type: str,
+    label: str,
+    reason: str,
+    evidence: list[str],
+    source_note_ids: list[int],
+    created_by: str,
+    status: str,
+    provider: str = "deterministic",
+    model: str = "metadata-parser",
+    prompt_version: str = PROMPT_VERSION,
+    confidence: float | None = None,
+) -> GraphEdgeRecord | None:
+    if not reason or not evidence:
+        return None
+    from berrybrain_api.graph_write_service import GraphWriteService
+
+    try:
+        return GraphWriteService(session, autocommit=False).upsert_edge(
+            source_node_id=source_node_id,
+            target_node_id=target_node_id,
+            edge_type=edge_type,
+            label=label,
+            reason=reason,
+            evidence=evidence,
+            source_note_ids=source_note_ids,
+            confidence=(
+                confidence
+                if confidence is not None
+                else (1.0 if status == "confirmed" else 0.7)
+            ),
+            created_by=created_by,
+            provider=provider,
+            model=model,
+            prompt_version=prompt_version,
+            status=status,
+        )
+    except HTTPException:
+        return None
+
+
+def _mark_stale_shared_concept_connections(
+    session: Session, valid_pairs: set[tuple[int, int]]
+) -> int:
+    stale_count = 0
+    connections = list(
+        session.execute(
+            select(ConnectionRecord).where(
+                ConnectionRecord.connection_type == "shared_concept",
+                ConnectionRecord.status.not_in(("ignored", "archived", "stale")),
+            )
+        ).scalars()
+    )
+    for connection in connections:
+        pair = tuple(sorted((connection.source_note_id, connection.target_note_id)))
+        if pair in valid_pairs:
+            continue
+        connection.status = "stale"
+        connection.updated_at = datetime.now(UTC)
+        stale_count += 1
+
+    note_nodes = {
+        node.id: int(node.source_id or 0)
+        for node in session.execute(
+            select(GraphNodeRecord).where(GraphNodeRecord.type == "note")
+        ).scalars()
+    }
+    edges = list(
+        session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.type == "shared_concept",
+                GraphEdgeRecord.status.not_in(("ignored", "archived", "stale")),
+            )
+        ).scalars()
+    )
+    for edge in edges:
+        source_note_id = note_nodes.get(edge.source_node_id, 0)
+        target_note_id = note_nodes.get(edge.target_node_id, 0)
+        if not source_note_id or not target_note_id:
+            continue
+        pair = tuple(sorted((source_note_id, target_note_id)))
+        if pair in valid_pairs:
+            continue
+        edge.status = "stale"
+        edge.updated_at = datetime.now(UTC)
+        stale_count += 1
+    if stale_count:
+        session.flush()
+    return stale_count
+
+
+def _node_key(node_type: str, source_id: int) -> str:
+    return f"{node_type}:{source_id}"
+
+
+def _display_concept_name(normalized: str) -> str:
+    return normalized
+
+
+def _human_join(items: list[str]) -> str:
+    clean = [str(item).strip() for item in items if str(item).strip()]
+    if not clean:
+        return ""
+    if len(clean) == 1:
+        return clean[0]
+    if len(clean) == 2:
+        return f"{clean[0]} and {clean[1]}"
+    return f"{', '.join(clean[:-1])}, and {clean[-1]}"

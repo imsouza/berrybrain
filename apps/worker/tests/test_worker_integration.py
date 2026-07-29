@@ -59,13 +59,11 @@ class AsyncTestClientAdapter:
 class WorkerIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import berrybrain_api.models  # noqa: F401
+        from berrybrain_api.config import get_settings
+        from berrybrain_api.database import Base
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
-
-        from berrybrain_api.database import Base
-        import berrybrain_api.models  # noqa: F401
-
-        from berrybrain_api.config import get_settings
 
         cls.tmp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.tmp_dir.name) / "test.db"
@@ -98,7 +96,7 @@ class WorkerIntegrationTest(unittest.TestCase):
             except ImportError:
                 continue
             if hasattr(mod, "SessionLocal"):
-                cls._patched.append((mod, getattr(mod, "SessionLocal")))
+                cls._patched.append((mod, mod.SessionLocal))
 
         # monkey-patch SessionLocal across all modules
         # ponytail: file-based temp DB (same as test_integration.py) —
@@ -118,7 +116,7 @@ class WorkerIntegrationTest(unittest.TestCase):
 
         for mod, _ in cls._patched:
             if hasattr(mod, "SessionLocal"):
-                setattr(mod, "SessionLocal", new_sl)
+                mod.SessionLocal = new_sl
 
         # init FTS
         try:
@@ -136,7 +134,7 @@ class WorkerIntegrationTest(unittest.TestCase):
         db_mod.engine = cls._orig_engine
         db_mod.SessionLocal = cls._orig_sl
         for mod, orig in reversed(cls._patched):
-            setattr(mod, "SessionLocal", orig)
+            mod.SessionLocal = orig
 
         cls.settings.database_url = cls.original_database_url
         cls.settings.vault_path = cls.original_vault_path
@@ -322,10 +320,11 @@ class WorkerIntegrationTest(unittest.TestCase):
             job_id = job["id"]
 
             # force stale: set started_at to 45 min ago
-            from berrybrain_api.database import SessionLocal
-            from berrybrain_api.models import JobRecord
-            from berrybrain_api.jobs import utc_now
             from datetime import timedelta
+
+            from berrybrain_api.database import SessionLocal
+            from berrybrain_api.jobs import utc_now
+            from berrybrain_api.models import JobRecord
 
             with SessionLocal() as s:
                 j = s.get(JobRecord, job_id)

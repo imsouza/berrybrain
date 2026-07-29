@@ -28,7 +28,9 @@ test.describe("WCAG 2.2 AA automated gate", () => {
 
   test("login page has no detectable WCAG A/AA violations", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Sign in to this local instance." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Sign in to this local instance." }),
+    ).toBeVisible();
     await expectNoWcagViolations(page);
   });
 
@@ -47,7 +49,9 @@ test.describe("WCAG 2.2 AA automated gate", () => {
     const longAnimations = await page.evaluate(() =>
       document
         .getAnimations()
-        .filter((animation) => Number(animation.effect?.getTiming().duration || 0) > 100)
+        .filter(
+          (animation) => Number(animation.effect?.getTiming().duration || 0) > 100,
+        )
         .length,
     );
     expect(longAnimations).toBe(0);

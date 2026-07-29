@@ -215,9 +215,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const persistDraft = useCallback(async (baseContentHash?: string) => {
     if (!active) return;
     if (demo) {
-      const contentToSave = draftRef.current;
-      setDemoContents((current) => ({ ...current, [active.path]: contentToSave }));
-      setActive({ ...active, content: contentToSave });
+      setDemoContents((current) => ({ ...current, [active.path]: draft }));
+      setActive({ ...active, content: draft });
       setSaveConflict(null);
       setAutosave("saved");
       return;
@@ -265,7 +264,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       toast("The API is unavailable. Your draft is still available.", "error");
       setAutosave("unsaved");
     }
-  }, [active, api, demo, toast]);
+  }, [active, api, demo, draft, toast]);
 
   const save = useCallback(async () => {
     await persistDraft();
@@ -352,8 +351,11 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       toast("Demo vault is already loaded.", "info");
       return;
     }
-    const r = await apiFetch(`${api}/api/v1/vault/scan`, { method: "POST" });
-    if (r.ok) { await loadAll(); toast("Vault scanned."); }
+    let r = await apiFetch(`${api}/api/v1/vault/scan-and-rebuild`, { method: "POST" });
+    if (!r.ok) {
+      r = await apiFetch(`${api}/api/v1/vault/scan`, { method: "POST" });
+    }
+    if (r.ok) { await loadAll(); toast("Vault scanned and graph refreshed."); }
   }
 
   const closeNote = useCallback(async () => {
@@ -361,7 +363,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     setDraft("");
     draftRef.current = "";
     setSaveConflict(null);
-    await loadAll();
+    loadAll();
   }, [loadAll]);
 
   async function download() {

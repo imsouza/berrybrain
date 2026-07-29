@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
+import { workerHeartbeatStale } from "@/lib/diagnostics";
+
+const appVersion = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || "local";
 
 type FolderInfo = {
   name: string;
@@ -178,9 +181,15 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-2xl transition-opacity hover:opacity-80" priority onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} />
+        <Image src={berrylogo} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} priority />
       </div>
-      <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v1.0.0</div>
+      <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v{appVersion}</div>
+
+      {workerHeartbeatStale(w.stats) && (
+        <div className="mx-3 mb-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5 text-[10px] font-medium text-warning">
+          {t("workerNoHeartbeat")}
+        </div>
+      )}
 
       <div className="px-3 pb-2">
         <button className="bb-action flex w-full items-center gap-2 px-3 py-2 text-sm font-medium" onClick={() => { onMobileClose?.(); w.createDraft(); }}>
@@ -238,7 +247,16 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
               </div>
             );
           })}
-          {visibleFolders.length === 0 && <div className="px-3 py-2 text-xs text-muted/50">{t("empty")}</div>}
+          {visibleFolders.length === 0 && (
+            <div className="mx-2 rounded-lg border border-border/50 bg-surface/60 px-3 py-3 text-xs">
+              <div className="font-medium text-foreground/80">No notes yet</div>
+              <p className="mt-1 leading-5 text-muted/60">Create a note or scan your vault to start building the graph.</p>
+              <div className="mt-3 flex gap-2">
+                <button className="bb-action px-2 py-1 text-[11px]" onClick={() => { onMobileClose?.(); w.createDraft(); }}>New note</button>
+                <button className="bb-action px-2 py-1 text-[11px]" onClick={() => { onMobileClose?.(); w.scanVault(); }}>Scan</button>
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 

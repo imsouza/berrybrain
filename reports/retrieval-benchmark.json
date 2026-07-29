@@ -1,0 +1,20 @@
+{
+  "citation_precision": 0.9818,
+  "contradictory_rejected": true,
+  "fact_promotion_allowed": false,
+  "factual_recall_regression": 0.0,
+  "faithfulness": 0.9818,
+  "gates_passed": true,
+  "hipporag_factual_recall": 1.0,
+  "hipporag_multi_hop_recall": 0.9,
+  "multi_hop_query_count": 20,
+  "multi_hop_recall_gain": 0.25,
+  "negative_query_count": 4,
+  "negative_rejection_rate": 1.0,
+  "no_evidence_rejected": true,
+  "query_count": 54,
+  "secret_note_rejected": true,
+  "stale_deleted_rejected": true,
+  "standard_factual_recall": 1.0,
+  "standard_multi_hop_recall": 0.65
+}

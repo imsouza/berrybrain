@@ -6,21 +6,20 @@ import os
 import re
 import threading
 import time
-from time import perf_counter
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from typing import Any
-from typing import ParamSpec, TypeVar
+from time import perf_counter
+from typing import Any, ParamSpec, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from berrybrain_api.models import SettingRecord
 from berrybrain_api.model_invocation_service import (
     finish_model_invocation,
     start_model_invocation,
 )
+from berrybrain_api.models import SettingRecord
 from berrybrain_api.modules.model_router.domain import (
     ModelCapability,
     ModelRoutingError,
@@ -71,6 +70,10 @@ def get_ai_config(session: Session) -> dict[str, str]:
         or values.get("cloud_embedding_model")
         or values.get("embedding_model")
         or "",
+        "judge_provider": values.get("judge_provider") or "",
+        "judge_model": values.get("judge_model") or "",
+        "hipporag_provider": values.get("hipporag_provider") or "",
+        "hipporag_model": values.get("hipporag_model") or "",
         "ollama_base_url": values.get("ollama_base_url")
         or os.environ.get("BERRYBRAIN_OLLAMA_BASE_URL")
         or "http://localhost:11434",
@@ -332,7 +335,7 @@ def _is_transient_provider_error(error: BaseException) -> bool:
     while current is not None:
         if isinstance(current, urllib.error.HTTPError):
             return current.code == 429 or current.code >= 500
-        if isinstance(current, (TimeoutError, urllib.error.URLError, ConnectionError)):
+        if isinstance(current, TimeoutError | urllib.error.URLError | ConnectionError):
             return True
         if type(current) is OSError:
             return True
@@ -451,6 +454,64 @@ def _route(
             "unsupported_provider": "The configured AI provider is not supported",
         }
         raise GraphAIUnavailable(messages.get(str(exc), str(exc))) from exc
+
+
+def check_router_status(config: dict[str, str]) -> dict[str, Any]:
+    capabilities: list[tuple[str, ModelCapability, bool]] = [
+        ("generation", ModelCapability.GRAPH_INFERENCE, False),
+        ("embedding", ModelCapability.EMBEDDING, True),
+        ("judge", ModelCapability.GRAPH_INFERENCE, False),
+        ("hipporag", ModelCapability.GRAPH_INFERENCE, False),
+    ]
+    status: dict[str, Any] = {}
+    for name, capability, embedding in capabilities:
+        route_config = dict(config)
+        if name == "judge":
+            provider = route_config.get("judge_provider") or route_config.get(
+                "provider"
+            )
+            model = route_config.get("judge_model") or (
+                route_config.get("cloud_model")
+                if provider == "cloud"
+                else route_config.get("ollama_model")
+            )
+            route_config["provider"] = provider or "local"
+            if route_config["provider"] == "cloud":
+                route_config["cloud_model"] = model or ""
+            else:
+                route_config["ollama_model"] = model or ""
+        elif name == "hipporag":
+            provider = route_config.get("hipporag_provider") or route_config.get(
+                "provider"
+            )
+            model = route_config.get("hipporag_model") or (
+                route_config.get("cloud_model")
+                if provider == "cloud"
+                else route_config.get("ollama_model")
+            )
+            route_config["provider"] = provider or "local"
+            if route_config["provider"] == "cloud":
+                route_config["cloud_model"] = model or ""
+            else:
+                route_config["ollama_model"] = model or ""
+        try:
+            decision = _route(route_config, capability, embedding=embedding)
+            status[name] = {
+                "configured": True,
+                "provider": decision.provider,
+                "model": decision.model,
+                "remote": decision.remote,
+                "error": None,
+            }
+        except Exception as exc:
+            status[name] = {
+                "configured": False,
+                "provider": None,
+                "model": None,
+                "remote": False,
+                "error": str(exc),
+            }
+    return status
 
 
 def _cloud_embedding(
@@ -585,9 +646,7 @@ def _ollama_json(
 
 
 async def _to_thread(func, *args):
-    import asyncio
-
-    return await asyncio.to_thread(func, *args)
+    return func(*args)
 
 
 def _loads_json_object(raw: str) -> dict[str, Any]:

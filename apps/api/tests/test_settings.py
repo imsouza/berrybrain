@@ -8,12 +8,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from berrybrain_api.database import Base
 from berrybrain_api.config import _discover_project_root
+from berrybrain_api.database import Base
 from berrybrain_api.models import ModelInvocationRecord, NoteRecord
 from berrybrain_api.routers import settings as settings_router
 from berrybrain_api.settings_store import (

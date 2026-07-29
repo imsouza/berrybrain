@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
+import {
+  CLOUD_PROVIDER_PRESETS,
+  normalizeModelIds,
+  providerLabelForUrl,
+} from "@/lib/cloud-providers";
 
 type ThemeKind = "light" | "dark";
 
@@ -21,16 +26,9 @@ const EDITOR_FONTS: Record<string, string> = {
   sans: "ui-sans-serif, system-ui, sans-serif",
 };
 
-const NVIDIA_NIM_URL = "https://integrate.api.nvidia.com/v1";
-
-const CLOUD_PROVIDERS: Record<string, string> = {
-  [NVIDIA_NIM_URL]: "NVIDIA NIM",
-  "https://api.openai.com/v1": "OpenAI",
-  "https://api.deepseek.com/v1": "DeepSeek",
-  "https://api.groq.com/openai/v1": "Groq",
-  "https://openrouter.ai/api/v1": "OpenRouter",
-  "": "Custom provider URL",
-};
+const NVIDIA_NIM_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_CLOUD_API_URL || "";
+const DEFAULT_OLLAMA_BASE_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_OLLAMA_BASE_URL || "";
+const DEFAULT_LOCAL_MODEL = process.env.NEXT_PUBLIC_BERRYBRAIN_LOCAL_MODEL || "";
 
 type Settings = {
   theme: ThemeKind;
@@ -75,6 +73,11 @@ type Settings = {
   attachment_ocr_language: string;
   attachment_transcription_executable: "faster-whisper" | "whisper";
   attachment_transcription_model: string;
+  judge_provider: string;
+  judge_model: string;
+  hipporag_provider: string;
+  hipporag_model: string;
+  hipporag_enabled: "true" | "false";
 };
 
 type AiProviderStatus = {
@@ -113,8 +116,8 @@ function defaults(): Settings {
     graph_ai_api_url: NVIDIA_NIM_URL,
     graph_ai_api_key: "",
     graph_ai_model: "",
-    ollama_base_url: "http://host.docker.internal:11434",
-    graph_ollama_model: "qwen3:8b",
+    ollama_base_url: DEFAULT_OLLAMA_BASE_URL,
+    graph_ollama_model: DEFAULT_LOCAL_MODEL,
     graph_auto_confirm_confidence: "0.9",
     graph_default_layout: "brain",
     kb_vector_store: "sqlite",
@@ -138,7 +141,12 @@ function defaults(): Settings {
     attachment_other_limit_mb: "25",
     attachment_ocr_language: "eng",
     attachment_transcription_executable: "faster-whisper",
-    attachment_transcription_model: "/opt/berrybrain/models/faster-whisper-tiny.en",
+    attachment_transcription_model: "small",
+    judge_provider: "",
+    judge_model: "",
+    hipporag_provider: "",
+    hipporag_model: "",
+    hipporag_enabled: "false",
   };
 }
 
@@ -188,6 +196,11 @@ function loadSettings(): Settings {
     attachment_ocr_language: localStorage.getItem("bb_attachment_ocr_language") || d.attachment_ocr_language,
     attachment_transcription_executable: (localStorage.getItem("bb_attachment_transcription_executable") as Settings["attachment_transcription_executable"]) || d.attachment_transcription_executable,
     attachment_transcription_model: localStorage.getItem("bb_attachment_transcription_model") || d.attachment_transcription_model,
+    judge_provider: localStorage.getItem("bb_judge_provider") || d.judge_provider,
+    judge_model: localStorage.getItem("bb_judge_model") || d.judge_model,
+    hipporag_provider: localStorage.getItem("bb_hipporag_provider") || d.hipporag_provider,
+    hipporag_model: localStorage.getItem("bb_hipporag_model") || d.hipporag_model,
+    hipporag_enabled: (localStorage.getItem("bb_hipporag_enabled") as Settings["hipporag_enabled"]) || d.hipporag_enabled,
   };
 }
 
@@ -287,7 +300,38 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [diagClearing, setDiagClearing] = useState(false);
   const [diagClearResult, setDiagClearResult] = useState("");
 
-  const selectedProviderLabel = useMemo(() => CLOUD_PROVIDERS[s.ai_api_url] || "Custom provider", [s.ai_api_url]);
+  const selectedProviderLabel = useMemo(() => providerLabelForUrl(s.ai_api_url || s.ai_custom_url), [s.ai_api_url, s.ai_custom_url]);
+  const setupItems = useMemo(() => {
+    const baseUrl = Boolean((s.ai_api_url || s.ai_custom_url).trim());
+    const cloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
+    const cloudModel = Boolean(s.ai_model.trim());
+    const localReady = Boolean(s.ollama_base_url.trim() && s.graph_ollama_model.trim());
+    const cloudReady = baseUrl && cloudKey && cloudModel && s.remote_content_consent === "true";
+    return [
+      {
+        title: "Ask and graph AI",
+        ready: s.ai_provider === "cloud" ? cloudReady : localReady,
+        detail: s.ai_provider === "cloud"
+          ? "Cloud mode needs URL, key, model, and consent."
+          : "Local mode needs Ollama URL and an installed graph model.",
+      },
+      {
+        title: "Knowledge search",
+        ready: s.kb_vector_store === "sqlite" || Boolean(s.qdrant_url.trim() || s.chroma_url.trim()),
+        detail: "SQLite works out of the box. External stores need a reachable URL.",
+      },
+      {
+        title: "Automatic learning",
+        ready: s.cognitive_enrich_on_save === "true" && s.cognitive_insights_on_save === "true",
+        detail: "Enrichment and insights should stay enabled for most users.",
+      },
+      {
+        title: "Online validation",
+        ready: s.research_mode_enabled === "true",
+        detail: "Optional. Enables node validation with external web sources.",
+      },
+    ];
+  }, [apiKeyConfigured, s]);
 
   useEffect(() => {
     if (!open) return;
@@ -480,8 +524,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         body: JSON.stringify({ url: baseUrl, key: next.ai_api_key, model: next.ai_model }),
       });
       const payload = await response.json();
+      const models = normalizeModelIds(payload.models).map((id) => ({ id }));
       if (!response.ok || !payload.connected) {
-        setCloudModels(payload.models || []);
+        setCloudModels(models);
         if (payload.requiresModel) {
           setConnectionStatus(payload.error || "Models loaded. Select a model, then test again.");
           setSaveStatus("");
@@ -491,10 +536,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         setSaveStatus("Settings were not saved because the cloud connection could not be verified.");
         return false;
       } else {
-        setCloudModels(payload.models || []);
+        setCloudModels(models);
         const latency = payload.latencyMs ? ` (${payload.latencyMs} ms)` : "";
         if (announceSuccess) {
-          setConnectionStatus((payload.models || []).length ? `Connection verified${latency}. Select a model, then click Save to activate it.` : `Connection verified${latency}, but no models were returned.`);
+          setConnectionStatus(models.length ? `Connection verified${latency}. Select a model, then click Save to activate it.` : `Connection verified${latency}, but no models were returned.`);
         }
         await refreshProviderStatus();
         cloudConnectionVerifiedRef.current = true;
@@ -634,7 +679,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="bb-card bb-card--elevated relative z-50 w-full max-w-[92vw] overflow-hidden text-foreground sm:w-[560px]" role="dialog" aria-label="Settings">
+      <div className="bb-card bb-card--elevated relative z-50 w-full max-w-[94vw] overflow-hidden text-foreground sm:w-[860px]" role="dialog" aria-label="Settings">
         <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold tracking-tight">Settings</h2>
@@ -644,6 +689,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         </div>
 
         <div className="max-h-[72vh] space-y-5 overflow-y-auto px-6 py-5">
+          <Section title="Setup assistant" description="Start here when Ask, graph AI, or automatic processing does not behave as expected.">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {setupItems.map((item) => (
+                <SetupStep key={item.title} title={item.title} ready={item.ready} detail={item.detail} />
+              ))}
+            </div>
+            <ReadOnlyValue value={providerStatus?.lastError ? `Last provider error: ${providerStatus.lastError}` : "Changes are saved only after clicking Save."} />
+          </Section>
+
           <Section title="Appearance" description="Interface identity and theme.">
             <Field label="Display name" description="Used in the Home greeting.">
               <TextInput value={s.nome} onChange={(value) => update("nome", value)} placeholder="Your name" />
@@ -737,9 +791,17 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           <Section title="Cloud AI" description="OpenAI-compatible provider used for graph inference, insights, and knowledge expansion.">
             <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
             <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
-              <Select value={s.ai_api_url} onChange={(value) => update("ai_api_url", value)}>
-                <option value="">Select a provider</option>
-                {Object.entries(CLOUD_PROVIDERS).map(([url, label]) => <option key={url || "custom"} value={url}>{label}</option>)}
+              <Select
+                value={s.ai_api_url}
+                onChange={(value) => {
+                  update("ai_api_url", value);
+                  update("ai_model", "");
+                  setCloudModels([]);
+                  setConnectionStatus("");
+                }}
+              >
+                {CLOUD_PROVIDER_PRESETS.map((provider) => <option key={provider.id} value={provider.url}>{provider.label}</option>)}
+                <option value="">Custom provider URL</option>
               </Select>
             </Field>
             {s.ai_api_url === "" && (
@@ -813,7 +875,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               </Select>
             </Field>
             <Field label="Embedding model" description="Model used for semantic search chunks. Required to move embeddings above zero.">
-              <TextInput value={s.kb_embedding_model} onChange={(value) => update("kb_embedding_model", value)} placeholder="Example: nvidia/llama-3.2-nv-embedqa-1b-v2 or bge-m3" />
+              <TextInput value={s.kb_embedding_model} onChange={(value) => update("kb_embedding_model", value)} placeholder="Provider-specific embedding model ID" />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Chunk size" description="Maximum characters per markdown chunk.">
@@ -857,6 +919,41 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 </Select>
               </Field>
             </div>
+            
+            <div className="mt-4 border-t border-border/30 pt-4" />
+            <h4 className="mb-3 text-sm font-semibold text-foreground">Advanced Quality & Capabilities</h4>
+            
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="RAG Judge Provider" description="Independent provider for evaluating graph/insight quality.">
+                <Select value={s.judge_provider} onChange={(value) => update("judge_provider", value)}>
+                  <option value="">Same as Graph Generation (Disabled)</option>
+                  <option value="cloud">Cloud provider</option>
+                  <option value="local">Local Ollama</option>
+                </Select>
+              </Field>
+              <Field label="RAG Judge Model" description="Provider-specific model used for autonomous evaluations.">
+                <TextInput value={s.judge_model} onChange={(value) => update("judge_model", value)} placeholder="" />
+              </Field>
+            </div>
+            
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <Field label="HippoRAG Sidecar" description="Optional retrieval augmentation for multi-hop search. It does not replace canonical graph truth.">
+                <Select value={s.hipporag_enabled} onChange={(value) => update("hipporag_enabled", value as Settings["hipporag_enabled"])}>
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
+                </Select>
+              </Field>
+              <Field label="HippoRAG Provider" description="Provider for HippoRAG internal graph extraction.">
+                <Select value={s.hipporag_provider} onChange={(value) => update("hipporag_provider", value)}>
+                  <option value="">Fallback to Default Generation</option>
+                  <option value="cloud">Cloud provider</option>
+                  <option value="local">Local Ollama</option>
+                </Select>
+              </Field>
+              <Field label="HippoRAG Model" description="Specific model for HippoRAG operations.">
+                <TextInput value={s.hipporag_model} onChange={(value) => update("hipporag_model", value)} placeholder="" />
+              </Field>
+            </div>
           </Section>
 
           <Section title="Local" description="Local Ollama settings for offline processing.">
@@ -864,7 +961,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               <TextInput value={s.ollama_base_url} onChange={(value) => update("ollama_base_url", value)} placeholder="http://host.docker.internal:11434" />
             </Field>
             <Field label="Ollama graph model" description="Used when graph provider is Local Ollama.">
-              <TextInput value={s.graph_ollama_model} onChange={(value) => update("graph_ollama_model", value)} placeholder="qwen3:8b" />
+              <TextInput value={s.graph_ollama_model} onChange={(value) => update("graph_ollama_model", value)} placeholder="Installed local model ID" />
             </Field>
             <Field label="Auto-confirm confidence" description="Suggested graph connections above this confidence can be confirmed automatically.">
               <TextInput value={s.graph_auto_confirm_confidence} onChange={(value) => update("graph_auto_confirm_confidence", value)} placeholder="0.9" />
@@ -962,6 +1059,20 @@ function Section({ title, description, children }: { title: string; description:
   );
 }
 
+function SetupStep({ title, ready, detail }: { title: string; ready: boolean; detail: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-panel px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground">{title}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ready ? "bg-emerald-500/10 text-emerald-700" : "bg-amber-500/10 text-amber-700"}`}>
+          {ready ? "Ready" : "Needs setup"}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-4 text-muted/70">{detail}</p>
+    </div>
+  );
+}
+
 function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -1039,7 +1150,10 @@ function ProviderConnectionStatus({ status, loading }: { status: AiProviderStatu
           <p className={`text-xs font-semibold ${current.tone}`}>{current.title}</p>
           <p className="mt-1 text-[11px] leading-4 text-muted">{current.description}</p>
         </div>
-        {status.lastTestLatencyMs ? <span className="text-[10px] tabular-nums text-muted">{status.lastTestLatencyMs} ms</span> : null}
+        <div className="flex flex-col items-end gap-0.5">
+          {status.lastTestLatencyMs ? <span className="text-[10px] tabular-nums text-muted">{status.lastTestLatencyMs} ms</span> : null}
+          {status.lastTestAt ? <span className="text-[10px] tabular-nums text-muted/60">{new Date(status.lastTestAt).toLocaleString()}</span> : null}
+        </div>
       </div>
       <div className="mt-3 grid gap-1 text-[10px] text-muted sm:grid-cols-2">{checks.map((check) => <span key={check}>{check}</span>)}</div>
     </div>
