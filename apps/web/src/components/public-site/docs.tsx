@@ -782,19 +782,21 @@ Expose only the web entrypoint; keep the API internal.`,
     title: "Verification & release status",
     md: `## Verification & release status
 
-Current v1.3.0 release-candidate evidence from 8 August 2026:
+Current v1.3.0 release-candidate evidence from 9 August 2026:
 
 - **API**: 346 tests and 55 subtests pass.
 - **Worker / HippoRAG**: 44 Worker tests and 7 sidecar tests pass.
-- **Browser**: 42 API-backed Playwright E2E checks pass, including 10k-node graph stress.
+- **Browser**: 43 API-backed Playwright E2E checks pass, including 10k-node graph stress
+  and healthy-worker heartbeat regression.
 - **Web**: ESLint, TypeScript, production build, accessibility, and route budgets pass.
 - **Graph API**: 5,000 nodes / 20,000 edges at p95 \`2.54 s\`, \`11.3 MB\` payload,
   and \`82.1 MB\` peak memory.
 - **Semantic benchmark**: Recall@10, MRR, and NDCG@10 are \`1.0\`; p95 is \`47.34 ms\`.
 - **Maturity**: insight usefulness, provenance, graph integrity, stale cleanup, and cognitive
   precision/recall gates pass with no failed gate.
-- **Security**: source audit, production npm audit, Python dependency audits, container scan,
-  and SBOM gate are required before publication.
+- **Security**: source audit, production npm audit, Python dependency audits, and container
+  scans pass. All four images have zero fixable HIGH/CRITICAL findings; validated CycloneDX
+  1.7 SBOMs cover 496 components.
 - **Recovery**: checksum backup and isolated restore tests pass; the release backup manifest
   verifies all files and canonical table counts.
 
