@@ -440,8 +440,9 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [active, autosave, draft, save]);
   useEffect(() => {
     function h(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setCmdOpen(o => !o); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); return; }
+      const key = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && key === "k") { e.preventDefault(); setCmdOpen(o => !o); return; }
+      if ((e.metaKey || e.ctrlKey) && key === "s") { e.preventDefault(); save(); return; }
       if (e.key === "Escape") { if (active) closeNote(); if (cmdOpen) setCmdOpen(false); }
     }
     window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);

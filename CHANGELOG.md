@@ -20,6 +20,10 @@ All notable BerryBrain changes are documented here.
 
 ### Changed
 
+- Enabled SQLite WAL, a 30-second busy timeout, and per-connection foreign keys so
+  authenticated reads remain available while the worker persists graph updates.
+- Preloaded the critical Settings and Graph panels after workspace hydration to keep
+  their first interaction within the release performance budget.
 - Rebuilt graph node details around evidence, provenance, Ask, analysis, review, and actions.
 - Reorganized Settings and mandatory onboarding for non-technical users while preserving
   technical health and provider controls.
@@ -32,8 +36,8 @@ All notable BerryBrain changes are documented here.
 
 ### Verification
 
-- 346 API tests plus 55 subtests, 44 Worker tests, and 7 HippoRAG tests.
-- 42 Playwright E2E checks including accessibility, mobile, public/authenticated route budgets,
+- 348 API tests plus 55 subtests, 44 Worker tests, and 7 HippoRAG tests.
+- 43 Playwright E2E checks including accessibility, mobile, public/authenticated route budgets,
   graph workflows, onboarding, Settings, Flow, research, and 10k graph stress.
 - 5,000-node/20,000-edge API graph gate: p95 2.54 s, 11.3 MB payload, 82.1 MB peak memory.
 - Semantic Recall@10/MRR/NDCG@10 of 1.0; cognitive and insight maturity gates pass.

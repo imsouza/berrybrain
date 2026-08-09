@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -34,10 +34,34 @@ def _ensure_sqlite_parent(database_url: str) -> None:
 _ensure_sqlite_parent(settings.database_url)
 _engine_url = make_url(settings.database_url)
 _connect_args = (
-    {"check_same_thread": False} if _engine_url.drivername == "sqlite" else {}
+    {"check_same_thread": False, "timeout": 30}
+    if _engine_url.drivername == "sqlite"
+    else {}
 )
 engine = create_engine(settings.database_url, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _configure_sqlite_connection(dbapi_connection, _connection_record=None) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout = 30000")
+        cursor.execute("PRAGMA foreign_keys = ON")
+    finally:
+        cursor.close()
+
+
+if _engine_url.drivername == "sqlite":
+    event.listen(engine, "connect", _configure_sqlite_connection)
+
+
+def _configure_sqlite_journal(database_engine=None) -> None:
+    target_engine = database_engine or engine
+    if target_engine.dialect.name != "sqlite":
+        return
+    with target_engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode = WAL")
+        connection.exec_driver_sql("PRAGMA synchronous = NORMAL")
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -53,6 +77,7 @@ def init_database() -> None:
     )
     from berrybrain_api.search import init_fts
 
+    _configure_sqlite_journal()
     assert_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_columns()
