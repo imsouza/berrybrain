@@ -171,13 +171,19 @@ def create_insight(
     session.add(insight)
     session.flush()
 
+    from berrybrain_api.job_contracts import judge_artifact_payload
     from berrybrain_api.jobs import enqueue_job
 
     if autocommit:
         enqueue_job(
             session,
             "JUDGE_ARTIFACT",
-            {"artifact_type": "insight", "artifact_id": insight.id},
+            judge_artifact_payload(
+                session,
+                "insight",
+                insight.id,
+                str(insight.updated_at.timestamp()),
+            ),
             priority=20,
         )
 

@@ -4,12 +4,13 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
+import packageMetadata from "../../../package.json";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 import { workerHeartbeatStale } from "@/lib/diagnostics";
 
-const appVersion = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || "local";
+const appVersion = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || packageMetadata.version;
 
 type FolderInfo = {
   name: string;
@@ -203,6 +204,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11l3 3L22 4M5 4h7a2 2 0 012 2v1M5 4a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5" /></svg>
           <span className="flex-1 text-left">Review today</span>
           {dueReviewCount > 0 && <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">{dueReviewCount}</span>}
+        </button>
+        <button
+          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
+          onClick={() => { onMobileClose?.(); w.setGraphOpen(true); }}
+        >
+          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 7h.01M12 17h.01M7 7l5 10m5-10-5 10m-5-10h10" /></svg>
+          <span className="flex-1 text-left">Knowledge graph</span>
         </button>
       </div>
 

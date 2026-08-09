@@ -1,14 +1,17 @@
+import json
 import unittest
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
+from berrybrain_api.job_repair import inspect_legacy_jobs, repair_legacy_jobs
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
     InsightRecord,
     JobRecord,
+    NoteRecord,
 )
 from berrybrain_api.routers.maintenance import (
     _cleanup_duplicate_jobs,
@@ -120,6 +123,88 @@ class MaintenanceTest(unittest.TestCase):
 
         self.assertEqual(result["duplicateJobsMarkedFailed"], 1)
         self.assertEqual(sum(1 for job in jobs if job.status == "failed"), 1)
+
+    def test_job_repair_does_not_requeue_stale_semantic_enrichment(self) -> None:
+        from berrybrain_api.semantic_enrichment import source_fingerprint
+
+        node = GraphNodeRecord(type="concept", label="Current evidence")
+        self.session.add(node)
+        self.session.commit()
+        current_fingerprint = source_fingerprint(self.session, node)
+        self.session.add_all(
+            [
+                JobRecord(
+                    type="ENRICH_GRAPH_NODE",
+                    payload=json.dumps(
+                        {
+                            "node_id": node.id,
+                            "source_fingerprint": "stale-fingerprint",
+                        }
+                    ),
+                    status="failed",
+                ),
+                JobRecord(
+                    type="ENRICH_GRAPH_NODE",
+                    payload=json.dumps(
+                        {
+                            "node_id": node.id,
+                            "source_fingerprint": current_fingerprint,
+                        }
+                    ),
+                    status="failed",
+                ),
+            ]
+        )
+        self.session.commit()
+
+        report = inspect_legacy_jobs(self.session)
+
+        self.assertEqual(report["counts"]["irrecoverable"], 1)
+        self.assertEqual(
+            report["irrecoverable"][0]["reason"], "semantic_source_changed"
+        )
+        self.assertEqual(report["counts"]["reprocessable"], 1)
+
+    def test_job_repair_marks_renamed_note_reference_as_migratable(self) -> None:
+        note = NoteRecord(
+            title="Renamed",
+            slug="renamed",
+            path="inbox/renamed.md",
+            content_hash="same-hash",
+        )
+        self.session.add(note)
+        self.session.commit()
+        self.session.add(
+            JobRecord(
+                type="CLASSIFY_NOTE",
+                payload=json.dumps(
+                    {
+                        "note_id": note.id,
+                        "note_path": "inbox/rascunho.md",
+                        "content_hash": "same-hash",
+                    }
+                ),
+                note_id=note.id,
+                note_path="inbox/rascunho.md",
+                content_hash="same-hash",
+                status="dead_letter",
+            )
+        )
+        self.session.commit()
+
+        report = inspect_legacy_jobs(self.session)
+
+        self.assertEqual(report["counts"]["migratable"], 1)
+        self.assertEqual(report["migratable"][0]["reason"], "note_path_refresh")
+        self.assertEqual(report["counts"]["reprocessable"], 1)
+
+        result = repair_legacy_jobs(self.session, dry_run=False)
+        repaired = self.session.execute(select(JobRecord)).scalar_one()
+
+        self.assertGreaterEqual(result["changed"], 1)
+        self.assertEqual(repaired.status, "pending")
+        self.assertEqual(repaired.note_path, note.path)
+        self.assertEqual(json.loads(repaired.payload)["note_path"], note.path)
 
 
 if __name__ == "__main__":

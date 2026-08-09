@@ -4,6 +4,7 @@ import gc
 import json
 import statistics
 import time
+import tracemalloc
 from dataclasses import asdict, dataclass
 
 from sqlalchemy import create_engine, select
@@ -23,8 +24,10 @@ class GraphPerformanceMetrics:
     latency_p50_ms: float
     latency_p95_ms: float
     payload_bytes: int
+    peak_memory_bytes: int
     p95_budget_ms: float
     payload_budget_bytes: int
+    memory_budget_bytes: int
     meets_targets: bool
 
 
@@ -35,6 +38,7 @@ def run_benchmark(
     sample_count: int = 7,
     p95_budget_ms: float = 5_000,
     payload_budget_bytes: int = 16 * 1024 * 1024,
+    memory_budget_bytes: int = 512 * 1024 * 1024,
 ) -> GraphPerformanceMetrics:
     if node_count < 2 or edge_count < 1 or sample_count < 2:
         raise ValueError("Graph benchmark requires nodes, edges, and multiple samples")
@@ -97,6 +101,15 @@ def run_benchmark(
 
             build_graph(session)
             gc.collect()
+            tracemalloc.start()
+            memory_payload = build_graph(session)
+            json.dumps(
+                memory_payload, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            _, peak_memory_bytes = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            del memory_payload
+            gc.collect()
             latencies = []
             payload_bytes = 0
             gc_was_enabled = gc.isenabled()
@@ -127,13 +140,16 @@ def run_benchmark(
         latency_p50_ms=statistics.median(latencies),
         latency_p95_ms=latency_p95,
         payload_bytes=payload_bytes,
+        peak_memory_bytes=peak_memory_bytes,
         p95_budget_ms=p95_budget_ms,
         payload_budget_bytes=payload_budget_bytes,
+        memory_budget_bytes=memory_budget_bytes,
         meets_targets=(
             measured_nodes == node_count
             and measured_edges == edge_count
             and latency_p95 <= p95_budget_ms
             and payload_bytes <= payload_budget_bytes
+            and peak_memory_bytes <= memory_budget_bytes
         ),
     )
 

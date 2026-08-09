@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -30,18 +31,44 @@ from berrybrain_api.models import (
 )
 
 router = APIRouter(prefix="/api/v1/judge", tags=["judge"])
+logger = logging.getLogger(__name__)
 
 _VERDICT_ORDER = {"rejected": 0, "review": 1, "passed": 2}
 
 
+def _load_judge_prompt() -> str:
+    prompt_path = PROJECT_ROOT / "prompts" / "artifact-judge.v1.md"
+    try:
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        logger.exception("Judge prompt could not be read from %s", prompt_path)
+        raise HTTPException(
+            status_code=503, detail="Judge prompt is unavailable."
+        ) from exc
+    if not prompt:
+        raise HTTPException(status_code=503, detail="Judge prompt is empty.")
+    return prompt
+
+
 def _with_judge_route(config: dict[str, str]) -> dict[str, str]:
+    from berrybrain_api.ai_configuration import PROVIDERS
+
     routed = dict(config)
-    provider = routed.get("judge_provider") or routed.get("provider") or "local"
-    model = routed.get("judge_model") or (
-        routed.get("cloud_model") if provider == "cloud" else routed.get("ollama_model")
-    )
-    routed["provider"] = provider
-    if provider == "cloud":
+    provider = routed.get("judge_provider") or ""
+    model = routed.get("judge_model") or ""
+    if provider in {"cloud", "local"}:
+        mode = provider
+    elif provider in PROVIDERS:
+        mode = str(PROVIDERS[provider]["mode"])
+    else:
+        raise ValueError("Judge provider is not configured")
+    if not model:
+        raise ValueError("Judge model is not configured")
+    configured_mode = routed.get("provider") or mode
+    if configured_mode != mode:
+        raise ValueError("Judge provider cannot mix Cloud and Local modes")
+    routed["provider"] = mode
+    if mode == "cloud":
         routed["cloud_model"] = model or ""
     else:
         routed["ollama_model"] = model or ""
@@ -242,7 +269,11 @@ class EvaluateInternalRequest(BaseModel):
 async def evaluate_artifact_internal(req: EvaluateInternalRequest):
     import json
 
-    from berrybrain_api.ai_gateway import generate_graph_answer, get_ai_config
+    from berrybrain_api.ai_gateway import (
+        GraphAIUnavailable,
+        generate_graph_answer,
+        get_ai_config,
+    )
 
     with SessionLocal() as session:
         model_class = None
@@ -278,11 +309,7 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
             if isinstance(v, datetime):
                 artifact_json[k] = v.isoformat()
 
-        prompt_path = PROJECT_ROOT / "prompts" / "artifact-judge.v1.md"
-        if not prompt_path.exists():
-            return {"status": "error", "message": "Prompt file not found"}
-
-        system = prompt_path.read_text("utf-8")
+        system = _load_judge_prompt()
 
         prompt = json.dumps({"artifact": artifact_json, "evidence": evidence})
 
@@ -324,9 +351,25 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
             session.commit()
             return {"status": "success", "verdict": verdict, "score": score}
 
-        except Exception:
-            # Deterministic graceful failure
-            return {"status": "error", "message": "Judge evaluation failed."}
+        except GraphAIUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+                headers={
+                    "Retry-After": str(max(1, round(exc.retry_after_seconds or 30)))
+                },
+            ) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Judge evaluation failed for %s:%s",
+                req.artifact_type,
+                req.artifact_id,
+            )
+            raise HTTPException(
+                status_code=503, detail="Judge evaluation is temporarily unavailable."
+            ) from exc
 
 
 @router.get("/mode")
@@ -413,10 +456,7 @@ async def judge_committee(req: CommitteeRequest):
                 "blocked_slots": blocked,
             }
 
-        prompt_path = PROJECT_ROOT / "prompts" / "artifact-judge.v1.md"
-        if not prompt_path.exists():
-            return {"status": "error", "message": "Prompt file not found"}
-        system = prompt_path.read_text("utf-8")
+        system = _load_judge_prompt()
 
         model_class = {
             "node": GraphNodeRecord,

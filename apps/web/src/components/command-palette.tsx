@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { t } from "@/i18n";
 
 type CommandResult = {
@@ -45,8 +45,14 @@ export function CommandPalette({
     if (open) {
       setQuery("");
       setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
     }
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus({ preventScroll: true });
+    const frame = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {

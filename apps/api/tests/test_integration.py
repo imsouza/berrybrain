@@ -760,7 +760,11 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(config.status_code, 200)
         self.assertIn("kb_vector_store", config.json())
 
-        indexed = self.client.post("/api/v1/cognitive/index")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            indexed = self.client.post("/api/v1/cognitive/index")
         self.assertEqual(indexed.status_code, 200)
         self.assertEqual(indexed.json()["status"], "indexed")
         retrieved = self.client.post(
@@ -1549,12 +1553,22 @@ class IntegrationTest(unittest.TestCase):
         self.assertIn("deletedOrphanEdges", validation.json())
         self.assertIn("duplicateJobsMarkedFailed", validation.json())
 
-        reindex = self.admin_client.post("/api/v1/maintenance/reindex-knowledge-base")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            reindex = self.admin_client.post(
+                "/api/v1/maintenance/reindex-knowledge-base"
+            )
         self.assertEqual(reindex.status_code, 200)
         self.assertEqual(reindex.json()["status"], "indexed")
         self.assertIn("externalVectorStore", reindex.json())
 
-        rebuild = self.admin_client.post("/api/v1/maintenance/rebuild-brain")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            rebuild = self.admin_client.post("/api/v1/maintenance/rebuild-brain")
         self.assertEqual(rebuild.status_code, 200)
         self.assertEqual(rebuild.json()["status"], "queued")
         self.assertIn("knowledgeBase", rebuild.json())

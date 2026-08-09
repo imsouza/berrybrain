@@ -3,6 +3,11 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.job_contracts import (
+    canonical_job_counts,
+    serialize_attempt,
+    update_job_attempt,
+)
 from berrybrain_api.jobs import (
     COMPLETED,
     DEAD_LETTER,
@@ -24,13 +29,25 @@ from berrybrain_api.jobs import (
     serialize_job,
     utc_now,
 )
-from berrybrain_api.models import JobRecord
+from berrybrain_api.models import JobAttemptRecord, JobRecord
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
 class FailJobRequest(BaseModel):
     error_message: str = ""
+    stage: str = ""
+    error_class: str = "job_execution_error"
+    error_code: str = "job_failed"
+    retryability: str = ""
+
+
+class UpdateAttemptRequest(BaseModel):
+    stage: str | None = None
+    active_ai_mode: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    model_call_id: str | None = None
 
 
 @router.get("")
@@ -170,7 +187,21 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
                     "runningLeaseMinutes": max(1, stale_after_minutes),
                 },
             },
+            "canonicalCounts": canonical_job_counts(session),
         }
+
+
+@router.get("/{job_id}/attempts")
+def job_attempts_endpoint(job_id: int) -> dict:
+    with SessionLocal() as session:
+        attempts = list(
+            session.execute(
+                select(JobAttemptRecord)
+                .where(JobAttemptRecord.job_id == job_id)
+                .order_by(JobAttemptRecord.attempt.asc(), JobAttemptRecord.id.asc())
+            ).scalars()
+        )
+        return {"attempts": [serialize_attempt(item) for item in attempts]}
 
 
 @router.get("/pipeline-progress")
@@ -202,8 +233,35 @@ def complete_job_endpoint(job_id: int) -> dict:
 @router.post("/{job_id}/fail")
 def fail_job_endpoint(job_id: int, payload: FailJobRequest) -> dict:
     with SessionLocal() as session:
-        job = fail_job(session, job_id, payload.error_message)
+        job = fail_job(
+            session,
+            job_id,
+            payload.error_message,
+            stage=payload.stage,
+            error_class=payload.error_class,
+            error_code=payload.error_code,
+            retryability=payload.retryability,
+        )
         return {"job": serialize_job(job)}
+
+
+@router.patch("/{job_id}/attempt")
+def update_job_attempt_endpoint(job_id: int, payload: UpdateAttemptRequest) -> dict:
+    with SessionLocal() as session:
+        job = session.get(JobRecord, job_id)
+        if job is None:
+            return {"status": "not_found"}
+        attempt = update_job_attempt(
+            session,
+            job,
+            stage=payload.stage,
+            active_ai_mode=payload.active_ai_mode,
+            provider=payload.provider,
+            model=payload.model,
+            model_call_id=payload.model_call_id,
+        )
+        session.commit()
+        return {"attempt": serialize_attempt(attempt)}
 
 
 @router.get("/trace/{note_path:path}")

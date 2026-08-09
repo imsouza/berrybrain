@@ -5,14 +5,16 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
 
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import index_knowledge_base
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.graph_write_service import GraphWriteService
+from berrybrain_api.job_repair import repair_legacy_jobs
 from berrybrain_api.jobs import enqueue_note_changed_jobs
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -44,6 +46,18 @@ TECHNICAL_TERMS = (
     "backlog",
     "queue",
 )
+
+
+class RepairJobsRequest(BaseModel):
+    dry_run: bool = True
+    confirm: bool = False
+    batch_size: int = 100
+
+
+class PrepareSemanticGraphRequest(BaseModel):
+    dry_run: bool = True
+    confirm: bool = False
+    batch_size: int = 100
 
 
 def _parse_list(raw: str | None) -> list[Any]:
@@ -215,6 +229,129 @@ def cleanup_legacy_insights() -> dict:
             result,
             False,
         )
+        return {"status": "ok", **result}
+
+
+@router.post("/repair-jobs")
+def repair_jobs(payload: RepairJobsRequest) -> dict:
+    if not payload.dry_run and not payload.confirm:
+        raise HTTPException(
+            status_code=409,
+            detail="Set confirm=true to execute the repair.",
+        )
+    with SessionLocal() as session:
+        result = repair_legacy_jobs(
+            session,
+            dry_run=payload.dry_run,
+            batch_size=payload.batch_size,
+        )
+        create_automation_log(
+            session,
+            "MAINTENANCE_REPAIR_JOBS",
+            "maintenance",
+            "job-repair",
+            "Inspected or repaired legacy job records without deleting history.",
+            {},
+            {"dryRun": payload.dry_run, "changed": result["changed"]},
+            False,
+        )
+        session.commit()
+        return {"status": "ok", **result}
+
+
+@router.post("/prepare-semantic-graph")
+def prepare_semantic_graph(payload: PrepareSemanticGraphRequest) -> dict:
+    from berrybrain_api.ai_configuration import configuration_gate
+    from berrybrain_api.semantic_clustering import (
+        apply_cluster_preview,
+        build_cluster_preview,
+    )
+    from berrybrain_api.semantic_enrichment import (
+        mark_stale_legacy_profiles,
+        queue_node_enrichment,
+    )
+
+    if not payload.dry_run and not payload.confirm:
+        raise HTTPException(
+            status_code=409,
+            detail="Set confirm=true to apply semantic graph preparation.",
+        )
+    batch_size = max(1, min(payload.batch_size, 1000))
+    with SessionLocal() as session:
+        state_counts = dict(
+            session.execute(
+                select(
+                    GraphNodeRecord.semantic_state, func.count(GraphNodeRecord.id)
+                ).group_by(GraphNodeRecord.semantic_state)
+            ).all()
+        )
+        preview = build_cluster_preview(session)
+        gate = configuration_gate(session)
+        report = {
+            "dryRun": payload.dry_run,
+            "configurationGate": gate,
+            "semanticStates": state_counts,
+            "clusterPreview": {
+                "nodeCount": preview["nodeCount"],
+                "clusterCount": preview["clusterCount"],
+                "unresolvedCount": len(preview["unresolvedNodeIds"]),
+            },
+            "jobs": repair_legacy_jobs(session, dry_run=True),
+        }
+        if payload.dry_run:
+            return {"status": "ok", **report}
+
+        stale = mark_stale_legacy_profiles(session, limit=batch_size)
+        candidates = list(
+            session.execute(
+                select(GraphNodeRecord)
+                .where(
+                    GraphNodeRecord.status != "ignored",
+                    GraphNodeRecord.semantic_state.in_(
+                        ["pending", "stale", "failed", "needs_review"]
+                    ),
+                )
+                .order_by(GraphNodeRecord.id)
+                .limit(batch_size)
+            ).scalars()
+        )
+        queued = 0
+        skipped = 0
+        if gate["valid"]:
+            for node in candidates:
+                _, created = queue_node_enrichment(session, node)
+                queued += int(created)
+                skipped += int(not created)
+        else:
+            skipped = len(candidates)
+        applied_clusters = apply_cluster_preview(
+            session, build_cluster_preview(session)
+        )
+        repaired_jobs = repair_legacy_jobs(
+            session,
+            dry_run=False,
+            batch_size=batch_size,
+        )
+        result = {
+            **report,
+            "dryRun": False,
+            "staleProfiles": stale,
+            "enrichmentQueued": queued,
+            "enrichmentSkipped": skipped,
+            "clusterAssignmentsUpdated": applied_clusters["assignmentsUpdated"],
+            "jobs": repaired_jobs,
+        }
+        create_automation_log(
+            session,
+            "MAINTENANCE_PREPARE_SEMANTIC_GRAPH",
+            "maintenance",
+            "semantic-graph",
+            "Prepared semantic profiles, colors, and legacy jobs in bounded batches.",
+            {},
+            result,
+            False,
+        )
+        session.commit()
         return {"status": "ok", **result}
 
 

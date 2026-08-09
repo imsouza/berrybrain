@@ -151,6 +151,7 @@ def ensure_sqlite_columns(bind=None) -> None:
     if "jobs" in inspector.get_table_names():
         existing_jobs = {column["name"] for column in inspector.get_columns("jobs")}
         required_job_columns = {
+            "payload_schema_version": "INTEGER NOT NULL DEFAULT 1",
             "max_attempts": "INTEGER NOT NULL DEFAULT 3",
             "note_id": "INTEGER NOT NULL DEFAULT 0",
             "note_path": "TEXT NOT NULL DEFAULT ''",
@@ -317,6 +318,27 @@ def ensure_sqlite_columns(bind=None) -> None:
                         text(
                             f"ALTER TABLE automation_logs ADD COLUMN {name} {definition}"
                         )
+                    )
+
+    if "graph_nodes" in inspector.get_table_names():
+        existing_nodes = {
+            column["name"] for column in inspector.get_columns("graph_nodes")
+        }
+        required_node_columns = {
+            "semantic_state": "TEXT NOT NULL DEFAULT 'pending'",
+            "semantic_profile_version": "INTEGER NOT NULL DEFAULT 0",
+            "cluster_id": "INTEGER",
+            "vault_id": "VARCHAR(160) NOT NULL DEFAULT 'default'",
+            "color_id": "TEXT NOT NULL DEFAULT 'pending'",
+            "color_confidence": "FLOAT NOT NULL DEFAULT 0",
+            "color_reason": "TEXT NOT NULL DEFAULT ''",
+            "color_updated_at": "DATETIME",
+        }
+        with database_engine.begin() as connection:
+            for name, definition in required_node_columns.items():
+                if name not in existing_nodes:
+                    connection.execute(
+                        text(f"ALTER TABLE graph_nodes ADD COLUMN {name} {definition}")
                     )
 
     sqlite_columns = {

@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.ai_configuration import embedding_execution_configuration
 from berrybrain_api.ai_gateway import (
     GraphAIUnavailable,
     generate_query_embedding,
@@ -41,6 +42,7 @@ class RetrievalEvidence:
 
 def index_knowledge_base(session: Session) -> dict[str, Any]:
     cognitive = cognitive_config(session)
+    cognitive.update(embedding_execution_configuration(session))
     chunk_size = _int_setting(cognitive["kb_chunk_size"], 900, 300, 4000)
     notes = list(session.execute(select(NoteRecord)).scalars())
     processable_notes = [note for note in notes if (note.content or "").strip()]
@@ -133,22 +135,24 @@ def _generate_chunk_embedding(
 ) -> tuple[list[float], str]:
     try:
         vector = generate_query_embedding(cognitive, text)
-        provider = (
-            cognitive.get("embedding_provider") or cognitive.get("provider") or "local"
-        )
+        provider = cognitive.get("embedding_provider") or cognitive.get("provider")
+        if provider not in {"cloud", "local"}:
+            raise GraphAIUnavailable("Embedding provider is not configured")
         model = (
             cognitive.get("embedding_model")
             or cognitive.get("cloud_model")
             or cognitive.get("ollama_model")
-            or "unknown"
         )
+        if not model:
+            raise GraphAIUnavailable("Embedding model is not configured")
         return vector, f"{provider}/{model}"
-    except GraphAIUnavailable as exc:
-        logging.warning(f"Embedding AI unavailable: {exc}. Using hash fallback.")
-        return _hash_embedding(text), "hash_fallback"
+    except GraphAIUnavailable:
+        raise
     except Exception as exc:
-        logging.warning(f"Embedding error: {exc}. Using hash fallback.")
-        return _hash_embedding(text), "hash_fallback"
+        logging.exception("Embedding generation failed")
+        raise GraphAIUnavailable(
+            "Embedding generation failed with the configured provider"
+        ) from exc
 
 
 def _knowledge_chunks(

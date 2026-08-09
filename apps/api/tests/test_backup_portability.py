@@ -25,6 +25,7 @@ from berrybrain_api.backup import (
 from berrybrain_api.database import Base
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
+    JobRecord,
     ModelInvocationRecord,
     NoteAttachmentRecord,
     NoteRecord,
@@ -208,6 +209,18 @@ class BackupPortabilityTest(unittest.TestCase):
             engine = create_engine(f"sqlite:///{database_path}")
             Base.metadata.create_all(engine)
             session_factory = sessionmaker(bind=engine)
+            with session_factory() as session:
+                session.add(
+                    NoteRecord(
+                        title="Restorable",
+                        slug="restorable",
+                        path="source.md",
+                        content="# Restorable",
+                        content_hash="restorable",
+                    )
+                )
+                session.add(JobRecord(type="PARSE_NOTE", payload="{}"))
+                session.commit()
             settings = SimpleNamespace(
                 vault_path=vault,
                 backup_path=root_path / "backups",
@@ -220,6 +233,8 @@ class BackupPortabilityTest(unittest.TestCase):
                 patch("berrybrain_api.backup.database_engine", engine),
             ):
                 backup = create_backup()
+                self.assertEqual(backup["metadata"]["note_count"], 1)
+                self.assertEqual(backup["metadata"]["job_count"], 1)
                 shutil.rmtree(vault)
                 vault.mkdir()
                 restored = restore_backup(str(backup["id"]))

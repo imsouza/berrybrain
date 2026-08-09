@@ -54,6 +54,12 @@ type GraphNode = {
   validationStatus?: string;
   provider?: string;
   model?: string;
+  semanticState?: string;
+  semanticProfileVersion?: number;
+  clusterId?: number | null;
+  colorId?: string;
+  colorConfidence?: number;
+  colorReason?: string;
 };
 
 type GraphEdge = {
@@ -83,6 +89,57 @@ type InferenceResult = {
   model?: string;
 };
 
+type SemanticAnalysis = {
+  meaning_in_context: string;
+  why_it_matters_here: string;
+  supported_findings: string[];
+  inferences: string[];
+  uncertainties: string[];
+  evidence: Array<{ source?: string; reference?: string; claim?: string } | string>;
+  connection_assessments: Array<{
+    target_node_id?: number;
+    relation?: string;
+    assessment?: string;
+    confidence?: number;
+  }>;
+  confidence: {
+    concept_detection: number;
+    semantic_interpretation: number;
+    evidence_coverage: number;
+  };
+  provider: string;
+  model: string;
+  prompt_version: string;
+};
+
+type SemanticAnalysisPayload = {
+  nodeId: number;
+  state: string;
+  analysis: SemanticAnalysis | null;
+  historyCount: number;
+  profileVersion: number;
+  sourceFingerprint: string;
+};
+
+type FlowTurn = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  evidenceIds: string[];
+  provider?: string;
+  model?: string;
+  status: string;
+};
+
+type ResearchRun = {
+  id: number;
+  status: string;
+  progress: number;
+  plannedQueries: number;
+  completedQueries: number;
+  error?: string;
+};
+
 type NodeSummary = {
   id: number;
   type: string;
@@ -107,6 +164,12 @@ type NodeSummary = {
   model?: string;
   promptVersion?: string;
   generatedAt?: string | null;
+  semanticState?: string;
+  semanticProfileVersion?: number;
+  clusterId?: string;
+  colorId?: string;
+  colorConfidence?: number;
+  colorReason?: string;
   notes: { id: number; title: string; path: string }[];
   connections: {
     id: number;
@@ -128,8 +191,8 @@ type GraphActionId =
   | "confirm-node"
   | "ignore-node"
   | "reprocess-node"
-  | "enrich-node-ai"
-  | "validate-node-web";
+  | "retry-semantic-analysis"
+  | "regenerate-semantic-analysis";
 
 type GraphAction = {
   id: GraphActionId;
@@ -143,7 +206,7 @@ type GraphAction = {
 
 function getAvailableGraphActions(
   item: GraphNode | null,
-  options: { researchModeEnabled: boolean },
+  semanticState?: string,
 ): GraphAction[] {
   if (!item) return [];
   const status = item.status || "suggested";
@@ -173,21 +236,20 @@ function getAvailableGraphActions(
       requiresConfirmation: false,
     },
     {
-      id: "enrich-node-ai",
-      label: "Improve with AI",
+      id: "retry-semantic-analysis",
+      label: "Retry analysis",
       variant: "secondary",
-      visible: true,
+      visible: ["failed", "stale", "not_configured", "needs_review"].includes(semanticState || ""),
       disabled: false,
       requiresConfirmation: false,
     },
     {
-      id: "validate-node-web",
-      label: "Check online",
+      id: "regenerate-semantic-analysis",
+      label: "Regenerate analysis",
       variant: "secondary",
-      visible: options.researchModeEnabled,
-      disabled: !options.researchModeEnabled,
+      visible: semanticState === "completed",
+      disabled: false,
       requiresConfirmation: true,
-      reasonDisabled: "Research Mode is disabled in Settings.",
     },
   ];
 }
@@ -256,6 +318,7 @@ function GraphListView({
                 key={node.id}
                 type="button"
                 role="listitem"
+                aria-label={node.label}
                 aria-current={selectedId === node.id ? "true" : undefined}
                 className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-surface ${selectedId === node.id ? "bg-surface" : ""}`}
                 onClick={() => onSelect(node.id)}
@@ -356,20 +419,44 @@ export function GraphScreen({
   const [inferenceSaveStatus, setInferenceSaveStatus] = useState("");
   const [inferenceSaving, setInferenceSaving] = useState(false);
   const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
+  const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysisPayload | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [manualNotes, setManualNotes] = useState("");
   const [nodeActionStatus, setNodeActionStatus] = useState("");
   const [actionLoading, setActionLoading] = useState("");
   const [researchModeEnabled, setResearchModeEnabled] = useState(false);
+  const [researchRun, setResearchRun] = useState<ResearchRun | null>(null);
+  const [researchStatus, setResearchStatus] = useState("");
+  const [flowSessionId, setFlowSessionId] = useState<string | null>(null);
+  const [flowTurns, setFlowTurns] = useState<FlowTurn[]>([]);
+  const [flowActive, setFlowActive] = useState(false);
 
-  const graphData = data as { nodes: GraphNode[]; edges: GraphEdge[]; stats?: any } | null;
+  const graphData = data as {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+    stats?: { orphan_count?: number; node_count?: number; edge_count?: number };
+    palette?: Record<string, {
+      colorId: string;
+      lightHex: string;
+      darkHex: string;
+      border: string;
+      text: string;
+      namespace: "semantic" | "vault" | "pending";
+    }>;
+    graphVersion?: number;
+  } | null;
   const relatedInferenceNodes = useMemo(() => resolveRelatedInferenceNodes(inference, graphData), [inference, graphData]);
   const highlightedIds = useMemo(() => relatedInferenceNodes.map((node) => node.id), [relatedInferenceNodes]);
 
   const filtered = useMemo(() => {
     const orphanFilter = typeof window !== "undefined" ? localStorage.getItem("bb_graph_filter_orphans") : null;
     if (orphanFilter) localStorage.removeItem("bb_graph_filter_orphans");
-    if (!graphData) return { nodes: [], edges: [] };
+    if (!graphData) return {
+      nodes: [],
+      edges: [],
+      palette: undefined,
+      graphVersion: undefined,
+    };
     let nodes = graphData.nodes;
     let edges = graphData.edges;
     if (filterType === "brain_view") {
@@ -416,7 +503,12 @@ export function GraphScreen({
     }
     const nids = new Set(nodes.map((n) => n.id));
     edges = edges.filter((e) => nids.has(e.source) && nids.has(e.target));
-    return { nodes, edges };
+    return {
+      nodes,
+      edges,
+      palette: graphData.palette,
+      graphVersion: graphData.graphVersion,
+    };
   }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitivos, showInsightNodes]);
 
   const selectedNode = selectedId
@@ -428,7 +520,10 @@ export function GraphScreen({
   const actionNode = selectedNode
     ? { ...selectedNode, status: nodeSummary?.status || selectedNode.status }
     : null;
-  const nodeActions = getAvailableGraphActions(actionNode, { researchModeEnabled });
+  const nodeActions = getAvailableGraphActions(
+    actionNode,
+    semanticAnalysis?.state || nodeSummary?.semanticState || selectedNode?.semanticState,
+  );
 
   function changeLayout(mode: GraphLayoutMode) {
     setLayoutMode(mode);
@@ -466,20 +561,29 @@ export function GraphScreen({
   useEffect(() => {
     if (apiUrl === "__demo__" || !selectedNode?.recordId || !showDetail) {
       setNodeSummary(null);
+      setSemanticAnalysis(null);
       return;
     }
     let cancelled = false;
     setSummaryLoading(true);
-    apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((payload) => {
+    Promise.all([
+      apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
+        .then((response) => (response.ok ? response.json() : Promise.reject())),
+      apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/semantic-analysis`)
+        .then((response) => (response.ok ? response.json() : null)),
+    ])
+      .then(([payload, semanticPayload]) => {
         if (!cancelled) {
           setNodeSummary(payload);
+          setSemanticAnalysis(semanticPayload as SemanticAnalysisPayload | null);
           setManualNotes(payload.userNotes || "");
         }
       })
       .catch(() => {
-        if (!cancelled) setNodeSummary(null);
+        if (!cancelled) {
+          setNodeSummary(null);
+          setSemanticAnalysis(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setSummaryLoading(false);
@@ -488,6 +592,48 @@ export function GraphScreen({
       cancelled = true;
     };
   }, [apiUrl, selectedNode?.recordId, showDetail]);
+
+  useEffect(() => {
+    if (apiUrl === "__demo__" || typeof window === "undefined") return;
+    const savedSessionId = sessionStorage.getItem("bb_flow_session_id");
+    if (!savedSessionId) return;
+    let cancelled = false;
+    apiFetch(`${apiUrl}/api/v1/ask/sessions/${savedSessionId}`)
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((payload) => {
+        if (cancelled || !payload.session?.active) return;
+        setFlowSessionId(payload.session.id);
+        setFlowTurns(payload.turns || []);
+        setFlowActive(true);
+      })
+      .catch(() => sessionStorage.removeItem("bb_flow_session_id"));
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl]);
+
+  useEffect(() => {
+    if (!researchRun || !["pending", "running"].includes(researchRun.status)) return;
+    const timer = window.setTimeout(async () => {
+      const response = await apiFetch(`${apiUrl}/api/v1/graph/research-runs/${researchRun.id}`);
+      if (!response.ok) {
+        setResearchStatus("Could not refresh online research progress.");
+        return;
+      }
+      const payload = await response.json();
+      const next = payload.run as ResearchRun;
+      setResearchRun(next);
+      if (next.status === "completed") {
+        setResearchStatus(`Research completed. ${next.completedQueries} queries checked.`);
+        reload();
+      } else if (next.status === "cancelled") {
+        setResearchStatus("Online research cancelled.");
+      } else if (next.status === "failed") {
+        setResearchStatus(next.error || "Online research failed.");
+      }
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [apiUrl, reload, researchRun]);
 
   useEffect(() => {
     if (apiUrl === "__demo__") {
@@ -520,9 +666,32 @@ export function GraphScreen({
     if (apiUrl === "__demo__") return;
     if (questionOverride) setQuery(text);
     setInferLoading(true);
-    setInference(null);
     setInferenceSaveStatus("");
     try {
+      if (flowActive && flowSessionId) {
+        const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/turns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: text }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(typeof payload.detail === "string" ? payload.detail : `Flow failed (HTTP ${response.status}).`);
+        }
+        const userTurn = payload.userTurn as FlowTurn;
+        const assistantTurn = payload.assistantTurn as FlowTurn;
+        setFlowTurns((current) => [...current, userTurn, assistantTurn]);
+        setInference({
+          status: assistantTurn.status === "completed" ? "answered" : assistantTurn.status,
+          question: text,
+          answer: assistantTurn.content,
+          evidence: assistantTurn.evidenceIds,
+          provider: assistantTurn.provider,
+          model: assistantTurn.model,
+        });
+        setQuery("");
+        return;
+      }
       const response = await apiFetch(`${apiUrl}/api/v1/graph/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -545,6 +714,67 @@ export function GraphScreen({
     } finally {
       setInferLoading(false);
     }
+  }
+
+  async function startFlow() {
+    if (apiUrl === "__demo__") return;
+    const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "flow",
+        title: query.trim().slice(0, 120),
+        inference_id: inference?.inferenceId,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.session?.id) {
+      setInferenceSaveStatus(payload.detail || "Could not start Flow.");
+      return;
+    }
+    setFlowSessionId(payload.session.id);
+    setFlowTurns(payload.turns || []);
+    setFlowActive(true);
+    sessionStorage.setItem("bb_flow_session_id", payload.session.id);
+  }
+
+  async function exitFlow() {
+    if (flowSessionId) {
+      await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/close`, { method: "POST" });
+    }
+    setFlowSessionId(null);
+    setFlowTurns([]);
+    setFlowActive(false);
+    sessionStorage.removeItem("bb_flow_session_id");
+  }
+
+  async function cancelFlowRequest() {
+    if (!flowSessionId) return;
+    await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/cancel`, { method: "POST" });
+    setInferenceSaveStatus("Flow request cancellation requested.");
+  }
+
+  async function startOnlineResearch() {
+    if (apiUrl === "__demo__" || !researchModeEnabled) {
+      setResearchStatus("Enable Research Mode in Settings to check online sources.");
+      return;
+    }
+    const response = await apiFetch(`${apiUrl}/api/v1/graph/research-runs`, { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.run) {
+      setResearchStatus(payload.detail || "Could not start online research.");
+      return;
+    }
+    setResearchRun(payload.run as ResearchRun);
+    setResearchStatus("Online research queued.");
+  }
+
+  async function cancelOnlineResearch() {
+    if (!researchRun) return;
+    const response = await apiFetch(`${apiUrl}/api/v1/graph/research-runs/${researchRun.id}/cancel`, { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.run) setResearchRun(payload.run as ResearchRun);
+    setResearchStatus("Online research cancelled.");
   }
 
   async function saveInferenceAsInsight() {
@@ -600,52 +830,25 @@ export function GraphScreen({
     setNodeSummary((current) => current ? { ...current, userNotes: manualNotes } : current);
   }
 
-  async function validateSelectedNodeWithWeb() {
+  async function processSemanticAnalysis(action: "retry" | "regenerate") {
     if (!selectedNode?.recordId) return;
     if (apiUrl === "__demo__") return;
-    if (!researchModeEnabled) {
-      setNodeActionStatus("Research Mode is disabled in Settings.");
-      return;
-    }
-    if (!window.confirm("This action may query external sources. Continue?")) return;
-    setActionLoading("validate-node-web");
-    setNodeActionStatus("Validating with web...");
+    if (action === "regenerate" && !window.confirm("Generate a new semantic analysis version for this node?")) return;
+    const actionId = action === "retry" ? "retry-semantic-analysis" : "regenerate-semantic-analysis";
+    setActionLoading(actionId);
+    setNodeActionStatus(action === "retry" ? "Retrying semantic analysis..." : "New semantic analysis queued...");
     try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/validate-web`, { method: "POST" });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.error) {
-        setNodeActionStatus(payload.detail || payload.error || "Web validation failed.");
-        return;
-      }
-      setNodeActionStatus(
-        payload.status === "no_results"
-          ? "No web evidence found."
-          : `Web validation: ${payload.validation_status || payload.status}. ${payload.web_results || 0} sources checked.`,
+      const response = await apiFetch(
+        `${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/semantic-analysis/${action}`,
+        { method: "POST" },
       );
-      reload();
-      if (selectedNode.recordId) {
-        const summaryResponse = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`);
-        if (summaryResponse.ok) setNodeSummary(await summaryResponse.json());
-      }
-    } finally {
-      setActionLoading("");
-    }
-  }
-
-  async function enrichSelectedNodeWithAI() {
-    if (!selectedNode?.recordId) return;
-    if (apiUrl === "__demo__") return;
-    setActionLoading("enrich-node-ai");
-    setNodeActionStatus("Enriching node with configured AI...");
-    try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/enrich-ai`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setNodeActionStatus(payload.detail || "AI enrichment failed.");
+        setNodeActionStatus(payload.detail || "Semantic analysis could not be queued.");
         return;
       }
-      setNodeSummary(payload);
-      setNodeActionStatus("Node enriched with AI context and source evidence.");
+      setSemanticAnalysis((current) => current ? { ...current, state: "pending" } : current);
+      setNodeActionStatus(`Semantic analysis queued. Job ${payload.jobId || ""}`.trim());
       reload();
     } finally {
       setActionLoading("");
@@ -772,7 +975,7 @@ export function GraphScreen({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="relative z-40 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border/50 bg-panel shrink-0 text-xs">
-        <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={onClose}>
+        <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={onClose} aria-label="Back">
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
         <div className="min-w-0">
@@ -785,13 +988,17 @@ export function GraphScreen({
         </div>
         <div className="flex-1" />
         <form
-          className="relative z-50 order-last flex min-w-[260px] flex-1 basis-full items-center gap-2 rounded-lg border border-accent/30 bg-surface/80 p-1.5 sm:basis-[360px] lg:order-none lg:max-w-[560px]"
+          className={`relative z-50 order-last flex min-w-[260px] flex-1 basis-full items-center gap-2 rounded-lg border p-1.5 sm:basis-[360px] lg:order-none lg:max-w-[560px] ${
+            flowActive ? "border-violet-500/60 bg-violet-500/10" : "border-accent/30 bg-surface/80"
+          }`}
           onSubmit={(e) => {
             e.preventDefault();
             runInference();
           }}
         >
-          <span className="shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wide text-accent">Ask</span>
+          <span className={`shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wide ${flowActive ? "text-violet-600" : "text-accent"}`}>
+            {flowActive ? "Flow" : "Ask"}
+          </span>
           <input
             type="text"
             className="h-9 min-w-0 flex-1 rounded-md border border-border/50 bg-panel px-3 text-sm outline-none placeholder:text-muted/55 focus:border-accent"
@@ -806,7 +1013,30 @@ export function GraphScreen({
           >
             {inferLoading ? "..." : t("ask")}
           </button>
+          {flowActive && inferLoading && (
+            <button type="button" className="bb-action h-9 px-2 text-[10px]" onClick={cancelFlowRequest}>
+              Cancel
+            </button>
+          )}
         </form>
+        {flowActive && (
+          <button className="bb-action h-8 px-2.5 text-[11px] text-violet-600" onClick={exitFlow}>
+            Exit Flow · {Math.floor(flowTurns.length / 2)} turns
+          </button>
+        )}
+        <button
+          className="bb-action h-8 px-2.5 text-[11px]"
+          disabled={!researchModeEnabled || ["pending", "running"].includes(researchRun?.status || "")}
+          title={researchModeEnabled ? "Check missing or uncertain graph knowledge against online sources" : "Enable Research Mode in Settings"}
+          onClick={startOnlineResearch}
+        >
+          {["pending", "running"].includes(researchRun?.status || "")
+            ? `Checking online ${researchRun?.progress || 0}%`
+            : "Check Online"}
+        </button>
+        {["pending", "running"].includes(researchRun?.status || "") && (
+          <button className="bb-action h-8 px-2 text-[10px]" onClick={cancelOnlineResearch}>Cancel research</button>
+        )}
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="brain_view">{t("filterBrainView")}</option>
           <option value="topicos">{t("filterTopicos")}</option>
@@ -864,6 +1094,12 @@ export function GraphScreen({
         <button className={`bb-action h-8 px-2.5 text-[11px] ${showLegend ? "bb-action--active" : ""}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
       </div>
 
+      {researchStatus && (
+        <div className="border-b border-border/40 bg-surface px-4 py-1.5 text-center text-[11px] text-muted" role="status">
+          {researchStatus}
+        </div>
+      )}
+
       {inference && (
         <div className="border-b border-border/40 bg-panel/80 px-4 py-3">
           <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-surface/70 p-3">
@@ -908,6 +1144,11 @@ export function GraphScreen({
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
+              {!flowActive && inference.status !== "error" && (
+                <button className="bb-action px-3 py-1 text-[10px] font-semibold text-violet-600" onClick={startFlow}>
+                  Continue in Flow
+                </button>
+              )}
               <button
                 className="bb-action px-3 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={
@@ -1006,20 +1247,15 @@ export function GraphScreen({
               <button className="text-[10px] text-muted hover:text-foreground" onClick={() => setShowLegend(false)}>X</button>
             </div>
             <div className="space-y-1 text-[10px]">
-              {[
-                ["note", "#C2185B"],
-                ["concept", "#D98A00"],
-                ["topico", "#96B55C"],
-                ["entidade", "#2E9D68"],
-                ["contexto", "#8B6F9F"],
-                ["AI insight", "#4F7CCB"],
-                ["lacuna", "#B85C4A"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex items-center gap-2">
-                  <span className="inline-block size-2.5 rounded-full" style={{ background: v }} />
-                  <span className="text-muted/70">{k}</span>
+              {Object.values(graphData?.palette || {}).map((color) => (
+                <div key={color.colorId} className="flex items-center gap-2">
+                  <span className="inline-block size-2.5 rounded-full" style={{ background: color.lightHex, border: `1px solid ${color.border}` }} />
+                  <span className="truncate text-muted/70">{color.namespace} · {color.colorId.replace(/^(semantic|vault)-/, "")}</span>
                 </div>
               ))}
+              <div className="text-muted/60">Dashed border · no connections</div>
+              <div className="text-muted/60">Shape · node type</div>
+              <div className="text-muted/60">Halo · selected or highlighted</div>
               <div className="my-2 h-px bg-border/40" />
               {Object.entries(EDGE_COLORS).filter(([k]) => k !== "default").map(([k, v]) => (
                 <div key={k} className="flex items-center gap-2">
@@ -1078,20 +1314,40 @@ export function GraphScreen({
                   <Meta label="Evidence" value={formatEvidenceLabel(nodeSummary?.sourceQuality || selectedNode.sourceQuality || "note_only")} />
                 </div>
 
-                {(nodeSummary?.aiContext || selectedNode.aiContext || nodeSummary?.learningValue || selectedNode.learningValue || nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
-                  <section className="border-t border-border/30 pt-4">
-                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What BerryBrain understands</div>
-                    {(nodeSummary?.aiContext || selectedNode.aiContext) && (
-                      <div className="mb-3 rounded-xl border border-border/30 bg-surface p-3 text-[12px] leading-relaxed text-foreground/80 shadow-sm">{nodeSummary?.aiContext || selectedNode.aiContext}</div>
-                    )}
-                    {(nodeSummary?.learningValue || selectedNode.learningValue) && (
-                      <p className="mt-2 text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Why it matters:</span> {nodeSummary?.learningValue || selectedNode.learningValue}</p>
-                    )}
-                    {(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence) && (
-                      <p className="mt-2 break-words text-[10px] text-muted/70"><span className="font-medium text-foreground/70">Evidence:</span> {formatEvidenceLabel(nodeSummary?.sourceEvidence || selectedNode.sourceEvidence)}</p>
-                    )}
-                  </section>
-                )}
+                <section className="border-t border-border/30 pt-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What BerryBrain understands</div>
+                    <span className="rounded-full bg-surface px-2 py-0.5 text-[9px] uppercase text-muted">
+                      {humanSemanticState(semanticAnalysis?.state)}
+                    </span>
+                  </div>
+                  {semanticAnalysis?.analysis ? (
+                    <div className="space-y-3 border-l-2 border-accent/40 pl-3">
+                      <SemanticText label="Meaning here" value={semanticAnalysis.analysis.meaning_in_context} />
+                      <SemanticText label="Why it matters" value={semanticAnalysis.analysis.why_it_matters_here} />
+                      <SemanticList label="Supported findings" values={semanticAnalysis.analysis.supported_findings} />
+                      <SemanticList label="Inferences" values={semanticAnalysis.analysis.inferences} />
+                      <SemanticList label="Uncertainties" values={semanticAnalysis.analysis.uncertainties} />
+                      <SemanticList
+                        label="Evidence"
+                        values={semanticAnalysis.analysis.evidence.map((item) => (
+                          typeof item === "string"
+                            ? item
+                            : [item.claim, item.source, item.reference].filter(Boolean).join(" · ")
+                        ))}
+                      />
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted/60">
+                        <span>Version {semanticAnalysis.profileVersion || 1}</span>
+                        <span>{semanticAnalysis.historyCount} saved versions</span>
+                        <span>{semanticAnalysis.analysis.provider} · {semanticAnalysis.analysis.model}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="border-l-2 border-border pl-3 text-[11px] leading-relaxed text-muted">
+                      {semanticStateMessage(semanticAnalysis?.state)}
+                    </p>
+                  )}
+                </section>
 
                 <section className="border-t border-border/30 pt-3">
                   <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Your notes about this item</div>
@@ -1182,8 +1438,8 @@ export function GraphScreen({
                       if (action.id === "confirm-node") updateNodeStatus("confirmed");
                       if (action.id === "ignore-node") updateNodeStatus("ignored");
                       if (action.id === "reprocess-node") reprocessSelectedNode();
-                      if (action.id === "enrich-node-ai") enrichSelectedNodeWithAI();
-                      if (action.id === "validate-node-web") validateSelectedNodeWithWeb();
+                      if (action.id === "retry-semantic-analysis") processSemanticAnalysis("retry");
+                      if (action.id === "regenerate-semantic-analysis") processSemanticAnalysis("regenerate");
                     }}
                   />
                 ))}
@@ -1208,6 +1464,54 @@ function Meta({ label, value }: { label: string; value: string }) {
       <div className="truncate text-[11px] text-foreground/80">{value}</div>
     </div>
   );
+}
+
+function SemanticText({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div className="mb-1 text-[9px] font-semibold uppercase text-foreground/60">{label}</div>
+      <p className="text-[11px] leading-relaxed text-foreground/80">{value}</p>
+    </div>
+  );
+}
+
+function SemanticList({ label, values }: { label: string; values: string[] }) {
+  const visible = values.filter(Boolean);
+  if (!visible.length) return null;
+  return (
+    <div>
+      <div className="mb-1 text-[9px] font-semibold uppercase text-foreground/60">{label}</div>
+      <ul className="space-y-1 text-[11px] leading-relaxed text-foreground/75">
+        {visible.map((value, index) => <li key={`${label}-${index}`}>• {value}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function humanSemanticState(state?: string) {
+  const states: Record<string, string> = {
+    completed: "Ready",
+    pending: "Queued",
+    running: "Analyzing",
+    failed: "Needs retry",
+    stale: "Update available",
+    needs_review: "Needs review",
+    not_configured: "AI setup required",
+  };
+  return states[state || ""] || "Waiting";
+}
+
+function semanticStateMessage(state?: string) {
+  const messages: Record<string, string> = {
+    pending: "Semantic analysis is queued and will appear here automatically.",
+    running: "BerryBrain is analyzing this item and its connections.",
+    failed: "The last analysis failed. Use Retry analysis below after checking AI settings.",
+    stale: "The source changed. A refreshed analysis can be generated.",
+    needs_review: "The analysis needs review before BerryBrain can treat it as reliable.",
+    not_configured: "Complete the required AI setup to generate semantic understanding.",
+  };
+  return messages[state || ""] || "Semantic understanding has not been generated yet.";
 }
 
 function GraphActionButton({ action, loading, onClick }: { action: GraphAction; loading: boolean; onClick: () => void }) {
@@ -1235,10 +1539,7 @@ function graphActionClass(action: GraphAction) {
   if (action.id === "reprocess-node") {
     return base;
   }
-  if (action.id === "enrich-node-ai") {
-    return base;
-  }
-  if (action.id === "validate-node-web") {
+  if (action.id === "retry-semantic-analysis" || action.id === "regenerate-semantic-analysis") {
     return base;
   }
   if (action.variant === "danger") {

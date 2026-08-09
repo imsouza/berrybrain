@@ -74,6 +74,59 @@ class JobServiceTest(unittest.TestCase):
         self.assertIsNotNone(claimed.lease_expires_at)
         self.assertEqual(claimed.claimed_by, "api-worker")
 
+    def test_claim_refreshes_path_after_note_rename(self) -> None:
+        note = NoteRecord(
+            title="Renamed",
+            slug="renamed",
+            path="inbox/renamed.md",
+            content_hash="same-hash",
+        )
+        self.session.add(note)
+        self.session.commit()
+        job = create_job(
+            self.session,
+            "CLASSIFY_NOTE",
+            {
+                "note_id": note.id,
+                "note_path": "inbox/rascunho.md",
+                "content_hash": "same-hash",
+            },
+        )
+
+        claimed = claim_next_job(self.session)
+
+        self.assertEqual(claimed.id, job.id)
+        self.assertEqual(claimed.note_path, "inbox/renamed.md")
+        self.assertEqual(parse_json(claimed.payload)["note_path"], "inbox/renamed.md")
+        self.assertEqual(
+            claimed.idempotency_key,
+            "CLASSIFY_NOTE:inbox/renamed.md:same-hash",
+        )
+
+    def test_claim_supersedes_job_for_changed_note_content(self) -> None:
+        note = NoteRecord(
+            title="Changed",
+            slug="changed",
+            path="inbox/changed.md",
+            content_hash="new-hash",
+        )
+        self.session.add(note)
+        self.session.commit()
+        job = create_job(
+            self.session,
+            "CLASSIFY_NOTE",
+            {
+                "note_id": note.id,
+                "note_path": note.path,
+                "content_hash": "old-hash",
+            },
+        )
+
+        self.assertIsNone(claim_next_job(self.session))
+        self.session.refresh(job)
+        self.assertEqual(job.status, SUPERSEDED)
+        self.assertEqual(job.error_message, "Superseded by newer note content")
+
     def test_pending_and_running_jobs_cancel_without_retry(self) -> None:
         pending = create_job(self.session, "PARSE_NOTE", {"note_path": "pending.md"})
         cancelled = request_job_cancellation(self.session, pending.id)
