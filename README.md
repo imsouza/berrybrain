@@ -113,12 +113,12 @@ Current v1.3.0 release-candidate evidence:
 
 - API: 346 tests and 55 subtests pass.
 - Worker and HippoRAG: 44 Worker tests and 7 sidecar tests pass.
-- Browser E2E: 42 Playwright checks pass, including a 10,000-node/40,000-edge stress path.
+- Browser E2E: 43 Playwright checks pass, including a 10,000-node/40,000-edge stress path and healthy-worker heartbeat regression.
 - Graph API gate: 5,000 nodes/20,000 edges at p95 `2.54 s`, `11.3 MB` payload, and `82.1 MB` peak memory.
 - Semantic gate: Recall@10, MRR, and NDCG@10 are `1.0`; p95 is `47.34 ms`.
 - Cognitive gate: insight usefulness, precision/recall, provenance, stale cleanup, and idempotent rebuild all pass.
 - Recovery: checksum backup metadata and table counts match; isolated restore/rollback tests pass.
-- Security and architecture: source audits pass, production npm audit is clean, Python dependency audits are clean, and architecture fitness passes all 12 checks.
+- Security and architecture: source audits pass, production npm audit and Python dependency audits are clean, architecture fitness passes all 12 checks, all four images have zero fixable HIGH/CRITICAL findings, and CycloneDX 1.7 SBOMs are validated.
 
 The current scorecard, remaining gates, and requirement evidence are maintained in:
 
@@ -126,6 +126,7 @@ The current scorecard, remaining gates, and requirement evidence are maintained 
 - [`Fix New Version Plan`](docs/planning/fix-new-version.md)
 - [`BerryBrain v1.2.0 Plan`](docs/planning/v-1-2-0.md)
 - [`Graph Performance and Product Maturity Plan`](docs/planning/planejamento-performace-grafo.md)
+- [`BerryBrain v1.3.0 Release Candidate Report`](docs/reports/RELEASE-1.3.0.md)
 - [`Clean Architecture and Refactoring Plan`](docs/planning/clean-architecture-refactor.md)
 - [`Second-Brain Maturity V2`](docs/planning/second-brain-maturity-v2.md)
 - [`Requirements Traceability`](docs/planning/requirements-traceability.md)
