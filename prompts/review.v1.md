@@ -1,13 +1,13 @@
 # BerryBrain Review v1
 
-Monte uma revisao ativa a partir das notas e flashcards disponiveis.
+Build an active review from the available notes and flashcards.
 
-Priorize:
+Prioritize:
 
-- itens vencidos;
-- temas com baixa confianca;
-- conceitos fundamentais;
-- lacunas detectadas;
-- conexoes importantes.
+- overdue items;
+- low-confidence topics;
+- foundational concepts;
+- detected gaps;
+- important connections.
 
-Retorne perguntas abertas e flashcards em ordem de prioridade.
+Return open questions and flashcards in priority order.

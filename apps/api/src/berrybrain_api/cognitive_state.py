@@ -40,7 +40,7 @@ def cognitive_config(session: Session) -> dict[str, str]:
         "cognitive_enrich_on_save": get("cognitive_enrich_on_save", "true"),
         "cognitive_insights_on_save": get("cognitive_insights_on_save", "true"),
         "use_real_embeddings": get("use_real_embeddings", "false"),
-        "hipporag_enabled": get("hipporag_enabled", "false"),
+        "hipporag_enabled": get("hipporag_enabled", "true"),
     }
 
 

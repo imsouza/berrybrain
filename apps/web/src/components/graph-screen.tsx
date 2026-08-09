@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { formatEvidenceLabel, humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
 import { t } from "@/i18n";
@@ -11,7 +11,7 @@ const EDGE_COLORS: Record<string, string> = {
   explicit_link: "#3C8F5A",
   semantic_relation: "#D98A00",
   derived_from: "#4F7CCB",
-  mentions: "#96B55C",
+  mentions: "#83A637",
   supports: "#4A8F6A",
   contradicts: "#B85C4A",
   contrasts_with: "#8B6F9F",
@@ -31,6 +31,16 @@ const EDGE_COLORS: Record<string, string> = {
   application: "#9F6B4A",
   default: "#B89B82",
 };
+
+function edgeColor(type: string): string {
+  if (EDGE_COLORS[type]) return EDGE_COLORS[type];
+  let hash = 2166136261;
+  for (const character of type || "connection") {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `hsl(${Math.abs(hash) % 360} 48% 46%)`;
+}
 
 type GraphNode = {
   id: string;
@@ -363,10 +373,20 @@ function GraphListView({
 
 export function GraphScreen({
   apiUrl,
+  autoFocusAsk = false,
+  initialAskQuery = "",
+  autoSubmitAsk = false,
+  askOnly = false,
+  onAskFocused,
   onClose,
   onNavigate,
 }: {
   apiUrl: string;
+  autoFocusAsk?: boolean;
+  initialAskQuery?: string;
+  autoSubmitAsk?: boolean;
+  askOnly?: boolean;
+  onAskFocused?: () => void;
   onClose: () => void;
   onNavigate: (path: string) => void;
 }) {
@@ -381,11 +401,24 @@ export function GraphScreen({
   });
   const [showDetail, setShowDetail] = useState(false);
   const [query, setQuery] = useState("");
+  const askInputRef = useRef<HTMLInputElement>(null);
+  const autoSubmittedQueryRef = useRef("");
   const [filterType, setFilterType] = useState("brain_view");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProvider, setFilterProvider] = useState("all");
   const [filterConfidence, setFilterConfidence] = useState(0);
   const [pipelineDiag, setPipelineDiag] = useState<{ code: string; text: string }[]>([]);
+  useEffect(() => {
+    if (!autoFocusAsk) return;
+    const initialQuery = initialAskQuery.trim();
+    if (initialQuery) setQuery(initialQuery);
+    askInputRef.current?.focus();
+    if (autoSubmitAsk && initialQuery && autoSubmittedQueryRef.current !== initialQuery) {
+      autoSubmittedQueryRef.current = initialQuery;
+      window.setTimeout(() => askInputRef.current?.form?.requestSubmit(), 0);
+    }
+    onAskFocused?.();
+  }, [autoFocusAsk, autoSubmitAsk, initialAskQuery, onAskFocused]);
   useEffect(() => {
     // Check data before graphData is declared (line 391) - use data directly
     const d = data as { nodes: GraphNode[] } | null | undefined;
@@ -407,12 +440,19 @@ export function GraphScreen({
     if (typeof window === "undefined") return true;
     return localStorage.getItem("bb_graph_show_insight_nodes") !== "0";
   });
-  const showCognitivos = true;
+  const showCognitiveNodes = true;
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>(() => {
     if (typeof window === "undefined") return "brain";
+    const firstOpenThisSession = sessionStorage.getItem("bb_graph_opened_this_session") !== "1";
+    if (firstOpenThisSession) {
+      sessionStorage.setItem("bb_graph_opened_this_session", "1");
+      return "brain";
+    }
     const saved = localStorage.getItem("bb_graph_layout");
     if (saved === "default") return "brain";
-    return (saved as GraphLayoutMode) || "brain";
+    return ["brain", "radial", "type", "connections"].includes(saved || "")
+      ? saved as GraphLayoutMode
+      : "brain";
   });
   const [inference, setInference] = useState<InferenceResult | null>(null);
   const [inferLoading, setInferLoading] = useState(false);
@@ -447,6 +487,10 @@ export function GraphScreen({
   } | null;
   const relatedInferenceNodes = useMemo(() => resolveRelatedInferenceNodes(inference, graphData), [inference, graphData]);
   const highlightedIds = useMemo(() => relatedInferenceNodes.map((node) => node.id), [relatedInferenceNodes]);
+  const graphEdgeTypes = useMemo(
+    () => [...new Set((graphData?.edges || []).map((edge) => edge.type || "default"))].sort(),
+    [graphData],
+  );
 
   const filtered = useMemo(() => {
     const orphanFilter = typeof window !== "undefined" ? localStorage.getItem("bb_graph_filter_orphans") : null;
@@ -461,24 +505,24 @@ export function GraphScreen({
     let edges = graphData.edges;
     if (filterType === "brain_view") {
       const base = ["note", "concept", "topic", "topico", "entity", "entidade"];
-      const cognitivos = showCognitivos ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
-      nodes = nodes.filter((n) => [...base, ...cognitivos].includes(n.type));
-    } else if (filterType === "topicos") {
+      const cognitiveTypes = showCognitiveNodes ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
+      nodes = nodes.filter((n) => [...base, ...cognitiveTypes].includes(n.type));
+    } else if (filterType === "topics") {
       nodes = nodes.filter((n) => n.type === "topic" || n.type === "topico");
     } else if (filterType !== "all") {
       const typeAliases: Record<string, string[]> = {
-        entidade: ["entity", "entidade"],
-        contexto: ["context", "contexto"],
-        lacuna: ["gap", "lacuna"],
-        anexo: ["attachment", "anexo"],
-        trilha: ["study_path", "trilha"],
-        fonte: ["source", "fonte", "web_source"],
+        entity: ["entity", "entidade"],
+        context: ["context", "contexto"],
+        gap: ["gap", "lacuna"],
+        attachment: ["attachment", "anexo"],
+        study_path: ["study_path", "trilha"],
+        source: ["source", "fonte", "web_source"],
       };
       nodes = nodes.filter((n) => (typeAliases[filterType] || [filterType]).includes(n.type));
     } else if (layoutMode === "brain") {
       const base = ["note", "concept", "topic", "topico", "entity", "entidade"];
-      const cognitivos = showCognitivos ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
-      nodes = nodes.filter((n) => [...base, ...cognitivos].includes(n.type));
+      const cognitiveTypes = showCognitiveNodes ? ["context", "contexto", "gap", "lacuna", "insight"] : [];
+      nodes = nodes.filter((n) => [...base, ...cognitiveTypes].includes(n.type));
     }
     if (filterStatus !== "all") nodes = nodes.filter((n) => (n.status || "suggested") === filterStatus);
     else nodes = nodes.filter((n) => (n.status || "suggested") !== "ignored");
@@ -509,7 +553,7 @@ export function GraphScreen({
       palette: graphData.palette,
       graphVersion: graphData.graphVersion,
     };
-  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitivos, showInsightNodes]);
+  }, [graphData, filterType, filterStatus, filterProvider, filterConfidence, layoutMode, showCognitiveNodes, showInsightNodes]);
 
   const selectedNode = selectedId
     ? graphData?.nodes.find((n) => n.id === selectedId) ?? null
@@ -551,7 +595,8 @@ export function GraphScreen({
     apiFetch(`${apiUrl}/api/v1/settings/graph/config`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((config) => {
-        const mode = config.default_layout as GraphLayoutMode;
+        const configured = config.default_layout;
+        const mode = configured === "default" ? "brain" : configured as GraphLayoutMode;
         if (!mode || typeof window === "undefined" || localStorage.getItem("bb_graph_layout")) return;
         setLayoutMode(mode);
       })
@@ -975,12 +1020,12 @@ export function GraphScreen({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="relative z-40 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border/50 bg-panel shrink-0 text-xs">
-        <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={onClose} aria-label="Back">
+        <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={onClose} aria-label={askOnly ? "Close Ask" : "Back"}>
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
         <div className="min-w-0">
-          <h2 className="text-sm font-medium text-foreground">{t("graphTitle")}</h2>
-          {graphData && (
+          <h2 className="text-sm font-medium text-foreground">{askOnly ? "Ask BerryBrain" : t("graphTitle")}</h2>
+          {!askOnly && graphData && (
             <div className="text-[10px] text-muted/60">
               {graphData.nodes.length} {t("nodes")} · {graphData.edges.length} {t("edges")} · {graphData.stats?.orphan_count ?? 0} {t("orphans")}
             </div>
@@ -1000,6 +1045,7 @@ export function GraphScreen({
             {flowActive ? "Flow" : "Ask"}
           </span>
           <input
+            ref={askInputRef}
             type="text"
             className="h-9 min-w-0 flex-1 rounded-md border border-border/50 bg-panel px-3 text-sm outline-none placeholder:text-muted/55 focus:border-accent"
             placeholder="Ask your graph about a note, concept, connection, job, or missing context..."
@@ -1037,19 +1083,20 @@ export function GraphScreen({
         {["pending", "running"].includes(researchRun?.status || "") && (
           <button className="bb-action h-8 px-2 text-[10px]" onClick={cancelOnlineResearch}>Cancel research</button>
         )}
+        {!askOnly && <>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="brain_view">{t("filterBrainView")}</option>
-          <option value="topicos">{t("filterTopicos")}</option>
+          <option value="topics">{t("filterTopics")}</option>
           <option value="note">{t("filterNote")}</option>
           <option value="concept">{t("filterConcept")}</option>
-          <option value="entidade">{t("filterEntidade")}</option>
-          <option value="contexto">{t("filterContexto")}</option>
+          <option value="entity">{t("filterEntity")}</option>
+          <option value="context">{t("filterContext")}</option>
           <option value="insight">{t("filterInsight")}</option>
-          <option value="lacuna">{t("filterLacuna")}</option>
-          <option value="anexo">{t("filterAnexo")}</option>
-          <option value="trilha">{t("filterTrilha")}</option>
+          <option value="gap">{t("filterGap")}</option>
+          <option value="attachment">{t("filterAttachment")}</option>
+          <option value="study_path">{t("filterStudyPath")}</option>
           <option value="cluster">{t("filterCluster")}</option>
-          <option value="fonte">{t("filterFonte")}</option>
+          <option value="source">{t("filterSource")}</option>
         </select>
         <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           <option value="all">{t("status")}</option>
@@ -1092,6 +1139,7 @@ export function GraphScreen({
           {showInsightNodes ? t("hideInsightNodes") : t("showInsightNodes")}
         </button>
         <button className={`bb-action h-8 px-2.5 text-[11px] ${showLegend ? "bb-action--active" : ""}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
+        </>}
       </div>
 
       {researchStatus && (
@@ -1177,6 +1225,25 @@ export function GraphScreen({
         </div>
       )}
 
+      {askOnly ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 overflow-y-auto bg-background px-6 py-10 text-center">
+          {inferLoading ? (
+            <>
+              <span className="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+              <p className="text-sm font-medium text-foreground">Searching your knowledge graph...</p>
+              <p className="max-w-lg text-xs leading-5 text-muted">BerryBrain is grounding the answer in your notes, concepts, and connections.</p>
+            </>
+          ) : !inference ? (
+            <>
+              <span className="grid size-12 place-items-center rounded-full bg-accent-soft text-accent" aria-hidden="true">?</span>
+              <p className="text-sm font-medium text-foreground">Ask about your own knowledge.</p>
+              <p className="max-w-lg text-xs leading-5 text-muted">Answers stay grounded in your graph and include evidence when it is available.</p>
+            </>
+          ) : (
+            <p className="text-xs text-muted">Ask another question above, continue in Flow, or save the grounded answer as an insight.</p>
+          )}
+        </div>
+      ) : (
       <div className="relative flex-1 overflow-hidden bg-[#FBF4EC]">
       {error ? (
         <div className="flex h-full items-center justify-center text-sm text-danger">{t("graphLoadError")}</div>
@@ -1257,16 +1324,17 @@ export function GraphScreen({
               <div className="text-muted/60">Shape · node type</div>
               <div className="text-muted/60">Halo · selected or highlighted</div>
               <div className="my-2 h-px bg-border/40" />
-              {Object.entries(EDGE_COLORS).filter(([k]) => k !== "default").map(([k, v]) => (
-                <div key={k} className="flex items-center gap-2">
-                  <span className="inline-block h-0.5 w-4 rounded" style={{ background: v }} />
-                  <span className="text-muted/70">{k}</span>
+              {graphEdgeTypes.map((type) => (
+                <div key={type} className="flex items-center gap-2">
+                  <span className="inline-block h-0.5 w-4 rounded" style={{ background: edgeColor(type) }} />
+                  <span className="text-muted/70">{type}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
       </div>
+      )}
 
       {selectedNode && showDetail && (
         <div className="absolute inset-x-0 bottom-0 top-[49px] z-30 flex flex-col border-l border-border/50 bg-panel/98 shadow-xl backdrop-blur sm:left-auto sm:w-[430px]">
@@ -1390,7 +1458,7 @@ export function GraphScreen({
                     return (
                       <div key={`${detailedEdge.id || simpleEdge.id || index}`} className="rounded-lg bg-surface p-2">
                         <div className="mb-1 flex items-center gap-2">
-                          <span className="inline-block h-0.5 w-4 rounded" style={{ background: EDGE_COLORS[detailedEdge.type || simpleEdge.type] || EDGE_COLORS.default }} />
+                          <span className="inline-block h-0.5 w-4 rounded" style={{ background: edgeColor(detailedEdge.type || simpleEdge.type) }} />
                           <span className="truncate text-[11px] font-medium text-foreground">{otherNode?.label || detailedEdge.label || simpleEdge.type}</span>
                         </div>
                         {(detailedEdge.reason || simpleEdge.reason) && (

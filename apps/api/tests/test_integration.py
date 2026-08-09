@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import tempfile
 import unittest
@@ -443,7 +444,7 @@ class IntegrationTest(unittest.TestCase):
         concept_note = self.client.post(f"/api/v1/concepts/{concept_id}/create-note")
         self.assertEqual(concept_note.status_code, 200)
         self.assertEqual(concept_note.json()["status"], "created")
-        self.assertIn("permanentes/", concept_note.json()["note"]["path"])
+        self.assertIn("permanent/", concept_note.json()["note"]["path"])
 
     def test_09_flashcards_and_review_are_removed_from_public_api(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]
@@ -1481,6 +1482,76 @@ class IntegrationTest(unittest.TestCase):
         resp4 = self.admin_client.delete(f"/api/v1/backups/{backup['id']}")
         self.assertEqual(resp4.status_code, 200)
         self.assertEqual(resp4.json()["status"], "deleted")
+
+    def test_17b_automatic_organization_uses_shared_semantic_evidence(self):
+        from berrybrain_api.models import GraphNodeRecord, NoteRecord, SettingRecord
+        from berrybrain_api.routers import notes as notes_router
+
+        first = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Retrieval Alpha", "content": "Hybrid retrieval evidence."},
+        ).json()
+        second = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Retrieval Beta", "content": "Graph retrieval evidence."},
+        ).json()
+        with notes_router.SessionLocal() as session:
+            records = session.query(NoteRecord).filter(
+                NoteRecord.path.in_((first["path"], second["path"]))
+            ).all()
+            session.add(
+                GraphNodeRecord(
+                    type="topic",
+                    label="Retrieval Systems",
+                    source_note_ids=json.dumps([record.id for record in records]),
+                    confidence=0.91,
+                )
+            )
+            session.commit()
+
+        response = self.client.post(f"/api/v1/notes/{first['path']}/organize")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "organized")
+        self.assertTrue(payload["path"].startswith("organized/retrieval-systems/"))
+        self.assertFalse((self.settings.vault_path / first["path"]).exists())
+        self.assertTrue((self.settings.vault_path / payload["path"]).exists())
+
+        with notes_router.SessionLocal() as session:
+            session.add(
+                SettingRecord(key="automatic_vault_organization", value="false")
+            )
+            session.commit()
+        disabled = self.client.post(f"/api/v1/notes/{second['path']}/organize")
+        self.assertEqual(disabled.json()["status"], "disabled")
+        self.assertTrue((self.settings.vault_path / second["path"]).exists())
+
+        with notes_router.SessionLocal() as session:
+            setting = session.query(SettingRecord).filter_by(
+                key="automatic_vault_organization"
+            ).one()
+            setting.value = "true"
+            session.commit()
+        enabled = self.client.post(f"/api/v1/notes/{second['path']}/organize")
+        self.assertEqual(enabled.json()["status"], "organized")
+        self.assertTrue((self.settings.vault_path / enabled.json()["path"]).exists())
+
+        manual = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Manual Layout", "content": "User-owned structure."},
+        ).json()
+        manual_source = self.settings.vault_path / manual["path"]
+        manual_target = self.settings.vault_path / "study" / manual_source.name
+        manual_target.parent.mkdir(parents=True, exist_ok=True)
+        manual_source.rename(manual_target)
+        manual_path = manual_target.relative_to(self.settings.vault_path).as_posix()
+        with notes_router.SessionLocal() as session:
+            record = session.query(NoteRecord).filter_by(path=manual["path"]).one()
+            record.path = manual_path
+            session.commit()
+        preserved = self.client.post(f"/api/v1/notes/{manual_path}/organize")
+        self.assertEqual(preserved.json()["status"], "preserved_manual_organization")
+        self.assertTrue(manual_target.exists())
 
     def test_18_delete_note(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]

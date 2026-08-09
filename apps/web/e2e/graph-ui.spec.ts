@@ -17,6 +17,37 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     );
   });
 
+  test("settles a 42-node D3 bubble graph from a compact animated start", async ({ page }) => {
+    const nodes = Array.from({ length: 42 }, (_, index) => ({
+      id: `bubble_${index}`,
+      type: index % 4 === 0 ? "concept" : "note",
+      label: `Knowledge ${index + 1}`,
+      connectionsCount: index % 6,
+    }));
+    const edges = Array.from({ length: 68 }, (_, index) => ({
+      source: `bubble_${index % nodes.length}`,
+      target: `bubble_${(index * 7 + 3) % nodes.length}`,
+      type: index % 2 === 0 ? "semantic_relation" : "explicit_link",
+      confidence: 0.78,
+    })).filter((edge) => edge.source !== edge.target);
+    await page.route("**/api/v1/graph", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ nodes, edges, graphVersion: 42, stats: { orphan_count: 0 } }),
+    }));
+
+    await page.goto("/brain?graph=open");
+    const canvas = page.getByRole("img", { name: /Knowledge graph with 42 nodes/i });
+    await expect(canvas).toBeVisible();
+    await expect(canvas).toHaveAttribute("data-layout-engine", "d3-force-v7");
+    await expect(canvas).toHaveAttribute("data-velocity-decay", "0.15");
+    await expect(canvas).toHaveAttribute("data-collision-padding", "11");
+    const compactFrame = await canvas.screenshot();
+    await page.waitForTimeout(900);
+    const settlingFrame = await canvas.screenshot();
+    expect(compactFrame.equals(settlingFrame)).toBeFalsy();
+  });
+
   test("graph ask success returns grounded answer", async ({ page }) => {
     await page.route("**/api/v1/graph/infer", (route) =>
       route.fulfill({
@@ -42,7 +73,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     await page.goto("/brain?graph=open");
     await page.getByPlaceholder(/ask your graph/i).fill("What is Docker?");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("Docker is a containerization platform")).toBeVisible({ timeout: 10_000 });
   });
 
@@ -102,7 +133,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     await page.goto("/brain?graph=open");
     await page.getByPlaceholder(/ask your graph/i).fill("How does Docker isolate processes?");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await page.getByRole("button", { name: "Create insight" }).click();
     await expect(page.getByText("Saved as insight: Docker depends on Linux namespaces")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: "Insight created" })).toBeVisible();
@@ -135,7 +166,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     await page.goto("/brain?graph=open");
     await page.getByPlaceholder(/ask your graph/i).fill("Unknown topic");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("No evidence", { exact: false })).toBeVisible({ timeout: 10_000 });
   });
 
@@ -288,18 +319,18 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.goto("/brain?graph=open");
     const askInput = page.getByPlaceholder(/ask your graph/i);
     await askInput.fill("How are Docker and namespaces connected?");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("Docker uses Linux namespaces for isolation.")).toBeVisible();
     await page.getByRole("button", { name: "Continue in Flow" }).click();
     await expect(page.getByRole("button", { name: "Exit Flow · 1 turns" })).toBeVisible();
 
     await askInput.fill("What does that isolate?");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("They isolate process views.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Exit Flow · 2 turns" })).toBeVisible();
 
     await askInput.fill("Can this request be cancelled?");
-    await page.getByRole("button", { name: "Ask" }).click();
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(page.getByText("Flow request cancellation requested.")).toBeVisible();
     expect(cancellationRequested).toBeTruthy();

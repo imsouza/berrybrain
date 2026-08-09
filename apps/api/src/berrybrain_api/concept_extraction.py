@@ -203,7 +203,6 @@ def _is_valid_topic_name(name: str, note_title_key: str = "") -> bool:
         "notes",
         "permanent",
         "permanente",
-        "permanentes",
         "inbox",
         "draft",
         "rascunho",

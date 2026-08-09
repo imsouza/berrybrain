@@ -52,13 +52,13 @@ def create_concept_note(concept_id: int) -> dict:
                 f"# {concept.name}",
                 "",
                 concept.description
-                or "Nota permanente criada a partir de conceito detectado.",
+                or "Permanent note created from a detected concept.",
                 "",
-                "## Evidencias",
+                "## Evidence",
                 concept.source_evidence,
             ]
         )
-        note = create_note(settings.vault_path, concept.name, "permanentes", content)
+        note = create_note(settings.vault_path, concept.name, "permanent", content)
         record = sync_note_record(session, settings.vault_path, str(note["path"]))
         enqueue_note_changed_jobs(
             session, record.path, "NOTE_CREATED", record.content_hash

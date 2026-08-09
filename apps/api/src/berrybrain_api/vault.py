@@ -8,6 +8,10 @@ from fastapi import HTTPException
 
 SAFE_FOLDERS = {
     "inbox",
+    "study",
+    "permanent",
+    "review",
+    # Legacy folder names remain readable for existing vaults.
     "estudos",
     "permanentes",
     "revisao",
@@ -30,7 +34,7 @@ def slugify_title(title: str) -> str:
     normalized = ascii_title.strip().lower()
     normalized = re.sub(r"[^a-z0-9\-_ ]+", "", normalized)
     normalized = re.sub(r"\s+", "-", normalized)
-    return normalized.strip("-") or "nota"
+    return normalized.strip("-") or "note"
 
 
 def unique_note_path(vault_path: Path, folder: str, slug: str) -> Path:

@@ -305,6 +305,11 @@ async def process_job(
         raise ValueError(
             "GENERATE_FLASHCARDS is disabled; flashcards/review removed from product"
         )
+    if job_type == "JUDGE_ARTIFACT" and str(
+        _ai_config.get("judge_enabled", "true")
+    ).lower() != "true":
+        await complete_job(client, settings.api_url, int(job["id"]))
+        return
     if job_type in AI_REQUIRED_JOB_TYPES and not _ai_config.get(
         "configuration_valid", False
     ):
@@ -1305,7 +1310,7 @@ async def process_extract_entities(
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
     system = load_prompt("concept-extract.v1.md")
-    prompt_text = f"Extraia APENAS entidades (tecnologias, ferramentas, pessoas, organizacoes):\n\n{note.get('content', '')[:3000]}"
+    prompt_text = f"Extract only entities (technologies, tools, people, organizations). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
         client,
@@ -1342,7 +1347,7 @@ async def process_detect_topics(
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
     system = load_prompt("concept-extract.v1.md")
-    prompt_text = f"Extraia APENAS os topicos (areas tematicas amplas):\n\n{note.get('content', '')[:3000]}"
+    prompt_text = f"Extract only topics (broad subject areas). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
         client,
@@ -1379,7 +1384,7 @@ async def process_extract_context(
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
     system = load_prompt("concept-extract.v1.md")
-    prompt_text = f"Extraia APENAS o contexto (dominio, pre-requisitos, aplicacoes):\n\n{note.get('content', '')[:3000]}"
+    prompt_text = f"Extract only the context (domain, prerequisites, applications). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
         client,
@@ -1783,7 +1788,7 @@ async def process_expand_concept_to_note(
         title = name if not name.startswith("#") else name.lstrip("#").strip()
         create_resp = await client.post(
             f"{settings.api_url}/api/v1/notes",
-            json={"title": title, "content": text, "folder": "estudos"},
+            json={"title": title, "content": text, "folder": "study"},
         )
         create_resp.raise_for_status()
 
@@ -1962,6 +1967,17 @@ async def process_research_graph(
     await complete_job(client, settings.api_url, int(job["id"]))
 
 
+async def process_organize_vault(
+    client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
+) -> None:
+    note_path = payload.get("note_path", "")
+    response = await client.post(
+        f"{settings.api_url}/api/v1/notes/{note_path}/organize"
+    )
+    response.raise_for_status()
+    await complete_job(client, settings.api_url, int(job["id"]))
+
+
 def job_handlers() -> dict[str, JobHandler]:
     return {
         "PARSE_NOTE": process_parse_note,
@@ -1982,6 +1998,7 @@ def job_handlers() -> dict[str, JobHandler]:
         "GENERATE_NODE_SUMMARY": process_generate_node_summary,
         "UPDATE_GRAPH_CLUSTERS": process_update_graph_clusters,
         "UPDATE_GRAPH_STATS": process_update_graph_stats,
+        "ORGANIZE_VAULT": process_organize_vault,
         "EXPAND_CONCEPT_TO_NOTE": process_expand_concept_to_note,
         "CREATE_NOTE_FROM_INSIGHT": process_create_note_from_insight,
         "CREATE_REVIEW_FROM_INSIGHT": process_create_review_from_insight,

@@ -106,7 +106,7 @@ function Shell() {
         <MobileWorkspaceBar onMenu={() => setMobileNavOpen(true)} />
         {isDemo && <DemoNotice />}
         {w.graphOpen ? (
-          <GraphScreen apiUrl={w.api} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
+          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : w.active ? (
           <NoteEditor />
         ) : (

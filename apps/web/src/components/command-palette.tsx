@@ -50,9 +50,15 @@ export function CommandPalette({
 
   useLayoutEffect(() => {
     if (!open) return;
-    inputRef.current?.focus({ preventScroll: true });
-    const frame = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(frame);
+    const focusSearch = () => inputRef.current?.focus({ preventScroll: true });
+    focusSearch();
+    const frame = requestAnimationFrame(focusSearch);
+    // Covers late workspace mounts (editor/quick capture use autofocus too).
+    const settleTimer = window.setTimeout(focusSearch, 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+    };
   }, [open]);
 
   useEffect(() => {
