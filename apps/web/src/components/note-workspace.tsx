@@ -73,13 +73,7 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    const idleId = window.requestIdleCallback(
-      () => {
-        void Promise.all([loadGraphScreen(), loadSettingsPanel()]);
-      },
-      { timeout: 1_500 },
-    );
-    return () => window.cancelIdleCallback(idleId);
+    void Promise.all([loadGraphScreen(), loadSettingsPanel()]);
   }, []);
   return (
     <main className="bb-workspace flex h-[100dvh] overflow-hidden bg-background text-foreground">

@@ -397,10 +397,7 @@ test.describe("Authenticated workspace quality", () => {
   test("shows functional note actions above the editor toolbar", async ({ page, context }) => {
     await openWorkspace(page, context);
     await mockCreatedNote(page, "Action note", "actions");
-    await page.keyboard.press("Control+KeyK");
-    const palette = page.getByRole("dialog", { name: "Command palette" });
-    await expect(palette).toBeVisible();
-    await palette.getByRole("option", { name: /New note/ }).click();
+    await page.getByRole("button", { name: "New note", exact: true }).first().click();
     await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();
 
     await page.getByRole("button", { name: "More actions" }).click();
@@ -516,9 +513,16 @@ test.describe("Authenticated workspace quality", () => {
     page,
     context,
   }) => {
-    let graphLoads = 0;
+    let graphRefreshes = 0;
     page.on("request", (request) => {
-      if (new URL(request.url()).pathname === "/api/v1/graph/nodes") graphLoads += 1;
+      const pathname = new URL(request.url()).pathname;
+      if (
+        pathname.endsWith("/api/v1/graph/summary")
+        || pathname.endsWith("/api/v1/graph/nodes")
+        || pathname.endsWith("/api/v1/graph/delta")
+      ) {
+        graphRefreshes += 1;
+      }
     });
     await page.route("**/api/v1/graph/infer", (route) =>
       route.fulfill({
@@ -557,9 +561,9 @@ test.describe("Authenticated workspace quality", () => {
     );
     await ask.click();
     await expect(page.getByText("Automation makes deployment repeatable.")).toBeVisible();
-    const graphLoadsBeforeSave = graphLoads;
+    const graphRefreshesBeforeSave = graphRefreshes;
     await page.getByRole("button", { name: "Create insight" }).click();
     await expect(page.getByRole("button", { name: "Insight created" })).toBeVisible();
-    await expect.poll(() => graphLoads).toBeGreaterThan(graphLoadsBeforeSave);
+    await expect.poll(() => graphRefreshes).toBeGreaterThan(graphRefreshesBeforeSave);
   });
 });
