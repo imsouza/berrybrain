@@ -36,7 +36,19 @@ async function navigationMetrics(page: import("@playwright/test").Page, route: s
 
 async function authenticate(context: import("@playwright/test").BrowserContext) {
   const status = await context.request.get("/api/v1/setup/status");
+  expect(status.ok()).toBeTruthy();
   const setup = await status.json();
+  if (setup.needsSetup) {
+    const configured = await context.request.post("/api/v1/setup/admin", {
+      data: {
+        password: OWNER_PASSWORD,
+        display_name: "E2E Owner",
+      },
+    });
+    if (configured.status() !== 409) expect(configured.status()).toBe(201);
+  }
+  const me = await context.request.get("/api/v1/auth/me");
+  if (me.ok()) return;
   const login = await context.request.post("/api/v1/auth/login", {
     data: {
       email: String(setup.ownerUsername || "admin"),

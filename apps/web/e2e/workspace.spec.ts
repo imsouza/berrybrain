@@ -398,7 +398,10 @@ test.describe("Authenticated workspace quality", () => {
       page.getByRole("heading", { name: "Capture first, organize later." }),
     ).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Skip" }).click();
-    await page.getByRole("button", { name: "Cloud" }).click();
+    await page.getByRole("button", {
+      name: "Cloud Models run through one cloud provider.",
+      exact: true,
+    }).click();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("combobox", { name: /Provider/ }).selectOption("nvidia-nim");
     await expect(page.getByRole("textbox", { name: "Provider URL" })).toHaveValue("https://integrate.api.nvidia.com/v1");
