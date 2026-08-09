@@ -1496,9 +1496,11 @@ class IntegrationTest(unittest.TestCase):
             json={"title": "Retrieval Beta", "content": "Graph retrieval evidence."},
         ).json()
         with notes_router.SessionLocal() as session:
-            records = session.query(NoteRecord).filter(
-                NoteRecord.path.in_((first["path"], second["path"]))
-            ).all()
+            records = (
+                session.query(NoteRecord)
+                .filter(NoteRecord.path.in_((first["path"], second["path"])))
+                .all()
+            )
             session.add(
                 GraphNodeRecord(
                     type="topic",
@@ -1527,9 +1529,11 @@ class IntegrationTest(unittest.TestCase):
         self.assertTrue((self.settings.vault_path / second["path"]).exists())
 
         with notes_router.SessionLocal() as session:
-            setting = session.query(SettingRecord).filter_by(
-                key="automatic_vault_organization"
-            ).one()
+            setting = (
+                session.query(SettingRecord)
+                .filter_by(key="automatic_vault_organization")
+                .one()
+            )
             setting.value = "true"
             session.commit()
         enabled = self.client.post(f"/api/v1/notes/{second['path']}/organize")

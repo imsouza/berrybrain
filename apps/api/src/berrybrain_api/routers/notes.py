@@ -182,12 +182,10 @@ def organize_note_endpoint(note_path: str) -> dict:
         ).scalars()
         for node in nodes:
             parsed_source_ids = parse_json(node.source_note_ids)
-            source_values = parsed_source_ids if isinstance(parsed_source_ids, list) else []
-            source_ids = {
-                int(value)
-                for value in source_values
-                if str(value).isdigit()
-            }
+            source_values = (
+                parsed_source_ids if isinstance(parsed_source_ids, list) else []
+            )
+            source_ids = {int(value) for value in source_values if str(value).isdigit()}
             if note.id in source_ids and len(source_ids) >= 2 and node.label.strip():
                 candidates.append((float(node.confidence), len(source_ids), node.label))
 
@@ -202,7 +200,9 @@ def organize_note_endpoint(note_path: str) -> dict:
         destination = destination_folder / source_path.name
         suffix = 2
         while destination.exists() and destination != source_path:
-            destination = destination_folder / f"{source_path.stem}-{suffix}{source_path.suffix}"
+            destination = (
+                destination_folder / f"{source_path.stem}-{suffix}{source_path.suffix}"
+            )
             suffix += 1
         if destination == source_path:
             return {"status": "already_organized", "path": note_path, "topic": label}
