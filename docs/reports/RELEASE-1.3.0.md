@@ -159,10 +159,12 @@ load, `/docs` 189 kB e shared 103 kB.
 
 ## 12. Testes e qualidade
 
-- API: 346 passed, 55 subtests, 1 warning deprecado do Starlette/httpx.
+- API: 348 passed, 55 subtests, 1 warning deprecado do Starlette/httpx.
 - Worker: 44 passed.
 - HippoRAG: 7 passed.
-- E2E final base: 42 passed em 3,2 min; regressao adicional de heartbeat: 1 passed.
+- E2E final: 43 passed em 3,1 min, sem retry ou caso flaky.
+- SQLite de producao validado em WAL com `busy_timeout=30000`; leituras autenticadas
+  permaneceram disponiveis durante escritas concorrentes do worker.
 - Ruff: 168 arquivos formatados, zero erros.
 - TypeScript/ESLint/build: aprovados.
 - Architecture fitness: 12/12; sem caminhos absolutos de maquina.
@@ -193,12 +195,12 @@ CycloneDX 1.7:
 
 ## 15. Publicacao e rollback
 
-- Commits locais: `b5e8745` (v1.3.0) e `e9109cc` (heartbeat/monitor).
+- Commits locais: `b5e8745` (v1.3.0), `e9109cc` (heartbeat/monitor), `2856dbc`
+  (evidencias) e `7689be2` (concorrencia/performance).
 - Tag pretendida: `v1.3.0`.
-- Release remota: **nao criada**.
+- Release remota: autorizada; verificacao pendente ate o push da tag e conclusao do CI.
 - Rollback de codigo: voltar para a tag `v1.2.0`.
 - Rollback de dados: validar o manifesto e restaurar o backup
   `backup-20260809T022722Z` com os comandos documentados no README/Docs.
 - O smoke local passou com API, worker, web e HippoRAG saudaveis.
-- Proximo gate: autorizacao explicita para push da `main`, tag, CI, assinatura, assets e
-  verificacao da release publicada.
+- Proximo gate: push da `main`, tag, CI, assinatura, assets e verificacao da release publicada.
