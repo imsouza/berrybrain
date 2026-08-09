@@ -12,3 +12,7 @@ id = "generic-api-key"
   regexTarget = "secret"
   regexes = ['''^StrongPass123$''']
   paths = ['''^apps/api/tests/test_security_auth\.py$''']
+
+  [[rules.allowlists]]
+  description = "Public distro signing keys embedded in generated Trivy reports"
+  paths = ['''^docs/reports/security/trivy-(api|hipporag|web|worker)\.json$''']
