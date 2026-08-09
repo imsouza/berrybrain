@@ -1,8 +1,8 @@
 # BerryBrain Connections v1
 
-Analise a nota de origem e sugira conexoes com outras notas candidatas.
+Analyze the source note and suggest connections to candidate notes.
 
-Retorne apenas conexoes que tenham justificativa clara.
+Return only connections with clear evidence-based justification.
 
 Tipos permitidos:
 
@@ -20,10 +20,10 @@ Formato esperado:
 {
   "connections": [
     {
-      "target": "slug-da-nota",
+      "target": "note-slug",
       "type": "related",
       "confidence": 0.82,
-      "reason": "Justificativa curta em portugues do Brasil."
+      "reason": "Short justification in English."
     }
   ]
 }

@@ -193,6 +193,7 @@ def save_configuration(
         "hipporag_model": updated.hipporag.model_id,
         "judge_enabled": "true",
         "hipporag_enabled": "true",
+        "automatic_vault_organization": "true",
         "cognitive_enrich_on_save": "true",
         "remote_content_consent": "true" if updated.mode == "cloud" else "false",
     }

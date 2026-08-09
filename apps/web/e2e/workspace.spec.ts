@@ -145,6 +145,54 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("completes a Review today card and persists the grade", async ({ page, context }) => {
+    let submittedRating = "";
+    await page.route("**/api/v1/reviews**", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() === "POST" && url.pathname.endsWith("/reviews/901/grade")) {
+        submittedRating = String((request.postDataJSON() as { rating?: string }).rating || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ review: { id: 901, intervalDays: 1, lastPerformance: submittedRating } }),
+        });
+        return;
+      }
+      if (request.method() === "GET" && url.pathname.endsWith("/reviews")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            reviews: [{
+              id: 901,
+              reviewType: "explain",
+              prompt: "Explain how notes become durable connections.",
+              expectedPoints: ["Evidence connects the source notes"],
+              evidence: [],
+              perceivedDifficulty: 0,
+              lastPerformance: "new",
+              intervalDays: 0,
+            }],
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await openWorkspace(page, context);
+    await page.getByRole("button", { name: "Review today" }).click();
+    await expect(page).toHaveURL(/\/reviews$/);
+    await expect(page.getByRole("heading", { name: "Review today" })).toBeVisible();
+    await expect(page.getByText("1 remaining")).toBeVisible();
+    await page.getByRole("button", { name: "Reveal expected points" }).click();
+    await expect(page.getByText("Evidence connects the source notes")).toBeVisible();
+    await page.getByRole("button", { name: "good", exact: true }).click();
+    await expect.poll(() => submittedRating).toBe("good");
+    await expect(page.getByText("Review complete")).toBeVisible();
+  });
+
   test("does not report a recently active worker as offline", async ({ page, context }) => {
     await authenticate(context);
     const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
@@ -369,6 +417,30 @@ test.describe("Authenticated workspace quality", () => {
     expect(savedConfiguration.endpoint_url).toBe("https://integrate.api.nvidia.com/v1");
     expect(savedConfiguration.main?.model_id).toBe("nvidia/e2e-model-a");
     expect(savedConfiguration.judge?.model_id).toBe("nvidia/e2e-model-a");
+  });
+
+  test("answers from the home Ask modal without leaving the workspace", async ({ page, context }) => {
+    await page.route("**/api/v1/graph/infer", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "answered",
+        question: "How do my deployment notes connect?",
+        answer: "Your deployment notes connect through automation evidence.",
+        evidence: [{ title: "Deployment", text: "Automation keeps releases repeatable." }],
+        relatedNodes: [],
+        inferenceId: "home-ask-e2e",
+      }),
+    }));
+    await openWorkspace(page, context);
+    const question = "How do my deployment notes connect?";
+    await page.getByRole("textbox", { name: "Ask BerryBrain" }).fill(question);
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Ask BerryBrain" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByPlaceholder(/ask your graph/i)).toHaveValue(question);
+    await expect(dialog.getByText("Your deployment notes connect through automation evidence.")).toBeVisible();
+    await expect(page).toHaveURL(/\/brain$/);
   });
 
   test("supports the main keyboard workflow", async ({ page, context }) => {

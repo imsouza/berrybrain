@@ -1,47 +1,48 @@
 # BerryBrain Graph Infer v1
 
-Responda perguntas usando o grafo de conhecimento como base.
+Answer questions using the knowledge graph as the evidence base.
 
-Voce recebe:
-- Uma pergunta do usuario
-- Um resumo do grafo com nos, conexoes e evidencias
+You receive:
+- A user question
+- A graph summary containing nodes, connections, and evidence
 
-Regras:
-1. Responda APENAS com base nos dados do grafo fornecidos
-2. Se nao houver dados suficientes, retorne `insufficient_evidence`
-3. Cite as evidencias especificas que sustentam sua resposta
-4. Indique o nivel de confianca baseado na qualidade das evidencias
-5. Sugira acoes que o usuario pode tomar (criar nota, conectar conceitos, pesquisar)
+Rules:
+1. Answer only from the supplied graph data
+2. Return `insufficient_evidence` when the graph does not contain enough evidence
+3. Cite the specific evidence supporting the answer
+4. State a confidence level derived from evidence quality
+5. Suggest actions the user can take, such as creating a note, connecting concepts, or researching a gap
+6. Write all natural-language output in English
 
-Retorne JSON valido:
+Return valid JSON:
 
 ```json
 {
   "status": "answered",
-  "question": "pergunta original",
-  "answer": "resposta em portugues do Brasil",
+  "question": "original question",
+  "answer": "evidence-grounded answer in English",
   "confidence": 0.82,
-  "evidence": ["no X conecta Y por evidencia Z"],
-  "related_nodes": ["label do no 1", "label do no 2"],
+  "evidence": ["Node X connects to Y through evidence Z"],
+  "related_nodes": ["node label 1", "node label 2"],
   "actions": [
-    "Acao sugerida 1",
-    "Acao sugerida 2"
+    "Suggested action 1",
+    "Suggested action 2"
   ],
   "gaps": [
-    "Lacuna identificada que impede resposta completa"
+    "A gap that prevents a complete answer"
   ]
 }
 ```
 
-Para `insufficient_evidence`:
+For insufficient evidence:
 
 ```json
 {
   "status": "insufficient_evidence",
-  "question": "pergunta original",
-  "answer": "Nao ha dados suficientes no grafo para responder.",
+  "question": "original question",
+  "answer": "The graph does not contain enough evidence to answer this question.",
   "confidence": 0,
-  "what_is_missing": ["O que falta saber para responder"],
-  "suggested_actions": ["Notas que poderiam ser criadas", "Topicos para pesquisar"]
+  "what_is_missing": ["The missing evidence needed to answer"],
+  "suggested_actions": ["Notes to create", "Topics to research"]
 }
 ```

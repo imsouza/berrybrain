@@ -43,13 +43,13 @@ STRICT RULES:
 
 Insight types:
 
-- **context** — O pano de fundo comum entre notas. Ex: "Cluster DevOps: Docker, Shell e Python formam o nucleo de automacao do usuario."
-- **conclusion** — O que os dados permitem afirmar com seguranca. Ex: "Python aparece como linguagem de orquestracao entre Docker e scripts."
-- **hypothesis** — Relacao plausivel mas nao confirmada. Ex: "O usuario pode estar migrando de scripts shell para automacao em Python."
-- **premise** — Ideia-base recorrente nas notas. Ex: "Containerizacao e tratada como padrao em todas as notas de infra."
-- **assertion** — Proposicao sustentada por ao menos 2 evidencias. Ex: "Backlinks confirmam que o usuario conecta Docker a Linux Shell."
-- **knowledge_gap** — Conhecimento ausente ou fragil. Ex: "Falta nota sobre orquestracao com docker-compose ou Kubernetes."
-- **new_connection** — Relacao nao obvia com motivo. Ex: "Async Python conecta-se a Docker via conceito de escalabilidade."
+- **context** — Shared background across notes. Example: "DevOps cluster: Docker, Shell, and Python form the user's automation core."
+- **conclusion** — A claim the evidence supports with confidence. Example: "Python acts as the orchestration language between Docker and scripts."
+- **hypothesis** — A plausible but unconfirmed relationship. Example: "The user may be migrating from shell scripts to Python automation."
+- **premise** — A recurring foundational idea. Example: "Every infrastructure note treats containerization as a standard practice."
+- **assertion** — A proposition supported by at least two pieces of evidence. Example: "Backlinks confirm that the user connects Docker to Linux Shell."
+- **knowledge_gap** — Missing or weak knowledge. Example: "The vault lacks a note about orchestration with Docker Compose or Kubernetes."
+- **new_connection** — A non-obvious relationship with a reason. Example: "Async Python connects to Docker through the concept of scalability."
 - **study_path** — Sequencia logica de estudo. Ex: "Trilha sugerida: Shell basico → Docker essentials → Python async → FastAPI deploy."
 
 Return valid JSON:
@@ -67,7 +67,7 @@ Return valid JSON:
       "suggested_action": "Concrete learning action",
       "graph_impact": "How it changes or clarifies the knowledge graph",
       "confidence": 0.82,
-      "related_notes": ["caminho-da-nota.md"]
+      "related_notes": ["path/to/note.md"]
     }
   ],
   "diagnostics": [

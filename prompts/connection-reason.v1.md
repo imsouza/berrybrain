@@ -1,42 +1,42 @@
 # BerryBrain Connection Reason v1
 
-Explique por que dois nos do grafo devem ser conectados.
+Explain whether two knowledge-graph nodes should be connected.
 
-Voce recebe:
-- No de origem com label, tipo, resumo e notas fonte
-- No de destino com label, tipo, resumo e notas fonte
-- Contexto adicional do grafo (conexoes existentes, topicos proximos)
+You receive:
+- A source node with its label, type, summary, and source notes
+- A target node with its label, type, summary, and source notes
+- Additional graph context, including existing connections and nearby topics
 
 Determine:
-1. Se a conexao faz sentido e por que
-2. O tipo mais adequado de conexao
-3. A confianca da conexao
-4. Evidencias que sustentam a conexao
+1. Whether the connection is meaningful and why
+2. The most appropriate canonical connection type
+3. The connection confidence
+4. The evidence supporting the connection
 
-Retorne JSON valido:
+Return valid JSON:
 
 ```json
 {
   "should_connect": true,
-  "edge_type": "similar_a",
-  "reason": "Ambos os conceitos tratam de...",
+  "edge_type": "semantic_relation",
+  "reason": "Both concepts address...",
   "confidence": 0.82,
   "evidence": [
-    "Ambos mencionam X em suas notas fonte",
-    "Compartilham o mesmo contexto Y"
+    "Both source notes mention X",
+    "They share context Y"
   ],
-  "notes": "Observacao adicional sobre a conexao (opcional)"
+  "notes": "Optional additional observation about the connection"
 }
 ```
 
-Se a conexao nao fizer sentido:
+When no meaningful connection exists, return:
 
 ```json
 {
   "should_connect": false,
-  "reason": "Nao ha relacao significativa entre os conceitos.",
+  "reason": "The evidence does not establish a meaningful relationship between these concepts.",
   "confidence": 0
 }
 ```
 
-Tipos de conexao validos: `similar_a`, `contem`, `contexto_de`, `referencia`, `evidencia_para`, `preenche`, `derivado_de`, `pre_requisito`, `relacionado_a`.
+Valid canonical connection types: `explicit_link`, `semantic_relation`, `prerequisite`, `example_of`, `contrasts_with`, `duplicates`, `applies_to`, `derived_from`, `mentions`, `supports`, and `contradicts`.

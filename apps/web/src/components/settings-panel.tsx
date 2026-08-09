@@ -58,8 +58,8 @@ const SECTION_AREAS: Record<string, SettingsArea[]> = {
 };
 
 const THEME_PRESETS: Record<ThemeKind, { bg: string; fg: string; mu: string; pn: string; bd: string }> = {
-  light: { bg: "#F7F6F3", fg: "#1A1A1A", mu: "#6B6B6B", pn: "#FFFFFF", bd: "#E0E0E0" },
-  dark: { bg: "#121212", fg: "#E8E8E8", mu: "#9A9A9A", pn: "#1E1E1E", bd: "#333333" },
+  light: { bg: "#FAF8F5", fg: "#1D1B18", mu: "#5C5C5C", pn: "#FFFFFF", bd: "#E4E0D8" },
+  dark: { bg: "#121212", fg: "#E8E8E8", mu: "#B5AFA7", pn: "#1D1B19", bd: "#393530" },
 };
 
 const UI_FONTS: Record<string, string> = {
@@ -68,7 +68,7 @@ const UI_FONTS: Record<string, string> = {
 };
 
 const EDITOR_FONTS: Record<string, string> = {
-  mono: '"JetBrains Mono", "Fira Code", ui-monospace, monospace',
+  mono: '"Geist Mono", "JetBrains Mono", ui-monospace, monospace',
   sans: "ui-sans-serif, system-ui, sans-serif",
 };
 
@@ -121,9 +121,11 @@ type Settings = {
   attachment_transcription_model: string;
   judge_provider: string;
   judge_model: string;
+  judge_enabled: "true" | "false";
   hipporag_provider: string;
   hipporag_model: string;
   hipporag_enabled: "true" | "false";
+  automatic_vault_organization: "true" | "false";
 };
 
 type AiProviderStatus = {
@@ -202,9 +204,11 @@ function defaults(): Settings {
     attachment_transcription_model: "small",
     judge_provider: "",
     judge_model: "",
+    judge_enabled: "true",
     hipporag_provider: "",
     hipporag_model: "",
-    hipporag_enabled: "false",
+    hipporag_enabled: "true",
+    automatic_vault_organization: "true",
   };
 }
 
@@ -227,9 +231,11 @@ function loadSettings(): Settings {
     "kb_embedding_model",
     "judge_provider",
     "judge_model",
+    "judge_enabled",
     "hipporag_provider",
     "hipporag_model",
     "hipporag_enabled",
+    "automatic_vault_organization",
     "remote_content_consent",
   ].forEach((key) => localStorage.removeItem(`bb_${key}`));
   return {
@@ -277,9 +283,11 @@ function loadSettings(): Settings {
     attachment_transcription_model: localStorage.getItem("bb_attachment_transcription_model") || d.attachment_transcription_model,
     judge_provider: d.judge_provider,
     judge_model: d.judge_model,
+    judge_enabled: d.judge_enabled,
     hipporag_provider: d.hipporag_provider,
     hipporag_model: d.hipporag_model,
     hipporag_enabled: d.hipporag_enabled,
+    automatic_vault_organization: d.automatic_vault_organization,
   };
 }
 
@@ -292,10 +300,12 @@ function applyTheme(s: Settings) {
   r.style.setProperty("--color-muted", p.mu);
   r.style.setProperty("--color-panel", p.pn);
   r.style.setProperty("--color-border", p.bd);
-  r.style.setProperty("--color-accent", "#96B55C");
-  r.style.setProperty("--color-brand-green", "#96B55C");
-  r.style.setProperty("--color-brand-red", "#CC4168");
-  r.style.setProperty("--color-danger", "#CC4168");
+  r.style.setProperty("--color-accent", "#BF1755");
+  r.style.setProperty("--color-accent-hover", s.theme === "dark" ? "#E67592" : "#B33654");
+  r.style.setProperty("--color-accent-soft", s.theme === "dark" ? "#422631" : "#E8D5DA");
+  r.style.setProperty("--color-brand-green", "#83A637");
+  r.style.setProperty("--color-brand-red", "#BF1755");
+  r.style.setProperty("--color-danger", "#BF1755");
   r.style.setProperty("--font-ui", UI_FONTS[s.ui_font] || UI_FONTS.inter);
   r.style.setProperty("--font-editor", EDITOR_FONTS[s.editor_font] || EDITOR_FONTS.mono);
   document.body.style.fontSize = `${s.font_size}px`;
@@ -330,6 +340,9 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "cognitive_enrich_on_save",
   "cognitive_insights_on_save",
   "research_mode_enabled",
+  "judge_enabled",
+  "hipporag_enabled",
+  "automatic_vault_organization",
   "attachment_image_limit_mb",
   "attachment_video_limit_mb",
   "attachment_audio_limit_mb",
@@ -882,7 +895,26 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             </div>
             
             <div className="mt-4 border-t border-border/30 pt-4" />
-            <ReadOnlyValue value="Judge evaluates generated artifacts with its configured model. HippoRAG adds multi-hop retrieval but never replaces canonical graph evidence." />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Automatic vault organization" description="Groups new content from semantic evidence. Disabling it stops future automatic moves and preserves existing folders.">
+                <Select value={s.automatic_vault_organization} onChange={(value) => update("automatic_vault_organization", value as Settings["automatic_vault_organization"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+              <Field label="Judge" description="Evaluates generated artifacts against source evidence before they become trusted context.">
+                <Select value={s.judge_enabled} onChange={(value) => update("judge_enabled", value as Settings["judge_enabled"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+              <Field label="HippoRAG" description="Adds multi-hop retrieval while canonical graph evidence remains authoritative.">
+                <Select value={s.hipporag_enabled} onChange={(value) => update("hipporag_enabled", value as Settings["hipporag_enabled"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
+              </Field>
+            </div>
           </Section>
 
           <Section title="Local" description="Local Ollama settings for offline processing.">

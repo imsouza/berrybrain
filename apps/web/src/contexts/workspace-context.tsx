@@ -133,13 +133,13 @@ type Ctx = {
   active: NoteDetail | null; draft: string; autosave: AutosaveStatus; viewMode: "edit" | "preview" | "split";
   insights: Insight[];
   sidebarWidth: number; rightOpen: boolean;
-  cmdOpen: boolean; monitorOpen: boolean; settingsOpen: boolean; graphOpen: boolean; guideOpen: boolean; notificationsOpen: boolean;
+  cmdOpen: boolean; monitorOpen: boolean; settingsOpen: boolean; graphOpen: boolean; askRequested: boolean; askQuery: string; guideOpen: boolean; notificationsOpen: boolean;
   creatingDraft: boolean;
   saveConflict: { currentContent: string; currentContentHash: string } | null;
   toasts: Toast[];
   setDraft: (v: string) => void; setViewMode: (v: "edit" | "preview" | "split") => void;
   setSidebarWidth: (w: number) => void; setRightOpen: (v: boolean) => void;
-  setCmdOpen: (v: boolean) => void; setMonitorOpen: (v: boolean) => void; setSettingsOpen: (v: boolean) => void; setGraphOpen: (v: boolean) => void; setGuideOpen: (v: boolean) => void; setNotificationsOpen: (v: boolean) => void;
+  setCmdOpen: (v: boolean) => void; setMonitorOpen: (v: boolean) => void; setSettingsOpen: (v: boolean) => void; setGraphOpen: (v: boolean) => void; openAsk: (query?: string) => void; consumeAskRequest: () => void; setGuideOpen: (v: boolean) => void; setNotificationsOpen: (v: boolean) => void;
   openNote: (p: string) => Promise<void>; closeNote: () => void; save: () => Promise<void>; download: () => void; renameNote: () => Promise<void>;
   resolveSaveConflict: (strategy: "reload" | "overwrite") => Promise<void>;
   createDraft: (content?: string) => Promise<boolean>; deleteActive: () => Promise<void>; scanVault: () => Promise<void>;
@@ -167,6 +167,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const [monitorOpen, setMonitorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
+  const [askRequested, setAskRequested] = useState(false);
+  const [askQuery, setAskQuery] = useState("");
   const [guideOpen, setGuideOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
@@ -449,7 +451,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [active, closeNote, cmdOpen, save]);
 
   return (
-    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
+    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, askRequested, askQuery, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, openAsk: (query = "") => { setAskQuery(query.trim()); setAskRequested(true); setGraphOpen(true); }, consumeAskRequest: () => { setAskRequested(false); setAskQuery(""); }, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
       {children}
       {creatingDraft && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-background/60 backdrop-blur-sm">

@@ -444,7 +444,8 @@ class JobServiceTest(unittest.TestCase):
             content_hash="abc",
         )
 
-        self.assertEqual(len(jobs), 14)
+        self.assertEqual(len(jobs), 15)
+        self.assertEqual(jobs[-1].type, "ORGANIZE_VAULT")
         self.assertIn("EXPAND_KNOWLEDGE_GRAPH", [job.type for job in jobs])
         self.assertEqual(jobs[0].type, "PARSE_NOTE")
         self.assertEqual(jobs[0].status, PENDING)
@@ -539,9 +540,9 @@ class JobServiceTest(unittest.TestCase):
             content_hash="hash-b",
         )
 
-        self.assertEqual(len(first), 14)
+        self.assertEqual(len(first), 15)
         self.assertEqual(second, [])
-        self.assertEqual(len(third), 14)
+        self.assertEqual(len(third), 15)
         self.assertTrue(all('"content_hash":"hash-b"' in job.payload for job in third))
         old_active = [
             job

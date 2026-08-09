@@ -225,6 +225,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
             const isOpen = expanded[folder.path] ?? true;
             const depth = folder.depth ?? Math.max(0, folder.path.split("/").length - 1);
             const canToggle = folder.has_subfolders || folderNotes.length > 0;
+            const folderColor = stableFolderColor(folder.path);
             return (
               <div key={folder.path} className="mb-1">
                 <div className="group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70" style={{ paddingLeft: `${8 + depth * 14}px` }}>
@@ -232,7 +233,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                     {canToggle ? (isOpen ? "▾" : "▸") : "·"}
                   </button>
                   <button className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setExpanded((current) => ({ ...current, [folder.path]: !isOpen }))}>
-                    <span className="truncate" title={folder.path}>{folder.name}</span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                      <span className="truncate" title={folder.path}>{folder.name}</span>
+                    </span>
                   </button>
                   <span className="text-[10px] text-muted/45" title={`${folder.total_note_count ?? folderNotes.length} total notes`}>
                     {folder.note_count ?? folderNotes.length}
@@ -285,7 +289,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <button className={`relative rounded-lg p-1 text-muted hover:bg-surface ${attentionCount ? "text-accent" : ""}`} onClick={() => { onMobileClose?.(); localStorage.setItem("bb_notif_dismissed_at", String(Date.now())); setDismissedAt(Date.now()); setAttentionCount(0); w.setNotificationsOpen(true); }} aria-label="Notifications">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 01-6 0" /></svg>
             {attentionCount > 0 && (
-              <span className="absolute -right-1 -top-1 grid min-w-3.5 place-items-center rounded-full bg-white px-1 text-[8px] font-semibold text-[#CC4168] shadow-sm">
+              <span className="absolute -right-1 -top-1 grid min-w-3.5 place-items-center rounded-full bg-white px-1 text-[8px] font-semibold text-[#BF1755] shadow-sm">
                 {attentionCount}
               </span>
             )}
@@ -298,4 +302,16 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     </aside>
     </>
   );
+}
+
+const FOLDER_PALETTE = ["#BF1755", "#83A637", "#6B8FAF", "#8B6F9F", "#D4A843", "#4A8F6A", "#B85C4A", "#4F7CCB"];
+
+function stableFolderColor(folderPath: string) {
+  const identity = folderPath;
+  let hash = 2166136261;
+  for (const character of identity) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return FOLDER_PALETTE[Math.abs(hash) % FOLDER_PALETTE.length];
 }

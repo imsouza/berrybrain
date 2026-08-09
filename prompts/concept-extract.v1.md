@@ -1,53 +1,53 @@
 # BerryBrain Concept Extract v1
 
-Extraia conceitos, entidades, topicos e contexto de uma nota.
+Extract concepts, entities, topics, and context from a note.
 
-Voce recebe o conteudo completo da nota.
+You receive the note's complete content.
 
-Extraia:
+Extract:
 
-**Conceitos** — ideias, tecnicas, frameworks, principios
-**Entidades** — pessoas, organizacoes, ferramentas, tecnologias
-**Topicos** — areas tematicas amplas
-**Contexto** — dominio de aplicacao, pre-requisitos, ambiente
+**Concepts** — ideas, techniques, frameworks, and principles
+**Entities** — people, organizations, tools, and technologies
+**Topics** — broad subject areas
+**Context** — application domain, prerequisites, and environment
 
-Retorne JSON valido:
+Return valid JSON. Keep all generated names and descriptions in English, while quoting source evidence exactly as written:
 
 ```json
 {
   "concepts": [
     {
-      "name": "Nome do conceito",
-      "description": "Definicao ou descricao curta",
+      "name": "Concept name",
+      "description": "Short definition or description",
       "confidence": 0.9,
-      "evidence": "Trecho da nota que menciona o conceito"
+      "evidence": "Exact excerpt from the note"
     }
   ],
   "entities": [
     {
-      "name": "Nome da entidade",
+      "name": "Entity name",
       "type": "tool",
-      "description": "O que e esta entidade",
+      "description": "What this entity is",
       "confidence": 0.85
     }
   ],
   "topics": [
     {
-      "name": "Nome do topico",
-      "scope": "Ambito do topico nesta nota",
+      "name": "Topic name",
+      "scope": "The topic's scope within this note",
       "confidence": 0.8
     }
   ],
   "context": {
-    "domain": "Dominio principal da nota",
-    "prerequisites": ["Conhecimento previo necessario"],
-    "applications": ["Onde este conhecimento se aplica"]
+    "domain": "The note's primary domain",
+    "prerequisites": ["Required prior knowledge"],
+    "applications": ["Where this knowledge applies"]
   },
   "confidence": 0.85
 }
 ```
 
-Tipos de entidade: `tool`, `person`, `organization`, `language`, `framework`, `platform`, `protocol`, `standard`, `other`.
+Entity types: `tool`, `person`, `organization`, `language`, `framework`, `platform`, `protocol`, `standard`, and `other`.
 
-Nao invente conceitos. Use apenas o que esta explicitamente na nota.
-Confianca minima: 0.5.
+Do not invent concepts. Extract only what the note explicitly supports.
+Minimum confidence: 0.5.

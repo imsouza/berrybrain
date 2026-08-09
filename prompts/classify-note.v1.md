@@ -1,12 +1,12 @@
 # BerryBrain Classify Note v1
 
-Classifique a nota informada.
+Classify the supplied note.
 
-Campos esperados:
+Expected fields:
 
 ```json
 {
-  "language": "pt-BR",
+  "language": "en",
   "note_type": "study",
   "tags": ["tag"],
   "aliases": ["alias"],
@@ -15,4 +15,4 @@ Campos esperados:
 }
 ```
 
-Use `note_type` com valores simples, como `study`, `permanent`, `reference`, `fleeting`, `review` ou `unknown`.
+Use simple `note_type` values: `study`, `permanent`, `reference`, `fleeting`, `review`, or `unknown`.

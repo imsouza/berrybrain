@@ -410,7 +410,7 @@ type CapabilityStatus = "Implemented" | "Conditional" | "Not native";
 function CapabilityMark({ value }: { value: CapabilityStatus }) {
   const cls =
     value === "Implemented"
-      ? "bg-accent text-black"
+      ? "bg-accent text-white"
       : value === "Conditional"
         ? "bg-surface text-foreground"
         : "bg-surface text-muted";
@@ -489,10 +489,10 @@ function LandingContent() {
           50% { transform: translate3d(-7px, -6px, 0); }
         }
       `}</style>
-      <section className="overflow-hidden border-b border-border/70 bg-background">
+      <section className="bb-landing-hero overflow-hidden border-b border-border/70 bg-background">
         <div className="mx-auto grid min-h-[calc(100svh-73px)] w-full max-w-7xl items-center gap-8 px-5 py-14 md:grid-cols-[1.42fr_0.58fr] md:px-6 md:py-20">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1 text-xs font-medium text-muted">
+            <span className="bb-landing-eyebrow inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium">
               <span className="size-1.5 rounded-full bg-accent" />
               v{APP_VERSION} · Local-first · Evidence-backed
             </span>
@@ -505,7 +505,7 @@ function LandingContent() {
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
                 href={appPath(primaryPath)}
-                className="bb-action inline-flex items-center justify-center px-5 py-3 text-sm font-semibold"
+                className="bb-action bb-action--primary inline-flex items-center justify-center px-5 py-3 text-sm font-semibold"
               >
                 {primaryLabel}
               </a>
@@ -533,7 +533,7 @@ function LandingContent() {
               ))}
             </div>
           </div>
-          <div className="relative min-h-[330px] md:-ml-24 md:min-h-[470px]" aria-label="BerryBrain workspace previews">
+          <div className="bb-product-preview relative min-h-[330px] md:-ml-24 md:min-h-[470px]" aria-label="BerryBrain workspace previews">
             <div className="bb-card bb-card--elevated absolute left-0 top-10 w-[88%] overflow-hidden motion-safe:[animation:bb-float-a_7s_ease-in-out_infinite]">
               <Image
                 src={berryPrint}
@@ -613,7 +613,7 @@ function LandingContent() {
             {pipeline.map(([step, body], index) => (
               <div key={step} className="bb-card relative p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-black">
+                  <span className="flex size-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-white">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   {index < pipeline.length - 1 && (

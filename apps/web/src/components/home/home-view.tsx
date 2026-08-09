@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
+import { GraphScreen } from "@/components/graph-screen";
 import { ThemedProgressBar } from "./themed-progress-bar";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
@@ -145,6 +146,8 @@ export function HomeView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [starterText, setStarterText] = useState("");
+  const [askText, setAskText] = useState("");
+  const [askModalQuery, setAskModalQuery] = useState<string | null>(null);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]>([]);
 
@@ -237,11 +240,44 @@ export function HomeView() {
   const progressStatus = normalizeStatus(summary.progress.status);
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+    <div className="bb-brain-view flex-1 overflow-y-auto">
+      <div className="bb-page-shell px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <HomeHeader summary={summary} nome={nome} onGraph={() => w.setGraphOpen(true)} />
+        <HomeAskBar
+          value={askText}
+          onChange={setAskText}
+          onSubmit={() => {
+            if (!askText.trim()) return;
+            setAskModalQuery(askText.trim());
+            setAskText("");
+          }}
+        />
 
-        <div className="mt-6 grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        {askModalQuery && (
+          <div className="fixed inset-0 z-[90] grid place-items-center bg-foreground/20 p-3 backdrop-blur-sm sm:p-6" role="presentation">
+            <section
+              className="flex h-[min(540px,88vh)] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-panel shadow-2xl"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ask BerryBrain"
+            >
+              <GraphScreen
+                apiUrl={w.api}
+                askOnly
+                autoFocusAsk
+                autoSubmitAsk
+                initialAskQuery={askModalQuery}
+                onClose={() => setAskModalQuery(null)}
+                onNavigate={(path) => {
+                  setAskModalQuery(null);
+                  void w.openNote(path);
+                }}
+              />
+            </section>
+          </div>
+        )}
+
+        <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
           <ComposeCard
             noNotes={noNotes}
             value={starterText}
@@ -265,10 +301,11 @@ export function HomeView() {
 
         <StatsGrid summary={summary} />
 
-        <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
           <div className="space-y-6">
             <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
             <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
+            <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
           </div>
           <aside className="space-y-6">
             <ReviewTodayCard reviews={summary.dueReviews || []} total={summary.stats.study?.dueReviews || 0} />
@@ -280,7 +317,6 @@ export function HomeView() {
           </aside>
         </div>
 
-        <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
         <InfographicsGrid summary={summary} />
 
         <div className="bb-card mt-8 flex flex-wrap gap-2 p-4">
@@ -395,7 +431,7 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
     ? providerState === "connected" ? "ok" : providerState === "failed" || providerState === "incomplete" ? "bad" : "muted"
     : summary.status.ollama === "online" ? "ok" : "muted";
   return (
-    <header className="border-b border-border/60 pb-6">
+    <header className="bb-brain-hero">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">{t("home")}</p>
@@ -403,9 +439,9 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
           <p className="mt-2 text-sm leading-6 text-muted/70">{t("keepWriting")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <HeaderLink accent onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
-          <HeaderLink accent onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
-          <HeaderLink accent onClick={onGraph}>{t("viewGraph")}</HeaderLink>
+          <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
+          <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
+          <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -424,11 +460,51 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
   );
 }
 
+function HomeAskBar({
+  value,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <form
+      className="bb-card mt-4 flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:p-4"
+      aria-label="Ask your knowledge graph"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-accent" aria-hidden="true">
+          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.5 9a3.5 3.5 0 117 0c0 2.5-3.5 2.5-3.5 5m0 3h.01M12 22a10 10 0 100-20 10 10 0 000 20z" /></svg>
+        </span>
+        <div className="min-w-0 flex-1">
+          <label htmlFor="home-ask" className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Ask BerryBrain</label>
+          <input
+            id="home-ask"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            className="mt-1 w-full border-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted/50"
+            placeholder="Ask a question about your notes, concepts, or connections..."
+          />
+        </div>
+      </div>
+      <button type="submit" disabled={!value.trim()} className="bb-action bb-action--primary h-10 shrink-0 px-5 text-sm font-semibold">
+        Ask
+      </button>
+    </form>
+  );
+}
+
 function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmpty, creating }: { noNotes: boolean; value: string; disabled: boolean; onChange: (value: string) => void; onSubmit: () => void; onCreateEmpty: () => void; creating: boolean }) {
   const canSubmit = Boolean(value.trim()) && !disabled;
 
   return (
-    <div className="bb-card p-5 transition focus-within:border-accent">
+    <div className="bb-card bb-brain-compose p-5 transition focus-within:border-accent">
       <div className="mb-3 flex items-center gap-2">
         <span className="size-2 rounded-full bg-accent" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted/50">{t("startWriting")}</span>
@@ -460,7 +536,7 @@ function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmp
           </button>
           <button
             type="button"
-            className="bb-action px-4 py-2 text-xs font-semibold"
+            className="bb-action bb-action--primary px-4 py-2 text-xs font-semibold"
             disabled={!canSubmit}
             onClick={onSubmit}
           >
@@ -811,10 +887,10 @@ function StatusBadge({ label, status }: { label: string; status: "ok" | "bad" | 
   );
 }
 
-function HeaderLink({ children, onClick, accent }: { children: ReactNode; onClick: () => void; accent?: boolean }) {
-  const cls = accent
-    ? "bb-action px-2.5 py-1 text-[11px] font-medium"
-    : "bb-action px-2.5 py-1 text-[11px]";
+function HeaderLink({ children, onClick, primary }: { children: ReactNode; onClick: () => void; primary?: boolean }) {
+  const cls = primary
+    ? "bb-action bb-action--primary px-3 py-1.5 text-[11px] font-semibold"
+    : "bb-action px-2.5 py-1.5 text-[11px] font-medium";
   return <button className={cls} onClick={onClick}>{children}</button>;
 }
 

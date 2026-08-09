@@ -747,7 +747,7 @@ claims supported by notes, concepts, connections, or processed attachments.`,
     md: `## Settings
 
 - **Appearance**: theme (light/dark).
-- **Language**: interface in pt-BR or en (notes unchanged).
+- **Language**: the interface and generated structures use English; source notes remain unchanged.
 - **Fonts**: UI and editor font families and sizes.
 - **AI**: choose exactly one Local or Cloud mode, then configure main, embedding, Judge, and HippoRAG model slots.
 - **Cognitive layer**: retrieval mode, chunks, graph inference, confidence, and external vector stores.
@@ -992,7 +992,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Which languages are supported?",
-    a: "The interface supports pt-BR and en. Note content is never translated.",
+    a: "The interface and generated brain structures use English. Source-note content is never translated.",
   },
   {
     q: "Is there an API?",

@@ -1,54 +1,57 @@
 # BerryBrain Graph Expand v1
 
-Expanda o grafo de conhecimento a partir de notas e metadados.
+Expand the knowledge graph from notes and metadata.
 
-Voce recebe uma ou mais notas com conteudo, frontmatter, links e metadados gerados (classificacao, assimilacao, topicos).
+You receive one or more notes with content, frontmatter, links, and generated metadata such as classification, assimilation, and topics.
 
-Extraia nos e conexoes nos seguintes tipos:
+Extract nodes and connections using only the canonical English types below.
 
-**Nos:**
-- `topico` — temas amplos ou areas de estudo
-- `contexto` — circunstancias, pre-requisitos ou ambiente de aplicacao
-- `entidade` — pessoas, organizacoes, ferramentas, tecnologias especificas
-- `insight` — descobertas, conclusoes ou padroes
-- `lacuna` — ausencia de conhecimento ou pergunta nao respondida
-- `fonte` — origem da informacao (livro, artigo, curso, pessoa)
+**Nodes:**
+- `topic` — broad themes or study areas
+- `context` — circumstances, prerequisites, or application environment
+- `entity` — people, organizations, tools, or specific technologies
+- `insight` — discoveries, conclusions, or patterns
+- `gap` — missing knowledge or an unanswered question
+- `source` — information origin, such as a book, article, course, or person
 
-**Conexoes:**
-- `contem` — topico contem conceito ou subtopico
-- `contexto_de` — contexto se aplica a conceito
-- `referencia` — nota referencia entidade
-- `evidencia_para` — nota fornece evidencia para insight
-- `preenche` — nota preenche lacuna
-- `derivado_de` — conceito deriva de fonte
-- `similar_a` — conceitos similares
-- `pre_requisito` — conceito depende de outro
+**Connections:**
+- `explicit_link` — an explicit link in the source content
+- `semantic_relation` — a meaningful semantic relationship
+- `mentions` — a note mentions a concept or entity
+- `supports` — evidence supports a claim or insight
+- `contradicts` — evidence conflicts with a claim or insight
+- `derived_from` — a concept or insight derives from a source
+- `prerequisite` — one concept depends on another
+- `example_of` — a node is an example of another
+- `contrasts_with` — two nodes form a meaningful contrast
+- `duplicates` — two nodes represent the same knowledge
+- `applies_to` — knowledge applies to a context or subject
 
-Retorne JSON valido:
+Return valid JSON. Generate labels, summaries, reasons, and metadata in English. Preserve source excerpts exactly as written:
 
 ```json
 {
   "nodes": [
     {
-      "type": "topico",
-      "label": "Nome do topico",
-      "summary": "Descricao curta do que este topico representa",
+      "type": "topic",
+      "label": "Topic name",
+      "summary": "Short description of what this topic represents",
       "confidence": 0.85,
-      "evidence": ["trecho da nota que justifica este no"]
+      "evidence": ["exact source-note excerpt supporting this node"]
     }
   ],
   "edges": [
     {
-      "source_label": "Nome do no origem",
-      "target_label": "Nome do no destino",
-      "type": "contem",
-      "reason": "Justificativa curta da conexao",
+      "source_label": "Source node name",
+      "target_label": "Target node name",
+      "type": "semantic_relation",
+      "reason": "Short explanation of the connection",
       "confidence": 0.78,
-      "evidence": ["trecho que justifica a conexao"]
+      "evidence": ["exact excerpt supporting this connection"]
     }
   ]
 }
 ```
 
-Nao invente nos ou conexoes sem evidencia real nas notas.
-Confianca minima: 0.5. Abaixo disso, nao inclua.
+Never invent nodes or connections without real evidence in the notes.
+Minimum confidence: 0.5. Omit candidates below this threshold.
