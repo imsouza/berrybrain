@@ -153,8 +153,17 @@ class IntegrationTest(unittest.TestCase):
             )
             session.commit()
 
+        heartbeat = self.client.post(
+            "/api/v1/worker/heartbeat", json={"jobs_processed": 3, "errors": 0}
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
         response = self.client.get("/api/v1/monitor/stats")
         self.assertEqual(response.status_code, 200)
+        worker = response.json()["worker"]
+        self.assertEqual(worker["status"], "running")
+        self.assertEqual(worker["jobs_processed"], 3)
+        self.assertTrue(worker["last_heartbeat_at"].endswith("Z"))
         reliability = response.json()["model_invocations"]
         self.assertGreaterEqual(reliability["completed"], 1)
         self.assertIn("test-provider", reliability["by_provider"])
