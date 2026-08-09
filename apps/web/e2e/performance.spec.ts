@@ -48,15 +48,20 @@ async function authenticate(context: import("@playwright/test").BrowserContext) 
     if (configured.status() !== 409) expect(configured.status()).toBe(201);
   }
   const me = await context.request.get("/api/v1/auth/me");
-  if (me.ok()) return;
-  const login = await context.request.post("/api/v1/auth/login", {
-    data: {
-      email: String(setup.ownerUsername || "admin"),
-      password: OWNER_PASSWORD,
-      remember_me: false,
-    },
-  });
-  expect(login.ok(), await login.text()).toBeTruthy();
+  if (!me.ok()) {
+    const login = await context.request.post("/api/v1/auth/login", {
+      data: {
+        email: String(setup.ownerUsername || "admin"),
+        password: OWNER_PASSWORD,
+        remember_me: false,
+      },
+    });
+    expect(login.ok(), await login.text()).toBeTruthy();
+  }
+  const state = await context.storageState();
+  const csrf = state.cookies.find((cookie) => cookie.name === "bb_csrf")?.value || "";
+  expect(csrf).not.toBe("");
+  return csrf;
 }
 
 test.describe("Public performance budgets", () => {
@@ -193,7 +198,12 @@ test.describe("Public performance budgets", () => {
     page.on("console", (message) => {
       if (message.type() === "error") console.error(`[browser-console-error] ${message.text()}`);
     });
-    await authenticate(context);
+    const csrf = await authenticate(context);
+    const completed = await context.request.put("/api/v1/settings/onboarding_completed", {
+      data: { value: "true" },
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(completed.ok(), await completed.text()).toBeTruthy();
     const routes = [
       "/brain",
       "/account",
