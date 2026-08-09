@@ -145,6 +145,19 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("does not report a recently active worker as offline", async ({ page, context }) => {
+    await authenticate(context);
+    const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
+      data: { jobs_processed: 0, errors: 0, ollama_healthy: true },
+    });
+    expect(heartbeat.ok(), await heartbeat.text()).toBeTruthy();
+
+    const statsLoaded = page.waitForResponse("**/api/v1/monitor/stats");
+    await openWorkspace(page, context);
+    await statsLoaded;
+    await expect(page.getByText("No worker signal. Graph processing may be stalled.")).toHaveCount(0);
+  });
+
   test("keeps quick capture local until explicit creation", async ({
     page,
     context,
