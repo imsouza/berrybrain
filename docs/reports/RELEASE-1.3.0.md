@@ -159,7 +159,7 @@ load, `/docs` 189 kB e shared 103 kB.
 
 ## 12. Testes e qualidade
 
-- API: 348 passed, 55 subtests, 1 warning deprecado do Starlette/httpx.
+- API: 352 passed, 55 subtests, 1 warning deprecado do Starlette/httpx.
 - Worker: 44 passed.
 - HippoRAG: 7 passed.
 - E2E final: 43 passed em 3,1 min, sem retry ou caso flaky.
