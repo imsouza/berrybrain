@@ -36,7 +36,7 @@ All notable BerryBrain changes are documented here.
 
 ### Verification
 
-- 348 API tests plus 55 subtests, 44 Worker tests, and 7 HippoRAG tests.
+- 352 API tests plus 55 subtests, 44 Worker tests, and 7 HippoRAG tests.
 - 43 Playwright E2E checks including accessibility, mobile, public/authenticated route budgets,
   graph workflows, onboarding, Settings, Flow, research, and 10k graph stress.
 - 5,000-node/20,000-edge API graph gate: p95 2.54 s, 11.3 MB payload, 82.1 MB peak memory.
