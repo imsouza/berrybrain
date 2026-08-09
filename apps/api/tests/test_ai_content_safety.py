@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 import time
@@ -94,6 +95,31 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
                 "Answer from evidence",
             )
         self.assertIn(UNTRUSTED_CONTENT_POLICY, generate.call_args.args[2])
+
+    async def test_provider_generation_does_not_block_the_event_loop(self) -> None:
+        def slow_generation(*_args):
+            time.sleep(0.12)
+            return {"answer": "ok"}
+
+        started = time.perf_counter()
+        with patch(
+            "berrybrain_api.ai_gateway._ollama_json",
+            side_effect=slow_generation,
+        ):
+            task = asyncio.create_task(
+                generate_graph_answer(
+                    {
+                        "provider": "local",
+                        "ollama_base_url": "http://ollama.test",
+                        "ollama_model": "qwen",
+                    },
+                    "question",
+                    "system",
+                )
+            )
+            await asyncio.sleep(0.02)
+            self.assertLess(time.perf_counter() - started, 0.08)
+            await task
 
     async def test_cloud_embedding_requires_explicit_content_consent(self) -> None:
         with self.assertRaises(GraphAIUnavailable):
@@ -418,9 +444,10 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
                 "berrybrain_api.ai_gateway.urllib.request.urlopen",
                 side_effect=rate_limited,
             ),
-            self.assertRaisesRegex(GraphAIUnavailable, "rate limit"),
+            self.assertRaisesRegex(GraphAIUnavailable, "rate limit") as rate_error,
         ):
             _cloud_json(config, "prompt", "system", 1, 10)
+        self.assertEqual(rate_error.exception.retry_after_seconds, 60)
         with (
             patch(
                 "berrybrain_api.ai_gateway.urllib.request.urlopen",

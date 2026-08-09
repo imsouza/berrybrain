@@ -3,9 +3,13 @@
 import { GUIDE_STEPS, getLang, t } from "@/i18n";
 import { useWorkspace } from "@/contexts/workspace-context";
 
-type GuidePanelProps = { open?: boolean; onClose?: () => void };
+type GuidePanelProps = {
+  open?: boolean;
+  onClose?: () => void;
+  onViewTour?: () => void;
+};
 
-export function GuidePanel({ open, onClose }: GuidePanelProps) {
+export function GuidePanel({ open, onClose, onViewTour }: GuidePanelProps) {
   const w = useWorkspace();
   const isOpen = open ?? w.guideOpen;
   const handleClose = onClose ?? (() => w.setGuideOpen(false));
@@ -47,7 +51,8 @@ export function GuidePanel({ open, onClose }: GuidePanelProps) {
           <button
             onClick={() => {
               handleClose();
-              window.dispatchEvent(new Event("bb:open-tour"));
+              if (onViewTour) onViewTour();
+              else window.dispatchEvent(new Event("bb:open-tour"));
             }}
             className="bb-action px-4 py-1.5 text-xs font-medium"
           >

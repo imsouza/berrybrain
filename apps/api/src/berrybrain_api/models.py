@@ -88,6 +88,9 @@ class JobRecord(Base):
     type: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload_schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
     note_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     note_path: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
@@ -106,6 +109,48 @@ class JobRecord(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class JobAttemptRecord(Base):
+    __tablename__ = "job_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    job_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    payload_schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1
+    )
+    run_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    dependency_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    note_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    artifact_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    artifact_version: Mapped[str] = mapped_column(
+        String(128), nullable=False, default=""
+    )
+    active_ai_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    resolved_provider: Mapped[str] = mapped_column(
+        String(80), nullable=False, default=""
+    )
+    resolved_model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    stage: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="claimed", index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    model_call_started: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    model_call_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    error_class: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    error_code: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    retryability: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="unknown"
+    )
+    dead_letter_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class WorkerInboxRecord(Base):
@@ -602,6 +647,20 @@ class GraphNodeRecord(Base):
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    semantic_state: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending", index=True
+    )
+    semantic_profile_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    vault_id: Mapped[str] = mapped_column(
+        String(160), nullable=False, default="default", index=True
+    )
+    color_id: Mapped[str] = mapped_column(String(80), nullable=False, default="pending")
+    color_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    color_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    color_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     graph_metadata: Mapped[str] = mapped_column(
         "metadata", Text, nullable=False, default="{}"
@@ -639,6 +698,181 @@ class GraphEdgeRecord(Base):
     latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class SemanticProfileRecord(Base):
+    __tablename__ = "semantic_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    source_fingerprint: Mapped[str] = mapped_column(
+        String(128), nullable=False, index=True
+    )
+    profile_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    embedding_ref: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending", index=True
+    )
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class SemanticClusterRecord(Base):
+    __tablename__ = "semantic_clusters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    stable_key: Mapped[str] = mapped_column(
+        String(160), unique=True, nullable=False, index=True
+    )
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    centroid_ref: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    parent_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    color_id: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="active", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class SemanticClusterAssignmentRecord(Base):
+    __tablename__ = "semantic_cluster_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    alternative_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    margin: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    validated_by: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="algorithm"
+    )
+    pinned_by_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class GraphPaletteRecord(Base):
+    __tablename__ = "graph_palettes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    color_id: Mapped[str] = mapped_column(
+        String(80), unique=True, nullable=False, index=True
+    )
+    oklch: Mapped[str] = mapped_column(String(80), nullable=False)
+    light_hex: Mapped[str] = mapped_column(String(12), nullable=False)
+    dark_hex: Mapped[str] = mapped_column(String(12), nullable=False)
+    border: Mapped[str] = mapped_column(String(12), nullable=False)
+    text: Mapped[str] = mapped_column(String(12), nullable=False)
+    namespace: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    accessibility_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+class VaultVisualIdentityRecord(Base):
+    __tablename__ = "vault_visual_identities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    vault_id: Mapped[str] = mapped_column(
+        String(160), unique=True, nullable=False, index=True
+    )
+    color_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    icon: Mapped[str] = mapped_column(String(80), nullable=False, default="vault")
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class NodeEnrichmentVersionRecord(Base):
+    __tablename__ = "node_enrichment_versions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_fingerprint: Mapped[str] = mapped_column(
+        String(128), nullable=False, index=True
+    )
+    analysis_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class GraphResearchRunRecord(Base):
+    __tablename__ = "graph_research_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending", index=True
+    )
+    graph_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    planned_queries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_queries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class GraphResearchResultRecord(Base):
+    __tablename__ = "graph_research_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    node_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    evidence: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="suggested", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AskSessionRecord(Base):
+    __tablename__ = "ask_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="flow")
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    configuration_fingerprint: Mapped[str] = mapped_column(
+        String(128), nullable=False, default=""
+    )
+    context_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AskTurnRecord(Base):
+    __tablename__ = "ask_turns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    context_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    token_usage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="completed", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class NotificationRecord(Base):

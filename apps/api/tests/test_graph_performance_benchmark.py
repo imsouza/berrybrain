@@ -16,6 +16,8 @@ class GraphPerformanceBenchmarkTest(unittest.TestCase):
         self.assertEqual(result.node_count, 200)
         self.assertEqual(result.edge_count, 600)
         self.assertGreater(result.payload_bytes, 0)
+        self.assertGreater(result.peak_memory_bytes, 0)
+        self.assertLessEqual(result.peak_memory_bytes, result.memory_budget_bytes)
         self.assertGreaterEqual(result.latency_p95_ms, result.latency_p50_ms)
         self.assertTrue(result.meets_targets)
 

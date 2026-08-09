@@ -41,9 +41,23 @@ class CognitiveVectorStoreTest(unittest.TestCase):
                 content_hash="abc",
             )
         )
+        self.session.add_all(
+            [
+                SettingRecord(key="ai_provider", value="local"),
+                SettingRecord(key="kb_embedding_provider", value="local"),
+                SettingRecord(key="kb_embedding_model", value="fixture-embedding"),
+                SettingRecord(key="ollama_base_url", value="http://ollama.test"),
+            ]
+        )
         self.session.commit()
+        self.embedding_patch = patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        )
+        self.embedding_patch.start()
 
     def tearDown(self) -> None:
+        self.embedding_patch.stop()
         self.session.close()
 
     def set_setting(self, key: str, value: str) -> None:

@@ -25,7 +25,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         for name, value in self._originals.items():
             setattr(worker_main, name, value)
 
-    async def test_extract_concepts_falls_back_when_ai_returns_error(self) -> None:
+    async def test_extract_concepts_fails_when_ai_returns_error(self) -> None:
         calls = []
 
         async def fake_fetch_note(client, api_url, note_path):
@@ -62,17 +62,15 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         worker_main.upsert_metadata = fake_upsert_metadata
         worker_main.complete_job = fake_complete_job
 
-        await worker_main.process_extract_concepts(
-            None,
-            WorkerSettings(),
-            {"id": 10},
-            {"note_path": "inbox/a.md", "content_hash": "abc"},
-        )
+        with self.assertRaises(CloudError):
+            await worker_main.process_extract_concepts(
+                None,
+                WorkerSettings(),
+                {"id": 10},
+                {"note_path": "inbox/a.md", "content_hash": "abc"},
+            )
 
-        self.assertEqual(calls[0][0], "upsert")
-        self.assertEqual(calls[0][1], "concepts")
-        self.assertEqual(calls[0][2]["source"], "deterministic_fallback")
-        self.assertEqual(calls[-1], ("complete", 10))
+        self.assertEqual(calls, [])
 
     async def test_attachment_job_forwards_selected_extractor(self) -> None:
         calls = []
@@ -154,37 +152,17 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertFalse(generated)
 
-    async def test_graph_insight_provider_failure_uses_tracked_fallback(self) -> None:
-        calls = []
-
-        async def fake_complete_job(client, api_url, job_id):
-            calls.append(("complete", job_id))
-
-        class FakeResponse:
-            def raise_for_status(self):
-                return None
-
-        class FakeClient:
-            async def post(self, url, **kwargs):
-                calls.append((url, kwargs.get("json")))
-                return FakeResponse()
-
-        worker_main.complete_job = fake_complete_job
-        await worker_main.complete_graph_insights_with_deterministic_fallback(
-            FakeClient(),
-            WorkerSettings(),
-            {"id": 33},
-            OllamaError("provider unavailable"),
+    async def test_graph_insight_deterministic_provider_fallback_is_removed(
+        self,
+    ) -> None:
+        self.assertFalse(
+            hasattr(
+                worker_main,
+                "complete_graph_insights_with_deterministic_fallback",
+            )
         )
 
-        self.assertTrue(calls[0][0].endswith("/api/v1/graph/expand"))
-        self.assertEqual(
-            calls[1][1]["after_state"]["status"],
-            "completed_with_degradation",
-        )
-        self.assertEqual(calls[-1], ("complete", 33))
-
-    async def test_generate_embedding_completes_with_skipped_status_when_providers_fail(
+    async def test_generate_embedding_fails_when_provider_fails(
         self,
     ) -> None:
         calls = []
@@ -236,19 +214,19 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             "cloud_api_url": "https://example.test/v1",
             "cloud_api_key": "secret",
             "cloud_model": "test-model",
+            "kb_embedding_provider": "cloud",
+            "embedding_model": "embed-model",
         }
 
-        await worker_main.process_generate_embedding(
-            FakeClient(),
-            WorkerSettings(),
-            {"id": 11},
-            {"note_path": "inbox/b.md", "content_hash": "def"},
-        )
+        with self.assertRaises(CloudError):
+            await worker_main.process_generate_embedding(
+                FakeClient(),
+                WorkerSettings(),
+                {"id": 11},
+                {"note_path": "inbox/b.md", "content_hash": "def"},
+            )
 
-        self.assertEqual(calls[0][0], "upsert")
-        self.assertEqual(calls[0][1], "embedding_status")
-        self.assertEqual(calls[0][2]["status"], "skipped")
-        self.assertEqual(calls[-1], ("complete", 11))
+        self.assertEqual(calls, [])
 
     async def test_generate_embedding_posts_one_embedding_per_chunk(self) -> None:
         calls = []
@@ -301,7 +279,12 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         worker_main.check_health = fake_check_health
         worker_main.upsert_metadata = fake_upsert_metadata
         worker_main.complete_job = fake_complete_job
-        worker_main._ai_config = {"provider": "local"}
+        worker_main._ai_config = {
+            "provider": "local",
+            "kb_embedding_provider": "local",
+            "embedding_model": "embed-model",
+            "ollama_base_url": "http://ollama.test",
+        }
 
         await worker_main.process_generate_embedding(
             FakeClient(),

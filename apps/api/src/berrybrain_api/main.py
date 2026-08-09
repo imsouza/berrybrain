@@ -15,9 +15,12 @@ from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import serialize_datetime
 from berrybrain_api.models import JobRecord, NoteRecord
 from berrybrain_api.routers import (
+    ai_configuration,
+    ask,
     auth,
     automation,
     backup,
+    bootstrap,
     cognitive,
     concepts,
     connections,
@@ -181,6 +184,9 @@ async def security_headers_middleware(request: Request, call_next):
 
 app.include_router(notes.router)
 app.include_router(auth.router)
+app.include_router(ai_configuration.router)
+app.include_router(ask.router)
+app.include_router(bootstrap.router)
 app.include_router(jobs.router)
 app.include_router(maintenance.router)
 app.include_router(insights.router)

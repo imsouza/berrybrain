@@ -1182,6 +1182,12 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         "provider": getattr(node, "provider", ""),
         "model": getattr(node, "model", ""),
         "promptVersion": getattr(node, "prompt_version", ""),
+        "semanticState": getattr(node, "semantic_state", "pending"),
+        "semanticProfileVersion": getattr(node, "semantic_profile_version", 0),
+        "clusterId": getattr(node, "cluster_id", None),
+        "colorId": getattr(node, "color_id", "pending"),
+        "colorConfidence": getattr(node, "color_confidence", 0.0),
+        "colorReason": getattr(node, "color_reason", ""),
         "generatedAt": node.generated_at.isoformat()
         if getattr(node, "generated_at", None)
         else None,

@@ -132,14 +132,39 @@ async def fail_job(
     api_url: str,
     job_id: int,
     error_message: str,
+    *,
+    stage: str = "",
+    error_class: str = "job_execution_error",
+    error_code: str = "job_failed",
+    retryability: str = "",
 ) -> None:
     response = await client.post(
         f"{api_url}/api/v1/jobs/{job_id}/fail",
-        json={"error_message": error_message},
+        json={
+            "error_message": error_message,
+            "stage": stage,
+            "error_class": error_class,
+            "error_code": error_code,
+            "retryability": retryability,
+        },
         headers=_claim_headers(job_id),
     )
     response.raise_for_status()
     _claim_tokens.pop(job_id, None)
+
+
+async def update_job_attempt(
+    client: httpx.AsyncClient,
+    api_url: str,
+    job_id: int,
+    **fields: str,
+) -> None:
+    response = await client.patch(
+        f"{api_url}/api/v1/jobs/{job_id}/attempt",
+        json={key: value for key, value in fields.items() if value},
+        headers=_claim_headers(job_id),
+    )
+    response.raise_for_status()
 
 
 async def send_heartbeat(

@@ -1,22 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-context";
 import { WorkspaceSidebar } from "@/components/sidebar/workspace-sidebar";
 import { ResizeHandle } from "@/components/sidebar/resize-handle";
-import { CommandPalette } from "@/components/command-palette";
-import { ObservabilityPanel } from "@/components/observability-panel";
-import { NotificationsPopover } from "@/components/notifications-popover";
-import { SettingsPanel } from "@/components/settings-panel";
-import { OnboardingModal } from "@/components/onboarding-modal";
-import { GuidePanel } from "@/components/guide-panel";
-import { GraphScreen } from "@/components/graph-screen";
+import { RequiredAiSetup } from "@/components/required-ai-setup";
+
+const CommandPalette = dynamic(() => import("@/components/command-palette").then((module) => module.CommandPalette));
+const ObservabilityPanel = dynamic(() => import("@/components/observability-panel").then((module) => module.ObservabilityPanel));
+const NotificationsPopover = dynamic(() => import("@/components/notifications-popover").then((module) => module.NotificationsPopover));
+const SettingsPanel = dynamic(() => import("@/components/settings-panel").then((module) => module.SettingsPanel));
+const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((module) => module.OnboardingModal));
+const GuidePanel = dynamic(() => import("@/components/guide-panel").then((module) => module.GuidePanel));
+const GraphScreen = dynamic(
+  () => import("@/components/graph-screen").then((module) => module.GraphScreen),
+  {
+    ssr: false,
+    loading: () => <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted">Loading graph...</div>,
+  },
+);
 
 function Shell({ children }: { children: React.ReactNode }) {
   const w = useWorkspace();
   const prevActive = useRef(w.active);
   const [authState, setAuthState] = useState<"checking" | "allowed">("checking");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   // ponytail: basePath-aware return-to-login link (strip basePath so safeNext can re-apply it)
   const loginHref = () =>
     `${appPath("/login")}?next=${encodeURIComponent(window.location.pathname.replace(new RegExp("^" + (process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL || "")), "") || "/")}`;
@@ -55,12 +65,17 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background text-foreground">
-      <CommandPalette open={w.cmdOpen} onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />
-      <ObservabilityPanel open={w.monitorOpen} apiUrl={w.api} onClose={() => w.setMonitorOpen(false)} />
-      <NotificationsPopover open={w.notificationsOpen} onClose={() => w.setNotificationsOpen(false)} apiUrl={w.api} />
-      <SettingsPanel open={w.settingsOpen} onClose={() => w.setSettingsOpen(false)} apiUrl={w.api} />
-      <GuidePanel open={w.guideOpen} onClose={() => w.setGuideOpen(false)} />
-      <OnboardingModal />
+      {w.cmdOpen && <CommandPalette open onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />}
+      {w.monitorOpen && <ObservabilityPanel open apiUrl={w.api} onClose={() => w.setMonitorOpen(false)} />}
+      {w.notificationsOpen && <NotificationsPopover open onClose={() => w.setNotificationsOpen(false)} apiUrl={w.api} />}
+      {w.settingsOpen && <SettingsPanel open onClose={() => w.setSettingsOpen(false)} apiUrl={w.api} />}
+      {w.guideOpen && <GuidePanel
+        open={w.guideOpen}
+        onClose={() => w.setGuideOpen(false)}
+        onViewTour={() => setTourOpen(true)}
+      />}
+      <OnboardingModal open={tourOpen} onOpenChange={setTourOpen} />
+      <RequiredAiSetup />
 
       <WorkspaceSidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
       <ResizeHandle />

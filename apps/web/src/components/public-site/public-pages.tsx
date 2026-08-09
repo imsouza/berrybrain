@@ -5,12 +5,13 @@ import berrylogo from "../../../public/berrylogo.png";
 import berryPrint from "../../../public/berrybrain-print1.png";
 import berryPrint2 from "../../../public/berrybrain-print2.jpeg";
 import berryPrint3 from "../../../public/berrybrain-print3.png";
+import packageMetadata from "../../../package.json";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { readCsrf } from "@/components/public-site/user-menu";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
 
 const GITHUB_URL = "https://github.com/imsouza/berrybrain";
-const APP_VERSION = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || "local";
+const APP_VERSION = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || packageMetadata.version;
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_BERRYBRAIN_SUPPORT_EMAIL || "support email not configured";
 const supportText = (prefix: string) => `${prefix} ${SUPPORT_EMAIL}.`;
 
@@ -434,7 +435,7 @@ function LandingContent() {
     { title: "One command, full stack", body: "Docker starts the web app, authenticated API, and cognitive worker on infrastructure you control.", icon: DockerIcon },
     { title: "Attachments become evidence", body: "PDFs, images, audio, and video become searchable chunks with page or timestamp provenance.", icon: DocsIcon },
     { title: "Autopilot you can inspect", body: "Leases, retries, recovery, and idempotency keep background processing resilient and visible in Monitor.", icon: GraphIcon },
-    { title: "A release you can verify", body: "API, worker, web, browser E2E, benchmark, calibration, security, and architecture gates back the v1.2.0 release candidate.", icon: GithubIcon },
+    { title: "A release you can verify", body: "API, worker, sidecar, browser E2E, scale benchmarks, security audits, container scans, and architecture gates back each release.", icon: GithubIcon },
   ];
   const pipeline = [
     ["Capture", "Write a note or attach a source. The original remains available in your vault."],
@@ -449,7 +450,9 @@ function LandingContent() {
     ["Cognitive sources", "PDFs, documents, images, audio, and video become searchable evidence with page or timestamp provenance."],
     ["Recoverable jobs", "Leases, heartbeats, idempotency, retries, dead-letter handling, and stale-job recovery protect the pipeline."],
     ["Provider setup", "Cloud presets fill provider URLs automatically, model lists are normalized, and keys stay masked and encrypted at rest."],
-    ["Release gates", "The validated scope closes API, worker, web, E2E, benchmark, judge calibration, security, and architecture checks."],
+    ["Semantic graph", "Stable topic colors, distinct vault namespaces, progressive loading, canvas LOD, and explainable node details keep large graphs usable."],
+    ["Ask and research", "Grounded multi-turn Flow and global Check Online runs retain evidence, cancellation, and provider provenance."],
+    ["Release gates", "The validated scope closes API, worker, sidecar, web, E2E, benchmark, security, container, and architecture checks."],
   ];
   const comparisonColumns = [
     { label: "BerryBrain", note: "Source-available cognitive layer" },
@@ -520,7 +523,7 @@ function LandingContent() {
               {[
                 ["Release", `v${APP_VERSION}`],
                 ["Gates", "Validated"],
-                ["Tests", "273 pass"],
+                ["Quality", "Full matrix"],
                 ["Models", "Local/cloud"],
               ].map(([label, value]) => (
                 <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
@@ -643,7 +646,7 @@ function LandingContent() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <DiagramBox title="Knowledge Base" body="Chunks, metadata, retrieval" />
                 <DiagramBox title="Knowledge Graph" body="Nodes, edges, evidence" />
-                <DiagramBox title="Semantic Layer" body="Jobs, stats, diagnostics" />
+                <DiagramBox title="Semantic Layer" body="Clusters, Flow, Judge, HippoRAG" />
               </div>
               <DiagramArrow />
               <DiagramBox title="BerryBrain UI" body="Home, graph, insights, monitor" />
@@ -659,7 +662,7 @@ function LandingContent() {
               {[
                 ["Next.js web", "Public project pages and the self-hosted workspace UI."],
                 ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
-                ["Worker pipeline", "Recoverable parsing, attachment extraction, embeddings, graph expansion, and insights."],
+                ["Worker pipeline", "Recoverable parsing, enrichment, embeddings, graph expansion, Judge calls, and HippoRAG synchronization."],
                 ["Owner security", "One-time setup, configurable login alias, strong password, CSRF, rate limits, and lockout."],
               ].map(([title, body]) => (
                 <div key={title} className="border-t border-border pt-4">
@@ -733,7 +736,7 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in BerryBrain v1.2.0 and is covered by the current release-candidate validation. “Conditional” means availability depends on plan, configuration, or workflow.
+          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in the displayed BerryBrain version and is covered by its release validation. “Conditional” means availability depends on plan, configuration, or workflow.
         </p>
       </section>
 

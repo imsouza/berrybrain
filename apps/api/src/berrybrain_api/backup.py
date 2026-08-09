@@ -214,6 +214,8 @@ def create_backup() -> dict[str, object]:
         ):
             row = session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
             meta["tables"][table] = row
+        meta["note_count"] = int(meta["tables"].get("notes", 0) or 0)
+        meta["job_count"] = int(meta["tables"].get("jobs", 0) or 0)
         for setting in session.execute(select(SettingRecord)).scalars():
             if _is_sensitive_setting(setting.key):
                 meta["omittedSensitiveSettings"].append(setting.key)
