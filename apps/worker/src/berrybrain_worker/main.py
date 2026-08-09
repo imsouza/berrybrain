@@ -305,9 +305,10 @@ async def process_job(
         raise ValueError(
             "GENERATE_FLASHCARDS is disabled; flashcards/review removed from product"
         )
-    if job_type == "JUDGE_ARTIFACT" and str(
-        _ai_config.get("judge_enabled", "true")
-    ).lower() != "true":
+    if (
+        job_type == "JUDGE_ARTIFACT"
+        and str(_ai_config.get("judge_enabled", "true")).lower() != "true"
+    ):
         await complete_job(client, settings.api_url, int(job["id"]))
         return
     if job_type in AI_REQUIRED_JOB_TYPES and not _ai_config.get(
