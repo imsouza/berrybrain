@@ -13,6 +13,11 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from berrybrain_api.ai_configuration import (
+    PROVIDERS,
+    configuration_gate,
+    load_configuration,
+)
 from berrybrain_api.config import get_settings as get_app_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import (
@@ -296,23 +301,83 @@ def get_ai_config(request: Request) -> dict:
             ).scalar_one_or_none()
             return decode_setting_value(setting_key, row.value) if row else ""
 
-        api_url = _get("ai_api_url") or _get("ai_custom_url")
+        configuration = load_configuration(session)
+        gate = configuration_gate(session)
+        endpoint = ""
+        legacy_mode = _get("ai_provider")
+        if configuration is not None:
+            provider = PROVIDERS[configuration.main.provider_id]
+            endpoint = configuration.endpoint_url or str(provider["url"])
+        elif legacy_mode == "cloud":
+            endpoint = _get("ai_api_url") or _get("ai_custom_url")
+        elif legacy_mode == "local":
+            endpoint = _get("ollama_base_url")
         return {
-            "provider": _get("ai_provider") or "local",
-            "cloud_api_url": api_url,
-            "cloud_api_key": "" if hide_secrets else _get("ai_api_key"),
-            "cloud_model": _get("ai_model"),
-            "ollama_base_url": _get("ollama_base_url"),
-            "ollama_model": _get("ollama_model") or _get("graph_ollama_model"),
-            "embedding_model": _get("kb_embedding_model") or _get("embedding_model"),
-            "cloud_embedding_model": _get("kb_embedding_model")
-            or _get("cloud_embedding_model")
-            or _get("embedding_model"),
+            "configuration_valid": bool(gate["valid"]),
+            "configuration_fingerprint": (
+                configuration.configuration_fingerprint if configuration else ""
+            ),
+            "provider": configuration.mode if configuration else legacy_mode,
+            "cloud_api_url": (
+                endpoint
+                if (configuration and configuration.mode == "cloud")
+                or (configuration is None and legacy_mode == "cloud")
+                else ""
+            ),
+            "cloud_api_key": (
+                ""
+                if hide_secrets
+                or (configuration is not None and configuration.mode != "cloud")
+                or (configuration is None and legacy_mode != "cloud")
+                else _get("ai_api_key")
+            ),
+            "cloud_model": (
+                configuration.main.model_id
+                if configuration and configuration.mode == "cloud"
+                else _get("ai_model")
+                if configuration is None and legacy_mode == "cloud"
+                else ""
+            ),
+            "ollama_base_url": (
+                endpoint
+                if (configuration and configuration.mode == "local")
+                or (configuration is None and legacy_mode == "local")
+                else ""
+            ),
+            "ollama_model": (
+                configuration.main.model_id
+                if configuration and configuration.mode == "local"
+                else (_get("ollama_model") or _get("graph_ollama_model"))
+                if configuration is None and legacy_mode == "local"
+                else ""
+            ),
+            "embedding_model": (
+                configuration.embedding.model_id
+                if configuration
+                else _get("kb_embedding_model")
+            ),
+            "cloud_embedding_model": (
+                configuration.embedding.model_id
+                if configuration and configuration.mode == "cloud"
+                else ""
+            ),
             "kb_vector_store": _get("kb_vector_store") or "sqlite",
-            "kb_embedding_provider": _get("kb_embedding_provider")
-            or _get("ai_provider")
-            or "local",
-            "remote_content_consent": _get("remote_content_consent") or "false",
+            "kb_embedding_provider": (
+                configuration.mode if configuration else _get("kb_embedding_provider")
+            ),
+            "judge_provider": (
+                configuration.judge.provider_id if configuration else ""
+            ),
+            "judge_model": configuration.judge.model_id if configuration else "",
+            "hipporag_provider": (
+                configuration.hipporag.provider_id if configuration else ""
+            ),
+            "hipporag_model": (
+                configuration.hipporag.model_id if configuration else ""
+            ),
+            "remote_content_consent": (
+                "true" if configuration and configuration.mode == "cloud" else "false"
+            ),
         }
 
 

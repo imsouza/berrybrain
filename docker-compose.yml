@@ -14,7 +14,8 @@ services:
       BERRYBRAIN_CORS_ORIGINS: "${BERRYBRAIN_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
       BERRYBRAIN_ALLOWED_HOSTS: "${BERRYBRAIN_ALLOWED_HOSTS:-localhost,127.0.0.1,testserver},api"
       BERRYBRAIN_PUBLIC_APP_URL: "${BERRYBRAIN_PUBLIC_APP_URL:-http://localhost:3000}"
-      HIPPORAG_URL: "http://hipporag:8000"
+      BERRYBRAIN_HIPPORAG_URL: "http://hipporag:8000"
+      BERRYBRAIN_HIPPORAG_SERVICE_TOKEN: "${HIPPORAG_SERVICE_TOKEN:-}"
     env_file:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     ports:
@@ -71,7 +72,7 @@ services:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     environment:
       BERRYBRAIN_API_URL: http://api:8000
-      BERRYBRAIN_PROMPT_DIR: "${BERRYBRAIN_PROMPT_DIR:-}"
+      BERRYBRAIN_PROMPT_DIR: "${BERRYBRAIN_PROMPT_DIR:-/app/prompts}"
       HIPPORAG_URL: "http://hipporag:8000"
       PYTHONDONTWRITEBYTECODE: "1"
     extra_hosts:

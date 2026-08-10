@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
-import { getLang, t, tf } from "@/i18n";
+import { t, tf } from "@/i18n";
 
 type InsightItem = {
   id: number;
@@ -49,10 +49,10 @@ const TYPE_LABELS: Record<string, string> = {
 
 const FILTERS = [
   { key: "all", label: "filterAll" },
-  { key: "knowledge_gap", label: "filterLacunas" },
+  { key: "knowledge_gap", label: "filterGaps" },
   { key: "new_connection", label: "filterConexoes" },
-  { key: "review_opportunity", label: "filterRevisao" },
-  { key: "context", label: "filterContexto" },
+  { key: "review_opportunity", label: "filterReview" },
+  { key: "context", label: "filterContext" },
   { key: "high", label: "filterAltaPrioridade" },
   { key: "accepted", label: "filterAplicados" },
   { key: "ignored", label: "filterIgnorados" },
@@ -390,7 +390,7 @@ function InsightCard({
         {insight.model && <span>· {insight.model}</span>}
         {insight.promptVersion && <span>· {insight.promptVersion}</span>}
         {insight.createdAt && (
-          <span className="ml-auto">{new Date(insight.createdAt).toLocaleString(getLang() === "en" ? "en-US" : "pt-BR")}</span>
+          <span className="ml-auto">{new Date(insight.createdAt).toLocaleString("en-US")}</span>
         )}
       </div>
 

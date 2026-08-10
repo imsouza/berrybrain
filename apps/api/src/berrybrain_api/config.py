@@ -65,6 +65,8 @@ class Settings(BaseSettings):
         "/opt/berrybrain/models/faster-whisper-tiny.en"
     )
     attachment_extractor_timeout_seconds: int = 300
+    flow_context_token_budget: int = 8192
+    flow_recent_turns: int = 6
 
     smtp_host: str = Field(default="", validation_alias="SMTP_HOST")
     smtp_port: int = Field(default=587, validation_alias="SMTP_PORT")

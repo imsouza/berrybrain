@@ -331,6 +331,17 @@ class SettingsStoreTest(unittest.TestCase):
         self.assertIsNone(settings_router._safe_int("invalid"))
         self.assertIsNone(settings_router._safe_int(""))
         self.assertEqual(settings_router._safe_int("42"), 42)
+        self.assertEqual(settings_router._provider_model_id("  model-a  "), "model-a")
+        self.assertEqual(settings_router._provider_model_id(None), "")
+        self.assertEqual(
+            settings_router._provider_model_id({"id": "model-b"}), "model-b"
+        )
+        self.assertEqual(
+            settings_router._provider_model_id({"name": "model-c"}), "model-c"
+        )
+        self.assertEqual(
+            settings_router._provider_model_id({"model": "model-d"}), "model-d"
+        )
 
     def test_model_test_rejects_incomplete_invalid_and_unavailable_config(self) -> None:
         incomplete = settings_router.get_ai_models(settings_router.AiModelsRequest())

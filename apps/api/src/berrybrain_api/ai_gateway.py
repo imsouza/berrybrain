@@ -15,6 +15,7 @@ from typing import Any, ParamSpec, TypeVar
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.ai_configuration import load_configuration
 from berrybrain_api.model_invocation_service import (
     finish_model_invocation,
     start_model_invocation,
@@ -31,7 +32,11 @@ from berrybrain_api.settings_store import settings_values
 
 
 class GraphAIUnavailable(Exception):
-    pass
+    def __init__(
+        self, message: str, *, retry_after_seconds: float | None = None
+    ) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 UNTRUSTED_CONTENT_POLICY = (
@@ -55,9 +60,38 @@ _R = TypeVar("_R")
 def get_ai_config(session: Session) -> dict[str, str]:
     rows = session.execute(select(SettingRecord)).scalars()
     values = settings_values(list(rows))
+    configuration = load_configuration(session)
+    if configuration is not None:
+        endpoint = configuration.endpoint_url
+        return {
+            "provider": configuration.mode,
+            "cloud_api_url": endpoint if configuration.mode == "cloud" else "",
+            "cloud_api_key": values.get("graph_ai_api_key")
+            or values.get("ai_api_key", ""),
+            "cloud_model": (
+                configuration.main.model_id if configuration.mode == "cloud" else ""
+            ),
+            "embedding_provider": configuration.mode,
+            "embedding_model": configuration.embedding.model_id,
+            "judge_provider": configuration.mode,
+            "judge_model": configuration.judge.model_id,
+            "hipporag_provider": configuration.mode,
+            "hipporag_model": configuration.hipporag.model_id,
+            "ollama_base_url": endpoint if configuration.mode == "local" else "",
+            "ollama_model": (
+                configuration.main.model_id if configuration.mode == "local" else ""
+            ),
+            "auto_confirm_confidence": values.get(
+                "graph_auto_confirm_confidence", "0.9"
+            ),
+            "default_layout": values.get("graph_default_layout", "brain"),
+            "remote_content_consent": (
+                "true" if configuration.mode == "cloud" else "false"
+            ),
+            "configuration_fingerprint": configuration.configuration_fingerprint,
+        }
     return {
-        "provider": values.get("graph_ai_provider")
-        or values.get("ai_provider", "local"),
+        "provider": values.get("graph_ai_provider") or values.get("ai_provider", ""),
         "cloud_api_url": values.get("graph_ai_api_url")
         or values.get("ai_api_url")
         or values.get("ai_custom_url")
@@ -65,7 +99,7 @@ def get_ai_config(session: Session) -> dict[str, str]:
         "cloud_api_key": values.get("graph_ai_api_key") or values.get("ai_api_key", ""),
         "cloud_model": values.get("graph_ai_model") or values.get("ai_model", ""),
         "embedding_provider": values.get("kb_embedding_provider")
-        or values.get("ai_provider", "local"),
+        or values.get("ai_provider", ""),
         "embedding_model": values.get("kb_embedding_model")
         or values.get("cloud_embedding_model")
         or values.get("embedding_model")
@@ -76,12 +110,12 @@ def get_ai_config(session: Session) -> dict[str, str]:
         "hipporag_model": values.get("hipporag_model") or "",
         "ollama_base_url": values.get("ollama_base_url")
         or os.environ.get("BERRYBRAIN_OLLAMA_BASE_URL")
-        or "http://localhost:11434",
+        or "",
         "ollama_model": values.get("graph_ollama_model")
         or values.get("ollama_model")
         or values.get("ai_model")
         or os.environ.get("BERRYBRAIN_OLLAMA_MODEL")
-        or "qwen3:8b",
+        or "",
         "auto_confirm_confidence": values.get("graph_auto_confirm_confidence", "0.9"),
         "default_layout": values.get("graph_default_layout", "brain"),
         "remote_content_consent": values.get("remote_content_consent", "false"),
@@ -348,11 +382,13 @@ def _assert_circuit_available(circuit_key: str) -> None:
         failures, opened_at = _circuit_states.get(circuit_key, (0, 0.0))
         if failures < _CIRCUIT_FAILURE_THRESHOLD:
             return
-        if time.monotonic() - opened_at >= _CIRCUIT_COOLDOWN_SECONDS:
+        elapsed = time.monotonic() - opened_at
+        if elapsed >= _CIRCUIT_COOLDOWN_SECONDS:
             _circuit_states[circuit_key] = (0, 0.0)
             return
     raise GraphAIUnavailable(
-        "The configured AI provider is temporarily paused after repeated failures."
+        "The configured AI provider is temporarily paused after repeated failures.",
+        retry_after_seconds=max(1.0, _CIRCUIT_COOLDOWN_SECONDS - elapsed),
     )
 
 
@@ -407,7 +443,7 @@ def _route(
     embedding: bool = False,
 ) -> RoutingDecision:
     provider_key = "embedding_provider" if embedding else "provider"
-    preferred = config.get(provider_key) or config.get("provider") or "local"
+    preferred = config.get(provider_key) or config.get("provider") or ""
     cloud_model = (
         config.get("embedding_model") or config.get("cloud_model") or ""
         if embedding
@@ -603,8 +639,16 @@ def _cloud_json(
                 "Cloud provider authentication failed. Replace the API key in Settings."
             ) from error
         if error.code == 429:
+            raw_retry_after = (
+                error.headers.get("Retry-After") if error.headers else None
+            )
+            try:
+                retry_after = float(raw_retry_after) if raw_retry_after else 60.0
+            except ValueError:
+                retry_after = 60.0
             raise GraphAIUnavailable(
-                "The AI provider rate limit was reached. Try again shortly."
+                "The AI provider rate limit was reached. Try again shortly.",
+                retry_after_seconds=max(1.0, min(300.0, retry_after)),
             ) from error
         raise GraphAIUnavailable(
             f"The AI provider returned HTTP {error.code}."
@@ -646,7 +690,7 @@ def _ollama_json(
 
 
 async def _to_thread(func, *args):
-    return func(*args)
+    return await asyncio.to_thread(func, *args)
 
 
 def _loads_json_object(raw: str) -> dict[str, Any]:

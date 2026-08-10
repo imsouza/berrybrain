@@ -21,6 +21,27 @@ def retry_delay_seconds(retry: int) -> float:
     return base + random.uniform(0.1, 1.0)
 
 
+def retry_delay_for_error(retry: int, exc: Exception) -> float:
+    delay = retry_delay_seconds(retry)
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return delay
+    raw_retry_after = exc.response.headers.get("Retry-After", "")
+    try:
+        retry_after = float(raw_retry_after)
+    except (TypeError, ValueError):
+        return delay
+    return max(delay, min(300.0, max(0.0, retry_after)))
+
+
+def concurrent_job_limit(settings: WorkerSettings, provider: str) -> int:
+    configured = (
+        settings.cloud_max_concurrent_jobs
+        if provider == "cloud"
+        else settings.max_concurrent_jobs
+    )
+    return max(1, min(16, configured))
+
+
 def is_permanent_job_error(exc: Exception) -> bool:
     if isinstance(
         exc, asyncio.TimeoutError | httpx.TimeoutException | httpx.ConnectError

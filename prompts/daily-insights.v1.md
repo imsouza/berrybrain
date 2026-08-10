@@ -1,14 +1,14 @@
 # BerryBrain Daily Insights v1
 
-Gere insights diarios sobre o vault do usuario.
+Generate daily insights about the user's vault.
 
-Procure:
+Look for:
 
-- lacunas de conhecimento;
-- notas fracas;
-- conceitos isolados;
-- duplicidades;
-- trilhas de estudo sugeridas;
-- oportunidades de revisao.
+- knowledge gaps;
+- weak notes;
+- isolated concepts;
+- duplicates;
+- suggested study paths;
+- review opportunities.
 
-Seja especifico e util. Nao produza motivacao generica.
+Be specific and useful. Do not produce generic encouragement.

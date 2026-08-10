@@ -1,14 +1,14 @@
 # BerryBrain Flashcards v1
 
-Gere flashcards de estudo ativo a partir da nota.
+Generate active-recall flashcards from the note.
 
 Regras:
 
-- perguntas claras;
-- respostas curtas, mas completas;
-- evitar perguntas triviais;
+- clear questions;
+- short but complete answers;
+- no trivial questions;
 - preservar termos tecnicos em ingles quando fizer sentido;
-- priorizar conceitos, relacoes e aplicacoes.
+- prioritize concepts, relationships, and applications.
 
 Formato esperado:
 
@@ -16,13 +16,13 @@ Formato esperado:
 {
   "flashcards": [
     {
-      "question": "Pergunta",
-      "answer": "Resposta",
+      "question": "Question in English",
+      "answer": "Answer in English",
       "difficulty": "medium",
-      "topic": "Tópico ou conceito principal"
+      "topic": "Primary topic or concept in English"
     }
   ]
 }
 
-O campo "topic" deve ser o nome do conceito, área ou categoria do flashcard (ex: "K-Means", "Regressão Linear", "Python Decorators"). Agrupe flashcards por tópico quando possível.
+The `topic` field must be the concept, subject area, or category name in English (for example, "K-Means", "Linear Regression", or "Python Decorators"). Group flashcards by topic when possible.
 ```

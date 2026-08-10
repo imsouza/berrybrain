@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { t } from "@/i18n";
 
 type CommandResult = {
@@ -45,8 +45,20 @@ export function CommandPalette({
     if (open) {
       setQuery("");
       setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 50);
     }
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const focusSearch = () => inputRef.current?.focus({ preventScroll: true });
+    focusSearch();
+    const frame = requestAnimationFrame(focusSearch);
+    // Covers late workspace mounts (editor/quick capture use autofocus too).
+    const settleTimer = window.setTimeout(focusSearch, 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+    };
   }, [open]);
 
   useEffect(() => {

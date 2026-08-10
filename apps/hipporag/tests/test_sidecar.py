@@ -24,6 +24,7 @@ except ImportError:
 
 def _client(tmp_path: Path, monkeypatch=None):
     import importlib
+
     import main
 
     if monkeypatch is not None:
@@ -170,7 +171,6 @@ def test_multihop_finds_neighbors_through_bfs(client):
 
 if __name__ == "__main__":
     # direct runner: pyfile-style invocation, no pytest fixture
-    import os
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

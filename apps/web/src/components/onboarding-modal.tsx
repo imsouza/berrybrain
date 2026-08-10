@@ -1,18 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getApiUrl } from "@/contexts/workspace-context";
-import {
-  CLOUD_PROVIDER_PRESETS,
-  normalizeModelIds,
-  providerIdForUrl,
-  providerLabelForUrl,
-} from "@/lib/cloud-providers";
-
-const NVIDIA_NIM_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_CLOUD_API_URL || "";
-const RECOMMENDED_MODEL = process.env.NEXT_PUBLIC_BERRYBRAIN_RECOMMENDED_MODEL || "";
-const DEFAULT_OLLAMA_BASE_URL = process.env.NEXT_PUBLIC_BERRYBRAIN_OLLAMA_BASE_URL || "";
-const DEFAULT_LOCAL_MODEL = process.env.NEXT_PUBLIC_BERRYBRAIN_LOCAL_MODEL || "";
 
 type MeResponse = {
   user?: { email?: string; displayName?: string };
@@ -25,7 +14,7 @@ type TourStep = {
   bullets: string[];
 };
 
-const baseSteps: TourStep[] = [
+const STEPS: TourStep[] = [
   {
     eyebrow: "Start",
     title: "Capture first, organize later.",
@@ -58,436 +47,131 @@ const baseSteps: TourStep[] = [
   },
 ];
 
-export function OnboardingModal({ demo = false }: { demo?: boolean }) {
-  const [show, setShow] = useState(false);
+export function OnboardingModal({
+  demo = false,
+  open,
+  onOpenChange,
+}: {
+  demo?: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [step, setStep] = useState(0);
-  const [phase, setPhase] = useState<"tour" | "ai">("tour");
-  const [mode, setMode] = useState<"local" | "cloud">("local");
-  const [modeSelected, setModeSelected] = useState(false);
-  const [help, setHelp] = useState<"local" | "cloud" | null>(null);
-  const [apiUrl, setApiUrl] = useState(NVIDIA_NIM_URL);
-  const [cloudProviderId, setCloudProviderId] = useState(() => providerIdForUrl(NVIDIA_NIM_URL));
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
-  const [localUrl, setLocalUrl] = useState(DEFAULT_OLLAMA_BASE_URL);
-  const [localModel, setLocalModel] = useState(DEFAULT_LOCAL_MODEL);
-  const [models, setModels] = useState<string[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelsError, setModelsError] = useState("");
-  const [modelsStatus, setModelsStatus] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    let alive = true;
+    let active = true;
 
-    function openTour() {
-      fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then(() => {
-          if (!alive) return;
-          setStep(0);
-          setPhase("tour");
-          setShow(true);
-        })
-        .catch(() => {
-          if (alive) setShow(true);
-        });
-    }
+    const openTour = () => {
+      setStep(0);
+      onOpenChange(true);
+    };
+    window.addEventListener("bb:open-tour", openTour);
 
-    // Legacy demo path can still open the guided flow, but the public demo route redirects.
     if (demo) {
-      const tourSeen = localStorage.getItem("bb_tour_seen") === "1";
-      const startDemo = () => {
-        if (!alive) return;
-        if (tourSeen) {
-          setPhase("ai");
-        } else {
-          localStorage.setItem("bb_tour_seen", "1");
-          setPhase("tour");
-        }
-        setShow(true);
-      };
-      fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
-        .then(() => startDemo())
-        .catch(() => startDemo());
+      if (localStorage.getItem("bb_tour_seen") !== "1") {
+        localStorage.setItem("bb_tour_seen", "1");
+        openTour();
+      }
     } else {
       fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : null))
+        .then((response) => (response.ok ? response.json() : null))
         .then(async (me: MeResponse | null) => {
-          if (!alive || !me?.user) return;
+          if (!active || !me?.user) return;
           const response = await fetch(`${getApiUrl()}/api/v1/settings`, {
             credentials: "include",
           });
-          if (response.ok) {
-            const data = await response.json();
-            const completed = data?.settings?.some(
-              (setting: { key?: string; value?: string }) =>
-                setting.key === "onboarding_completed" && setting.value === "true",
-            );
-            if (completed) return;
-          }
-          setStep(0);
-          setPhase("tour");
-          setShow(true);
+          if (!active || !response.ok) return;
+          const payload = await response.json();
+          const completed = payload?.settings?.some(
+            (setting: { key?: string; value?: string }) => (
+              setting.key === "onboarding_completed"
+              && setting.value === "true"
+            ),
+          );
+          if (!completed) openTour();
         })
         .catch(() => {});
     }
-    window.addEventListener("bb:open-tour", openTour);
+
     return () => {
-      alive = false;
+      active = false;
       window.removeEventListener("bb:open-tour", openTour);
     };
-  }, [demo]);
+  }, [demo, onOpenChange]);
 
-  const steps = useMemo(() => baseSteps, []);
-  const isConfigStep = phase === "ai";
-  const aiConfigured =
-    modeSelected &&
-    (mode === "local"
-      ? Boolean(localUrl.trim()) && Boolean(localModel.trim())
-      : Boolean(apiUrl.trim()) && Boolean(apiKey.trim()) && Boolean(model.trim()));
-  const total = steps.length;
-  const progress = isConfigStep ? 100 : Math.round(((step + 1) / total) * 100);
-  const isLastTourStep = step === steps.length - 1;
-
-  async function loadModels() {
-    const url = apiUrl.trim() || NVIDIA_NIM_URL;
-    setLoadingModels(true);
-    setModelsError("");
-    setModelsStatus("");
-    try {
-      const r = await fetch(`${getApiUrl()}/api/v1/settings/ai/models`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, key: apiKey.trim() }),
-      });
-      const data = await r.json();
-      const loadedIds = normalizeModelIds(data?.models);
-      const ids = RECOMMENDED_MODEL && !loadedIds.includes(RECOMMENDED_MODEL)
-        ? [RECOMMENDED_MODEL, ...loadedIds]
-        : loadedIds;
-      setModels(ids);
-      if (ids.length === 1 && !model.trim()) setModel(ids[0]);
-      if (!r.ok) throw new Error(data.error || data.detail || "Provider connection failed");
-      if (data.requiresModel) {
-        setModelsStatus(ids.length ? "Models loaded. Select one, then finish setup." : "Provider responded, but no models were returned.");
-        return;
-      }
-      if (!data.connected) throw new Error(data.error || data.detail || "Provider connection failed");
-      setModelsStatus(ids.length ? "Models loaded. Select one, then finish setup." : "Connected, but no models were returned.");
-      if (!model.trim() && RECOMMENDED_MODEL) setModel(RECOMMENDED_MODEL);
-    } catch (err) {
-      setModelsError(err instanceof Error ? err.message : "Failed to load models");
-    } finally {
-      setLoadingModels(false);
-    }
+  function continueToAiSetup() {
+    onOpenChange(false);
+    window.dispatchEvent(new Event("bb:open-ai-setup"));
   }
 
-  function selectCloudProvider(providerId: string) {
-    setCloudProviderId(providerId);
-    setModels([]);
-    setModel("");
-    setModelsError("");
-    setModelsStatus("");
-    const provider = CLOUD_PROVIDER_PRESETS.find((item) => item.id === providerId);
-    if (provider) setApiUrl(provider.url);
-  }
-
-  async function finish(provider: "local" | "cloud" = mode) {
-    setSaving(true);
-    setSaveError("");
-    const url = apiUrl.trim() || NVIDIA_NIM_URL;
-    const values: Record<string, string> = {
-      ai_provider: provider,
-      graph_ai_provider: provider,
-      ai_api_url: provider === "cloud" ? url : "",
-      graph_ai_api_url: provider === "cloud" ? url : "",
-      ai_api_key: provider === "cloud" ? apiKey.trim() : "",
-      graph_ai_api_key: provider === "cloud" ? apiKey.trim() : "",
-      ai_model: provider === "cloud" ? model.trim() : "",
-      graph_ai_model: provider === "cloud" ? model.trim() : "",
-      ollama_base_url: provider === "local" ? localUrl.trim() : "",
-      ollama_model: provider === "local" ? localModel.trim() : "",
-      graph_ollama_model: provider === "local" ? localModel.trim() : "",
-      remote_content_consent: provider === "cloud" ? "true" : "false",
-      onboarding_completed: "true",
-    };
-    try {
-      const response = await fetch(`${getApiUrl()}/api/v1/settings/batch`, {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values }),
-      });
-      if (!response.ok) throw new Error("Settings could not be saved.");
-      localStorage.setItem("bb_ai_provider", provider);
-      localStorage.setItem("bb_graph_ai_provider", provider);
-      if (provider === "cloud") {
-        localStorage.setItem("bb_ai_api_url", url);
-        localStorage.setItem("bb_graph_ai_api_url", url);
-        localStorage.setItem("bb_ai_model", model.trim());
-        localStorage.setItem("bb_graph_ai_model", model.trim());
-      } else {
-        localStorage.setItem("bb_graph_ollama_model", localModel.trim());
-      }
-      localStorage.removeItem("bb_ai_api_key");
-      localStorage.removeItem("bb_graph_ai_api_key");
-      localStorage.removeItem("bb_onboarded");
-      setShow(false);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Settings could not be saved.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function skip() {
-    setPhase("ai");
-  }
-
-  if (!show) return null;
+  if (!open) return null;
+  const current = STEPS[step];
+  const isLast = step === STEPS.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="bb-card bb-card--elevated flex max-h-[88vh] w-full max-w-[92vw] flex-col overflow-hidden text-foreground sm:max-w-2xl">
-        <div className="border-b border-border px-6 py-4">
-          <div className="flex items-center justify-between gap-4">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
+      <section
+        className="flex max-h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-md border border-border bg-panel shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+      >
+        <header className="border-b border-border px-6 py-5">
+          <div className="flex items-start justify-between gap-5">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">
-                {isConfigStep ? "AI setup" : steps[step].eyebrow}
-              </p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight">
-                {isConfigStep ? "Choose how BerryBrain uses AI." : steps[step].title}
-              </h2>
+              <p className="text-xs font-semibold uppercase text-accent">{current.eyebrow}</p>
+              <h2 id="onboarding-title" className="mt-1 text-xl font-semibold">{current.title}</h2>
             </div>
-            {!isConfigStep && (
-              <button onClick={skip} className="rounded-md px-2 py-1 text-xs text-muted hover:bg-surface hover:text-foreground">
-                Skip
-              </button>
-            )}
+            <button type="button" className="bb-action px-3 py-1.5 text-sm" onClick={continueToAiSetup}>
+              Skip
+            </button>
           </div>
           <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface">
-            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${progress}%` }} />
+            <div
+              className="h-full bg-accent transition-[width]"
+              style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
+            />
           </div>
+        </header>
+
+        <div className="overflow-y-auto px-6 py-6">
+          <p className="max-w-xl text-sm leading-6 text-muted">{current.body}</p>
+          <ul className="mt-5 space-y-3">
+            {current.bullets.map((item) => (
+              <li key={item} className="flex gap-3 text-sm">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div className="overflow-y-auto px-6 py-5">
-          {!isConfigStep ? (
-            <div>
-              <p className="max-w-xl text-sm leading-6 text-muted">{steps[step].body}</p>
-              <div className="mt-5 grid gap-2">
-                {steps[step].bullets.map((bullet) => (
-                  <div key={bullet} className="flex gap-3 rounded-md border border-border bg-surface px-3 py-2 text-sm">
-                    <span className="mt-1 size-1.5 shrink-0 rounded-full bg-accent" />
-                    <span className="leading-6 text-muted">{bullet}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <p className="max-w-xl text-sm leading-6 text-muted">
-                Local mode keeps processing on your machine through Ollama. Cloud mode uses an OpenAI-compatible provider for graph enrichment and insights.
-              </p>
-              <div className="mt-5 grid grid-cols-2 gap-2">
-                <div className={`rounded-md border px-3 py-3 text-left text-sm ${mode === "local" ? "border-accent bg-surface" : "border-border"}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <button onClick={() => { setMode("local"); setModeSelected(true); }} className="block flex-1 text-left font-medium">
-                      Local
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="How local mode works"
-                      onClick={() => setHelp((h) => (h === "local" ? null : "local"))}
-                      className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-xs text-muted hover:text-foreground"
-                    >
-                      ?
-                    </button>
-                  </div>
-                  <span className="mt-1 block text-xs leading-5 text-muted">Use Ollama and keep provider calls off by default.</span>
-                  {help === "local" && (
-                    <ul className="mt-2 grid gap-1 border-t border-border pt-2 text-[11px] leading-5 text-muted">
-                      <li>1. Install Ollama and start it (ollama serve).</li>
-                      <li>2. Pull the local model configured for this instance.</li>
-                      <li>3. Nothing leaves your machine; no API key needed.</li>
-                    </ul>
-                  )}
-                </div>
-                <div className={`rounded-md border px-3 py-3 text-left text-sm ${mode === "cloud" ? "border-accent bg-surface" : "border-border"}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <button onClick={() => { setMode("cloud"); setModeSelected(true); }} className="block flex-1 text-left font-medium">
-                      Cloud API
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="How cloud mode works"
-                      onClick={() => setHelp((h) => (h === "cloud" ? null : "cloud"))}
-                      className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-xs text-muted hover:text-foreground"
-                    >
-                      ?
-                    </button>
-                  </div>
-                  <span className="mt-1 block text-xs leading-5 text-muted">Use NVIDIA NIM or another compatible provider.</span>
-                  {help === "cloud" && (
-                    <ul className="mt-2 grid gap-1 border-t border-border pt-2 text-[11px] leading-5 text-muted">
-                      <li>1. Get an API key from your provider (e.g. NVIDIA NIM).</li>
-                      <li>2. Paste the provider URL and key below.</li>
-                      <li>3. Click Load models and pick the recommended one.</li>
-                    </ul>
-                  )}
-                </div>
-              </div>
-
-              {mode === "local" && modeSelected && (
-                <div className="mt-4 grid gap-3">
-                  <label className="block text-xs text-muted">
-                    Ollama URL
-                    <input
-                      value={localUrl}
-                      onChange={(event) => setLocalUrl(event.target.value)}
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      placeholder="http://host.docker.internal:11434"
-                    />
-                  </label>
-                  <label className="block text-xs text-muted">
-                    Ollama model
-                    <input
-                      value={localModel}
-                      onChange={(event) => setLocalModel(event.target.value)}
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      placeholder="Select or enter an installed model"
-                    />
-                    <span className="mt-1 block text-[11px] text-muted">
-                      The model must already be available in your Ollama installation.
-                    </span>
-                  </label>
-                </div>
-              )}
-
-              {mode === "cloud" && (
-                <div className="mt-4 grid gap-3">
-                  <label className="block text-xs text-muted">
-                    Cloud provider
-                    <select
-                      value={cloudProviderId}
-                      onChange={(e) => selectCloudProvider(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                    >
-                      <option value="">Select a provider</option>
-                      {CLOUD_PROVIDER_PRESETS.map((provider) => (
-                        <option key={provider.id} value={provider.id}>{provider.label}</option>
-                      ))}
-                      <option value="custom">Custom OpenAI-compatible provider</option>
-                    </select>
-                  </label>
-                  <label className="block text-xs text-muted">
-                    {providerLabelForUrl(apiUrl)} URL
-                    <input
-                      value={apiUrl}
-                      onChange={(e) => {
-                        setApiUrl(e.target.value);
-                        setCloudProviderId(providerIdForUrl(e.target.value));
-                        setModels([]);
-                        setModel("");
-                        setModelsError("");
-                        setModelsStatus("");
-                      }}
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      placeholder="https://provider.example/v1"
-                    />
-                  </label>
-                  <label className="block text-xs text-muted">
-                    API key
-                    <input
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      type="password"
-                      className="mt-1 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      placeholder="Paste your provider key"
-                    />
-                  </label>
-                  <label className="block text-xs text-muted">
-                    Model
-                    <div className="mt-1 flex gap-2">
-                      <select
-                        value={model}
-                        onChange={(e) => setModel(e.target.value)}
-                        className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
-                      >
-                        <option value="">Select a model…</option>
-                        {models.map((m) => (
-                          <option key={m} value={m}>
-                            {m === RECOMMENDED_MODEL ? `${m} (recommended)` : m}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={loadModels}
-                        disabled={loadingModels}
-                        className="bb-action shrink-0 px-3 py-2 text-xs"
-                      >
-                        {loadingModels ? "Loading…" : "Load models"}
-                      </button>
-                    </div>
-                    {modelsError && <span className="mt-1 block text-xs text-red-400">{modelsError}</span>}
-                    {modelsStatus && <span className="mt-1 block text-[11px] text-muted">{modelsStatus}</span>}
-                    {RECOMMENDED_MODEL && (
-                      <span className="mt-1 block text-[11px] text-muted">Recommended: {RECOMMENDED_MODEL}</span>
-                    )}
-                  </label>
-                </div>
-              )}
-              {saveError && (
-                <p role="alert" className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-400">
-                  {saveError}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-border px-6 py-4">
-          <div className="text-xs text-muted">
-            {isConfigStep ? "AI setup" : `Step ${step + 1} of ${total}`}
-          </div>
+        <footer className="flex items-center justify-between border-t border-border px-6 py-4">
+          <span className="text-xs text-muted">Step {step + 1} of {STEPS.length}</span>
           <div className="flex gap-2">
             <button
-              disabled={!isConfigStep && step === 0}
-              onClick={() => {
-                if (isConfigStep) {
-                  setPhase("tour");
-                  setStep(steps.length - 1);
-                } else {
-                  setStep((current) => Math.max(0, current - 1));
-                }
-              }}
+              type="button"
+              disabled={step === 0}
               className="bb-action px-4 py-2 text-sm"
+              onClick={() => setStep((currentStep) => Math.max(0, currentStep - 1))}
             >
               Back
             </button>
-            {!isConfigStep ? (
-              <button
-                onClick={() => (isLastTourStep ? setPhase("ai") : setStep((current) => current + 1))}
-                className="bb-action px-4 py-2 text-sm font-medium"
-              >
-                {isLastTourStep ? "Set up AI" : "Continue"}
-              </button>
-            ) : (
-              <button
-                onClick={() => finish(mode)}
-                disabled={!aiConfigured || saving}
-                className="bb-action px-4 py-2 text-sm font-medium"
-              >
-                {saving ? "Saving…" : "Finish"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="bb-action px-4 py-2 text-sm font-medium"
+              onClick={() => (
+                isLast
+                  ? continueToAiSetup()
+                  : setStep((currentStep) => currentStep + 1)
+              )}
+            >
+              {isLast ? "Set up AI" : "Continue"}
+            </button>
           </div>
-        </div>
-      </div>
+        </footer>
+      </section>
     </div>
   );
 }

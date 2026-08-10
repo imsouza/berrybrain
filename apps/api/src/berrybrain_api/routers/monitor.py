@@ -37,6 +37,9 @@ class HeartbeatRequest(BaseModel):
 def monitor_stats() -> dict:
     with SessionLocal() as session:
         jobs = list_jobs(session, limit=200)
+        worker = session.execute(
+            select(WorkerStatus).order_by(WorkerStatus.id.desc()).limit(1)
+        ).scalar_one_or_none()
         completed = [j for j in jobs if j.status == "completed"]
         failed = [j for j in jobs if j.status == "failed"]
         pending = [j for j in jobs if j.status == "pending"]
@@ -68,6 +71,15 @@ def monitor_stats() -> dict:
                 bucket[item.status] += 1
         return {
             "schema": schema_diagnostic(engine),
+            "worker": {
+                "status": worker.status,
+                "last_heartbeat_at": serialize_datetime(worker.last_heartbeat),
+                "jobs_processed": worker.jobs_processed,
+                "errors": worker.errors,
+                "ollama_healthy": worker.ollama_healthy,
+            }
+            if worker
+            else None,
             "notes": session.query(NoteRecord).count(),
             "connections": session.query(ConnectionRecord).count(),
             "insights": session.query(InsightRecord).count(),

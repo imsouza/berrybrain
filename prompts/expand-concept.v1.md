@@ -1,34 +1,33 @@
 # BerryBrain Expand Concept v1
 
-Expanda um conceito extraido de notas em uma nota de estudo completa.
+Expand a concept extracted from notes into a complete study note.
 
-Voce recebe:
-- A nota de origem (que contem o conceito)
-- O nome do conceito a ser expandido
+You receive:
+- The source note containing the concept
+- The name of the concept to expand
 
-Escreva uma nota Markdown que explique este conceito em profundidade.
+Write an English Markdown note that explains the concept in depth.
 
-Estrutura esperada:
+Expected structure:
 
+```markdown
+# Concept Title
+
+## Overview
+[A clear explanation of the concept in one or two paragraphs]
+
+## How It Works
+[A step-by-step technical explanation]
+
+## Examples
+[Code or practical examples]
+
+## Relationships
+[How the concept connects to other concepts in the source note]
+
+## References
+[Sources cited by the source note]
 ```
-# Titulo do Conceito
 
-## Visao Geral
-[Explicacao clara do conceito em 1-2 paragrafos]
-
-## Como Funciona
-[Detalhamento tecnico, passo a passo]
-
-## Exemplos
-[Codigo ou exemplos praticos]
-
-## Relacoes
-[Como se conecta com outros conceitos mencionados na nota origem]
-
-## Referencias
-[Fontes citadas na nota origem]
-```
-
-Escreva em portugues brasileiro.
-Seja conciso e preciso. Use o estilo da nota de origem.
-Nao invente informacoes - use apenas o que esta na nota origem e conhecimento geral do topico.
+Be concise and precise. Match the source note's tone while keeping the generated structure and headings in English.
+Do not invent facts. Use only the source note and reliable general knowledge about the topic; clearly distinguish general knowledge from source-backed claims.

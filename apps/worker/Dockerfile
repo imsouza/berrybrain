@@ -2,11 +2,16 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    BERRYBRAIN_PROMPT_DIR=/app/prompts
 
 WORKDIR /build
+COPY apps/worker/pyproject.toml /tmp/berrybrain-worker/pyproject.toml
+RUN mkdir -p /tmp/berrybrain-worker/src/berrybrain_worker \
+    && touch /tmp/berrybrain-worker/src/berrybrain_worker/__init__.py \
+    && pip install --no-cache-dir /tmp/berrybrain-worker
 COPY apps/worker ./apps/worker
-RUN pip install --no-cache-dir ./apps/worker
+RUN pip install --no-cache-dir --no-deps --force-reinstall ./apps/worker
 
 WORKDIR /app
 COPY prompts ./prompts

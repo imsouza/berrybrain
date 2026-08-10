@@ -12,6 +12,12 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
+from berrybrain_api.job_contracts import (
+    begin_job_attempt,
+    finish_job_attempt,
+    update_job_attempt,
+    validate_job_payload,
+)
 from berrybrain_api.models import JobRecord, NoteRecord
 from berrybrain_api.redaction import redact_text
 from berrybrain_api.worker_inbox import (
@@ -52,9 +58,11 @@ GENERATE_GRAPH_GAPS = "GENERATE_GRAPH_GAPS"
 PRUNE_LOW_VALUE_GRAPH_NODES = "PRUNE_LOW_VALUE_GRAPH_NODES"
 MERGE_DUPLICATE_GRAPH_NODES = "MERGE_DUPLICATE_GRAPH_NODES"
 UPDATE_GRAPH_QUALITY = "UPDATE_GRAPH_QUALITY"
+ORGANIZE_VAULT = "ORGANIZE_VAULT"
 PROCESS_ATTACHMENT = "PROCESS_ATTACHMENT"
 CREATE_NOTE_FROM_INSIGHT = "CREATE_NOTE_FROM_INSIGHT"
 CREATE_REVIEW_FROM_INSIGHT = "CREATE_REVIEW_FROM_INSIGHT"
+RESEARCH_GRAPH = "RESEARCH_GRAPH"
 NOTE_PIPELINE_ORDER = [
     PARSE_NOTE,
     CLASSIFY_NOTE,
@@ -72,6 +80,7 @@ NOTE_PIPELINE_ORDER = [
     GENERATE_GRAPH_INSIGHTS,
     UPDATE_GRAPH_STATS,
     GENERATE_NOTE_TITLE,
+    ORGANIZE_VAULT,
 ]
 NOTE_PIPELINE_RANK = {
     job_type: rank for rank, job_type in enumerate(NOTE_PIPELINE_ORDER)
@@ -196,6 +205,7 @@ NOTE_CHANGED_PIPELINE_ORDER = [
     GENERATE_GRAPH_INSIGHTS,
     UPDATE_GRAPH_STATS,
     GENERATE_NOTE_TITLE,
+    ORGANIZE_VAULT,
 ]
 NOTE_PIPELINE_ATTEMPTS = {
     PARSE_NOTE: 3,
@@ -213,6 +223,7 @@ NOTE_PIPELINE_ATTEMPTS = {
     GENERATE_GRAPH_INSIGHTS: 2,
     UPDATE_GRAPH_STATS: 1,
     GENERATE_NOTE_TITLE: 2,
+    ORGANIZE_VAULT: 2,
 }
 GRAPH_MUTATION_JOB_TYPES = {
     EXPAND_KNOWLEDGE_GRAPH,
@@ -237,6 +248,7 @@ def create_job(
     max_attempts: int = 3,
     autocommit: bool = True,
 ) -> JobRecord:
+    payload_schema_version = validate_job_payload(job_type, payload)
     note_path = str(payload.get("note_path") or "")
     note_id = int(payload.get("note_id") or 0)
     content_hash = str(payload.get("content_hash") or "")
@@ -265,6 +277,7 @@ def create_job(
     job = JobRecord(
         type=job_type,
         payload=compact_json(payload),
+        payload_schema_version=payload_schema_version,
         note_id=note_id,
         note_path=note_path,
         content_hash=content_hash,
@@ -456,15 +469,27 @@ def claim_next_job(
             .limit(500)
         ).scalars()
     )
-    job = next(
-        (
-            candidate
-            for candidate in candidates
-            if _job_dependencies_satisfied(session, candidate)
-        ),
-        None,
-    )
+    eligible: list[JobRecord] = []
+    references_changed = False
+    for candidate in candidates:
+        reference_status = canonicalize_job_note_reference(session, candidate)
+        if reference_status in {"note_missing", "content_changed"}:
+            candidate.status = SUPERSEDED
+            candidate.error_message = (
+                "Superseded because the source note no longer exists"
+                if reference_status == "note_missing"
+                else "Superseded by newer note content"
+            )
+            references_changed = True
+            continue
+        if reference_status == "refreshed":
+            references_changed = True
+        if _job_dependencies_satisfied(session, candidate):
+            eligible.append(candidate)
+    job = eligible[0] if eligible else None
     if job is None:
+        if references_changed:
+            session.commit()
         return None
 
     now = utc_now()
@@ -493,7 +518,43 @@ def claim_next_job(
         return None
     session.commit()
     claimed = session.get(JobRecord, job.id)
+    if claimed is not None:
+        begin_job_attempt(session, claimed)
+        session.commit()
     return claimed
+
+
+def canonicalize_job_note_reference(session: Session, job: JobRecord) -> str:
+    """Refresh a queued note path without processing newer note content."""
+    payload = parse_json(job.payload)
+    if not isinstance(payload, dict):
+        return "unchanged"
+    try:
+        note_id = int(job.note_id or payload.get("note_id") or 0)
+    except (TypeError, ValueError):
+        return "unchanged"
+    if not note_id:
+        return "unchanged"
+    note = session.get(NoteRecord, note_id)
+    if note is None:
+        return "note_missing"
+    content_hash = str(job.content_hash or payload.get("content_hash") or "")
+    if content_hash and note.content_hash and content_hash != note.content_hash:
+        return "content_changed"
+    old_path = str(job.note_path or payload.get("note_path") or "")
+    if not note.path or note.path == old_path:
+        return "unchanged"
+    payload["note_id"] = note.id
+    payload["note_path"] = note.path
+    job.note_id = note.id
+    job.note_path = note.path
+    job.payload = compact_json(payload)
+    old_default_key = (
+        f"{job.type}:{old_path}:{content_hash}" if old_path and content_hash else ""
+    )
+    if old_default_key and job.idempotency_key == old_default_key:
+        job.idempotency_key = f"{job.type}:{note.path}:{content_hash}"
+    return "refreshed"
 
 
 def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) -> int:
@@ -691,6 +752,7 @@ def complete_job(session: Session, job_id: int, claim_token: str = "") -> JobRec
     job.claim_token = ""
     job.lease_expires_at = None
     job.completed_at = utc_now()
+    finish_job_attempt(session, job, success=True, retryability="none")
     session.commit()
     session.refresh(job)
     return job
@@ -701,6 +763,11 @@ def fail_job(
     job_id: int,
     error_message: str,
     claim_token: str = "",
+    *,
+    stage: str = "",
+    error_class: str = "job_execution_error",
+    error_code: str = "job_failed",
+    retryability: str = "",
 ) -> JobRecord:
     job = get_job_or_404(session, job_id)
     if job.status in {CANCEL_REQUESTED, CANCELLED}:
@@ -712,18 +779,37 @@ def fail_job(
         return job
     job.error_message = redact_text(error_message)[:4000]
     job.completed_at = utc_now()
+    if stage:
+        update_job_attempt(session, job, stage=stage)
 
     if job.attempts >= job.max_attempts:
         job.status = DEAD_LETTER
         job.claimed_by = ""
         job.claim_token = ""
         job.lease_expires_at = None
+        finish_job_attempt(
+            session,
+            job,
+            success=False,
+            error_class=error_class,
+            error_code=error_code,
+            retryability=retryability or "permanent",
+            dead_letter_reason=job.error_message or "",
+        )
     else:
         job.status = PENDING
         job.started_at = None
         job.claimed_by = ""
         job.claim_token = ""
         job.lease_expires_at = None
+        finish_job_attempt(
+            session,
+            job,
+            success=False,
+            error_class=error_class,
+            error_code=error_code,
+            retryability=retryability or "retryable",
+        )
 
     session.commit()
     session.refresh(job)
@@ -783,6 +869,7 @@ def serialize_job(job: JobRecord) -> dict[str, Any]:
         "type": job.type,
         "status": job.status,
         "payload": parse_json(job.payload),
+        "payload_schema_version": job.payload_schema_version,
         "note_id": job.note_id,
         "note_path": job.note_path,
         "content_hash": job.content_hash,

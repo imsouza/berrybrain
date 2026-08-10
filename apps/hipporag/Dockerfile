@@ -4,7 +4,9 @@ WORKDIR /app
 
 # ponytail: only stdlib + fastapi/httpx needed (no torch/igraph/vLLM)
 COPY apps/hipporag/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade \
+        "setuptools>=84.0.0" \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY apps/hipporag/main.py .
 

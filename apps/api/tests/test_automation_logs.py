@@ -51,7 +51,7 @@ class AutomationLogTest(unittest.TestCase):
         )
 
         logs = list_automation_logs(self.session)
-        self.assertEqual(len(logs), 14)
+        self.assertEqual(len(logs), 15)
         self.assertEqual(logs[0].action_type, "ENQUEUE_JOB")
         self.assertEqual(logs[0].target_id, "inbox/a.md")
 

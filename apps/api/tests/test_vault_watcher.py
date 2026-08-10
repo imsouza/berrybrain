@@ -33,7 +33,7 @@ class VaultWatcherTest(unittest.TestCase):
             second = watcher.run_once()
 
             self.assertEqual(first["created"], 1)
-            self.assertEqual(first["jobs_created"], 14)
+            self.assertEqual(first["jobs_created"], 15)
             self.assertEqual(second["unchanged"], 1)
             self.assertEqual(second["jobs_created"], 0)
 

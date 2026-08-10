@@ -146,6 +146,7 @@ BerryBrain is composed of small services:
 | **api** | FastAPI backend: local auth, setup, notes, jobs, graph, insights, connections. |
 | **web** | Next.js app: public project pages and self-hosted workspace UI. |
 | **worker** | Runs the autopilot pipeline (parse → classify → assimilate → embed → connect → expand → insights). |
+| **hipporag** | Optional internal sidecar for indexed multi-hop retrieval and reconciliation. |
 | **nginx** | Reverse proxy: TLS, static assets, and \`/api\` routing to the API. |
 
 Data flow:
@@ -273,6 +274,11 @@ On first login the **AI setup** modal opens automatically. Choose:
 Until you finish this step, the setup reappears on every load. This guarantees the system is
 never silently unconfigured.
 
+The configuration contract is exclusive: one active mode, **Cloud XOR Local**. Main
+generation, embeddings, Judge, and HippoRAG each have an explicit model slot. BerryBrain
+validates the complete configuration before AI jobs can run, so legacy mixed settings cannot
+silently choose a provider.
+
 ### Guided tour
 A short tour runs **once** on first use, explaining capture, autopilot, graph, insights, and
 session controls. **Skip** moves directly to AI setup; it does not dismiss onboarding. The
@@ -322,7 +328,8 @@ Security behavior:
 
 If the provider returns models as strings, OpenAI-style \`data[].id\`, or another common
 \`id/name/model\` object shape, BerryBrain normalizes the list before rendering the model
-selector.
+selector. Presets store provider base URLs, while the selected provider and model are persisted
+in Settings. Custom OpenAI-compatible endpoints remain editable.
 
 ### Provider setup is required
 BerryBrain does not allow onboarding to finish without an explicit Local or Cloud choice.
@@ -348,10 +355,10 @@ model that writes an answer or proposes an edge.
 
 ### Configuration behavior
 
-- If \`judge_provider\` and \`judge_model\` are configured, the Judge uses them.
-- If they are empty, the Judge falls back to the main generation provider/model.
-- Local mode uses Ollama-compatible configuration.
-- Cloud mode uses the configured OpenAI-compatible provider URL, API key, and model.
+- The Judge always resolves the provider/model slot saved in the active AI configuration.
+- Local mode lists installed Ollama models; choose the Judge model explicitly.
+- Cloud presets reuse the selected provider endpoint and key, but the Judge model is explicit.
+- The default \`single_model\` mode makes one evaluation call; it does not silently invoke other LLMs.
 - Committee mode requires each judge slot to be configured separately.
 - A generator model cannot judge its own high-impact output in committee mode.
 
@@ -383,6 +390,8 @@ connections across separate notes, but it does **not** replace the canonical Ber
 - Stays on the internal Docker network by default.
 - Falls back to standard lexical/vector/graph retrieval when disabled or unavailable.
 - Suggested facts must remain evidence-backed and Judge-reviewable before promotion.
+- Worker jobs call the sidecar for index, delete, reconcile, and rebuild operations.
+- Nested note paths are preserved as document IDs and operations are idempotent.
 
 ### When it helps
 
@@ -423,7 +432,8 @@ text extraction, Tesseract image OCR, and local Faster Whisper audio/video trans
 Successful extraction becomes searchable chunks and traceable graph evidence.
 
 Follow each step in **Activity** (sidebar) and **Monitor / Jobs**. Use **Scan vault** after
-importing files externally.`,
+importing files externally. A rename-safe job reference follows the stable note ID and content
+hash, so queued work continues on the current path instead of failing with a false 404.`,
   },
   {
     id: "cognitive-attachments",
@@ -490,14 +500,57 @@ Notes are the source of truth — BerryBrain only adds structure around them.`,
 The graph is where notes, concepts, entities, topics, gaps, and insights become inspectable.
 
 - **Open** it from the top bar.
-- **Click a node** to review evidence and actions.
+- **Click a node** to review its theme, confidence, evidence, provenance, related notes, and actions.
 - **Confirm** a suggested node (green) to validate it.
-- **Ignore** a node (amber) to hide it from the default Brain View.
+- **Pending** artifacts use a neutral beige channel; status is never encoded by topic color alone.
 - **Reprocess** / **Enrich with AI** a single node.
 - **Recalculate connections** from the Home graph card.
 - **Open note** jumps to the source note.
+- **Ask** starts a grounded question from the selected node and can continue in Flow.
+
+Semantic color represents topic, while shape, border, and labels represent node type/status.
+Related nodes share stable cluster colors, same-name entities can split by context, and each vault
+uses its own visual namespace. The graph loads progressively, applies deltas, computes layout in
+a worker, and uses canvas level-of-detail for large datasets.
 
 Confirm good nodes and ignore weak suggestions to keep the graph clean and meaningful.`,
+  },
+  {
+    id: "ask-flow-research",
+    title: "Ask, Flow & Check Online",
+    md: `## Ask, Flow & Check Online
+
+### Ask and Flow
+
+Ask returns a grounded answer only when BerryBrain can attach evidence. **Continue in Flow**
+creates a persistent multi-turn session, preserves evidence IDs in order, isolates concurrent
+sessions, and supports cancellation. Provider/model and inference provenance remain visible.
+
+### Check Online
+
+**Check Online** is a graph-wide research command. It plans unresolved gaps, runs as observable
+background work, stores external text as untrusted evidence, rejects unsafe result URLs, and
+requires review before knowledge promotion. It is not an automatic truth source.
+
+Use node-level enrichment for one artifact and Check Online when the graph needs a broader
+evidence pass. Both actions report progress and failures in Monitor.`,
+  },
+  {
+    id: "graph-performance",
+    title: "Graph performance",
+    md: `## Graph performance
+
+The release gate exercises both API projection and browser interaction:
+
+- API budget: 5,000 nodes and 20,000 edges, p95 under 5 seconds, payload under 16 MiB,
+  peak memory under 512 MiB.
+- Browser stress: 10,000 nodes and 40,000 edges with progressive pages, cold/warm checks,
+  canvas LOD, selected-node preservation, and interaction p95 measurement.
+- Default pages: public and authenticated route navigation, script transfer, mobile overflow,
+  accessibility, LCP, CLS, and interaction candidates.
+
+The API exposes bounded graph pages and \`/api/v1/graph/delta?since_version=\`. When the delta
+cannot be applied safely, \`requiresFullRefresh\` tells the client to reload canonical state.`,
   },
   {
     id: "insights",
@@ -666,7 +719,7 @@ or logs.`,
 - **Monitor / Jobs**: queue, execution, and errors for each autopilot task.
 - **Activity**: a readable history of what the system did.
 - **Diagnostics**: recover stuck or failed jobs.
-- **Health**: worker, Ollama, cloud provider, and graph status.
+- **Health**: worker, active AI mode, Judge, HippoRAG, queue, enrichment, and graph status.
 - **Graph expand**: recompute connections from current notes.
 
 Use these to observe the pipeline and recover from failures without losing data.`,
@@ -694,10 +747,12 @@ claims supported by notes, concepts, connections, or processed attachments.`,
     md: `## Settings
 
 - **Appearance**: theme (light/dark).
-- **Language**: interface in pt-BR or en (notes unchanged).
+- **Language**: the interface and generated structures use English; source notes remain unchanged.
 - **Fonts**: UI and editor font families and sizes.
-- **AI**: switch between Local (Ollama) and Cloud (API), manage keys and models.
+- **AI**: choose exactly one Local or Cloud mode, then configure main, embedding, Judge, and HippoRAG model slots.
 - **Cognitive layer**: retrieval mode, chunks, graph inference, confidence, and external vector stores.
+- **Graph**: rendering, clustering, enrichment, semantic color, and online research controls.
+- **Monitor**: operational limits, model calls, retries, dead letters, and service health.
 - **Attachments**: size limits, OCR language, transcription executable/model, and extractor timeout.
 - **Vault**: manage folders (create, rename, delete).
 
@@ -709,8 +764,9 @@ storage. Your notes remain in the vault.`,
     title: "Self-hosting operations",
     md: `## Self-hosting operations
 
-- **Logs**: \`docker compose logs -f api web worker\`.
+- **Logs**: \`docker compose logs -f api web worker hipporag\`.
 - **Status**: \`docker compose ps\`.
+- **HippoRAG profile**: \`docker compose --profile cognitive-advanced up -d\`.
 - **Updates**: pull the latest code, then rebuild/restart Docker Compose.
 - **Backups**: create manifest-backed backups that include checksums and can validate before restore.
 - **Restore**: use the authenticated maintenance flow; corrupted or path-traversing archives are rejected.
@@ -726,22 +782,26 @@ Expose only the web entrypoint; keep the API internal.`,
     title: "Verification & release status",
     md: `## Verification & release status
 
-Current release-candidate evidence from 26 July 2026:
+Current v1.3.0 release-candidate evidence from 9 August 2026:
 
-- **API**: 210 unit and integration tests pass, plus 4 internal subtests.
-- **Worker**: 34 tests pass.
-- **Browser**: 29 API-backed Playwright E2E checks pass.
-- **Web**: lint, TypeScript, and production build pass.
-- **Containers**: default Docker stack is healthy for web, API, and worker.
-- **Retrieval benchmark**: HippoRAG multi-hop recall gain is \`0.25\`.
-- **Judge calibration**: weighted kappa is \`0.9801\`.
-- **Security**: local security audit passes, production web dependency audit has no high/critical findings, and Python runtime dependency audit reports no known vulnerabilities.
-- **Architecture**: architecture fitness and progressive Python typing gates pass.
+- **API**: 346 tests and 55 subtests pass.
+- **Worker / HippoRAG**: 44 Worker tests and 7 sidecar tests pass.
+- **Browser**: 43 API-backed Playwright E2E checks pass, including 10k-node graph stress
+  and healthy-worker heartbeat regression.
+- **Web**: ESLint, TypeScript, production build, accessibility, and route budgets pass.
+- **Graph API**: 5,000 nodes / 20,000 edges at p95 \`2.54 s\`, \`11.3 MB\` payload,
+  and \`82.1 MB\` peak memory.
+- **Semantic benchmark**: Recall@10, MRR, and NDCG@10 are \`1.0\`; p95 is \`47.34 ms\`.
+- **Maturity**: insight usefulness, provenance, graph integrity, stale cleanup, and cognitive
+  precision/recall gates pass with no failed gate.
+- **Security**: source audit, production npm audit, Python dependency audits, and container
+  scans pass. All four images have zero fixable HIGH/CRITICAL findings; validated CycloneDX
+  1.7 SBOMs cover 496 components.
+- **Recovery**: checksum backup and isolated restore tests pass; the release backup manifest
+  verifies all files and canonical table counts.
 
-This evidence validates the local worktree as a v1.2.0 release candidate. It is not a
-published release certificate until remote governance finishes: protected branch checks,
-version tag, signed registry artifacts, SBOM/provenance publication, and external clean-machine
-smoke validation.`,
+Local evidence becomes a published release certificate only after protected remote checks,
+tagging, signed registry artifacts, SBOM/provenance publication, and post-deploy smoke.`,
   },
   {
     id: "troubleshooting",
@@ -932,7 +992,7 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Which languages are supported?",
-    a: "The interface supports pt-BR and en. Note content is never translated.",
+    a: "The interface and generated brain structures use English. Source-note content is never translated.",
   },
   {
     q: "Is there an API?",

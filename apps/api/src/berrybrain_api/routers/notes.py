@@ -50,6 +50,7 @@ from berrybrain_api.vault import (
     read_note,
     rename_note,
     resolve_note_path,
+    slugify_title,
     update_note,
 )
 
@@ -147,6 +148,77 @@ def _serialize_attachment(
         "extraction": serialize_extraction(extraction),
         "createdAt": record.created_at.isoformat() if record.created_at else None,
     }
+
+
+@router.post("/{note_path:path}/organize")
+def organize_note_endpoint(note_path: str) -> dict:
+    """Move an inbox note into a stable, evidence-backed semantic folder."""
+    settings = get_settings()
+    with SessionLocal() as session:
+        enabled = session.execute(
+            select(SettingRecord).where(
+                SettingRecord.key == "automatic_vault_organization"
+            )
+        ).scalar_one_or_none()
+        if enabled is not None and enabled.value.strip().lower() == "false":
+            return {"status": "disabled", "path": note_path}
+
+        note = session.execute(
+            select(NoteRecord).where(NoteRecord.path == note_path)
+        ).scalar_one_or_none()
+        if note is None:
+            raise HTTPException(status_code=404, detail="Note not found")
+
+        current_parent = Path(note_path).parent.as_posix()
+        if current_parent != "inbox" and not current_parent.startswith("organized/"):
+            return {"status": "preserved_manual_organization", "path": note_path}
+
+        candidates: list[tuple[float, int, str]] = []
+        nodes = session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.type.in_(("topic", "context")),
+                GraphNodeRecord.confidence >= 0.72,
+            )
+        ).scalars()
+        for node in nodes:
+            parsed_source_ids = parse_json(node.source_note_ids)
+            source_values = (
+                parsed_source_ids if isinstance(parsed_source_ids, list) else []
+            )
+            source_ids = {int(value) for value in source_values if str(value).isdigit()}
+            if note.id in source_ids and len(source_ids) >= 2 and node.label.strip():
+                candidates.append((float(node.confidence), len(source_ids), node.label))
+
+        if not candidates:
+            return {"status": "insufficient_evidence", "path": note_path}
+
+        _, _, label = max(candidates, key=lambda item: (item[0], item[1], item[2]))
+        folder_slug = slugify_title(label)[:64] or "topic"
+        destination_folder = settings.vault_path / "organized" / folder_slug
+        destination_folder.mkdir(parents=True, exist_ok=True)
+        source_path = resolve_note_path(settings.vault_path, note_path)
+        destination = destination_folder / source_path.name
+        suffix = 2
+        while destination.exists() and destination != source_path:
+            destination = (
+                destination_folder / f"{source_path.stem}-{suffix}{source_path.suffix}"
+            )
+            suffix += 1
+        if destination == source_path:
+            return {"status": "already_organized", "path": note_path, "topic": label}
+
+        source_path.rename(destination)
+        new_path = destination.relative_to(settings.vault_path).as_posix()
+        note.path = new_path
+        session.commit()
+        _update_internal_links(session, note_path, new_path)
+        return {
+            "status": "organized",
+            "path": new_path,
+            "previousPath": note_path,
+            "topic": label,
+            "confidenceThreshold": 0.72,
+        }
 
 
 @router.get("")

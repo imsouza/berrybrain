@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -34,10 +34,34 @@ def _ensure_sqlite_parent(database_url: str) -> None:
 _ensure_sqlite_parent(settings.database_url)
 _engine_url = make_url(settings.database_url)
 _connect_args = (
-    {"check_same_thread": False} if _engine_url.drivername == "sqlite" else {}
+    {"check_same_thread": False, "timeout": 30}
+    if _engine_url.drivername == "sqlite"
+    else {}
 )
 engine = create_engine(settings.database_url, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _configure_sqlite_connection(dbapi_connection, _connection_record=None) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout = 30000")
+        cursor.execute("PRAGMA foreign_keys = ON")
+    finally:
+        cursor.close()
+
+
+if _engine_url.drivername == "sqlite":
+    event.listen(engine, "connect", _configure_sqlite_connection)
+
+
+def _configure_sqlite_journal(database_engine=None) -> None:
+    target_engine = database_engine or engine
+    if target_engine.dialect.name != "sqlite":
+        return
+    with target_engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode = WAL")
+        connection.exec_driver_sql("PRAGMA synchronous = NORMAL")
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -53,6 +77,7 @@ def init_database() -> None:
     )
     from berrybrain_api.search import init_fts
 
+    _configure_sqlite_journal()
     assert_schema_compatible(engine)
     Base.metadata.create_all(bind=engine)
     ensure_sqlite_columns()
@@ -151,6 +176,7 @@ def ensure_sqlite_columns(bind=None) -> None:
     if "jobs" in inspector.get_table_names():
         existing_jobs = {column["name"] for column in inspector.get_columns("jobs")}
         required_job_columns = {
+            "payload_schema_version": "INTEGER NOT NULL DEFAULT 1",
             "max_attempts": "INTEGER NOT NULL DEFAULT 3",
             "note_id": "INTEGER NOT NULL DEFAULT 0",
             "note_path": "TEXT NOT NULL DEFAULT ''",
@@ -317,6 +343,27 @@ def ensure_sqlite_columns(bind=None) -> None:
                         text(
                             f"ALTER TABLE automation_logs ADD COLUMN {name} {definition}"
                         )
+                    )
+
+    if "graph_nodes" in inspector.get_table_names():
+        existing_nodes = {
+            column["name"] for column in inspector.get_columns("graph_nodes")
+        }
+        required_node_columns = {
+            "semantic_state": "TEXT NOT NULL DEFAULT 'pending'",
+            "semantic_profile_version": "INTEGER NOT NULL DEFAULT 0",
+            "cluster_id": "INTEGER",
+            "vault_id": "VARCHAR(160) NOT NULL DEFAULT 'default'",
+            "color_id": "TEXT NOT NULL DEFAULT 'pending'",
+            "color_confidence": "FLOAT NOT NULL DEFAULT 0",
+            "color_reason": "TEXT NOT NULL DEFAULT ''",
+            "color_updated_at": "DATETIME",
+        }
+        with database_engine.begin() as connection:
+            for name, definition in required_node_columns.items():
+                if name not in existing_nodes:
+                    connection.execute(
+                        text(f"ALTER TABLE graph_nodes ADD COLUMN {name} {definition}")
                     )
 
     sqlite_columns = {
