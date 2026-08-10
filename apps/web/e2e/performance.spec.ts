@@ -198,6 +198,13 @@ test.describe("Public performance budgets", () => {
     page.on("console", (message) => {
       if (message.type() === "error") console.error(`[browser-console-error] ${message.text()}`);
     });
+    await page.route("**/api/v1/bootstrap", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        configurationGate: { required: false, valid: true },
+      }),
+    }));
     const csrf = await authenticate(context);
     const completed = await context.request.put("/api/v1/settings/onboarding_completed", {
       data: { value: "true" },
