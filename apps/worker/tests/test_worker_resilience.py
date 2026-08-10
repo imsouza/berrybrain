@@ -1,7 +1,10 @@
 import unittest
 
+import httpx
+
 from berrybrain_worker import resilience
 from berrybrain_worker.cloud_gateway import CloudError
+from berrybrain_worker.config import WorkerSettings
 
 
 class WorkerResilienceTest(unittest.TestCase):
@@ -43,6 +46,26 @@ class WorkerResilienceTest(unittest.TestCase):
 
     def test_provider_timeout_is_transient(self) -> None:
         self.assertFalse(resilience.is_permanent_job_error(TimeoutError()))
+
+    def test_cloud_concurrency_is_limited_independently(self) -> None:
+        settings = WorkerSettings(
+            max_concurrent_jobs=6,
+            cloud_max_concurrent_jobs=1,
+        )
+
+        self.assertEqual(resilience.concurrent_job_limit(settings, "cloud"), 1)
+        self.assertEqual(resilience.concurrent_job_limit(settings, "local"), 6)
+
+    def test_retry_after_controls_transient_http_backoff(self) -> None:
+        request = httpx.Request("POST", "http://api/judge")
+        response = httpx.Response(
+            503,
+            headers={"Retry-After": "30"},
+            request=request,
+        )
+        error = httpx.HTTPStatusError("unavailable", request=request, response=response)
+
+        self.assertGreaterEqual(resilience.retry_delay_for_error(0, error), 30)
 
     def test_format_job_failure_humanizes_invalid_ai_json(self) -> None:
         message = resilience.format_job_failure(

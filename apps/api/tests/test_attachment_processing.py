@@ -26,6 +26,7 @@ from berrybrain_api.models import (
     GraphNodeRecord,
     NoteAttachmentRecord,
     NoteRecord,
+    SettingRecord,
 )
 
 
@@ -189,7 +190,20 @@ class AttachmentProcessingTest(unittest.TestCase):
         self.assertEqual(edge.provider, "deterministic")
         metadata = self.session.query(GeneratedMetadataRecord).one()
         self.assertEqual(metadata.generation_type, f"attachment_text_{attachment.id}")
-        index_result = index_knowledge_base(self.session)
+        self.session.add_all(
+            [
+                SettingRecord(key="ai_provider", value="local"),
+                SettingRecord(key="kb_embedding_provider", value="local"),
+                SettingRecord(key="kb_embedding_model", value="fixture-embedding"),
+                SettingRecord(key="ollama_base_url", value="http://ollama.test"),
+            ]
+        )
+        self.session.commit()
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            index_result = index_knowledge_base(self.session)
         self.assertEqual(index_result["attachmentChunks"], 1)
         retrieval = retrieve_kb(self.session, "rollback container rollout")
         self.assertTrue(

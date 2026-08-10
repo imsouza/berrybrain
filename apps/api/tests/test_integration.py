@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import tempfile
 import unittest
@@ -153,8 +154,17 @@ class IntegrationTest(unittest.TestCase):
             )
             session.commit()
 
+        heartbeat = self.client.post(
+            "/api/v1/worker/heartbeat", json={"jobs_processed": 3, "errors": 0}
+        )
+        self.assertEqual(heartbeat.status_code, 200)
+
         response = self.client.get("/api/v1/monitor/stats")
         self.assertEqual(response.status_code, 200)
+        worker = response.json()["worker"]
+        self.assertEqual(worker["status"], "running")
+        self.assertEqual(worker["jobs_processed"], 3)
+        self.assertTrue(worker["last_heartbeat_at"].endswith("Z"))
         reliability = response.json()["model_invocations"]
         self.assertGreaterEqual(reliability["completed"], 1)
         self.assertIn("test-provider", reliability["by_provider"])
@@ -434,7 +444,7 @@ class IntegrationTest(unittest.TestCase):
         concept_note = self.client.post(f"/api/v1/concepts/{concept_id}/create-note")
         self.assertEqual(concept_note.status_code, 200)
         self.assertEqual(concept_note.json()["status"], "created")
-        self.assertIn("permanentes/", concept_note.json()["note"]["path"])
+        self.assertIn("permanent/", concept_note.json()["note"]["path"])
 
     def test_09_flashcards_and_review_are_removed_from_public_api(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]
@@ -760,7 +770,11 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(config.status_code, 200)
         self.assertIn("kb_vector_store", config.json())
 
-        indexed = self.client.post("/api/v1/cognitive/index")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            indexed = self.client.post("/api/v1/cognitive/index")
         self.assertEqual(indexed.status_code, 200)
         self.assertEqual(indexed.json()["status"], "indexed")
         retrieved = self.client.post(
@@ -1469,6 +1483,80 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(resp4.status_code, 200)
         self.assertEqual(resp4.json()["status"], "deleted")
 
+    def test_17b_automatic_organization_uses_shared_semantic_evidence(self):
+        from berrybrain_api.models import GraphNodeRecord, NoteRecord, SettingRecord
+        from berrybrain_api.routers import notes as notes_router
+
+        first = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Retrieval Alpha", "content": "Hybrid retrieval evidence."},
+        ).json()
+        second = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Retrieval Beta", "content": "Graph retrieval evidence."},
+        ).json()
+        with notes_router.SessionLocal() as session:
+            records = (
+                session.query(NoteRecord)
+                .filter(NoteRecord.path.in_((first["path"], second["path"])))
+                .all()
+            )
+            session.add(
+                GraphNodeRecord(
+                    type="topic",
+                    label="Retrieval Systems",
+                    source_note_ids=json.dumps([record.id for record in records]),
+                    confidence=0.91,
+                )
+            )
+            session.commit()
+
+        response = self.client.post(f"/api/v1/notes/{first['path']}/organize")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "organized")
+        self.assertTrue(payload["path"].startswith("organized/retrieval-systems/"))
+        self.assertFalse((self.settings.vault_path / first["path"]).exists())
+        self.assertTrue((self.settings.vault_path / payload["path"]).exists())
+
+        with notes_router.SessionLocal() as session:
+            session.add(
+                SettingRecord(key="automatic_vault_organization", value="false")
+            )
+            session.commit()
+        disabled = self.client.post(f"/api/v1/notes/{second['path']}/organize")
+        self.assertEqual(disabled.json()["status"], "disabled")
+        self.assertTrue((self.settings.vault_path / second["path"]).exists())
+
+        with notes_router.SessionLocal() as session:
+            setting = (
+                session.query(SettingRecord)
+                .filter_by(key="automatic_vault_organization")
+                .one()
+            )
+            setting.value = "true"
+            session.commit()
+        enabled = self.client.post(f"/api/v1/notes/{second['path']}/organize")
+        self.assertEqual(enabled.json()["status"], "organized")
+        self.assertTrue((self.settings.vault_path / enabled.json()["path"]).exists())
+
+        manual = self.client.post(
+            "/api/v1/notes",
+            json={"title": "Manual Layout", "content": "User-owned structure."},
+        ).json()
+        manual_source = self.settings.vault_path / manual["path"]
+        manual_target = self.settings.vault_path / "study" / manual_source.name
+        manual_target.parent.mkdir(parents=True, exist_ok=True)
+        manual_source.rename(manual_target)
+        manual_path = manual_target.relative_to(self.settings.vault_path).as_posix()
+        with notes_router.SessionLocal() as session:
+            record = session.query(NoteRecord).filter_by(path=manual["path"]).one()
+            record.path = manual_path
+            session.commit()
+        preserved = self.client.post(f"/api/v1/notes/{manual_path}/organize")
+        self.assertEqual(preserved.json()["status"], "preserved_manual_organization")
+        self.assertTrue(manual_target.exists())
+
     def test_18_delete_note(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]
         path = notes[0]["path"]
@@ -1549,12 +1637,22 @@ class IntegrationTest(unittest.TestCase):
         self.assertIn("deletedOrphanEdges", validation.json())
         self.assertIn("duplicateJobsMarkedFailed", validation.json())
 
-        reindex = self.admin_client.post("/api/v1/maintenance/reindex-knowledge-base")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            reindex = self.admin_client.post(
+                "/api/v1/maintenance/reindex-knowledge-base"
+            )
         self.assertEqual(reindex.status_code, 200)
         self.assertEqual(reindex.json()["status"], "indexed")
         self.assertIn("externalVectorStore", reindex.json())
 
-        rebuild = self.admin_client.post("/api/v1/maintenance/rebuild-brain")
+        with patch(
+            "berrybrain_api.vector_store._generate_chunk_embedding",
+            return_value=([0.1] * 64, "fixture/embedding"),
+        ):
+            rebuild = self.admin_client.post("/api/v1/maintenance/rebuild-brain")
         self.assertEqual(rebuild.status_code, 200)
         self.assertEqual(rebuild.json()["status"], "queued")
         self.assertIn("knowledgeBase", rebuild.json())

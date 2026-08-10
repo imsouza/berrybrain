@@ -89,12 +89,18 @@ def create_connection(
     session.add(conn)
     session.flush()
     if provider:
+        from berrybrain_api.job_contracts import judge_artifact_payload
         from berrybrain_api.jobs import enqueue_job
 
         enqueue_job(
             session,
             "JUDGE_ARTIFACT",
-            {"artifact_type": "connection", "artifact_id": conn.id},
+            judge_artifact_payload(
+                session,
+                "connection",
+                conn.id,
+                str(conn.updated_at.timestamp()),
+            ),
             priority=20,
         )
     session.commit()
@@ -293,6 +299,20 @@ def build_graph(
                     "provider": getattr(node, "provider", ""),
                     "model": getattr(node, "model", ""),
                     "promptVersion": getattr(node, "prompt_version", ""),
+                    "semanticState": getattr(node, "semantic_state", "pending"),
+                    "semanticProfileVersion": getattr(
+                        node, "semantic_profile_version", 0
+                    ),
+                    "clusterId": getattr(node, "cluster_id", None),
+                    "vaultId": getattr(node, "vault_id", "default"),
+                    "colorId": getattr(node, "color_id", "pending"),
+                    "colorConfidence": getattr(node, "color_confidence", 0.0),
+                    "colorReason": getattr(node, "color_reason", ""),
+                    "colorUpdatedAt": getattr(
+                        node, "color_updated_at", None
+                    ).isoformat()
+                    if getattr(node, "color_updated_at", None)
+                    else None,
                     "generatedAt": getattr(node, "generated_at", None).isoformat()
                     if getattr(node, "generated_at", None)
                     else None,

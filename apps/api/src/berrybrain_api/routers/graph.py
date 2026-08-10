@@ -1,9 +1,12 @@
+import hashlib
 import json
+import logging
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.ai_gateway import (
@@ -24,12 +27,15 @@ from berrybrain_api.jobs import (
     ENRICH_GRAPH_NODE,
     PENDING,
     RUNNING,
+    UPDATE_GRAPH_CLUSTERS,
     UPDATE_GRAPH_STATS,
     create_job,
 )
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
+    GraphResearchResultRecord,
+    GraphResearchRunRecord,
     InsightRecord,
     JobRecord,
     NoteRecord,
@@ -51,6 +57,7 @@ from berrybrain_api.services import (
 )
 
 router = APIRouter(prefix="/api/v1/graph", tags=["graph"])
+logger = logging.getLogger(__name__)
 
 
 class GraphInferRequest(BaseModel):
@@ -79,6 +86,12 @@ class EnrichNodeRequest(BaseModel):
     provider: str = ""
     model: str = ""
     reasoning: str = ""
+    analysis: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReclusterRequest(BaseModel):
+    preview: bool = True
+    preview_token: str = ""
 
 
 def _parse_json_list(raw: str | None) -> list[Any]:
@@ -102,6 +115,53 @@ def _setting_value(session, key: str, default: str = "") -> str:
     return row.value if row and row.value != "" else default
 
 
+def _graph_version(session: Session) -> int:
+    node_updated = session.scalar(select(func.max(GraphNodeRecord.updated_at)))
+    edge_updated = session.scalar(select(func.max(GraphEdgeRecord.updated_at)))
+    latest = (
+        max(value for value in (node_updated, edge_updated) if value is not None)
+        if node_updated or edge_updated
+        else None
+    )
+    return int(latest.timestamp() * 1_000_000) if latest else 0
+
+
+def _serialize_paged_node(node: GraphNodeRecord) -> dict[str, Any]:
+    metadata = _json_object(node.graph_metadata)
+    return {
+        "id": f"{node.type}_{node.id}",
+        "recordId": node.id,
+        "type": node.type,
+        "label": node.label,
+        "title": node.title or node.label,
+        "summary": node.summary,
+        "path": metadata.get("path", ""),
+        "folder": metadata.get("folder", ""),
+        "sourceId": node.source_id,
+        "status": node.status,
+        "confidence": node.confidence,
+        "createdBy": node.created_by,
+        "createdByModel": node.created_by_model,
+        "semanticState": node.semantic_state,
+        "semanticProfileVersion": node.semantic_profile_version,
+        "clusterId": node.cluster_id,
+        "vaultId": node.vault_id,
+        "colorId": node.color_id,
+        "colorConfidence": node.color_confidence,
+        "colorReason": node.color_reason,
+    }
+
+
+def _json_object(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 @router.get("")
 def get_graph(
     max_depth: int = 2,
@@ -115,7 +175,174 @@ def get_graph(
 @router.get("/summary")
 def get_graph_summary() -> dict:
     with SessionLocal() as session:
-        return summarize_graph(session)
+        return {**summarize_graph(session), "graphVersion": _graph_version(session)}
+
+
+@router.get("/nodes")
+def get_graph_nodes_page(
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=250, ge=1, le=2000),
+    types: str = "",
+) -> dict:
+    with SessionLocal() as session:
+        query = (
+            select(GraphNodeRecord)
+            .where(GraphNodeRecord.id > cursor, GraphNodeRecord.status != "ignored")
+            .order_by(GraphNodeRecord.id)
+            .limit(limit + 1)
+        )
+        requested_types = [item.strip() for item in types.split(",") if item.strip()]
+        if requested_types:
+            query = query.where(GraphNodeRecord.type.in_(requested_types))
+        records = list(session.execute(query).scalars())
+        has_more = len(records) > limit
+        page = records[:limit]
+        return {
+            "nodes": [_serialize_paged_node(node) for node in page],
+            "nextCursor": page[-1].id if has_more and page else None,
+            "graphVersion": _graph_version(session),
+        }
+
+
+@router.get("/edges")
+def get_graph_edges_page(
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=5000),
+    node_ids: str = "",
+) -> dict:
+    with SessionLocal() as session:
+        query = (
+            select(GraphEdgeRecord)
+            .where(GraphEdgeRecord.id > cursor, GraphEdgeRecord.status != "ignored")
+            .order_by(GraphEdgeRecord.id)
+            .limit(limit + 1)
+        )
+        requested_ids = {
+            int(item.rsplit("_", 1)[-1])
+            for item in node_ids.split(",")
+            if item.rsplit("_", 1)[-1].isdigit()
+        }
+        if requested_ids:
+            query = query.where(
+                or_(
+                    GraphEdgeRecord.source_node_id.in_(requested_ids),
+                    GraphEdgeRecord.target_node_id.in_(requested_ids),
+                )
+            )
+        records = list(session.execute(query).scalars())
+        has_more = len(records) > limit
+        page = records[:limit]
+        endpoint_ids = {
+            node_id
+            for edge in page
+            for node_id in (edge.source_node_id, edge.target_node_id)
+        }
+        node_types = dict(
+            session.execute(
+                select(GraphNodeRecord.id, GraphNodeRecord.type).where(
+                    GraphNodeRecord.id.in_(endpoint_ids)
+                )
+            ).all()
+        )
+        edges = [
+            {
+                "id": edge.id,
+                "source": f"{node_types.get(edge.source_node_id, 'node')}_{edge.source_node_id}",
+                "target": f"{node_types.get(edge.target_node_id, 'node')}_{edge.target_node_id}",
+                "type": edge.type,
+                "label": edge.label,
+                "confidence": edge.confidence,
+                "reason": edge.reason,
+                "evidence": _parse_json_list(edge.evidence),
+                "status": edge.status,
+                "provider": edge.provider,
+                "model": edge.model,
+            }
+            for edge in page
+            if edge.source_node_id in node_types and edge.target_node_id in node_types
+        ]
+        return {
+            "edges": edges,
+            "nextCursor": page[-1].id if has_more and page else None,
+            "graphVersion": _graph_version(session),
+        }
+
+
+@router.get("/delta")
+def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
+    since = datetime.fromtimestamp(since_version / 1_000_000, UTC).replace(tzinfo=None)
+    with SessionLocal() as session:
+        nodes = list(
+            session.execute(
+                select(GraphNodeRecord)
+                .where(GraphNodeRecord.updated_at > since)
+                .order_by(GraphNodeRecord.id)
+                .limit(1001)
+            ).scalars()
+        )
+        edges = list(
+            session.execute(
+                select(GraphEdgeRecord.id)
+                .where(GraphEdgeRecord.updated_at > since)
+                .order_by(GraphEdgeRecord.id)
+                .limit(2001)
+            ).scalars()
+        )
+        truncated = len(nodes) > 1000 or len(edges) > 2000
+        return {
+            "graphVersion": _graph_version(session),
+            "nodes": [_serialize_paged_node(node) for node in nodes[:1000]],
+            "edgeIds": edges[:2000],
+            "requiresEdgeRefresh": bool(edges),
+            "requiresFullRefresh": truncated,
+            "nodeCount": session.scalar(select(func.count(GraphNodeRecord.id))) or 0,
+            "edgeCount": session.scalar(select(func.count(GraphEdgeRecord.id))) or 0,
+        }
+
+
+@router.get("/clusters")
+def get_graph_clusters() -> dict:
+    from berrybrain_api.semantic_clustering import serialize_clusters
+
+    with SessionLocal() as session:
+        return {
+            "clusters": serialize_clusters(session),
+            "graphVersion": _graph_version(session),
+        }
+
+
+@router.get("/palette")
+def get_graph_palette() -> dict:
+    from berrybrain_api.semantic_clustering import serialize_palette
+
+    with SessionLocal() as session:
+        return serialize_palette(session)
+
+
+@router.post("/recluster")
+def recluster_graph(payload: ReclusterRequest) -> dict:
+    from berrybrain_api.semantic_clustering import (
+        apply_cluster_preview,
+        build_cluster_preview,
+    )
+
+    with SessionLocal() as session:
+        preview = build_cluster_preview(session)
+        preview_token = hashlib.sha256(
+            json.dumps(preview, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if payload.preview:
+            return {**preview, "applied": False, "previewToken": preview_token}
+        if not payload.preview_token or payload.preview_token != preview_token:
+            raise HTTPException(
+                status_code=409,
+                detail="Graph changed after preview. Generate a new recluster preview.",
+            )
+        return {
+            **apply_cluster_preview(session, preview),
+            "previewToken": preview_token,
+            "graphVersion": _graph_version(session),
+        }
 
 
 @router.post("/expand")
@@ -147,7 +374,16 @@ async def infer_graph(
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question is required")
-    result = await answer_cognitive_query(session, question)
+    try:
+        result = await answer_cognitive_query(session, question)
+    except GraphAIUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Graph Ask failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Ask could not complete with the configured AI provider.",
+        ) from exc
     inference = persist_graph_inference(session, question, result)
     return serialize_graph_inference(inference)
 
@@ -161,14 +397,15 @@ def sync_graph() -> dict:
 
 @router.post("/enrich-missing")
 def enrich_missing_graph_nodes(limit: int = 20) -> dict:
+    from berrybrain_api.semantic_enrichment import queue_node_enrichment
+
     with SessionLocal() as session:
         candidates = list(
             session.execute(
                 select(GraphNodeRecord)
                 .where(GraphNodeRecord.status != "ignored")
                 .where(
-                    (GraphNodeRecord.ai_context == "")
-                    | (GraphNodeRecord.ai_context.is_(None))
+                    GraphNodeRecord.semantic_state.in_(["pending", "stale", "failed"])
                 )
                 .order_by(GraphNodeRecord.type == "note", GraphNodeRecord.id.asc())
                 .limit(max(1, min(limit, 50)))
@@ -192,8 +429,15 @@ def enrich_missing_graph_nodes(limit: int = 20) -> dict:
             if existing is not None:
                 skipped += 1
                 continue
-            create_job(session, ENRICH_GRAPH_NODE, {"node_id": node.id}, max_attempts=2)
-            created += 1
+            try:
+                _, was_created = queue_node_enrichment(session, node)
+            except HTTPException as exc:
+                if exc.status_code != 409:
+                    raise
+                skipped += 1
+                continue
+            created += int(was_created)
+            skipped += int(not was_created)
         return {"queued": created, "skipped": skipped, "candidates": len(candidates)}
 
 
@@ -386,6 +630,34 @@ def split_merged_graph_nodes(mutation_log_id: int) -> dict:
 @router.post("/nodes/{node_id}/enrich")
 def enrich_graph_node(node_id: int, payload: EnrichNodeRequest) -> dict:
     with SessionLocal() as session:
+        if payload.analysis:
+            from berrybrain_api.semantic_enrichment import (
+                SemanticAnalysis,
+                persist_semantic_analysis,
+            )
+
+            node = session.get(GraphNodeRecord, node_id)
+            if node is None:
+                raise HTTPException(status_code=404, detail="Node not found")
+            profile = persist_semantic_analysis(
+                session,
+                node,
+                SemanticAnalysis.model_validate(payload.analysis),
+            )
+            create_job(
+                session,
+                UPDATE_GRAPH_CLUSTERS,
+                {
+                    "graph_version": _graph_version(session),
+                    "idempotency_key": "update-semantic-clusters",
+                },
+            )
+            return {
+                "id": node.id,
+                "enriched": True,
+                "semanticState": node.semantic_state,
+                "profileId": profile.id,
+            }
         has_content = any(
             [
                 payload.ai_summary.strip(),
@@ -418,8 +690,55 @@ def enrich_graph_node(node_id: int, payload: EnrichNodeRequest) -> dict:
         return {"id": node.id, "enriched": True}
 
 
+@router.get("/nodes/{node_id}/semantic-analysis")
+def get_node_semantic_analysis(node_id: int) -> dict:
+    from berrybrain_api.semantic_enrichment import semantic_analysis_payload
+
+    with SessionLocal() as session:
+        return semantic_analysis_payload(session, node_id)
+
+
+@router.post("/nodes/{node_id}/semantic-analysis/retry")
+def retry_node_semantic_analysis(node_id: int) -> dict:
+    from berrybrain_api.semantic_enrichment import queue_node_enrichment
+
+    with SessionLocal() as session:
+        node = session.get(GraphNodeRecord, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        if node.semantic_state not in {
+            "failed",
+            "stale",
+            "not_configured",
+            "needs_review",
+        }:
+            raise HTTPException(
+                status_code=409, detail="Node semantic analysis is not retryable"
+            )
+        job, created = queue_node_enrichment(session, node)
+        return {"queued": created, "jobId": getattr(job, "id", None)}
+
+
+@router.post("/nodes/{node_id}/semantic-analysis/regenerate")
+def regenerate_node_semantic_analysis(node_id: int) -> dict:
+    from berrybrain_api.semantic_enrichment import queue_node_enrichment
+
+    with SessionLocal() as session:
+        node = session.get(GraphNodeRecord, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found")
+        job, created = queue_node_enrichment(session, node, force=True)
+        return {"queued": created, "jobId": getattr(job, "id", None)}
+
+
 @router.post("/nodes/{node_id}/enrich-ai")
-async def enrich_graph_node_with_ai(node_id: int) -> dict:
+async def enrich_graph_node_with_ai(node_id: int, response: Response) -> dict:
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Wed, 30 Sep 2026 23:59:59 GMT"
+    response.headers["Link"] = (
+        f"</api/v1/graph/nodes/{node_id}/semantic-analysis/regenerate>; "
+        'rel="successor-version"'
+    )
     with SessionLocal() as session:
         node = session.get(GraphNodeRecord, node_id)
         if not node:
@@ -557,7 +876,10 @@ async def enrich_graph_node_with_ai(node_id: int) -> dict:
 
 
 @router.post("/nodes/{node_id}/validate-web")
-def validate_node_web(node_id: int) -> dict:
+def validate_node_web(node_id: int, response: Response) -> dict:
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Wed, 30 Sep 2026 23:59:59 GMT"
+    response.headers["Link"] = '</api/v1/graph/research-runs>; rel="successor-version"'
     settings = get_settings()
     with SessionLocal() as session:
         if _setting_value(session, "research_mode_enabled", "false") != "true":
@@ -744,6 +1066,76 @@ async def generate_connection_insight(edge_id: int) -> dict:
             False,
         )
         return {"status": "created", "insight": serialize_insight(insight)}
+
+
+@router.post("/research-runs", status_code=202)
+def start_graph_research_run() -> dict:
+    from berrybrain_api.graph_research import (
+        create_research_run,
+        serialize_research_run,
+    )
+
+    with SessionLocal() as session:
+        if _setting_value(session, "research_mode_enabled", "false") != "true":
+            raise HTTPException(
+                status_code=403,
+                detail="Research Mode is disabled in Settings.",
+            )
+        run = create_research_run(session)
+        return {"run": serialize_research_run(run)}
+
+
+@router.get("/research-runs/{run_id}")
+def get_graph_research_run(run_id: int) -> dict:
+    from berrybrain_api.graph_research import serialize_research_run
+
+    with SessionLocal() as session:
+        run = session.get(GraphResearchRunRecord, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Research run not found")
+        return {"run": serialize_research_run(run)}
+
+
+@router.post("/research-runs/{run_id}/cancel")
+def cancel_graph_research_run(run_id: int) -> dict:
+    from berrybrain_api.graph_research import (
+        cancel_research_run,
+        serialize_research_run,
+    )
+
+    with SessionLocal() as session:
+        run = cancel_research_run(session, run_id)
+        return {"run": serialize_research_run(run)}
+
+
+@router.get("/research-runs/{run_id}/results")
+def graph_research_run_results(run_id: int) -> dict:
+    from berrybrain_api.graph_research import serialize_research_result
+
+    with SessionLocal() as session:
+        run = session.get(GraphResearchRunRecord, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Research run not found")
+        results = list(
+            session.execute(
+                select(GraphResearchResultRecord)
+                .where(GraphResearchResultRecord.run_id == run_id)
+                .order_by(GraphResearchResultRecord.id.asc())
+            ).scalars()
+        )
+        return {"results": [serialize_research_result(item) for item in results]}
+
+
+@router.post("/research-runs/{run_id}/execute-internal")
+def execute_graph_research_run(run_id: int) -> dict:
+    from berrybrain_api.graph_research import (
+        execute_research_run,
+        serialize_research_run,
+    )
+
+    with SessionLocal() as session:
+        run = execute_research_run(session, run_id, get_settings().searxng_url)
+        return {"run": serialize_research_run(run)}
 
 
 @router.get("/quality-report")

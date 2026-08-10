@@ -38,11 +38,11 @@ class VaultScanTest(unittest.TestCase):
         fourth = scan_vault(self.session, self.vault_path)
 
         self.assertEqual(first["created"], 1)
-        self.assertEqual(first["jobs_created"], 14)
+        self.assertEqual(first["jobs_created"], 15)
         self.assertEqual(second["unchanged"], 1)
         self.assertEqual(second["jobs_created"], 0)
         self.assertEqual(third["updated"], 1)
-        self.assertEqual(third["jobs_created"], 14)
+        self.assertEqual(third["jobs_created"], 15)
         self.assertEqual(fourth["deleted"], 1)
         self.assertEqual(fourth["jobs_created"], 0)
 
@@ -56,8 +56,8 @@ class VaultScanTest(unittest.TestCase):
 
         self.assertEqual(remaining_notes, [])
         event_types = [payload["event_type"] for payload in payloads]
-        self.assertEqual(event_types.count("NOTE_CREATED"), 14)
-        self.assertEqual(event_types.count("NOTE_UPDATED"), 14)
+        self.assertEqual(event_types.count("NOTE_CREATED"), 15)
+        self.assertEqual(event_types.count("NOTE_UPDATED"), 15)
         self.assertEqual(event_types.count("NOTE_DELETED"), 0)
 
 

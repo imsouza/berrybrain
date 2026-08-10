@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 8
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 
 
@@ -51,6 +51,22 @@ MIGRATIONS = (
         version=6,
         name="worker-inbox-and-claim-tokens",
         description="Adds exactly-once worker terminal-message consumption per claim.",
+    ),
+    SchemaMigration(
+        version=7,
+        name="semantic-graph-runtime",
+        description=(
+            "Adds versioned job payloads, semantic graph fields, research runs, "
+            "persistent Flow sessions, and supporting indexes."
+        ),
+    ),
+    SchemaMigration(
+        version=8,
+        name="graph-pagination-and-vault-namespace",
+        description=(
+            "Adds explicit vault identity and indexes used by graph pagination "
+            "and versioned delta reads."
+        ),
     ),
 )
 
@@ -110,6 +126,95 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
 
 
 def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 8:
+        _add_columns(
+            connection,
+            "graph_nodes",
+            {"vault_id": "VARCHAR(160) NOT NULL DEFAULT 'default'"},
+        )
+        existing_tables = set(inspect(connection).get_table_names())
+        for table, column in (
+            ("graph_nodes", "vault_id"),
+            ("graph_nodes", "updated_at"),
+            ("graph_edges", "updated_at"),
+        ):
+            if table not in existing_tables:
+                continue
+            connection.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} "
+                    f"ON {table} ({column})"
+                )
+            )
+        return
+    if version == 7:
+        from berrybrain_api.models import (
+            AskSessionRecord,
+            AskTurnRecord,
+            GraphPaletteRecord,
+            GraphResearchResultRecord,
+            GraphResearchRunRecord,
+            JobAttemptRecord,
+            NodeEnrichmentVersionRecord,
+            SemanticClusterAssignmentRecord,
+            SemanticClusterRecord,
+            SemanticProfileRecord,
+            VaultVisualIdentityRecord,
+        )
+
+        for model in (
+            JobAttemptRecord,
+            SemanticProfileRecord,
+            SemanticClusterRecord,
+            SemanticClusterAssignmentRecord,
+            GraphPaletteRecord,
+            VaultVisualIdentityRecord,
+            NodeEnrichmentVersionRecord,
+            GraphResearchRunRecord,
+            GraphResearchResultRecord,
+            AskSessionRecord,
+            AskTurnRecord,
+        ):
+            model.__table__.create(bind=connection, checkfirst=True)
+        _add_columns(
+            connection,
+            "jobs",
+            {
+                "payload_schema_version": "INTEGER NOT NULL DEFAULT 1",
+            },
+        )
+        _add_columns(
+            connection,
+            "graph_nodes",
+            {
+                "semantic_state": "VARCHAR(30) NOT NULL DEFAULT 'pending'",
+                "semantic_profile_version": "INTEGER NOT NULL DEFAULT 0",
+                "cluster_id": "INTEGER",
+                "color_id": "VARCHAR(80) NOT NULL DEFAULT 'pending'",
+                "color_confidence": "FLOAT NOT NULL DEFAULT 0",
+                "color_reason": "TEXT NOT NULL DEFAULT ''",
+                "color_updated_at": "DATETIME",
+            },
+        )
+        for table, column in (
+            ("job_attempts", "job_id"),
+            ("job_attempts", "stage"),
+            ("semantic_profiles", "node_id"),
+            ("semantic_profiles", "source_fingerprint"),
+            ("semantic_clusters", "stable_key"),
+            ("semantic_cluster_assignments", "node_id"),
+            ("semantic_cluster_assignments", "cluster_id"),
+            ("graph_research_runs", "status"),
+            ("graph_research_results", "run_id"),
+            ("ask_turns", "session_id"),
+        ):
+            connection.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} "
+                    f"ON {table} ({column})"
+                )
+            )
+        return
     if version == 6:
         job_columns = {
             str(row[1])
@@ -179,6 +284,20 @@ def _apply_migration_ddl(connection: Connection, version: int) -> None:
                 f"ON model_invocations ({column})"
             )
         )
+
+
+def _add_columns(connection: Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {
+        str(row[1])
+        for row in connection.execute(text(f"PRAGMA table_info({table})")).all()
+    }
+    if not existing:
+        return
+    for name, definition in columns.items():
+        if name not in existing:
+            connection.execute(
+                text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            )
 
 
 def downgrade_schema(bind: Engine, target_version: int) -> dict[str, int]:

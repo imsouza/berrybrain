@@ -79,7 +79,7 @@ export interface WorkerStats {
 }
 
 export function workerHeartbeatStale(
-  stats: { worker?: WorkerStats; notes?: number; connections?: number; jobs?: { pending: number } } | null | undefined,
+  stats: { worker?: WorkerStats | null; notes?: number; connections?: number; jobs?: { pending: number } } | null | undefined,
   staleAfterMs = 2 * 60 * 1000,
 ): boolean {
   if (!stats || !stats.worker) return true;

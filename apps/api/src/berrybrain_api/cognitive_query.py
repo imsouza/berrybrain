@@ -381,6 +381,9 @@ def retrieve_external_kb(
     session: Session, query: str, limit: int = 8
 ) -> list[RetrievalEvidence]:
     cognitive = cognitive_config(session)
+    from berrybrain_api.ai_configuration import embedding_execution_configuration
+
+    cognitive.update(embedding_execution_configuration(session))
     store = cognitive["kb_vector_store"]
     if store == "qdrant" and cognitive["qdrant_url"]:
         try:

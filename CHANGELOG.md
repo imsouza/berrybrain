@@ -2,6 +2,66 @@
 
 All notable BerryBrain changes are documented here.
 
+## 1.3.0 - 2026-08-08
+
+### Added
+
+- Exclusive Cloud XOR Local AI configuration with provider presets, normalized model loading,
+  and explicit generation, embedding, Judge, and HippoRAG slots.
+- Persistent grounded Ask Flow with ordered evidence, isolated sessions, cancellation, and
+  graph inference continuation.
+- Global Check Online research runs with progress, cancellation, SSRF protection, untrusted
+  evidence storage, and review before promotion.
+- Semantic graph profiles, stable clusters, accessible topic colors, reserved vault namespaces,
+  pending-state styling, homonym separation, and explainable node analysis.
+- Progressive graph nodes/edges/deltas, layout worker, canvas level-of-detail, and a browser
+  stress gate for 10,000 nodes and 40,000 edges.
+- Operational HippoRAG worker integration for index, delete, reconcile, and rebuild jobs.
+
+### Changed
+
+- Enabled SQLite WAL, a 30-second busy timeout, and per-connection foreign keys so
+  authenticated reads remain available while the worker persists graph updates.
+- Preloaded the critical Settings and Graph panels after workspace hydration to keep
+  their first interaction within the release performance budget.
+- Rebuilt graph node details around evidence, provenance, Ask, analysis, review, and actions.
+- Reorganized Settings and mandatory onboarding for non-technical users while preserving
+  technical health and provider controls.
+- Graph scan now returns canonical rebuilt state instead of waiting for a delayed worker pass.
+- Note-bound jobs follow stable note IDs across renames and reject changed content, eliminating
+  false HTTP 404/provider failures.
+- Backup metadata now derives note/job counts from the exported tables and is checksum verified.
+- Updated FastAPI/HippoRAG runtime packages, PostCSS, NanoID, brace-expansion, and js-yaml to
+  close current dependency advisories.
+
+### Verification
+
+- 352 API tests plus 55 subtests, 44 Worker tests, and 7 HippoRAG tests.
+- 43 Playwright E2E checks including accessibility, mobile, public/authenticated route budgets,
+  graph workflows, onboarding, Settings, Flow, research, and 10k graph stress.
+- 5,000-node/20,000-edge API graph gate: p95 2.54 s, 11.3 MB payload, 82.1 MB peak memory.
+- Semantic Recall@10/MRR/NDCG@10 of 1.0; cognitive and insight maturity gates pass.
+- Ruff, ESLint, TypeScript, production build, architecture, security, dependency, container,
+  backup/restore, migration, SBOM, and runtime smoke gates are release requirements.
+
+## 1.2.0 - 2026-07-29
+
+### Added
+
+- Capability-based Model Router and invocation ledger for generation, embeddings, Judge, and
+  retrieval workloads.
+- Deterministic, single-model, and committee RAG Judge modes with calibration evidence.
+- Optional HippoRAG sidecar foundation and RRF retrieval across lexical, vector, and graph data.
+- Provider dropdowns with automatic endpoint presets and normalized cloud model discovery.
+- User-focused graph sidebar, Ask emphasis, expanded Settings, default local/dev owner, and
+  updated public landing/docs.
+
+### Changed
+
+- Consolidated provider health, privacy consent, provenance, and model selection in Settings.
+- Hardened release images, dependency pins, SBOM/provenance workflows, and default-owner
+  production blocking.
+
 ## 1.1.0 - 2026-07-22
 
 ### Added

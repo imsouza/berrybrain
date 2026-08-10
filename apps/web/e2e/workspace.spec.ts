@@ -40,6 +40,13 @@ async function openWorkspace(page: Page, context: BrowserContext) {
     headers: { "X-CSRF-Token": csrf },
   });
   expect(completed.ok(), await completed.text()).toBeTruthy();
+  await page.route("**/api/v1/bootstrap", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      configurationGate: { required: false, valid: true },
+    }),
+  }));
   await page.goto("/brain");
   if ((page.viewportSize()?.width || 1280) < 1024) {
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible({
@@ -138,6 +145,67 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("completes a Review today card and persists the grade", async ({ page, context }) => {
+    let submittedRating = "";
+    await page.route("**/api/v1/reviews**", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() === "POST" && url.pathname.endsWith("/reviews/901/grade")) {
+        submittedRating = String((request.postDataJSON() as { rating?: string }).rating || "");
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ review: { id: 901, intervalDays: 1, lastPerformance: submittedRating } }),
+        });
+        return;
+      }
+      if (request.method() === "GET" && url.pathname.endsWith("/reviews")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            reviews: [{
+              id: 901,
+              reviewType: "explain",
+              prompt: "Explain how notes become durable connections.",
+              expectedPoints: ["Evidence connects the source notes"],
+              evidence: [],
+              perceivedDifficulty: 0,
+              lastPerformance: "new",
+              intervalDays: 0,
+            }],
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await openWorkspace(page, context);
+    await page.getByRole("button", { name: "Review today" }).click();
+    await expect(page).toHaveURL(/\/reviews$/);
+    await expect(page.getByRole("heading", { name: "Review today" })).toBeVisible();
+    await expect(page.getByText("1 remaining")).toBeVisible();
+    await page.getByRole("button", { name: "Reveal expected points" }).click();
+    await expect(page.getByText("Evidence connects the source notes")).toBeVisible();
+    await page.getByRole("button", { name: "good", exact: true }).click();
+    await expect.poll(() => submittedRating).toBe("good");
+    await expect(page.getByText("Review complete")).toBeVisible();
+  });
+
+  test("does not report a recently active worker as offline", async ({ page, context }) => {
+    await authenticate(context);
+    const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
+      data: { jobs_processed: 0, errors: 0, ollama_healthy: true },
+    });
+    expect(heartbeat.ok(), await heartbeat.text()).toBeTruthy();
+
+    const statsLoaded = page.waitForResponse("**/api/v1/monitor/stats");
+    await openWorkspace(page, context);
+    await statsLoaded;
+    await expect(page.getByText("No worker signal. Graph processing may be stalled.")).toHaveCount(0);
+  });
+
   test("keeps quick capture local until explicit creation", async ({
     page,
     context,
@@ -186,12 +254,22 @@ test.describe("Authenticated workspace quality", () => {
     page,
     context,
   }) => {
-    let savedProvider = "";
-    await page.route("**/api/v1/settings/batch", async (route) => {
-      const payload = route.request().postDataJSON() as { values?: Record<string, string> };
-      savedProvider = payload.values?.ai_provider || "";
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
-    });
+    await page.route("**/api/v1/bootstrap", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        configurationGate: { required: true, valid: false },
+      }),
+    }));
+    await page.route("**/api/v1/ai/providers", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        providers: [
+          { id: "ollama", label: "Ollama", mode: "local", url: "http://ollama:11434" },
+        ],
+      }),
+    }));
     const csrf = await authenticate(context);
     const reset = await context.request.put("/api/v1/settings/onboarding_completed", {
       data: { value: "false" },
@@ -213,46 +291,85 @@ test.describe("Authenticated workspace quality", () => {
     });
 
     await page.goto("/brain");
-    await expect(page.getByRole("heading", { name: "Capture first, organize later." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Capture first, organize later." }),
+    ).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Skip" }).click();
-    await expect(page.getByRole("heading", { name: "Choose how BerryBrain uses AI." })).toBeVisible();
-
-    const finish = page.getByRole("button", { name: "Finish" });
-    await expect(finish).toBeDisabled();
-    await page.getByRole("button", { name: "Local", exact: true }).click();
-    await expect(page.getByLabel("Ollama model")).toHaveValue("");
-    await page.getByLabel("Ollama URL").fill("http://local-e2e-provider.invalid");
-    await page.getByLabel("Ollama model").fill("local-e2e-model");
-    await expect(finish).toBeEnabled();
-    await finish.click();
-    await expect(page.getByRole("heading", { name: "Choose how BerryBrain uses AI." })).toBeHidden();
-    expect(savedProvider).toBe("local");
+    await expect(page.getByRole("heading", { name: "Mode" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Local / Ollama" })).toBeVisible();
   });
 
   test("loads cloud models from provider presets during setup", async ({
     page,
     context,
   }) => {
-    let savedValues: Record<string, string> = {};
-    await page.route("**/api/v1/settings/batch", async (route) => {
-      const payload = route.request().postDataJSON() as { values?: Record<string, string> };
-      savedValues = payload.values || {};
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
-    });
-    await page.route("**/api/v1/settings/ai/models", async (route) => {
-      const payload = route.request().postDataJSON() as { url?: string; key?: string; model?: string };
-      expect(payload.url).toBe("https://integrate.api.nvidia.com/v1");
-      expect(payload.key).toBe("cloud-e2e-key");
-      expect(payload.model || "").toBe("");
+    let savedConfiguration: {
+      mode?: string;
+      endpoint_url?: string;
+      main?: { model_id?: string };
+      judge?: { model_id?: string };
+    } = {};
+    let configured = false;
+    await page.route("**/api/v1/bootstrap", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        configurationGate: {
+          required: !configured,
+          valid: configured,
+        },
+      }),
+    }));
+    await page.route("**/api/v1/ai/providers", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        providers: [
+          { id: "ollama", label: "Ollama", mode: "local", url: "http://ollama:11434" },
+          { id: "nvidia-nim", label: "NVIDIA NIM", mode: "cloud", url: "https://integrate.api.nvidia.com/v1" },
+        ],
+      }),
+    }));
+    await page.route("**/api/v1/ai/providers/nvidia-nim/models", async (route) => {
+      const payload = route.request().postDataJSON() as { endpoint_url?: string; api_key?: string };
+      expect(payload.endpoint_url).toBe("https://integrate.api.nvidia.com/v1");
+      expect(payload.api_key).toBe("cloud-e2e-key");
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          connected: false,
-          requiresModel: true,
-          provider: "nvidia-nim",
           models: [{ id: "nvidia/e2e-model-a" }, { id: "nvidia/e2e-model-b" }],
-          error: "Models loaded. Select a model to verify generation access.",
+        }),
+      });
+    });
+    await page.route("**/api/v1/ai/configuration/validate", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        valid: true,
+        capabilitySnapshot: {
+          chat: true,
+          embeddings: true,
+          structuredOutput: true,
+        },
+      }),
+    }));
+    await page.route("**/api/v1/ai/configuration", async (route) => {
+      if (route.request().method() !== "PUT") {
+        await route.continue();
+        return;
+      }
+      const payload = route.request().postDataJSON() as {
+        configuration?: typeof savedConfiguration;
+      };
+      savedConfiguration = payload.configuration || {};
+      configured = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          configurationGate: { required: false, valid: true },
         }),
       });
     });
@@ -277,21 +394,56 @@ test.describe("Authenticated workspace quality", () => {
     });
 
     await page.goto("/brain");
+    await expect(
+      page.getByRole("heading", { name: "Capture first, organize later." }),
+    ).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Skip" }).click();
-    await page.getByRole("button", { name: "Cloud API" }).click();
-    await page.getByLabel("Cloud provider").selectOption("nvidia-nim");
-    await expect(page.getByLabel("NVIDIA NIM URL")).toHaveValue("https://integrate.api.nvidia.com/v1");
-    await page.getByLabel("API key").fill("cloud-e2e-key");
+    await page.getByRole("button", {
+      name: "Cloud Models run through one cloud provider.",
+      exact: true,
+    }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("combobox", { name: /Provider/ }).selectOption("nvidia-nim");
+    await expect(page.getByRole("textbox", { name: "Provider URL" })).toHaveValue("https://integrate.api.nvidia.com/v1");
+    await page.getByRole("textbox", { name: "API key" }).fill("cloud-e2e-key");
     await page.getByRole("button", { name: "Load models" }).click();
-    await expect(page.getByLabel("Model")).toContainText("nvidia/e2e-model-a");
-    await page.getByLabel("Model").selectOption("nvidia/e2e-model-a");
+    await expect(page.getByText("2 models available.")).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    for (const label of ["Main model", "Embeddings", "Judge", "HippoRAG"]) {
+      await page.getByRole("combobox", { name: label, exact: true }).fill("nvidia/e2e-model-a");
+      await page.getByRole("button", { name: "Continue" }).click();
+    }
+    await page.getByRole("button", { name: "Run compatibility tests" }).click();
+    await page.getByRole("button", { name: "Finish setup" }).click();
 
-    const finish = page.getByRole("button", { name: "Finish" });
-    await expect(finish).toBeEnabled();
-    await finish.click();
-    expect(savedValues.ai_provider).toBe("cloud");
-    expect(savedValues.ai_api_url).toBe("https://integrate.api.nvidia.com/v1");
-    expect(savedValues.ai_model).toBe("nvidia/e2e-model-a");
+    expect(savedConfiguration.mode).toBe("cloud");
+    expect(savedConfiguration.endpoint_url).toBe("https://integrate.api.nvidia.com/v1");
+    expect(savedConfiguration.main?.model_id).toBe("nvidia/e2e-model-a");
+    expect(savedConfiguration.judge?.model_id).toBe("nvidia/e2e-model-a");
+  });
+
+  test("answers from the home Ask modal without leaving the workspace", async ({ page, context }) => {
+    await page.route("**/api/v1/graph/infer", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "answered",
+        question: "How do my deployment notes connect?",
+        answer: "Your deployment notes connect through automation evidence.",
+        evidence: [{ title: "Deployment", text: "Automation keeps releases repeatable." }],
+        relatedNodes: [],
+        inferenceId: "home-ask-e2e",
+      }),
+    }));
+    await openWorkspace(page, context);
+    const question = "How do my deployment notes connect?";
+    await page.getByRole("textbox", { name: "Ask BerryBrain" }).fill(question);
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Ask BerryBrain" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByPlaceholder(/ask your graph/i)).toHaveValue(question);
+    await expect(dialog.getByText("Your deployment notes connect through automation evidence.")).toBeVisible();
+    await expect(page).toHaveURL(/\/brain$/);
   });
 
   test("supports the main keyboard workflow", async ({ page, context }) => {
@@ -320,8 +472,7 @@ test.describe("Authenticated workspace quality", () => {
   test("shows functional note actions above the editor toolbar", async ({ page, context }) => {
     await openWorkspace(page, context);
     await mockCreatedNote(page, "Action note", "actions");
-    await page.keyboard.press("Control+KeyK");
-    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "New note", exact: true }).first().click();
     await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();
 
     await page.getByRole("button", { name: "More actions" }).click();
@@ -437,9 +588,16 @@ test.describe("Authenticated workspace quality", () => {
     page,
     context,
   }) => {
-    let graphLoads = 0;
+    let graphRefreshes = 0;
     page.on("request", (request) => {
-      if (new URL(request.url()).pathname === "/api/v1/graph") graphLoads += 1;
+      const pathname = new URL(request.url()).pathname;
+      if (
+        pathname.endsWith("/api/v1/graph/summary")
+        || pathname.endsWith("/api/v1/graph/nodes")
+        || pathname.endsWith("/api/v1/graph/delta")
+      ) {
+        graphRefreshes += 1;
+      }
     });
     await page.route("**/api/v1/graph/infer", (route) =>
       route.fulfill({
@@ -478,9 +636,9 @@ test.describe("Authenticated workspace quality", () => {
     );
     await ask.click();
     await expect(page.getByText("Automation makes deployment repeatable.")).toBeVisible();
-    const graphLoadsBeforeSave = graphLoads;
+    const graphRefreshesBeforeSave = graphRefreshes;
     await page.getByRole("button", { name: "Create insight" }).click();
     await expect(page.getByRole("button", { name: "Insight created" })).toBeVisible();
-    await expect.poll(() => graphLoads).toBeGreaterThan(graphLoadsBeforeSave);
+    await expect.poll(() => graphRefreshes).toBeGreaterThan(graphRefreshesBeforeSave);
   });
 });

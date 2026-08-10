@@ -1,19 +1,65 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
-import {
-  CLOUD_PROVIDER_PRESETS,
-  normalizeModelIds,
-  providerLabelForUrl,
-} from "@/lib/cloud-providers";
 
 type ThemeKind = "light" | "dark";
 
+const SETTINGS_AREAS = [
+  "General",
+  "AI & execution",
+  "Main provider",
+  "Agents",
+  "Judge",
+  "HippoRAG",
+  "Embeddings & KB",
+  "Knowledge Graph",
+  "Jobs & Worker",
+  "Storage & vaults",
+  "Performance",
+  "Monitoring",
+  "Security & data",
+  "Maintenance",
+] as const;
+type SettingsArea = (typeof SETTINGS_AREAS)[number];
+const SettingsFilterContext = createContext<{
+  area: SettingsArea;
+  query: string;
+}>({ area: "General", query: "" });
+
+const SECTION_AREAS: Record<string, SettingsArea[]> = {
+  "Setup assistant": ["General", "Monitoring"],
+  Appearance: ["General"],
+  Font: ["General"],
+  Editor: ["General"],
+  "Attachment processing": ["General"],
+  "AI / Provider": ["AI & execution"],
+  "Cloud AI": ["Main provider"],
+  "Cognitive Layer": [
+    "Agents",
+    "Judge",
+    "HippoRAG",
+    "Embeddings & KB",
+    "Knowledge Graph",
+  ],
+  Local: ["Main provider"],
+  Saving: ["General"],
+  Maintenance: ["Maintenance"],
+  Diagnostics: ["Jobs & Worker", "Performance", "Monitoring"],
+  "Danger zone": ["Storage & vaults", "Security & data"],
+};
+
 const THEME_PRESETS: Record<ThemeKind, { bg: string; fg: string; mu: string; pn: string; bd: string }> = {
-  light: { bg: "#F7F6F3", fg: "#1A1A1A", mu: "#6B6B6B", pn: "#FFFFFF", bd: "#E0E0E0" },
-  dark: { bg: "#121212", fg: "#E8E8E8", mu: "#9A9A9A", pn: "#1E1E1E", bd: "#333333" },
+  light: { bg: "#FAF8F5", fg: "#1D1B18", mu: "#5C5C5C", pn: "#FFFFFF", bd: "#E4E0D8" },
+  dark: { bg: "#121212", fg: "#E8E8E8", mu: "#B5AFA7", pn: "#1D1B19", bd: "#393530" },
 };
 
 const UI_FONTS: Record<string, string> = {
@@ -22,7 +68,7 @@ const UI_FONTS: Record<string, string> = {
 };
 
 const EDITOR_FONTS: Record<string, string> = {
-  mono: '"JetBrains Mono", "Fira Code", ui-monospace, monospace',
+  mono: '"Geist Mono", "JetBrains Mono", ui-monospace, monospace',
   sans: "ui-sans-serif, system-ui, sans-serif",
 };
 
@@ -75,9 +121,11 @@ type Settings = {
   attachment_transcription_model: string;
   judge_provider: string;
   judge_model: string;
+  judge_enabled: "true" | "false";
   hipporag_provider: string;
   hipporag_model: string;
   hipporag_enabled: "true" | "false";
+  automatic_vault_organization: "true" | "false";
 };
 
 type AiProviderStatus = {
@@ -98,6 +146,18 @@ type AiProviderStatus = {
   lastError?: string;
 };
 
+type StaleRunningJob = {
+  id: string | number;
+  type: string;
+  started_at?: string | null;
+};
+
+type JobDiagnostics = {
+  staleRunning: StaleRunningJob[];
+  failedByType: Record<string, number>;
+  status: string;
+};
+
 function defaults(): Settings {
   return {
     theme: "light",
@@ -106,7 +166,7 @@ function defaults(): Settings {
     editor_font_size: "15",
     ui_font: "inter",
     editor_font: "mono",
-    nome: "Owner",
+    nome: "",
     ai_provider: "local",
     ai_api_url: NVIDIA_NIM_URL,
     ai_custom_url: "",
@@ -144,15 +204,40 @@ function defaults(): Settings {
     attachment_transcription_model: "small",
     judge_provider: "",
     judge_model: "",
+    judge_enabled: "true",
     hipporag_provider: "",
     hipporag_model: "",
-    hipporag_enabled: "false",
+    hipporag_enabled: "true",
+    automatic_vault_organization: "true",
   };
 }
 
 function loadSettings(): Settings {
   if (typeof window === "undefined") return defaults();
   const d = defaults();
+  [
+    "ai_provider",
+    "ai_api_url",
+    "ai_custom_url",
+    "ai_api_key",
+    "ai_model",
+    "graph_ai_provider",
+    "graph_ai_api_url",
+    "graph_ai_api_key",
+    "graph_ai_model",
+    "ollama_base_url",
+    "graph_ollama_model",
+    "kb_embedding_provider",
+    "kb_embedding_model",
+    "judge_provider",
+    "judge_model",
+    "judge_enabled",
+    "hipporag_provider",
+    "hipporag_model",
+    "hipporag_enabled",
+    "automatic_vault_organization",
+    "remote_content_consent",
+  ].forEach((key) => localStorage.removeItem(`bb_${key}`));
   return {
     theme: (localStorage.getItem("bb_theme") as ThemeKind) || d.theme,
     lang: "en",
@@ -161,22 +246,22 @@ function loadSettings(): Settings {
     ui_font: localStorage.getItem("bb_ui_font") || d.ui_font,
     editor_font: localStorage.getItem("bb_editor_font") || d.editor_font,
     nome: localStorage.getItem("bb_nome") || d.nome,
-    ai_provider: (localStorage.getItem("bb_ai_provider") as Settings["ai_provider"]) || d.ai_provider,
-    ai_api_url: localStorage.getItem("bb_ai_api_url") || d.ai_api_url,
-    ai_custom_url: localStorage.getItem("bb_ai_custom_url") || d.ai_custom_url,
+    ai_provider: d.ai_provider,
+    ai_api_url: d.ai_api_url,
+    ai_custom_url: d.ai_custom_url,
     ai_api_key: d.ai_api_key,
-    ai_model: localStorage.getItem("bb_ai_model") || d.ai_model,
-    graph_ai_provider: (localStorage.getItem("bb_graph_ai_provider") as Settings["graph_ai_provider"]) || d.graph_ai_provider,
-    graph_ai_api_url: localStorage.getItem("bb_graph_ai_api_url") || d.graph_ai_api_url,
+    ai_model: d.ai_model,
+    graph_ai_provider: d.graph_ai_provider,
+    graph_ai_api_url: d.graph_ai_api_url,
     graph_ai_api_key: d.graph_ai_api_key,
-    graph_ai_model: localStorage.getItem("bb_graph_ai_model") || d.graph_ai_model,
-    ollama_base_url: localStorage.getItem("bb_ollama_base_url") || d.ollama_base_url,
-    graph_ollama_model: localStorage.getItem("bb_graph_ollama_model") || d.graph_ollama_model,
+    graph_ai_model: d.graph_ai_model,
+    ollama_base_url: d.ollama_base_url,
+    graph_ollama_model: d.graph_ollama_model,
     graph_auto_confirm_confidence: localStorage.getItem("bb_graph_auto_confirm_confidence") || d.graph_auto_confirm_confidence,
     graph_default_layout: (localStorage.getItem("bb_graph_default_layout") as Settings["graph_default_layout"]) || d.graph_default_layout,
     kb_vector_store: (localStorage.getItem("bb_kb_vector_store") as Settings["kb_vector_store"]) || d.kb_vector_store,
-    kb_embedding_provider: (localStorage.getItem("bb_kb_embedding_provider") as Settings["kb_embedding_provider"]) || d.kb_embedding_provider,
-    kb_embedding_model: localStorage.getItem("bb_kb_embedding_model") || d.kb_embedding_model,
+    kb_embedding_provider: d.kb_embedding_provider,
+    kb_embedding_model: d.kb_embedding_model,
     kb_chunk_size: localStorage.getItem("bb_kb_chunk_size") || d.kb_chunk_size,
     kb_chunk_overlap: localStorage.getItem("bb_kb_chunk_overlap") || d.kb_chunk_overlap,
     qdrant_url: localStorage.getItem("bb_qdrant_url") || d.qdrant_url,
@@ -188,7 +273,7 @@ function loadSettings(): Settings {
     cognitive_enrich_on_save: (localStorage.getItem("bb_cognitive_enrich_on_save") as Settings["cognitive_enrich_on_save"]) || d.cognitive_enrich_on_save,
     cognitive_insights_on_save: (localStorage.getItem("bb_cognitive_insights_on_save") as Settings["cognitive_insights_on_save"]) || d.cognitive_insights_on_save,
     research_mode_enabled: (localStorage.getItem("bb_research_mode_enabled") as Settings["research_mode_enabled"]) || d.research_mode_enabled,
-    remote_content_consent: (localStorage.getItem("bb_remote_content_consent") as Settings["remote_content_consent"]) || d.remote_content_consent,
+    remote_content_consent: d.remote_content_consent,
     attachment_image_limit_mb: localStorage.getItem("bb_attachment_image_limit_mb") || d.attachment_image_limit_mb,
     attachment_video_limit_mb: localStorage.getItem("bb_attachment_video_limit_mb") || d.attachment_video_limit_mb,
     attachment_audio_limit_mb: localStorage.getItem("bb_attachment_audio_limit_mb") || d.attachment_audio_limit_mb,
@@ -196,11 +281,13 @@ function loadSettings(): Settings {
     attachment_ocr_language: localStorage.getItem("bb_attachment_ocr_language") || d.attachment_ocr_language,
     attachment_transcription_executable: (localStorage.getItem("bb_attachment_transcription_executable") as Settings["attachment_transcription_executable"]) || d.attachment_transcription_executable,
     attachment_transcription_model: localStorage.getItem("bb_attachment_transcription_model") || d.attachment_transcription_model,
-    judge_provider: localStorage.getItem("bb_judge_provider") || d.judge_provider,
-    judge_model: localStorage.getItem("bb_judge_model") || d.judge_model,
-    hipporag_provider: localStorage.getItem("bb_hipporag_provider") || d.hipporag_provider,
-    hipporag_model: localStorage.getItem("bb_hipporag_model") || d.hipporag_model,
-    hipporag_enabled: (localStorage.getItem("bb_hipporag_enabled") as Settings["hipporag_enabled"]) || d.hipporag_enabled,
+    judge_provider: d.judge_provider,
+    judge_model: d.judge_model,
+    judge_enabled: d.judge_enabled,
+    hipporag_provider: d.hipporag_provider,
+    hipporag_model: d.hipporag_model,
+    hipporag_enabled: d.hipporag_enabled,
+    automatic_vault_organization: d.automatic_vault_organization,
   };
 }
 
@@ -213,10 +300,12 @@ function applyTheme(s: Settings) {
   r.style.setProperty("--color-muted", p.mu);
   r.style.setProperty("--color-panel", p.pn);
   r.style.setProperty("--color-border", p.bd);
-  r.style.setProperty("--color-accent", "#96B55C");
-  r.style.setProperty("--color-brand-green", "#96B55C");
-  r.style.setProperty("--color-brand-red", "#CC4168");
-  r.style.setProperty("--color-danger", "#CC4168");
+  r.style.setProperty("--color-accent", "#BF1755");
+  r.style.setProperty("--color-accent-hover", s.theme === "dark" ? "#E67592" : "#B33654");
+  r.style.setProperty("--color-accent-soft", s.theme === "dark" ? "#422631" : "#E8D5DA");
+  r.style.setProperty("--color-brand-green", "#83A637");
+  r.style.setProperty("--color-brand-red", "#BF1755");
+  r.style.setProperty("--color-danger", "#BF1755");
   r.style.setProperty("--font-ui", UI_FONTS[s.ui_font] || UI_FONTS.inter);
   r.style.setProperty("--font-editor", EDITOR_FONTS[s.editor_font] || EDITOR_FONTS.mono);
   document.body.style.fontSize = `${s.font_size}px`;
@@ -237,22 +326,9 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "ui_font",
   "editor_font",
   "nome",
-  "ai_provider",
-  "ai_api_url",
-  "ai_custom_url",
-  "ai_api_key",
-  "ai_model",
-  "graph_ai_provider",
-  "graph_ai_api_url",
-  "graph_ai_api_key",
-  "graph_ai_model",
-  "ollama_base_url",
-  "graph_ollama_model",
   "graph_auto_confirm_confidence",
   "graph_default_layout",
   "kb_vector_store",
-  "kb_embedding_provider",
-  "kb_embedding_model",
   "kb_chunk_size",
   "kb_chunk_overlap",
   "qdrant_url",
@@ -264,7 +340,9 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "cognitive_enrich_on_save",
   "cognitive_insights_on_save",
   "research_mode_enabled",
-  "remote_content_consent",
+  "judge_enabled",
+  "hipporag_enabled",
+  "automatic_vault_organization",
   "attachment_image_limit_mb",
   "attachment_video_limit_mb",
   "attachment_audio_limit_mb",
@@ -274,46 +352,31 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "attachment_transcription_model",
 ];
 
-const SECRET_SETTING_KEYS = new Set<keyof Settings>(["ai_api_key", "graph_ai_api_key"]);
-
 export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClose: () => void; apiUrl: string }) {
   const [s, setS] = useState<Settings>(loadSettings);
   const editedRef = useRef(false);
-  const providerChoiceRef = useRef<Settings["ai_provider"] | null>(null);
-  const cloudConnectionEditedRef = useRef(false);
-  const cloudConnectionVerifiedRef = useRef(false);
-  const cloudTestRevisionRef = useRef("");
   const [saving, setSaving] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  const [graphApiKeyConfigured, setGraphApiKeyConfigured] = useState(false);
   const [providerStatus, setProviderStatus] = useState<AiProviderStatus | null>(null);
-  const [cloudModels, setCloudModels] = useState<{ id: string }[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState("");
   const [maintenanceStatus, setMaintenanceStatus] = useState("");
-  const [diagnostics, setDiagnostics] = useState<{ staleRunning: any[]; failedByType: Record<string, number>; status: string } | null>(null);
+  const [diagnostics, setDiagnostics] = useState<JobDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagClearing, setDiagClearing] = useState(false);
   const [diagClearResult, setDiagClearResult] = useState("");
+  const [activeArea, setActiveAreaState] = useState<SettingsArea>("General");
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [dirtyAreas, setDirtyAreas] = useState<Set<SettingsArea>>(new Set());
 
-  const selectedProviderLabel = useMemo(() => providerLabelForUrl(s.ai_api_url || s.ai_custom_url), [s.ai_api_url, s.ai_custom_url]);
   const setupItems = useMemo(() => {
-    const baseUrl = Boolean((s.ai_api_url || s.ai_custom_url).trim());
-    const cloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
-    const cloudModel = Boolean(s.ai_model.trim());
-    const localReady = Boolean(s.ollama_base_url.trim() && s.graph_ollama_model.trim());
-    const cloudReady = baseUrl && cloudKey && cloudModel && s.remote_content_consent === "true";
     return [
       {
         title: "Ask and graph AI",
-        ready: s.ai_provider === "cloud" ? cloudReady : localReady,
-        detail: s.ai_provider === "cloud"
-          ? "Cloud mode needs URL, key, model, and consent."
-          : "Local mode needs Ollama URL and an installed graph model.",
+        ready: providerStatus?.state === "connected",
+        detail: providerStatus?.state === "connected"
+          ? `${providerStatus.provider} is validated.`
+          : "Complete unified AI setup and validate all model slots.",
       },
       {
         title: "Knowledge search",
@@ -331,15 +394,18 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         detail: "Optional. Enables node validation with external web sources.",
       },
     ];
-  }, [apiKeyConfigured, s]);
+  }, [providerStatus, s]);
 
   useEffect(() => {
     if (!open) return;
     editedRef.current = false;
-    providerChoiceRef.current = null;
-    cloudConnectionEditedRef.current = false;
-    cloudConnectionVerifiedRef.current = false;
-    cloudTestRevisionRef.current = "";
+    setDirtyAreas(new Set());
+    const areaFromHash = new URLSearchParams(window.location.hash.slice(1)).get(
+      "settings",
+    );
+    if (SETTINGS_AREAS.includes(areaFromHash as SettingsArea)) {
+      setActiveAreaState(areaFromHash as SettingsArea);
+    }
     setSaveStatus("");
     if (apiUrl === "__demo__") {
       setIsAdmin(false);
@@ -363,15 +429,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             const loaded: Partial<Settings> = {};
             for (const item of d.settings || []) {
               const key = String(item.key) as keyof Settings;
-              if (key === "ai_api_key") setApiKeyConfigured(Boolean(item.configured));
-              else if (key === "graph_ai_api_key") setGraphApiKeyConfigured(Boolean(item.configured));
-              else if (SETTING_KEYS.includes(key)) (loaded as Record<string, string>)[key] = item.value;
+              if (SETTING_KEYS.includes(key)) (loaded as Record<string, string>)[key] = item.value;
             }
             if (!cancelled && !editedRef.current) setS((prev) => ({ ...prev, ...loaded, lang: "en" }));
             if (statusResponse.ok && !cancelled) {
               const status = await statusResponse.json();
               setProviderStatus(status);
-              cloudConnectionVerifiedRef.current = status.lastTestStatus === "connected";
             }
           });
       })
@@ -395,30 +458,17 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setDiagLoading(true);
     fetch(`${apiUrl}/api/v1/jobs/health`)
       .then((r) => r.json())
-      .then((d) => setDiagnostics({ staleRunning: d.staleRunning || [], failedByType: d.failedByType || {}, status: d.status || "unknown" }))
+      .then((d: Partial<JobDiagnostics>) => setDiagnostics({ staleRunning: d.staleRunning || [], failedByType: d.failedByType || {}, status: d.status || "unknown" }))
       .catch(() => setDiagnostics(null))
       .finally(() => setDiagLoading(false));
   }, [open, apiUrl]);
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     editedRef.current = true;
+    setDirtyAreas((current) => new Set(current).add(activeArea));
     setSaveStatus("");
-    if (["ai_api_url", "ai_custom_url", "ai_api_key", "ai_model"].includes(String(key))) {
-      cloudConnectionEditedRef.current = true;
-      cloudConnectionVerifiedRef.current = false;
-      cloudTestRevisionRef.current = "";
-    }
     setS((previous) => {
       const next: Settings = { ...previous, [key]: value, lang: "en" };
-      if (key === "ai_api_key" && String(value)) next.graph_ai_api_key = String(value);
-      if (key === "ai_provider") {
-        providerChoiceRef.current = value as Settings["ai_provider"];
-        next.graph_ai_provider = value as Settings["graph_ai_provider"];
-        if (value === "local") next.remote_content_consent = "false";
-      }
-      if (key === "ai_model" && (!previous.graph_ai_model || previous.graph_ai_model === previous.ai_model)) next.graph_ai_model = String(value);
-      if (key === "ai_api_url" && (!previous.graph_ai_api_url || previous.graph_ai_api_url === previous.ai_api_url)) next.graph_ai_api_url = String(value);
-      if (key === "ai_custom_url" && !previous.ai_api_url) next.graph_ai_api_url = String(value);
       if (["theme", "font_size", "ui_font", "editor_font"].includes(String(key))) applyTheme(next);
       return next;
     });
@@ -433,16 +483,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   async function persist(next = s) {
     const values: Record<string, string> = {};
     SETTING_KEYS.forEach((key) => {
-      if (SECRET_SETTING_KEYS.has(key)) localStorage.removeItem(`bb_${key}`);
-      else localStorage.setItem(`bb_${key}`, String(next[key]));
-      if (!SECRET_SETTING_KEYS.has(key) || String(next[key]).trim()) values[key] = String(next[key]);
+      localStorage.setItem(`bb_${key}`, String(next[key]));
+      values[key] = String(next[key]);
     });
     if (!isAdmin || apiUrl === "__demo__") return;
     const response = await fetch(`${apiUrl}/api/v1/settings/batch`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
       credentials: "include",
-      body: JSON.stringify({ values, aiTestRevision: cloudTestRevisionRef.current }),
+      body: JSON.stringify({ values, aiTestRevision: "" }),
     });
     if (!response.ok) throw new Error("Settings could not be saved.");
   }
@@ -451,130 +500,17 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaving(true);
     setSaveStatus("");
     try {
-      const baseUrl = (s.ai_api_url || s.ai_custom_url).trim();
-      const hasCloudKey = Boolean(s.ai_api_key.trim()) || apiKeyConfigured;
-      const hasCloudModel = Boolean(s.ai_model.trim());
-      const wantsCloud = s.ai_provider === "cloud";
-      let next = s;
-
-      if (wantsCloud && (!baseUrl || !hasCloudKey || !hasCloudModel)) {
-        setSaveStatus("Cloud setup is incomplete. Add an API URL, API key, and model before saving.");
-        return;
-      }
-
-      const needsConsent = wantsCloud && s.remote_content_consent !== "true";
-      if (needsConsent) {
-        const confirmed = window.confirm(
-          `Enable ${selectedProviderLabel} processing?\n\nBerryBrain will send note, attachment, and graph content to the configured cloud API for AI processing. This consent is saved and will not be requested again unless cloud processing is disabled.`,
-        );
-        if (!confirmed) {
-          setSaveStatus("Save cancelled. Cloud AI was not enabled.");
-          return;
-        }
-        next = {
-          ...s,
-          ai_provider: "cloud",
-          graph_ai_provider: "cloud",
-          graph_ai_api_url: baseUrl,
-          graph_ai_model: s.graph_ai_model || s.ai_model,
-          remote_content_consent: "true",
-        };
-      }
-
-      const needsConnectionTest = wantsCloud && !cloudConnectionVerifiedRef.current && (
-        needsConsent || cloudConnectionEditedRef.current || providerStatus?.lastTestStatus !== "connected"
-      );
-      if (needsConnectionTest && !(await testCloudConnection(next, false))) return;
-
-      await persist(next);
-      applyTheme(next);
-      if (next.ai_api_key) setApiKeyConfigured(true);
-      if (next.graph_ai_api_key) setGraphApiKeyConfigured(true);
-      setS({ ...next, ai_api_key: "", graph_ai_api_key: "" });
+      await persist(s);
+      applyTheme(s);
       editedRef.current = false;
-      providerChoiceRef.current = null;
-      cloudConnectionEditedRef.current = false;
-      cloudTestRevisionRef.current = "";
-      setSaveStatus(wantsCloud ? `Settings saved. ${selectedProviderLabel} is active.` : "Settings saved.");
+      setDirtyAreas(new Set());
+      setSaveStatus("Settings saved.");
       await refreshProviderStatus();
     } catch (error) {
       setSaveStatus(error instanceof Error ? error.message : "Settings could not be saved.");
     } finally {
       setSaving(false);
     }
-  }
-
-  async function fetchModels() {
-    await testCloudConnection(s, true);
-  }
-
-  async function testCloudConnection(next: Settings, announceSuccess: boolean): Promise<boolean> {
-    if (apiUrl === "__demo__") {
-      setConnectionStatus("Provider testing is disabled in demo mode.");
-      return false;
-    }
-    const baseUrl = next.ai_api_url || next.ai_custom_url;
-    setLoadingModels(true);
-    setConnectionStatus("");
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/settings/ai/models`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
-        body: JSON.stringify({ url: baseUrl, key: next.ai_api_key, model: next.ai_model }),
-      });
-      const payload = await response.json();
-      const models = normalizeModelIds(payload.models).map((id) => ({ id }));
-      if (!response.ok || !payload.connected) {
-        setCloudModels(models);
-        if (payload.requiresModel) {
-          setConnectionStatus(payload.error || "Models loaded. Select a model, then test again.");
-          setSaveStatus("");
-          return false;
-        }
-        setConnectionStatus(`Connection failed: ${payload.error || payload.detail || "Provider unavailable."}`);
-        setSaveStatus("Settings were not saved because the cloud connection could not be verified.");
-        return false;
-      } else {
-        setCloudModels(models);
-        const latency = payload.latencyMs ? ` (${payload.latencyMs} ms)` : "";
-        if (announceSuccess) {
-          setConnectionStatus(models.length ? `Connection verified${latency}. Select a model, then click Save to activate it.` : `Connection verified${latency}, but no models were returned.`);
-        }
-        await refreshProviderStatus();
-        cloudConnectionVerifiedRef.current = true;
-        cloudTestRevisionRef.current = String(payload.keyRevision || "");
-        return true;
-      }
-    } catch (error: any) {
-      setCloudModels([]);
-      setConnectionStatus(`Connection failed: ${error.message}`);
-      setSaveStatus("Settings were not saved because the cloud connection could not be verified.");
-      return false;
-    } finally {
-      setLoadingModels(false);
-    }
-  }
-
-  async function clearCloudKey() {
-    if (!window.confirm("Clear the saved cloud API key? AI cloud processing will stop until a new key is configured.")) return;
-    const response = await fetch(`${apiUrl}/api/v1/settings/ai/key`, {
-      method: "DELETE",
-      credentials: "include",
-      headers: { "X-CSRF-Token": readCsrf() },
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      setConnectionStatus(payload.detail || "The API key could not be cleared.");
-      return;
-    }
-    setApiKeyConfigured(false);
-    setGraphApiKeyConfigured(false);
-    cloudConnectionVerifiedRef.current = false;
-    setS((previous) => ({ ...previous, ai_api_key: "", graph_ai_api_key: "" }));
-    setCloudModels([]);
-    setConnectionStatus("Cloud API key cleared.");
-    await refreshProviderStatus();
   }
 
   function preserveLocalSettings() {
@@ -599,7 +535,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   async function wipeAll(resetSettings: boolean) {
     if (apiUrl === "__demo__") {
-      setConnectionStatus("Danger Zone actions are disabled in demo mode.");
+      setSaveStatus("Danger Zone actions are disabled in demo mode.");
       return;
     }
     const label = resetSettings
@@ -609,7 +545,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       `${label}?\n\nThis deletes notes, graph, embeddings, insights, jobs, notifications and vault files. This cannot be undone.`,
     );
     if (!confirmed) return;
-    setConnectionStatus("Wiping BerryBrain data...");
+    setSaveStatus("Wiping BerryBrain data...");
     const response = await fetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -617,12 +553,12 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setConnectionStatus(payload.detail || "Wipe failed.");
+      setSaveStatus(payload.detail || "Wipe failed.");
       return;
     }
     if (resetSettings) resetLocalSettings();
     else preserveLocalSettings();
-    setConnectionStatus(resetSettings ? "Everything wiped. Settings reset. Reloading..." : "Everything wiped. Settings preserved. Reloading...");
+    setSaveStatus(resetSettings ? "Everything wiped. Settings reset. Reloading..." : "Everything wiped. Settings preserved. Reloading...");
     window.setTimeout(() => window.location.reload(), 700);
   }
 
@@ -657,6 +593,44 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     }
   }
 
+  async function prepareSemanticGraph() {
+    if (apiUrl === "__demo__") {
+      setMaintenanceStatus("Maintenance actions are disabled in demo mode.");
+      return;
+    }
+    setMaintenanceStatus("Inspecting semantic graph migration...");
+    const previewResponse = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: true, batch_size: 100 }),
+    });
+    const preview = await previewResponse.json().catch(() => ({}));
+    if (!previewResponse.ok) {
+      setMaintenanceStatus(preview.detail || "Semantic graph inspection failed.");
+      return;
+    }
+    const summary = preview.clusterPreview || {};
+    const confirmed = window.confirm(
+      `Prepare semantic graph?\n\n${summary.nodeCount || 0} nodes inspected, ${summary.clusterCount || 0} clusters proposed, ${summary.unresolvedCount || 0} unresolved. Processing is bounded to 100 items per run.`,
+    );
+    if (!confirmed) {
+      setMaintenanceStatus("Semantic graph preparation cancelled after dry run.");
+      return;
+    }
+    setMaintenanceStatus("Preparing semantic graph...");
+    const response = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: false, confirm: true, batch_size: 100 }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMaintenanceStatus(
+      response.ok
+        ? `Semantic graph prepared. ${result.enrichmentQueued || 0} analyses queued; ${result.clusterAssignmentsUpdated || 0} color assignments updated.`
+        : result.detail || "Semantic graph preparation failed.",
+    );
+  }
+
   async function clearStuckJobs() {
     if (apiUrl === "__demo__") {
       setDiagClearResult("Diagnostics are disabled in demo mode.");
@@ -676,19 +650,74 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   if (!open) return null;
 
+  function setActiveArea(area: SettingsArea) {
+    setActiveAreaState(area);
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    params.set("settings", area);
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${window.location.search}#${params}`,
+    );
+  }
+
+  function requestClose() {
+    if (
+      dirtyAreas.size > 0 &&
+      !window.confirm("Discard unsaved settings changes?")
+    ) {
+      return;
+    }
+    onClose();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={requestClose} />
       <div className="bb-card bb-card--elevated relative z-50 w-full max-w-[94vw] overflow-hidden text-foreground sm:w-[860px]" role="dialog" aria-label="Settings">
         <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold tracking-tight">Settings</h2>
             <p className="mt-0.5 text-xs text-muted/70">Configure appearance, editor, AI providers, and saving behavior.</p>
           </div>
-          <button className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-foreground" onClick={onClose} aria-label="Close settings">x</button>
+          <button className="rounded-md p-1.5 text-muted hover:bg-surface hover:text-foreground" onClick={requestClose} aria-label="Close settings">x</button>
         </div>
 
-        <div className="max-h-[72vh] space-y-5 overflow-y-auto px-6 py-5">
+        <div className="grid max-h-[72vh] min-h-[32rem] grid-cols-1 overflow-hidden sm:grid-cols-[13rem_minmax(0,1fr)]">
+          <nav className="overflow-y-auto border-b border-border bg-background/50 p-3 sm:border-b-0 sm:border-r" aria-label="Settings sections">
+            <input
+              type="search"
+              value={settingsQuery}
+              onChange={(event) => setSettingsQuery(event.target.value)}
+              placeholder="Search settings"
+              className="mb-3 w-full rounded-md border border-border bg-panel px-3 py-2 text-sm"
+            />
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-1">
+              {SETTINGS_AREAS.map((area) => (
+                <button
+                  type="button"
+                  key={area}
+                  onClick={() => setActiveArea(area)}
+                  className={`flex min-h-9 items-center justify-between rounded-md px-2.5 py-2 text-left text-xs ${
+                    activeArea === area
+                      ? "bg-accent-soft font-semibold text-foreground"
+                      : "text-muted hover:bg-surface hover:text-foreground"
+                  }`}
+                >
+                  <span>{area}</span>
+                  {dirtyAreas.has(area) && (
+                    <span className="text-accent" aria-label="Unsaved changes">
+                      •
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </nav>
+          <SettingsFilterContext.Provider
+            value={{ area: activeArea, query: settingsQuery }}
+          >
+          <div className="space-y-1 overflow-y-auto px-5 py-3">
           <Section title="Setup assistant" description="Start here when Ask, graph AI, or automatic processing does not behave as expected.">
             <div className="grid gap-2 sm:grid-cols-2">
               {setupItems.map((item) => (
@@ -769,79 +798,26 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           </Section>
 
           <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
-            <Field label="AI provider" description="Cloud uses NVIDIA NIM or another compatible API. Local uses Ollama.">
-              <Select value={s.ai_provider} onChange={(value) => update("ai_provider", value as Settings["ai_provider"])}>
-                <option value="">Select a provider</option>
-                <option value="cloud">Cloud provider</option>
-                <option value="local">Local Ollama</option>
-              </Select>
-            </Field>
-            <Field label="Graph inference provider" description="Controls AI answers in the graph screen.">
-              <Select value={s.graph_ai_provider} onChange={(value) => update("graph_ai_provider", value as Settings["graph_ai_provider"])}>
-                <option value="">Select a graph provider</option>
-                <option value="cloud">Cloud provider</option>
-                <option value="local">Local Ollama</option>
-              </Select>
-            </Field>
-            <Field label="Cloud processing consent" description="Requested once when Save activates a cloud provider. Selecting Local Ollama disables it.">
-              <ReadOnlyValue value={s.remote_content_consent === "true" ? "Enabled — configured cloud processing is allowed" : "Not granted — confirmation will appear when cloud settings are saved"} />
-            </Field>
+            <ReadOnlyValue value={providerStatus ? `${providerStatus.providerMode === "cloud" ? "Cloud" : "Local"} · ${providerStatus.provider} · ${providerStatus.state}` : "Loading configuration status..."} />
+            <button
+              className="bb-action h-9 px-4 text-xs font-semibold"
+              onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
+            >
+              Configure AI providers and models
+            </button>
+            <p className="text-xs leading-relaxed text-muted">
+              Main, embeddings, Judge, and HippoRAG are validated and saved together. BerryBrain never mixes Cloud and Local providers silently.
+            </p>
           </Section>
 
           <Section title="Cloud AI" description="OpenAI-compatible provider used for graph inference, insights, and knowledge expansion.">
             <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
-            <Field label="Cloud API provider" description={`Current provider: ${selectedProviderLabel}.`}>
-              <Select
-                value={s.ai_api_url}
-                onChange={(value) => {
-                  update("ai_api_url", value);
-                  update("ai_model", "");
-                  setCloudModels([]);
-                  setConnectionStatus("");
-                }}
-              >
-                {CLOUD_PROVIDER_PRESETS.map((provider) => <option key={provider.id} value={provider.url}>{provider.label}</option>)}
-                <option value="">Custom provider URL</option>
-              </Select>
-            </Field>
-            {s.ai_api_url === "" && (
-              <Field label="Custom API base URL" description="OpenAI-compatible endpoint.">
-                <TextInput value={s.ai_custom_url} onChange={(value) => update("ai_custom_url", value)} placeholder="https://example.com/v1" />
-              </Field>
-            )}
-            <Field
-              label={`${selectedProviderLabel} API Key`}
-              description={apiKeyConfigured ? "A key is saved securely. Enter a new key only to replace it." : "The key is stored by the BerryBrain API and is never returned to the browser."}
+            <button
+              className="bb-action h-9 px-4 text-xs font-semibold"
+              onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
             >
-              <div className="flex flex-wrap gap-2">
-                <TextInput
-                  type={showKey ? "text" : "password"}
-                  value={s.ai_api_key}
-                  onChange={(value) => update("ai_api_key", value)}
-                  placeholder={apiKeyConfigured ? "Saved securely — enter a new key to replace it" : `Paste your ${selectedProviderLabel} API key`}
-                />
-                <button className="bb-action h-9 px-3 text-xs" onClick={() => setShowKey((value) => !value)}>
-                  {showKey ? "Hide" : "Show"}
-                </button>
-                <button className="bb-action h-9 px-3 text-xs font-medium" disabled={(!s.ai_api_key && !apiKeyConfigured) || loadingModels} onClick={fetchModels}>
-                  {loadingModels ? "Testing..." : "Test connection"}
-                </button>
-                {(apiKeyConfigured || graphApiKeyConfigured) && (
-                  <button className="bb-action h-9 px-3 text-xs" onClick={clearCloudKey}>Clear key</button>
-                )}
-              </div>
-            </Field>
-            <Field label="Cloud model" description="Model used by the main AI pipeline.">
-              <Select value={s.ai_model} onChange={(value) => update("ai_model", value)}>
-                <option value="">Select a model</option>
-                {cloudModels.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
-                {s.ai_model && !cloudModels.some((model) => model.id === s.ai_model) && <option value={s.ai_model}>{s.ai_model}</option>}
-              </Select>
-            </Field>
-            <Field label="Graph cloud model" description="Model used by graph questions and graph insight generation.">
-              <TextInput value={s.graph_ai_model} onChange={(value) => update("graph_ai_model", value)} placeholder="Select or type a graph model" />
-            </Field>
-            {connectionStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{connectionStatus}</p>}
+              Open unified AI setup
+            </button>
           </Section>
 
           <Section title="Cognitive Layer" description="Configure the BerryBrain Knowledge System: Knowledge Base, Knowledge Graph, semantic state, and retrieval orchestration.">
@@ -867,15 +843,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <TextInput value={s.chroma_collection} onChange={(value) => update("chroma_collection", value)} placeholder="berrybrain" />
               </Field>
             </div>
-            <Field label="Embedding provider" description="Cloud uses the configured compatible API. Local uses Ollama.">
-              <Select value={s.kb_embedding_provider} onChange={(value) => update("kb_embedding_provider", value as Settings["kb_embedding_provider"])}>
-                <option value="">Select an embedding provider</option>
-                <option value="cloud">Cloud provider</option>
-                <option value="local">Local Ollama</option>
-              </Select>
-            </Field>
-            <Field label="Embedding model" description="Model used for semantic search chunks. Required to move embeddings above zero.">
-              <TextInput value={s.kb_embedding_model} onChange={(value) => update("kb_embedding_model", value)} placeholder="Provider-specific embedding model ID" />
+            <Field label="AI capabilities" description="Embedding, Judge, and HippoRAG models use the unified validated configuration.">
+              <button
+                className="bb-action h-9 px-4 text-xs font-semibold"
+                onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
+              >
+                Review AI capabilities
+              </button>
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Chunk size" description="Maximum characters per markdown chunk.">
@@ -921,48 +895,36 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             </div>
             
             <div className="mt-4 border-t border-border/30 pt-4" />
-            <h4 className="mb-3 text-sm font-semibold text-foreground">Advanced Quality & Capabilities</h4>
-            
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="RAG Judge Provider" description="Independent provider for evaluating graph/insight quality.">
-                <Select value={s.judge_provider} onChange={(value) => update("judge_provider", value)}>
-                  <option value="">Same as Graph Generation (Disabled)</option>
-                  <option value="cloud">Cloud provider</option>
-                  <option value="local">Local Ollama</option>
-                </Select>
-              </Field>
-              <Field label="RAG Judge Model" description="Provider-specific model used for autonomous evaluations.">
-                <TextInput value={s.judge_model} onChange={(value) => update("judge_model", value)} placeholder="" />
-              </Field>
-            </div>
-            
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Field label="HippoRAG Sidecar" description="Optional retrieval augmentation for multi-hop search. It does not replace canonical graph truth.">
-                <Select value={s.hipporag_enabled} onChange={(value) => update("hipporag_enabled", value as Settings["hipporag_enabled"])}>
-                  <option value="false">Disabled</option>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Automatic vault organization" description="Groups new content from semantic evidence. Disabling it stops future automatic moves and preserves existing folders.">
+                <Select value={s.automatic_vault_organization} onChange={(value) => update("automatic_vault_organization", value as Settings["automatic_vault_organization"])}>
                   <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
                 </Select>
               </Field>
-              <Field label="HippoRAG Provider" description="Provider for HippoRAG internal graph extraction.">
-                <Select value={s.hipporag_provider} onChange={(value) => update("hipporag_provider", value)}>
-                  <option value="">Fallback to Default Generation</option>
-                  <option value="cloud">Cloud provider</option>
-                  <option value="local">Local Ollama</option>
+              <Field label="Judge" description="Evaluates generated artifacts against source evidence before they become trusted context.">
+                <Select value={s.judge_enabled} onChange={(value) => update("judge_enabled", value as Settings["judge_enabled"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
                 </Select>
               </Field>
-              <Field label="HippoRAG Model" description="Specific model for HippoRAG operations.">
-                <TextInput value={s.hipporag_model} onChange={(value) => update("hipporag_model", value)} placeholder="" />
+              <Field label="HippoRAG" description="Adds multi-hop retrieval while canonical graph evidence remains authoritative.">
+                <Select value={s.hipporag_enabled} onChange={(value) => update("hipporag_enabled", value as Settings["hipporag_enabled"])}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </Select>
               </Field>
             </div>
           </Section>
 
           <Section title="Local" description="Local Ollama settings for offline processing.">
-            <Field label="Ollama URL" description="Address reachable from the API and Worker containers.">
-              <TextInput value={s.ollama_base_url} onChange={(value) => update("ollama_base_url", value)} placeholder="http://host.docker.internal:11434" />
-            </Field>
-            <Field label="Ollama graph model" description="Used when graph provider is Local Ollama.">
-              <TextInput value={s.graph_ollama_model} onChange={(value) => update("graph_ollama_model", value)} placeholder="Installed local model ID" />
-            </Field>
+            <ReadOnlyValue value="Ollama URL and all four model slots are tested and saved through unified AI setup." />
+            <button
+              className="bb-action h-9 px-4 text-xs font-semibold"
+              onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
+            >
+              Configure local Ollama
+            </button>
             <Field label="Auto-confirm confidence" description="Suggested graph connections above this confidence can be confirmed automatically.">
               <TextInput value={s.graph_auto_confirm_confidence} onChange={(value) => update("graph_auto_confirm_confidence", value)} placeholder="0.9" />
             </Field>
@@ -987,6 +949,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               <MaintenanceButton onClick={() => runMaintenance("cleanup-legacy-insights")}>Cleanup legacy insights</MaintenanceButton>
               <MaintenanceButton onClick={() => runMaintenance("validate-graph")}>Validate graph consistency</MaintenanceButton>
               <MaintenanceButton onClick={() => runMaintenance("reindex-knowledge-base")}>Reindex knowledge base</MaintenanceButton>
+              <MaintenanceButton onClick={prepareSemanticGraph}>Prepare semantic graph</MaintenanceButton>
             </div>
             {maintenanceStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{maintenanceStatus}</p>}
           </Section>
@@ -1004,9 +967,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                   <div>
                     <p className="text-xs font-medium text-foreground">{t("stuckJobs")} ({diagnostics.staleRunning.length})</p>
                     <ul className="mt-1 space-y-1">
-                      {diagnostics.staleRunning.slice(0, 10).map((j: any) => (
+                      {diagnostics.staleRunning.slice(0, 10).map((j) => (
                         <li key={j.id} className="rounded-lg bg-surface px-2 py-1 text-[11px] text-muted ring-1 ring-border/30">
-                          {j.type} — {j.id.slice(0, 8)}… {j.started_at ? `since ${new Date(j.started_at).toLocaleTimeString()}` : ""}
+                          {j.type} — {String(j.id).slice(0, 8)}… {j.started_at ? `since ${new Date(j.started_at).toLocaleTimeString()}` : ""}
                         </li>
                       ))}
                     </ul>
@@ -1033,12 +996,14 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
               <DangerButton onClick={() => wipeAll(true)}>Wipe all and reset Settings</DangerButton>
             </div>
           </Section>
+          </div>
+          </SettingsFilterContext.Provider>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 px-6 py-3">
           <p className="text-xs text-muted" role="status">{settingsLoading ? "Loading settings..." : saveStatus}</p>
           <div className="flex gap-2">
-          <button className="bb-action h-9 px-4 text-xs font-medium" onClick={onClose}>Cancel</button>
+          <button className="bb-action h-9 px-4 text-xs font-medium" onClick={requestClose}>Cancel</button>
           <button className="bb-action h-9 px-4 text-xs font-medium" onClick={save} disabled={saving || settingsLoading}>
             {saving ? "Saving..." : "Save"}
           </button>
@@ -1050,13 +1015,33 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 }
 
 function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  const { area, query } = useContext(SettingsFilterContext);
+  const areas = SECTION_AREAS[title] || ["General"];
+  const normalizedQuery = query.trim().toLowerCase();
+  const searchable = `${title} ${description} ${reactNodeText(children)}`.toLowerCase();
+  if (
+    !areas.includes(area) ||
+    (normalizedQuery && !searchable.includes(normalizedQuery))
+  ) {
+    return null;
+  }
   return (
-    <section className="bb-subcard p-4">
+    <section className="border-b border-border py-4 last:border-b-0">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <p className="mt-1 text-xs text-muted/75">{description}</p>
       <div className="mt-4 space-y-3">{children}</div>
     </section>
   );
+}
+
+function reactNodeText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(reactNodeText).join(" ");
+  if (node && typeof node === "object" && "props" in node) {
+    const props = (node as React.ReactElement<{ children?: React.ReactNode }>).props;
+    return reactNodeText(props.children);
+  }
+  return "";
 }
 
 function SetupStep({ title, ready, detail }: { title: string; ready: boolean; detail: string }) {

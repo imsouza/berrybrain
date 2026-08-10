@@ -24,9 +24,10 @@ import re
 import sqlite3
 import time
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
@@ -223,7 +224,11 @@ def _parse_sentence_relation(sentence: str) -> tuple[str, str, str] | None:
             1 < len(subject) <= 80
             and obj
             and subject[0].isupper()
-            and all(char.isalnum() or char in "ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöùúûüý .,'-" for char in subject)
+            and all(
+                char.isalnum()
+                or char in "ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝàáâãäåçèéêëìíîïñòóôõöùúûüý .,'-"
+                for char in subject
+            )
         ):
             return subject, predicate.replace(" ", "_"), obj
     return None
@@ -261,7 +266,7 @@ def _extract_triples(content: str) -> list[tuple[str, str, str]]:
             heading_marks = len(stripped) - len(stripped.lstrip("#"))
             heading_text = stripped[heading_marks:].strip()
             if 1 <= heading_marks <= 6 and heading_text:
-            # ponytail: strip wiki-link/bold/markup so the heading label is clean
+                # ponytail: strip wiki-link/bold/markup so the heading label is clean
                 current_heading = _strip_inline_markup(heading_text)
             # ponytail: keep processing the heading line — wikilinks/bold often
             # appear inline with the heading (e.g. "# A links [[B]]"). Falling
@@ -327,7 +332,13 @@ def _maybe_llm_triples(content: str) -> list[tuple[str, str, str]]:
         if triples:
             return triples
         return _extract_triples(content)
-    except Exception:
+    except (
+        AttributeError,
+        TypeError,
+        ValueError,
+        httpx.HTTPError,
+        json.JSONDecodeError,
+    ):
         # ponytail: LLM unreachable -> degrade to heuristic, never fail indexing
         return _extract_triples(content)
 
@@ -406,7 +417,7 @@ def index_document(req: IndexRequest, authorization: str | None = Header(default
     return {"status": "indexed", "doc_id": req.doc_id, "triples": n}
 
 
-@app.delete("/index/{vault_id}/{doc_id}")
+@app.delete("/index/{vault_id}/{doc_id:path}")
 def delete_document(
     vault_id: str, doc_id: str, authorization: str | None = Header(default=None)
 ):
@@ -440,14 +451,12 @@ def retrieve(req: RetrieveRequest, authorization: str | None = Header(default=No
 
         # pull triples touching any visited node
         visited_nodes = set(depth_by_node)
+        placeholders = ",".join("?" for _ in visited_nodes)
         rows = list(
             conn.execute(
-                "SELECT subject, predicate, object, doc_id FROM triples "
-                "WHERE vault_id=? AND (subject IN (%s) OR object IN (%s))"
-                % (
-                    ",".join("?" * len(visited_nodes)),
-                    ",".join("?" * len(visited_nodes)),
-                ),
+                f"SELECT subject, predicate, object, doc_id FROM triples "
+                f"WHERE vault_id=? AND (subject IN ({placeholders}) "
+                f"OR object IN ({placeholders}))",
                 [req.vault_id, *visited_nodes, *visited_nodes],
             )
         )

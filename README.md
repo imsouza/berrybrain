@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -81,6 +81,9 @@ The system is designed around one rule:
 | RAG Judge | Deterministic, single-model, and committee evaluator with calibrated quality gates |
 | Insights | Knowledge gaps, central concepts, recurring ideas, weak concepts, connections, study suggestions |
 | Graph Inference | Ask questions about the graph with RRF (Reciprocal Rank Fusion) evidence-backed answers |
+| Ask Flow | Persistent, grounded multi-turn sessions with evidence, isolation, and cancellation |
+| Check Online | Global graph research runs with URL safety, untrusted evidence, progress, and review |
+| Semantic Graph | Stable topic colors, vault namespaces, homonym separation, progressive loading, and canvas LOD |
 | Activity and Monitor | Human-readable activity timeline plus technical job diagnostics |
 | Settings | Theme, editor, provider/model configuration, graph/cognitive settings, attachment limits |
 | Owner Access | One-time local setup, configurable username alias, strong password, session/CSRF protection |
@@ -90,7 +93,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain's v1.2.0 release-candidate scope is validated in the local worktree. The system now has a measured foundation for the Cognitive Layer, Model Router, RAG Judge, optional HippoRAG sidecar, graph/list parity, user-friendly settings, and release gates. It is suitable for release-candidate promotion after the remote governance steps are executed.
+BerryBrain v1.3.0 is a validated release candidate for the Cognitive Layer, configuration v2, Model Router, RAG Judge, operational HippoRAG sidecar, persistent Ask Flow, global research, semantic graph clustering, progressive graph rendering, and user-facing operational recovery. Publication still depends on the protected remote release gates.
 
 | Foundation | Current state |
 | --- | --- |
@@ -98,29 +101,32 @@ BerryBrain's v1.2.0 release-candidate scope is validated in the local worktree. 
 | Job engine | Structured runs/dependencies, idempotency, leases, heartbeat, backoff, dead-letter, stale recovery |
 | Semantic memory | Chunked indexing, hybrid lexical/vector/graph retrieval, optional Qdrant or Chroma |
 | Knowledge graph | Canonical typed nodes/edges, source evidence, confidence, lifecycle actions, provenance |
+| Graph scale | Bounded pages and deltas, worker layout, canvas LOD, stable semantic clusters and vault colors |
+| Grounded interaction | Ask refusal without evidence, persistent Flow, cancellable turns, global Check Online runs |
 | Insights and review | Knowledge-only insight policy, evidence-backed actions, persisted review scheduling |
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, local/dev default owner, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
 | Delivery evidence | API, Worker, browser E2E, web build, security, architecture, benchmark, calibration, and dependency audit gates |
 
-Current v1.2.0 release-candidate evidence:
+Current v1.3.0 release-candidate evidence:
 
-- API: 210 tests pass, plus 4 internal subtests.
-- Worker: 34 tests pass.
-- Browser E2E: 29 API-backed Playwright checks pass.
-- Web: lint, TypeScript, and production build pass.
-- Runtime: default Docker stack is healthy.
-- Retrieval benchmark: HippoRAG multi-hop recall gain is `0.25`.
-- Judge calibration: weighted kappa is `0.9801`.
-- Security and dependencies: local security audit passes; production web dependency audit has no high/critical findings; Python runtime dependency audit reports no known vulnerabilities.
-- Architecture: architecture fitness and progressive Python typing gates pass.
+- API: 346 tests and 55 subtests pass.
+- Worker and HippoRAG: 44 Worker tests and 7 sidecar tests pass.
+- Browser E2E: 43 Playwright checks pass, including a 10,000-node/40,000-edge stress path and healthy-worker heartbeat regression.
+- Graph API gate: 5,000 nodes/20,000 edges at p95 `2.54 s`, `11.3 MB` payload, and `82.1 MB` peak memory.
+- Semantic gate: Recall@10, MRR, and NDCG@10 are `1.0`; p95 is `47.34 ms`.
+- Cognitive gate: insight usefulness, precision/recall, provenance, stale cleanup, and idempotent rebuild all pass.
+- Recovery: checksum backup metadata and table counts match; isolated restore/rollback tests pass.
+- Security and architecture: source audits pass, production npm audit and Python dependency audits are clean, architecture fitness passes all 12 checks, all four images have zero fixable HIGH/CRITICAL findings, and CycloneDX 1.7 SBOMs are validated.
 
 The current scorecard, remaining gates, and requirement evidence are maintained in:
 
 - [`QA Final Report 2026-07-26`](docs/planning/qa-final-report-2026-07-26.md)
 - [`Fix New Version Plan`](docs/planning/fix-new-version.md)
 - [`BerryBrain v1.2.0 Plan`](docs/planning/v-1-2-0.md)
+- [`Graph Performance and Product Maturity Plan`](docs/planning/planejamento-performace-grafo.md)
+- [`BerryBrain v1.3.0 Release Candidate Report`](docs/reports/RELEASE-1.3.0.md)
 - [`Clean Architecture and Refactoring Plan`](docs/planning/clean-architecture-refactor.md)
 - [`Second-Brain Maturity V2`](docs/planning/second-brain-maturity-v2.md)
 - [`Requirements Traceability`](docs/planning/requirements-traceability.md)
@@ -129,11 +135,12 @@ The current scorecard, remaining gates, and requirement evidence are maintained 
 
 ## Architecture
 
-BerryBrain is split into three primary applications:
+BerryBrain is split into three core applications and one optional internal sidecar:
 
 - **Web**: Next.js + React UI.
 - **API**: FastAPI service, persistence, routes, graph/cognitive services.
 - **Worker**: Python async worker that claims jobs and performs background processing.
+- **HippoRAG**: internal multi-hop index/retrieval sidecar enabled by the `cognitive-advanced` profile.
 
 ```mermaid
 flowchart LR
@@ -193,6 +200,7 @@ flowchart TB
   Orchestrator --> KG[Knowledge Graph]
   Orchestrator --> SDL[Semantic Data Layer]
   Orchestrator --> Router[Model Router]
+  Orchestrator --> Hippo[Optional HippoRAG]
   Router --> Local[Local Model / Ollama]
   Router --> Cloud[Cloud Provider / NVIDIA NIM]
   KB --> Insight[Insight Engine]
@@ -281,6 +289,11 @@ The router should record:
 - generated artifact;
 - source evidence.
 
+The active configuration is exclusive: **Cloud XOR Local**. Generation, embeddings, Judge,
+and HippoRAG use explicit model slots. Provider presets resolve their base URL automatically;
+custom OpenAI-compatible endpoints remain supported. The Judge uses the configured Judge slot,
+not an automatic hidden ensemble. Committee mode is explicit and requires separate judges.
+
 ---
 
 ## Knowledge Graph
@@ -329,12 +342,20 @@ graph TD
 
 ### Graph Interaction Rules
 
-- Single click: open graph details panel.
+- Single click: open an accessible details panel with theme, confidence, evidence, provenance,
+  related notes, Ask, review, and enrichment actions.
 - Double click note node: open the source note.
 - Insight nodes can be shown/hidden in Brain View.
 - Suggested nodes/connections can be confirmed or ignored.
 - AI enrichment must update evidence, context, model/provider, and activity.
 - Web validation is only allowed when research/external enrichment is enabled.
+
+Topic is represented by semantic color. Type and lifecycle use shape, border, label, and status
+channels. Related nodes keep stable cluster colors, same-name entities can split by context,
+pending artifacts use a neutral beige channel, and vault nodes use reserved namespaces.
+
+Large graphs use bounded API pages, version deltas, a layout worker, canvas level-of-detail, and
+selected-node preservation. The release browser gate covers 10,000 nodes and 40,000 edges.
 
 ---
 
@@ -365,6 +386,10 @@ stateDiagram-v2
 
 Jobs are persisted and claimed by the worker. This makes the system resilient to provider failures and API restarts.
 
+Each note-bound job carries a stable note ID, content hash, payload schema version, stage, and
+idempotency identity. Renames refresh the queued path only when the hash still matches; changed
+or removed sources are superseded instead of producing false provider errors.
+
 | Job Family | Purpose |
 | --- | --- |
 | Parse/classify | Understand the Markdown note shape |
@@ -375,6 +400,8 @@ Jobs are persisted and claimed by the worker. This makes the system resilient to
 | Insight generation | Produce useful knowledge insights |
 | Graph quality | Stats, cleanup, duplicate detection, enrichment |
 | Attachment processing | OCR, PDF parsing, transcription, attachment graph expansion |
+| Semantic enrichment | Versioned node analysis, clustering, stable colors, and graph quality |
+| Research and validation | Global Check Online runs, Judge evaluation, HippoRAG synchronization |
 
 ---
 
@@ -462,9 +489,16 @@ The API is versioned under `/api/v1`.
 | `GET /api/v1/notes/{path}/attachments` | List note attachments |
 | `POST /api/v1/notes/{path}/attachments` | Upload an attachment |
 | `GET /api/v1/graph` | Graph nodes, edges, and stats |
+| `GET /api/v1/graph/nodes`, `/edges`, `/delta` | Progressive graph pages and version delta |
+| `GET /api/v1/graph/clusters`, `/palette` | Semantic clusters and explainable color assignments |
 | `GET /api/v1/graph/summary` | Lightweight graph summary |
 | `POST /api/v1/graph/expand` | Expand/rebuild graph artifacts |
 | `POST /api/v1/graph/infer` | Ask the graph with evidence |
+| `POST /api/v1/graph/research-runs` | Start a global Check Online research run |
+| `POST /api/v1/ask/sessions` | Start a persistent grounded Ask Flow |
+| `POST /api/v1/ask/sessions/{id}/turns` | Continue a Flow with another grounded turn |
+| `GET /api/v1/ai/providers` | Provider presets and capabilities |
+| `PUT /api/v1/ai/configuration` | Persist validated Cloud XOR Local configuration |
 | `GET /api/v1/insights` | List knowledge insights |
 | `POST /api/v1/insights/from-inference` | Save a graph inference as insight |
 | `GET /api/v1/jobs` | List job queue state |
@@ -618,11 +652,11 @@ supports three modes:
 - `single_model`: one configured judge provider/model.
 - `committee`: multiple separately configured judge slots for stricter decisions.
 
-If `judge_provider` and `judge_model` are configured, BerryBrain uses them. If they are empty,
-the Judge falls back to the main generation provider/model. Local mode uses Ollama-compatible
-configuration; cloud mode uses the configured OpenAI-compatible URL, API key, and model.
-Committee mode should configure each judge independently, and the generator model must not
-judge its own high-impact output.
+The Judge resolves the explicit provider/model slot in configuration v2. In Local mode, choose
+an installed Ollama model for that slot. In Cloud mode, the slot reuses the configured provider
+endpoint/key and has its own model selection. `single_model` makes one Judge call and never
+silently adds other LLMs. Committee mode requires each judge explicitly, and the generator
+model cannot judge its own high-impact output.
 
 ### HippoRAG
 
@@ -630,6 +664,8 @@ HippoRAG is optional and disabled by default. It runs behind a Docker profile as
 multi-hop retrieval and does not replace the canonical BerryBrain graph. When disabled or
 unavailable, retrieval falls back to the standard lexical/vector/graph path. Any facts coming
 from HippoRAG remain suggested, evidence-backed, and Judge-reviewable before promotion.
+Worker handlers synchronize index/delete operations and expose reconcile/rebuild jobs against
+the internal sidecar. Nested vault paths are valid document IDs and indexing is idempotent.
 
 External vector stores are optional. BerryBrain can use the built-in SQLite/FTS path, Qdrant,
 or Chroma depending on the configured profile and settings.
@@ -684,7 +720,11 @@ absent causes the OCR job to fail; this rule applies to every language.
 
 ## Self-Hosting
 
-BerryBrain runs as three Docker services (`web`, `api`, `worker`) defined in `docker-compose.yml`. The Worker is part of the default `docker compose up -d` path because cognitive processing depends on background jobs. The same stack works for local dev and production; only the configuration differs.
+BerryBrain runs three core Docker services (`web`, `api`, `worker`) plus the optional internal
+`hipporag` sidecar defined in `docker-compose.yml`. The Worker is part of the default
+`docker compose up -d` path because cognitive processing depends on background jobs. Enable
+HippoRAG with `docker compose --profile cognitive-advanced up -d`. The same stack works for
+local dev and production; only configuration differs.
 
 ### 1. Prepare the environment
 
@@ -926,6 +966,7 @@ BerryBrain uses incremental vertical-slice refactoring. The graph-inference slic
 - [Requirements Traceability](docs/planning/requirements-traceability.md)
 - [QA Final Report 2026-07-26](docs/planning/qa-final-report-2026-07-26.md)
 - [BerryBrain v1.2.0 Plan](docs/planning/v-1-2-0.md)
+- [Graph Performance and Product Maturity Plan](docs/planning/planejamento-performace-grafo.md)
 
 These files distinguish implemented behavior from planned gates. A checkbox is marked complete only when code and automated evidence exist.
 
@@ -963,8 +1004,9 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 | --- | --- | --- |
 | `1.0.x` | Stable | Local vault, resilient jobs, hybrid retrieval, graph, insights, reviews, cognitive attachments, activity, settings |
 | `1.1.x` | Stable | Evaluation datasets, stronger reranking/inference, graph quality tuning, broader accessibility |
-| `1.2.x` | **Current** | Model Router, RAG Judge, HippoRAG sidecar, RRF retrieval, capability-based AI routing |
-| `1.3.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
+| `1.2.x` | Stable | Model Router, RAG Judge, HippoRAG foundation, RRF retrieval, capability-based AI routing |
+| `1.3.x` | **Current** | Configuration v2, operational HippoRAG, Ask Flow, global research, semantic graph colors, progressive 10k rendering |
+| `1.4.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
 | `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
 ### Attachment Processing Status

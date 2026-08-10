@@ -20,9 +20,9 @@ class HippoRagDefaultsTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.session.close()
 
-    def test_hipporag_is_disabled_by_default(self) -> None:
-        self.assertEqual(state_config(self.session)["hipporag_enabled"], "false")
-        self.assertEqual(layer_config(self.session)["hipporag_enabled"], "false")
+    def test_hipporag_is_enabled_by_default(self) -> None:
+        self.assertEqual(state_config(self.session)["hipporag_enabled"], "true")
+        self.assertEqual(layer_config(self.session)["hipporag_enabled"], "true")
 
     def test_hipporag_can_be_explicitly_enabled(self) -> None:
         self.session.add(SettingRecord(key="hipporag_enabled", value="true"))

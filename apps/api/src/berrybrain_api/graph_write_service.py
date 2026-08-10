@@ -244,12 +244,18 @@ class GraphWriteService:
             self.session.add(existing)
             self.session.flush()
             if created_by == "ai":
+                from berrybrain_api.job_contracts import judge_artifact_payload
                 from berrybrain_api.jobs import enqueue_job
 
                 enqueue_job(
                     self.session,
                     "JUDGE_ARTIFACT",
-                    {"artifact_type": "node", "artifact_id": existing.id},
+                    judge_artifact_payload(
+                        self.session,
+                        "node",
+                        existing.id,
+                        str(existing.updated_at.timestamp()),
+                    ),
                     priority=20,
                 )
             self._record(
@@ -385,12 +391,18 @@ class GraphWriteService:
             self.session.add(edge)
             self.session.flush()
             if edge.created_by == "ai":
+                from berrybrain_api.job_contracts import judge_artifact_payload
                 from berrybrain_api.jobs import enqueue_job
 
                 enqueue_job(
                     self.session,
                     "JUDGE_ARTIFACT",
-                    {"artifact_type": "edge", "artifact_id": edge.id},
+                    judge_artifact_payload(
+                        self.session,
+                        "edge",
+                        edge.id,
+                        str(edge.updated_at.timestamp()),
+                    ),
                     priority=20,
                 )
         before = _edge_state(edge)

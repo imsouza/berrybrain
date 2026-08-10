@@ -1,26 +1,54 @@
 "use client";
 
 import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-context";
-import { CommandPalette } from "./command-palette";
-import { ObservabilityPanel } from "./observability-panel";
-import { SettingsPanel } from "./settings-panel";
-import { GraphScreen } from "./graph-screen";
-import { GuidePanel } from "./guide-panel";
-import { NotificationsPopover } from "./notifications-popover";
+import { RequiredAiSetup } from "./required-ai-setup";
 import { WorkspaceSidebar } from "./sidebar/workspace-sidebar";
 import { NoteEditor } from "./editor/note-editor";
 import { HomeView } from "./home/home-view";
 import { RightPanel } from "./panel/right-panel";
 import { ResizeHandle } from "./sidebar/resize-handle";
-import { OnboardingModal } from "./onboarding-modal";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import dynamic from "next/dynamic";
+
+const CommandPalette = dynamic(() => import("./command-palette").then((module) => module.CommandPalette));
+const ObservabilityPanel = dynamic(() => import("./observability-panel").then((module) => module.ObservabilityPanel));
+const loadSettingsPanel = () =>
+  import("./settings-panel").then((module) => module.SettingsPanel);
+const SettingsPanel = dynamic(loadSettingsPanel, {
+  loading: () => (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div
+        role="dialog"
+        aria-label="Settings"
+        aria-modal="true"
+        className="w-full max-w-4xl rounded-lg border border-border bg-panel px-5 py-4 text-sm text-muted shadow-xl"
+      >
+        Loading settings...
+      </div>
+    </div>
+  ),
+});
+const GuidePanel = dynamic(() => import("./guide-panel").then((module) => module.GuidePanel));
+const NotificationsPopover = dynamic(() => import("./notifications-popover").then((module) => module.NotificationsPopover));
+const OnboardingModal = dynamic(() => import("./onboarding-modal").then((module) => module.OnboardingModal));
+const loadGraphScreen = () =>
+  import("./graph-screen").then((module) => module.GraphScreen);
+
+const GraphScreen = dynamic(
+  loadGraphScreen,
+  {
+    ssr: false,
+    loading: () => <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted">Loading graph...</div>,
+  },
+);
 
 function Shell() {
   const w = useWorkspace();
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -44,14 +72,26 @@ function Shell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    void Promise.all([loadGraphScreen(), loadSettingsPanel()]);
+  }, []);
   return (
     <main className="bb-workspace flex h-[100dvh] overflow-hidden bg-background text-foreground">
-      <CommandPalette open={w.cmdOpen} onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />
-      <ObservabilityPanel open={w.monitorOpen} apiUrl={w.api} onClose={() => w.setMonitorOpen(false)} />
-      <SettingsPanel open={w.settingsOpen} onClose={() => w.setSettingsOpen(false)} apiUrl={w.api} />
-      <GuidePanel open={w.guideOpen} onClose={() => w.setGuideOpen(false)} />
-      <NotificationsPopover open={w.notificationsOpen} onClose={() => w.setNotificationsOpen(false)} apiUrl={w.api} />
-      <OnboardingModal demo={isDemo} />
+      {w.cmdOpen && <CommandPalette open onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />}
+      {w.monitorOpen && <ObservabilityPanel open apiUrl={w.api} onClose={() => w.setMonitorOpen(false)} />}
+      {w.settingsOpen && <SettingsPanel open onClose={() => w.setSettingsOpen(false)} apiUrl={w.api} />}
+      {w.guideOpen && <GuidePanel
+        open={w.guideOpen}
+        onClose={() => w.setGuideOpen(false)}
+        onViewTour={() => setTourOpen(true)}
+      />}
+      {w.notificationsOpen && <NotificationsPopover open onClose={() => w.setNotificationsOpen(false)} apiUrl={w.api} />}
+      <OnboardingModal
+        demo={isDemo}
+        open={tourOpen}
+        onOpenChange={setTourOpen}
+      />
+      <RequiredAiSetup demo={isDemo} />
 
       {w.toasts.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2" role="alert" aria-live="polite">
@@ -66,7 +106,7 @@ function Shell() {
         <MobileWorkspaceBar onMenu={() => setMobileNavOpen(true)} />
         {isDemo && <DemoNotice />}
         {w.graphOpen ? (
-          <GraphScreen apiUrl={w.api} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
+          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : w.active ? (
           <NoteEditor />
         ) : (

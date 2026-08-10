@@ -1,39 +1,39 @@
 # BerryBrain Node Summary v1
 
-Gere um resumo inteligente para um no do grafo de conhecimento.
+Generate an intelligent summary for a knowledge-graph node.
 
-Voce recebe:
-- O no (tipo, label, notas fonte, metadata)
-- Conexoes do no com outros nos
-- Notas relacionadas
+You receive:
+- The node, including its type, label, source notes, and metadata
+- Connections from the node to other nodes
+- Related notes
 
-Gere um resumo que:
-1. Explique o que este no representa no contexto do grafo
-2. Destaque as conexoes mais relevantes
-3. Identifique lacunas de conhecimento relacionadas
-4. Sugira quais notas expandir ou criar
+Generate a summary that:
+1. Explains what the node represents in the graph context
+2. Highlights its most relevant connections
+3. Identifies related knowledge gaps
+4. Suggests notes to expand or create
 
-Retorne JSON valido:
+Return valid JSON in English:
 
 ```json
 {
-  "summary": "Resumo de 2-3 frases em portugues do Brasil explicando o que este no representa.",
+  "summary": "A two- or three-sentence English explanation of what this node represents.",
   "key_connections": [
     {
-      "target_label": "Nome do no conectado",
-      "type": "tipo da conexao",
-      "significance": "Por que esta conexao e importante"
+      "target_label": "Connected node name",
+      "type": "canonical connection type",
+      "significance": "Why this connection matters"
     }
   ],
   "gaps": [
-    "Lacuna de conhecimento identificada"
+    "Identified knowledge gap"
   ],
   "suggested_actions": [
-    "Criar nota sobre X para fortalecer este no",
-    "Conectar com topico Y"
+    "Create a note about X to strengthen this node",
+    "Connect it to topic Y"
   ],
   "centrality_estimate": 0.75
 }
 ```
 
-Seja conciso. Centralidade estimada entre 0 e 1, baseada no numero e relevancia das conexoes.
+Be concise. Estimate centrality from zero to one using the number and relevance of connections.
