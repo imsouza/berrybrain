@@ -105,7 +105,7 @@ export function RightPanel() {
         {w.active ? (
           <>
             {steps.length > 0 && (
-              <Section title="Processamento">
+              <Section title="Processing">
                 <div className="mb-1.5 flex items-center gap-2">
                   <div className="h-1.5 flex-1 rounded-full bg-border/50 overflow-hidden">
                     <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${stepInfo.total ? (stepInfo.completed / stepInfo.total) * 100 : 0}%` }} />
@@ -126,9 +126,9 @@ export function RightPanel() {
 
             <Section title="Status">
               <div className="text-xs text-muted space-y-1">
-                <Row k="Palavras" v={w.draft.split(/\s+/).filter(Boolean).length} />
-                <Row k="Caracteres" v={w.draft.length} />
-                <Row k="Leitura" v={`~${Math.max(1, Math.ceil(w.draft.split(/\s+/).filter(Boolean).length / 200))}min`} />
+                <Row k="Words" v={w.draft.split(/\s+/).filter(Boolean).length} />
+                <Row k="Characters" v={w.draft.length} />
+                <Row k="Reading time" v={`~${Math.max(1, Math.ceil(w.draft.split(/\s+/).filter(Boolean).length / 200))} min`} />
                 <Row k="Saved" v={w.autosave === "saved" ? "Yes" : "No"} />
               </div>
             </Section>

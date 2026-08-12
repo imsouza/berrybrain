@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from berrybrain_api.ai_configuration import load_configuration
+from berrybrain_api.ai_configuration import AIConfiguration, load_configuration
+from berrybrain_api.confidence import (
+    ConfidenceSignal,
+    estimate_confidence,
+    persist_confidence,
+)
 from berrybrain_api.jobs import ENRICH_GRAPH_NODE, create_job
 from berrybrain_api.models import (
     GraphNodeRecord,
@@ -20,7 +25,8 @@ from berrybrain_api.models import (
     SemanticProfileRecord,
 )
 
-SEMANTIC_PROMPT_VERSION = "enrich-node.v2"
+SEMANTIC_PROMPT_VERSION = "enrich-node.v3"
+ENRICHMENT_RETRY_COOLDOWN = timedelta(minutes=15)
 SEMANTIC_STATES = {
     "pending",
     "processing",
@@ -118,8 +124,9 @@ def queue_node_enrichment(
     node: GraphNodeRecord,
     *,
     force: bool = False,
+    configuration: AIConfiguration | None = None,
 ) -> tuple[object, bool]:
-    configuration = load_configuration(session)
+    configuration = configuration or load_configuration(session)
     if configuration is None or not configuration.validated_at:
         node.semantic_state = "not_configured"
         node.color_id = "pending"
@@ -143,14 +150,31 @@ def queue_node_enrichment(
         f"node-enrichment:{node.id}:{fingerprint}:{SEMANTIC_PROMPT_VERSION}:"
         f"{configuration.configuration_fingerprint}"
     )
-    active_job = session.execute(
-        select(JobRecord).where(
-            JobRecord.idempotency_key == idempotency_key,
-            JobRecord.status.in_(["pending", "running"]),
+    latest_job = (
+        session.execute(
+            select(JobRecord)
+            .where(
+                JobRecord.idempotency_key == idempotency_key,
+            )
+            .order_by(JobRecord.id.desc())
         )
-    ).scalar_one_or_none()
-    if active_job is not None:
-        return active_job, False
+        .scalars()
+        .first()
+    )
+    if latest_job is not None:
+        if latest_job.status in {"pending", "running"}:
+            return latest_job, False
+        finished_at = (
+            latest_job.completed_at or latest_job.started_at or latest_job.created_at
+        )
+        if finished_at.tzinfo is None:
+            finished_at = finished_at.replace(tzinfo=UTC)
+        if (
+            not force
+            and latest_job.status == "dead_letter"
+            and datetime.now(UTC) - finished_at < ENRICHMENT_RETRY_COOLDOWN
+        ):
+            return latest_job, False
     job = create_job(
         session,
         ENRICH_GRAPH_NODE,
@@ -190,6 +214,19 @@ def persist_semantic_analysis(
         + analysis.confidence.semantic_interpretation
         + analysis.confidence.evidence_coverage
     ) / 3
+    confidence_estimate = estimate_confidence(
+        [
+            ConfidenceSignal(
+                analysis.confidence.concept_detection, "semantic:concept-detection"
+            ),
+            ConfidenceSignal(
+                analysis.confidence.semantic_interpretation, "semantic:interpretation"
+            ),
+            ConfidenceSignal(
+                analysis.confidence.evidence_coverage, "semantic:evidence-coverage"
+            ),
+        ]
+    )
     history = NodeEnrichmentVersionRecord(
         node_id=node.id,
         version=version,
@@ -212,6 +249,7 @@ def persist_semantic_analysis(
     )
     session.add_all([history, profile])
     node.ai_summary = analysis.meaning_in_context
+    persist_confidence(node, confidence_estimate)
     node.ai_context = analysis.why_it_matters_here
     node.source_evidence = json.dumps(analysis.evidence, ensure_ascii=False)
     node.semantic_state = "completed"

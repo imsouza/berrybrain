@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.4-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -27,7 +27,9 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
+- [What's New in 1.4.4](#whats-new-in-144)
 - [Current Maturity](#current-maturity)
+- [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
 - [Cognitive Layer](#cognitive-layer)
 - [Knowledge Graph](#knowledge-graph)
@@ -82,8 +84,8 @@ The system is designed around one rule:
 | Insights | Knowledge gaps, central concepts, recurring ideas, weak concepts, connections, study suggestions |
 | Graph Inference | Ask questions about the graph with RRF (Reciprocal Rank Fusion) evidence-backed answers |
 | Ask Flow | Persistent, grounded multi-turn sessions with evidence, isolation, and cancellation |
-| Check Online | Global graph research runs with URL safety, untrusted evidence, progress, and review |
-| Semantic Graph | Stable topic colors, vault namespaces, homonym separation, progressive loading, and canvas LOD |
+| Research gaps | Explicit graph-wide research with URL safety, untrusted evidence, progress, and confirmation before promotion |
+| Semantic Graph | Typed geometry, context clusters, ontology validation, quarantine, progressive loading, and canvas LOD |
 | Activity and Monitor | Human-readable activity timeline plus technical job diagnostics |
 | Settings | Theme, editor, provider/model configuration, graph/cognitive settings, attachment limits |
 | Owner Access | One-time local setup, configurable username alias, strong password, session/CSRF protection |
@@ -91,45 +93,161 @@ The system is designed around one rule:
 
 ---
 
+## What's New in 1.4.4
+
+- Executed five-path retrieval ablations with query-level observations, qrels, paired bootstrap
+  intervals, and immutable checksummed evidence bundles.
+- Added independent BM25, dense, and hybrid baseline runners that require real corpora, qrels, and
+  embeddings instead of substituting outcomes.
+- Added HTTP, worker queue, on-disk graph, browser, and instrumentation-overhead benchmarks plus
+  S/M/L/XL workload profiles.
+- Added bounded API latency/error telemetry, correlation propagation, and `Server-Timing` without
+  recording prompts, note content, secrets, or user-controlled labels.
+- Replaced static maturity percentages with evidence-based Maturity V3 and mandatory integrity caps.
+- Added thesis methodology, protocol, datasets, reproducibility, limitations, generated tables,
+  chart specifications, and documentation-consistency checks.
+- Reduced authenticated workspace startup from two sequential authorization requests to one normal
+  request, retaining fail-closed fallback behavior.
+
+### Included from 1.4.3
+
+- **Dedicated Ask workspace**: Home and Graph open a full Ask screen with voice input,
+  grounded answers, persistent Flow turns, and Home/Graph return paths.
+- **AI-assisted graph suggestions**: the question carousel and topic cloud render immediately from
+  active nodes, typed relationships, and clusters. AI refreshes the queue in the background; its
+  output is validated against live node IDs and exact labels before caching. Empty graphs stay empty.
+- **Continuous agent monitoring**: worker heartbeats idempotently schedule due enrichment,
+  insight and gap discovery, missing Judge evaluation, and semantic clustering. Enrichment jobs
+  carry evidence fingerprints, skip stale duplicates, and cool down after provider failures.
+- **Graph-first insights**: proposed insights are graph nodes with accept/reject actions; the
+  separate Insights and Review Today screens were removed.
+- **Node deletion and notifications**: deleting non-note nodes recalculates graph topology, while
+  insight proposals and terminal job failures create persistent English notifications.
+
+### Included from 1.4.2
+
+- **Reliable voice Ask**: the microphone starts recognition from the user gesture, renders a
+  live waveform from Web Audio, and reports permission, device, network, and speech failures.
+- **Bounded readable labels**: graph nodes adapt to their text, wrap to three lines, truncate at
+  58 characters, and preserve ontology geometry without becoming unbounded.
+- **Intentional graph interaction**: drag pins without opening; click animates the camera into
+  the node before opening its full page; the hover summary stays close and exposes useful context.
+- **Correct return routes**: **Back to Home** opens Brain home while **Back to graph** restores the
+  complete graph view with the workspace shell intact.
+- **Complete confidence contract**: concepts, note connections, nodes, edges, insights, cluster
+  assignments, and graph inferences expose calculated 95% intervals. Missing evidence is
+  unavailable, and migrated records are recalculated idempotently.
+- **No fabricated production knowledge**: deterministic fallbacks derive their score from source
+  occurrences, AI edges always reach Judge, and production self-check payloads are removed.
+
+- **Ontology contract**: nodes map to SKOS, PROV-O, schema.org, RDF, OWL, and Dublin Core;
+  edges enforce canonical names, direction, symmetry, domain, and range.
+- **Semantic quality gate**: generic metadata labels, sentences posing as concepts, invalid
+  endpoint combinations, and ambiguous generated artifacts enter quarantine outside graph/RAG.
+- **Calculated confidence**: graph nodes, edges, insights, and cluster assignments persist a
+  95% Wilson interval, sample size, factors, method, and timestamp. No evidence means unavailable,
+  not an invented default. Users cannot edit confidence.
+- **Context clustering**: deterministic medoids and silhouette selection replace transitive
+  threshold merging. Pending semantic nodes receive provisional cluster colors.
+- **Readable graph**: one full label per node, exclusive geometry by ontology type, Berry-red
+  note roots, rectangular highlighted insights, directed arrows, and a relationship-role legend.
+- **Node workspace**: click zooms into the node, then opens `/graph/nodes/:id` in the existing
+  shell with evidence, provenance, typed relationships, read-only confidence, editing, validation,
+  semantic retry, and graph-state restoration.
+- **Ask and insights**: voice prompts work on Home and Graph Ask; Flow answers can become insights;
+  automatic insight generation uses a configurable interval (24 hours by default).
+- **Vault workflow**: New note always opens the editor. Notes and folders support sidebar
+  drag-and-drop ordering plus inline management.
+- **Ontology-aware RAG**: graph retrieval uses type, direction, canonical property, aliases,
+  quarantine status, and the lower confidence bound. HippoRAG stores canonical triples and
+  retains them across rebuilds.
+
+---
+
 ## Current Maturity
 
-BerryBrain v1.3.0 is a validated release candidate for the Cognitive Layer, configuration v2, Model Router, RAG Judge, operational HippoRAG sidecar, persistent Ask Flow, global research, semantic graph clustering, progressive graph rendering, and user-facing operational recovery. Publication still depends on the protected remote release gates.
+BerryBrain v1.4.4 is locally validated for ontology-aware graph/RAG behavior, calculated
+confidence intervals, semantic quarantine, context clustering, full-page node editing,
+voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
 
 | Foundation | Current state |
 | --- | --- |
 | Markdown lifecycle | Real files, watcher/scan, optimistic concurrency, autosave recovery, version-aware processing |
 | Job engine | Structured runs/dependencies, idempotency, leases, heartbeat, backoff, dead-letter, stale recovery |
 | Semantic memory | Chunked indexing, hybrid lexical/vector/graph retrieval, optional Qdrant or Chroma |
-| Knowledge graph | Canonical typed nodes/edges, source evidence, confidence, lifecycle actions, provenance |
-| Graph scale | Bounded pages and deltas, worker layout, canvas LOD, stable semantic clusters and vault colors |
-| Grounded interaction | Ask refusal without evidence, persistent Flow, cancellable turns, global Check Online runs |
-| Insights and review | Knowledge-only insight policy, evidence-backed actions, persisted review scheduling |
+| Knowledge graph | Validated ontology types/roles, source evidence, confidence intervals, quarantine, lifecycle actions, provenance |
+| Graph scale | Bounded pages and deltas, deterministic extreme-scale layout, canvas LOD, medoid context clusters, provisional and vault colors |
+| Grounded interaction | Ask refusal without evidence, persistent Flow, cancellable turns, and explicit graph gap research |
+| Insight proposals | Knowledge-only insight policy, evidence-backed graph nodes, explicit accept/reject actions |
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, local/dev default owner, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
 | Delivery evidence | API, Worker, browser E2E, web build, security, architecture, benchmark, calibration, and dependency audit gates |
 
-Current v1.3.0 release-candidate evidence:
+Maturity is no longer represented by a static percentage. Maturity V3 awards Levels 0-5 per
+capability from current artifacts, rejects stale or missing evidence, and prevents synthetic CI
+fixtures from awarding independent or field-validation levels. The latest exploratory S profile
+passed its composed engineering gate but remains `incomplete-evidence` because public external
+datasets, independent comparison, and approved participant/field evidence are not yet available.
 
-- API: 346 tests and 55 subtests pass.
-- Worker and HippoRAG: 44 Worker tests and 7 sidecar tests pass.
-- Browser E2E: 43 Playwright checks pass, including a 10,000-node/40,000-edge stress path and healthy-worker heartbeat regression.
-- Graph API gate: 5,000 nodes/20,000 edges at p95 `2.54 s`, `11.3 MB` payload, and `82.1 MB` peak memory.
-- Semantic gate: Recall@10, MRR, and NDCG@10 are `1.0`; p95 is `47.34 ms`.
-- Cognitive gate: insight usefulness, precision/recall, provenance, stale cleanup, and idempotent rebuild all pass.
-- Recovery: checksum backup metadata and table counts match; isolated restore/rollback tests pass.
-- Security and architecture: source audits pass, production npm audit and Python dependency audits are clean, architecture fitness passes all 12 checks, all four images have zero fixable HIGH/CRITICAL findings, and CycloneDX 1.7 SBOMs are validated.
+See [Maturity Model V3](docs/maturity-model.md), [latest benchmark results](docs/benchmark-results.md),
+and [limitations](docs/limitations.md).
 
-The current scorecard, remaining gates, and requirement evidence are maintained in:
+---
 
-- [`QA Final Report 2026-07-26`](docs/planning/qa-final-report-2026-07-26.md)
-- [`Fix New Version Plan`](docs/planning/fix-new-version.md)
-- [`BerryBrain v1.2.0 Plan`](docs/planning/v-1-2-0.md)
-- [`Graph Performance and Product Maturity Plan`](docs/planning/planejamento-performace-grafo.md)
-- [`BerryBrain v1.3.0 Release Candidate Report`](docs/reports/RELEASE-1.3.0.md)
-- [`Clean Architecture and Refactoring Plan`](docs/planning/clean-architecture-refactor.md)
-- [`Second-Brain Maturity V2`](docs/planning/second-brain-maturity-v2.md)
-- [`Requirements Traceability`](docs/planning/requirements-traceability.md)
+## Evaluation and Benchmarking
+
+BerryBrain uses four comparison layers: internal A0-A6/G0-G3 ablations, independent technical
+baselines, historical regression, and task-level user evaluation. Retrieval reports query-level
+Recall@10, MRR, NDCG@10, rejection and faithfulness; runtime reports HTTP, queue, graph/database,
+browser, memory, and error distributions. Paired effects include deterministic bootstrap confidence
+intervals. Every measured runner emits revision/environment metadata, raw observations, summaries,
+and SHA-256 checksums.
+
+Latest executed exploratory S profile, generated 12 August 2026 at 19:13 UTC:
+
+| Retrieval configuration | Recall@10 | MRR | NDCG@10 | p95 latency |
+| --- | ---: | ---: | ---: | ---: |
+| Lexical only | 0.050 | 0.017 | 0.025 | 11.01 ms |
+| Dense only | 0.500 | 0.500 | 0.500 | 9.70 ms |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 18.27 ms |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 21.99 ms |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 30.84 ms |
+
+| Runtime workload | Measured result |
+| --- | ---: |
+| HTTP, 100 requests at concurrency 10 | 67.98 req/s; p50/p95/p99 138.02/248.62/293.22 ms; 0 errors |
+| Worker, 100 jobs | 12.48 jobs/s drain; p95 7,693.75 ms; 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | p50/p95 175.46/306.76 ms; 541,592 B payload |
+| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.26 ms containment |
+| Judge calibration | Weighted kappa 0.9801; false acceptance/rejection 0.000/0.000 |
+
+The composed gate passed with zero failed gates. These numbers are real local executions from the
+machine-readable artifacts, classified as exploratory because the revision was dirty and external
+datasets, independent replication, and approved participant/field evidence remain unavailable.
+
+```bash
+cd apps/api
+PYTHONPATH=src:. python -m benchmarks.retrieval_quality_benchmark --evidence-root ../../reports/evidence
+PYTHONPATH=src:. python -m benchmarks.full_evaluation --repository-root ../.. --output-root ../../reports/evaluation --profile S
+
+cd ../web
+BENCHMARK_BASE_URL=http://127.0.0.1:3000 npm run benchmark:browser
+```
+
+The controlled retrieval fixture is causal regression evidence, not a BEIR, HotpotQA, MuSiQue, or
+HippoRAG comparative claim. External runners require real qrels and embeddings and fail when those
+assets are missing. Human-study results require ethics/LGPD approval and real participants; the
+repository never substitutes fabricated labels.
+
+Evaluation references:
+
+- [Methodology](docs/evaluation-methodology.md)
+- [Benchmark protocol](docs/benchmark-protocol.md)
+- [Dataset registry](docs/datasets.md)
+- [Reproducibility](docs/reproducibility.md)
+- [Thesis protocol](docs/thesis-research-protocol.md)
+- [v1.4.4 execution plan](docs/planning/v1-4-4-performance-maturity-thesis-benchmark-plan.md)
 
 ---
 
@@ -209,7 +327,7 @@ flowchart TB
   KB --> Infer[Graph Inference Engine]
   KG --> Infer
   SDL --> Infer
-  Insight --> UI[Home, Insights, Graph, Editor]
+  Insight --> UI[Graph, Ask, Editor]
   Infer --> UI
 ```
 
@@ -256,7 +374,7 @@ Graph edges must have:
 - type;
 - reason;
 - evidence;
-- confidence;
+- calculated confidence interval or an explicit unavailable state;
 - provider/model when generated by AI;
 - status (`suggested`, `confirmed`, `ignored`, etc.).
 
@@ -302,14 +420,14 @@ The graph is the core representation of BerryBrain's second brain.
 
 ```mermaid
 graph TD
-  N1[Note: Docker Essentials] -->|backlink| N2[Note: Linux Shell Scripting]
-  N1 -->|contains concept| C1[Concept: containers]
-  N2 -->|contains concept| C2[Concept: shell automation]
-  C1 -->|related concept| C3[Topic: infrastructure]
-  C2 -->|related concept| C3
-  I1[Insight: automation connects Docker and shell] -->|cites evidence| N1
-  I1 -->|cites evidence| N2
-  G1[Gap: missing deployment note] -->|suggested by| I1
+  N1[Note: Docker Essentials] -->|references| N2[Note: Linux Shell Scripting]
+  N1 -->|mentions| C1[Concept: containers]
+  N2 -->|mentions| C2[Concept: shell automation]
+  C1 -->|related| C3[Topic: infrastructure]
+  C2 -->|related| C3
+  I1[Insight: automation connects Docker and shell] -->|derived_from| N1
+  I1 -->|derived_from| N2
+  G1[Gap: missing deployment note] -->|about| C3
 ```
 
 ### Node Types
@@ -318,10 +436,10 @@ graph TD
 | --- | --- |
 | `note` | A Markdown file in the vault |
 | `concept` | A semantic concept extracted from notes |
-| `topico` / `topic` | A topic detected from content or metadata |
-| `entidade` / `entity` | A named entity, tool, person, project, place, or technology |
-| `contexto` / `context` | A broader context connecting multiple notes |
-| `lacuna` / `gap` | A detected missing piece of knowledge |
+| `topic` | A broad subject grouping concepts and notes (`skos:ConceptScheme`) |
+| `entity` | An identifiable person, organization, product, place, project, or standard |
+| `context` | A situational, temporal, domain, or project scope |
+| `gap` | An explicit unanswered question or missing piece of knowledge |
 | `insight` | A knowledge insight with evidence and action |
 | `attachment` | Processed PDF, image, audio, video, text, or document source |
 
@@ -329,33 +447,45 @@ graph TD
 
 | Type | Meaning |
 | --- | --- |
-| `backlink` | A wiki link between notes |
-| `shared_concept` | Notes or nodes share a concept |
-| `semantic_similarity` | Similarity from embeddings/model inference |
-| `insight_suggested` | An insight cites or suggests a relationship |
-| `attachment_related` | Evidence-backed edge from an attachment to its note or derived knowledge |
-| `prerequisite` | One topic should be understood before another |
+| `mentions` | A note explicitly identifies a concept, entity, topic, or context |
+| `references` | A note cites another note, source, or attachment |
+| `derived_from` | An insight, gap, path, or attachment has traceable provenance |
+| `supports` / `contradicts` | Evidence supports or challenges knowledge |
+| `broader` / `narrower` | Directed SKOS hierarchy between concepts/topics |
+| `instance_of` | An entity instantiates a concept |
+| `part_of` | Knowledge is a component of other knowledge |
+| `prerequisite_for` | One concept, topic, or learning document is required first |
 | `example_of` | One note/example illustrates a concept |
-| `application_of` | A note applies a broader concept |
-| `contrast` | Two ideas differ in a meaningful way |
-| `duplicate` | Possible redundant notes/content |
+| `applies_to` | A concept or insight applies to another knowledge artifact |
+| `contrasts_with` / `same_as` / `related` | Symmetric contrast, identity, or semantic relation |
+| `attached_to` | An attachment belongs to a note |
+| `contextualizes` | A source, context, or note adds context to knowledge |
+
+The ontology is operational, not decorative metadata. Domain/range rules reject invalid triples;
+direction distinguishes prerequisites, derivation, hierarchy, support, and contradiction; Ask can
+resolve structural questions; graph-aware RAG can traverse relevant relationships; and HippoRAG
+receives stable canonical triples for multihop retrieval. Quarantined names or relationships never
+enter these retrieval paths until reviewed.
 
 ### Graph Interaction Rules
 
-- Single click: open an accessible details panel with theme, confidence, evidence, provenance,
-  related notes, Ask, review, and enrichment actions.
+- Single click: animate a zoom-in, then open the full node page with ontology, calculated
+  confidence, evidence, provenance, directed relationships, validation, and edit actions.
 - Double click note node: open the source note.
 - Insight nodes can be shown/hidden in Brain View.
 - Suggested nodes/connections can be confirmed or ignored.
 - AI enrichment must update evidence, context, model/provider, and activity.
 - Web validation is only allowed when research/external enrichment is enabled.
 
-Topic is represented by semantic color. Type and lifecycle use shape, border, label, and status
-channels. Related nodes keep stable cluster colors, same-name entities can split by context,
-pending artifacts use a neutral beige channel, and vault nodes use reserved namespaces.
+Context is represented by semantic color. Every ontology type has its own geometry; note roots
+remain Berry red and insights use a highlighted rectangle. Related nodes keep stable medoid
+cluster colors, same-name entities can split by context, pending analysis receives a provisional
+cluster color, and vault nodes use reserved namespaces.
 
-Large graphs use bounded API pages, version deltas, a layout worker, canvas level-of-detail, and
-selected-node preservation. The release browser gate covers 10,000 nodes and 40,000 edges.
+Large graphs use bounded API pages, version deltas, canvas level-of-detail, and selected-node
+preservation. At 8,000 nodes and above, a deterministic progressive layout avoids force-simulation
+CPU contention; active camera gestures transform the current bitmap before a crisp idle redraw.
+The release browser gate covers 10,000 nodes and 40,000 edges.
 
 ---
 
@@ -401,7 +531,7 @@ or removed sources are superseded instead of producing false provider errors.
 | Graph quality | Stats, cleanup, duplicate detection, enrichment |
 | Attachment processing | OCR, PDF parsing, transcription, attachment graph expansion |
 | Semantic enrichment | Versioned node analysis, clustering, stable colors, and graph quality |
-| Research and validation | Global Check Online runs, Judge evaluation, HippoRAG synchronization |
+| Research and validation | Graph gap research, Judge evaluation, HippoRAG synchronization |
 
 ---
 
@@ -494,7 +624,8 @@ The API is versioned under `/api/v1`.
 | `GET /api/v1/graph/summary` | Lightweight graph summary |
 | `POST /api/v1/graph/expand` | Expand/rebuild graph artifacts |
 | `POST /api/v1/graph/infer` | Ask the graph with evidence |
-| `POST /api/v1/graph/research-runs` | Start a global Check Online research run |
+| `POST /api/v1/graph/research-runs` | Start a graph-wide gap research run |
+| `GET /api/v1/ask/suggestions` | Get immediate graph-grounded questions and start a validated AI refresh |
 | `POST /api/v1/ask/sessions` | Start a persistent grounded Ask Flow |
 | `POST /api/v1/ask/sessions/{id}/turns` | Continue a Flow with another grounded turn |
 | `GET /api/v1/ai/providers` | Provider presets and capabilities |
@@ -697,12 +828,12 @@ already exist in the API image. The default image bundles English (`eng`) and or
 detection (`osd`) only.
 
 For Debian-based images, add the required packages to `apps/api/Dockerfile`, rebuild the API,
-and then select their Tesseract codes in Settings. Example for Portuguese and Spanish:
+and then select their Tesseract codes in Settings. Example for Spanish and German:
 
 ```dockerfile
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \
+       tesseract-ocr tesseract-ocr-spa tesseract-ocr-deu \
     && rm -rf /var/lib/apt/lists/*
 ```
 
@@ -712,8 +843,8 @@ docker compose up -d api
 docker compose exec api tesseract --list-langs
 ```
 
-Use Tesseract codes such as `eng`, `por`, `spa`, `deu`, or `fra`. Multiple installed
-languages can be combined, for example `por+eng`. An unknown code or a code whose package is
+Use Tesseract codes such as `eng`, `spa`, `deu`, or `fra`. Multiple installed
+languages can be combined, for example `eng+spa`. An unknown code or a code whose package is
 absent causes the OCR job to fail; this rule applies to every language.
 
 ---
@@ -864,8 +995,10 @@ docker compose up -d --build
 BerryBrain is installable as a Progressive Web App and starts directly at `/brain`. Install
 it from a supported browser while using HTTPS or `localhost`.
 
-The Service Worker caches public static assets only. It does **not** cache API responses,
-authenticated HTML navigation, or note contents. If the self-hosted server is unavailable,
+The Service Worker caches public static assets only. JavaScript and CSS use network-first
+refresh with an offline fallback, so a deployment cannot remain pinned to an old application
+bundle. It does **not** cache API responses, authenticated HTML navigation, or note contents.
+If the self-hosted server is unavailable,
 the PWA displays a neutral offline page instead of stale private content. Editing, retrieval,
 and cognitive processing require connectivity to the self-hosted server.
 
@@ -966,7 +1099,7 @@ BerryBrain uses incremental vertical-slice refactoring. The graph-inference slic
 - [Requirements Traceability](docs/planning/requirements-traceability.md)
 - [QA Final Report 2026-07-26](docs/planning/qa-final-report-2026-07-26.md)
 - [BerryBrain v1.2.0 Plan](docs/planning/v-1-2-0.md)
-- [Graph Performance and Product Maturity Plan](docs/planning/planejamento-performace-grafo.md)
+- [Graph Performance and Product Maturity Plan](docs/planning/graph-performance-master-plan.md)
 
 These files distinguish implemented behavior from planned gates. A checkbox is marked complete only when code and automated evidence exist.
 
@@ -1002,11 +1135,12 @@ BerryBrain ships with a hardened, fail-closed security model. The API enforces a
 
 | Version | Status | Focus |
 | --- | --- | --- |
-| `1.0.x` | Stable | Local vault, resilient jobs, hybrid retrieval, graph, insights, reviews, cognitive attachments, activity, settings |
+| `1.0.x` | Stable | Local vault, resilient jobs, hybrid retrieval, graph, insights, cognitive attachments, activity, settings |
 | `1.1.x` | Stable | Evaluation datasets, stronger reranking/inference, graph quality tuning, broader accessibility |
 | `1.2.x` | Stable | Model Router, RAG Judge, HippoRAG foundation, RRF retrieval, capability-based AI routing |
-| `1.3.x` | **Current** | Configuration v2, operational HippoRAG, Ask Flow, global research, semantic graph colors, progressive 10k rendering |
-| `1.4.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
+| `1.3.x` | Stable | Configuration v2, operational HippoRAG, Ask Flow, global research, semantic graph colors, progressive 10k rendering |
+| `1.4.x` | **Current** | Ontology-aware graph, calculated confidence, dedicated Ask, agent monitoring, graph-first insights |
+| `1.5.x` | Planned | Additional attachment formats, OCR languages, transcription models, extraction observability |
 | `2.0.x` | Future | Optional multi-user collaboration, optional Postgres/Neo4j, advanced sync |
 
 ### Attachment Processing Status

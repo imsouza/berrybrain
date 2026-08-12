@@ -1,12 +1,12 @@
 # Infrastructure
 
-Implementacoes concretas para filesystem, banco, filas, vector store, logs, backups e gateways externos locais.
+Concrete implementations for filesystems, databases, queues, vector stores, logs, backups, and local external gateways.
 
-Implementacoes planejadas:
+Planned implementations:
 
 - SQLiteNoteRepository
 - MarkdownFileStorage
-- QdrantVectorStore ou ChromaVectorStore
+- QdrantVectorStore or ChromaVectorStore
 - OllamaGateway
 - FileSystemWatcher
 - JobQueue

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://berrybrain.local/schemas/run-manifest.schema.json",
+  "title": "BerryBrain Benchmark Run Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "benchmark",
+    "classification",
+    "started_at",
+    "git_commit",
+    "git_dirty",
+    "python_version",
+    "platform",
+    "machine",
+    "processor",
+    "cpu_count",
+    "random_seed",
+    "dataset_checksum",
+    "configuration"
+  ],
+  "properties": {
+    "schema_version": { "const": "berrybrain-benchmark.v1" },
+    "run_id": { "type": "string", "minLength": 17 },
+    "benchmark": { "type": "string", "minLength": 1 },
+    "classification": {
+      "enum": ["exploratory", "confirmatory", "ci-regression"]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "git_commit": { "type": "string", "minLength": 1 },
+    "git_dirty": { "type": "boolean" },
+    "python_version": { "type": "string" },
+    "platform": { "type": "string" },
+    "machine": { "type": "string" },
+    "processor": { "type": "string" },
+    "cpu_count": { "type": "integer", "minimum": 1 },
+    "random_seed": { "type": "integer" },
+    "dataset_checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "configuration": { "type": "object" }
+  },
+  "additionalProperties": false
+}

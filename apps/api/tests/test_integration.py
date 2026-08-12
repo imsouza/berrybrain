@@ -202,14 +202,14 @@ class IntegrationTest(unittest.TestCase):
             "/api/v1/notes",
             json={
                 "folder": "inbox",
-                "content": "Texto inicial criado direto pelo editor.",
+                "content": "Initial text created directly in the editor.",
             },
         )
 
         self.assertEqual(resp.status_code, 201)
         note = resp.json()
-        self.assertEqual(note["path"], "inbox/rascunho.md")
-        self.assertIn("Texto inicial", note["content"])
+        self.assertEqual(note["path"], "inbox/untitled-note.md")
+        self.assertIn("Initial text", note["content"])
 
     def test_04_read_and_update_note(self):
         notes = self.client.get("/api/v1/notes").json()["notes"]
@@ -687,71 +687,6 @@ class IntegrationTest(unittest.TestCase):
         listed = self.client.get(f"/api/v1/notes/{note_path}/attachments")
         self.assertEqual(listed.json()["attachments"], [])
 
-    def test_10g_cognitive_review_lifecycle(self):
-        from berrybrain_api.database import SessionLocal
-        from berrybrain_api.models import NoteRecord
-        from berrybrain_api.services import create_insight
-
-        with SessionLocal() as session:
-            note = NoteRecord(
-                title="Review Integration Source",
-                slug="review-integration-source",
-                path="inbox/review-integration-source.md",
-                content="Grounded fixture",
-                content_hash="review-integration-v1",
-            )
-            session.add(note)
-            session.flush()
-            evidence = {"sourceNoteId": note.id, "excerpt": "Grounded fixture"}
-            insight = create_insight(
-                session,
-                "knowledge_gap",
-                "Integration review source",
-                "A grounded insight for the review lifecycle.",
-                related_notes=[note.id],
-                why_it_matters="The concept should be retrievable without rereading.",
-                evidence=[evidence],
-                suggested_action="Explain the concept from memory.",
-                graph_impact="Reinforces an existing knowledge node.",
-                confidence=0.85,
-                provider="deterministic",
-                model="integration",
-            )
-            insight_id = insight.id
-
-        created = self.client.post(
-            "/api/v1/reviews/from-insight",
-            json={
-                "source_insight_id": insight_id,
-                "review_type": "explain",
-                "prompt": "Explain the grounded integration concept.",
-                "expected_points": ["Grounded fixture"],
-                "evidence": [evidence],
-            },
-        )
-        self.assertEqual(created.status_code, 201)
-        review = created.json()["review"]
-        self.assertEqual(review["status"], "active")
-
-        due = self.client.get("/api/v1/reviews", params={"due": True})
-        self.assertEqual(due.status_code, 200)
-        self.assertTrue(
-            any(item["id"] == review["id"] for item in due.json()["reviews"])
-        )
-
-        graded = self.client.post(
-            f"/api/v1/reviews/{review['id']}/grade",
-            json={"rating": "good", "perceived_difficulty": 3},
-        )
-        self.assertEqual(graded.status_code, 200)
-        self.assertEqual(graded.json()["review"]["intervalDays"], 1)
-        paused = self.client.post(f"/api/v1/reviews/{review['id']}/pause")
-        self.assertEqual(paused.json()["review"]["status"], "paused")
-        resumed = self.client.post(f"/api/v1/reviews/{review['id']}/resume")
-        self.assertEqual(resumed.json()["review"]["status"], "active")
-        deleted = self.client.delete(f"/api/v1/reviews/{review['id']}")
-        self.assertEqual(deleted.json()["review"]["status"], "deleted")
-
     def test_10h_cognitive_maturity_report(self):
         response = self.client.get("/api/v1/cognitive/maturity")
         self.assertEqual(response.status_code, 200)
@@ -832,7 +767,7 @@ class IntegrationTest(unittest.TestCase):
                         f"Source evidence A{index}",
                         f"Source evidence B{index}",
                     ],
-                    suggested_action="Review the cited note and record the conclusion.",
+                    suggested_action="Inspect the cited note and record the conclusion.",
                     graph_impact="Adds a grounded learning relationship.",
                     confidence=0.85,
                     provider="deterministic",
@@ -844,20 +779,12 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(applied.json()["status"], "accepted")
         ignored = self.client.post(f"/api/v1/insights/{insight_ids[1]}/ignore")
         self.assertEqual(ignored.json()["insight"]["status"], "dismissed")
-        reviewed = self.client.post(f"/api/v1/insights/{insight_ids[2]}/reviewed")
-        self.assertEqual(reviewed.json()["status"], "reviewed")
         converted = self.client.post(
             f"/api/v1/insights/{insight_ids[3]}/converted-to-note"
         )
         self.assertEqual(converted.json()["status"], "converted_to_note")
         self.assertEqual(
             self.client.post(f"/api/v1/insights/{insight_ids[0]}/create-note").json()[
-                "status"
-            ],
-            "job_created",
-        )
-        self.assertEqual(
-            self.client.post(f"/api/v1/insights/{insight_ids[0]}/create-review").json()[
                 "status"
             ],
             "job_created",
@@ -881,8 +808,8 @@ class IntegrationTest(unittest.TestCase):
         self.assertGreaterEqual(len(notifications), 2)
         self.assertTrue(
             all(
-                item["title"] in {"Insight ready", "Job failed"}
-                for item in notifications[:2]
+                item["title"] in {"Insight proposed", "Insight ready", "Job failed"}
+                for item in notifications
             )
         )
         marked = self.client.post(
@@ -1019,7 +946,7 @@ class IntegrationTest(unittest.TestCase):
             f"/api/v1/graph/connections/{edge_id}/type",
             json={"type": "prerequisite"},
         )
-        self.assertEqual(changed.json()["type"], "prerequisite")
+        self.assertEqual(changed.json()["type"], "prerequisite_for")
         evidence = self.client.post(
             f"/api/v1/graph/connections/{edge_id}/evidence",
             json={"excerpt": "Manual integration evidence", "source_note_id": None},
@@ -1106,9 +1033,15 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(enriched.status_code, 200)
         summary = self.client.get(f"/api/v1/graph/nodes/{node_id}/summary")
         self.assertEqual(summary.status_code, 200)
+        self.assertTrue(summary.json()["sourceFingerprint"])
         self.assertEqual(
             summary.json()["aiSummary"], "A concise grounded concept summary."
         )
+        invalid_analysis = self.client.post(
+            f"/api/v1/graph/nodes/{node_id}/enrich",
+            json={"analysis": {"source_fingerprint": ""}},
+        )
+        self.assertEqual(invalid_analysis.status_code, 422)
 
         reprocessed = self.client.post(f"/api/v1/graph/nodes/{node_id}/reprocess")
         self.assertEqual(reprocessed.json()["status"], "queued")
@@ -1618,7 +1551,7 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(audit.status_code, 200, audit.text)
         self.assertIn("completion_rate_pct", audit.json())
         activity = self.client.get("/api/v1/activity").json()["activity"]
-        self.assertFalse(any("falhou" in item["description"] for item in activity))
+        self.assertFalse(any("failed" in item["description"] for item in activity))
         reset = self.admin_client.post(
             "/api/v1/system/reset", json={"confirm": "berrybrain-reset-all"}
         )

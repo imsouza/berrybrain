@@ -1,0 +1,15 @@
+{
+  "concurrency": 10,
+  "duration_seconds": 1.618391758063808,
+  "error_rate": 0.0,
+  "failures": 0,
+  "latency_p50_ms": 143.092031,
+  "latency_p95_ms": 316.97309705,
+  "latency_p99_ms": 382.59040555,
+  "requests": 100,
+  "status_codes": {
+    "200": 100
+  },
+  "successes": 100,
+  "throughput_rps": 61.78973632418691
+}

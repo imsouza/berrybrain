@@ -1,10 +1,10 @@
 # Application
 
-Casos de uso do BerryBrain.
+BerryBrain application use cases.
 
-Esta camada orquestra entidades de dominio e portas de infraestrutura, mas nao deve conhecer detalhes de HTTP, SQLite, React ou Ollama.
+This layer orchestrates domain entities and infrastructure ports. It must not depend on HTTP, SQLite, React, or Ollama implementation details.
 
-Casos de uso planejados:
+Planned use cases:
 
 - CreateNoteUseCase
 - UpdateNoteUseCase

@@ -457,7 +457,7 @@ separately for image, audio, video, and other attachments in **Settings**.
 
 The OCR language value is passed directly to Tesseract's \`-l\` option. A code works only
 when its matching \`traineddata\` package is installed in the API image. The default image
-includes \`eng\` and \`osd\`; changing Settings to \`por\`, \`spa\`, \`deu\`, or another
+includes \`eng\` and \`osd\`; changing Settings to \`spa\`, \`deu\`, \`fra\`, or another
 code does not download that language automatically.
 
 Install the required Debian package, rebuild the API, and verify the result:
@@ -465,7 +465,7 @@ Install the required Debian package, rebuild the API, and verify the result:
 \`\`\`dockerfile
 RUN apt-get update \\
     && apt-get install -y --no-install-recommends \\
-       tesseract-ocr tesseract-ocr-por tesseract-ocr-spa \\
+       tesseract-ocr tesseract-ocr-spa tesseract-ocr-deu \\
     && rm -rf /var/lib/apt/lists/*
 \`\`\`
 
@@ -475,7 +475,7 @@ docker compose up -d api
 docker compose exec api tesseract --list-langs
 \`\`\`
 
-Use \`por+eng\` for multilingual documents after both packs are installed. Missing or invalid
+Use \`eng+spa\` for multilingual documents after both packs are installed. Missing or invalid
 language data makes the OCR job fail. This requirement applies to every Tesseract language.`,
   },
   {
@@ -484,9 +484,10 @@ language data makes the OCR job fail. This requirement applies to every Tesserac
     md: `## Writing & organizing notes
 
 - **Write fast**: use the Home box, "New note", or **Ctrl+K**.
+- **Always edit immediately**: New note opens the editor from every application page.
 - **Link notes**: type \`[[Note Name]]\` to create a backlink.
 - **Drafts**: saved as real files in the vault \`inbox\` folder.
-- **Folders**: organize the vault from the sidebar; rename and delete folders.
+- **Folders and notes**: drag to reorder them in the sidebar; rename, move, and delete there.
 - **Language**: notes keep their original language when you switch the UI language.
 - **Scan vault**: re-read disk to import external Markdown.
 
@@ -500,40 +501,74 @@ Notes are the source of truth — BerryBrain only adds structure around them.`,
 The graph is where notes, concepts, entities, topics, gaps, and insights become inspectable.
 
 - **Open** it from the top bar.
-- **Click a node** to review its theme, confidence, evidence, provenance, related notes, and actions.
+- **Click a node** to zoom in and open a full page without replacing the vault sidebar or navbar.
+- **Drag a node** to pin its position without opening it. Movement is separated from a click.
+- **Hover a node** for a nearby summary of its content, ontology type, context cluster,
+  calculated confidence, semantic state, provenance, path, and directed relationships.
+- **Edit a node** from that page. BerryBrain validates name/type against current evidence,
+  invalidates old confidence, and queues Judge, enrichment, graph, cluster, and stats recalculation.
+- **Confidence is read-only** and shows its 95% evidence interval, sample size, method, and factors.
 - **Confirm** a suggested node (green) to validate it.
 - **Pending** artifacts use a neutral beige channel; status is never encoded by topic color alone.
-- **Reprocess** / **Enrich with AI** a single node.
+- Node enrichment runs automatically after changes and during agent monitoring.
 - **Recalculate connections** from the Home graph card.
 - **Open note** jumps to the source note.
 - **Ask** starts a grounded question from the selected node and can continue in Flow.
 
-Semantic color represents topic, while shape, border, and labels represent node type/status.
-Related nodes share stable cluster colors, same-name entities can split by context, and each vault
-uses its own visual namespace. The graph loads progressively, applies deltas, computes layout in
-a worker, and uses canvas level-of-detail for large datasets.
+Every node type has exclusive geometry. Context determines cluster color, except note roots stay
+Berry red and insights are highlighted rectangles. Labels render once, adapt the bounded node
+geometry, wrap to three lines, and truncate after 58 characters. Pending semantic nodes receive
+provisional context colors instead of a generic pending color.
+
+The ontology maps internal types and roles to SKOS, PROV-O, schema.org, RDF, OWL, and Dublin Core.
+Canonical edges include \`mentions\`, \`references\`, \`derived_from\`, \`supports\`,
+\`contradicts\`, \`broader\`, \`narrower\`, \`instance_of\`, \`part_of\`,
+\`prerequisite_for\`, \`example_of\`, \`applies_to\`, \`attached_to\`,
+\`contextualizes\`, and symmetric relations. Domain, range, and direction are validated.
+Generic metadata labels, sentences posing as concepts, and invalid endpoint combinations enter
+semantic quarantine outside graph and RAG until reviewed.
+
+The graph loads progressively, applies deltas, computes layout in a worker, and uses canvas
+level-of-detail for large datasets. **Back to graph** restores the complete graph state;
+**Back to Home** returns to Brain home.
 
 Confirm good nodes and ignore weak suggestions to keep the graph clean and meaningful.`,
   },
   {
     id: "ask-flow-research",
-    title: "Ask, Flow & Check Online",
-    md: `## Ask, Flow & Check Online
+    title: "Ask, Flow & graph research",
+    md: `## Ask, Flow & graph research
 
 ### Ask and Flow
 
 Ask returns a grounded answer only when BerryBrain can attach evidence. **Continue in Flow**
 creates a persistent multi-turn session, preserves evidence IDs in order, isolates concurrent
-sessions, and supports cancellation. Provider/model and inference provenance remain visible.
+sessions, and supports cancellation. A grounded Flow answer can be saved directly as an insight.
+Flow is useful when a follow-up depends on prior grounded turns; one-shot questions do not need it.
+Home Ask and Graph Ask open the dedicated Ask workspace and support browser speech recognition.
+Listening renders a live Web Audio waveform. On local HTTP, BerryBrain links to the configured
+HTTPS address when the browser blocks microphone access. Permission, device, network, and
+no-speech failures remain visible. Provider/model and inference provenance remain visible.
 
-### Check Online
+The Ask workspace immediately builds a question queue and topic cloud from live nodes, typed
+relationships, clusters, insights, and gaps. AI refreshes that queue in the background. Every AI
+question is validated against live node IDs and exact graph labels before it is cached for the
+current graph version. Graph changes invalidate the cache. An empty graph produces no suggestions;
+provider downtime never replaces available graph evidence with an empty queue.
 
-**Check Online** is a graph-wide research command. It plans unresolved gaps, runs as observable
+Graph retrieval understands ontology class, relationship property, direction, aliases, and the
+lower bound of calculated confidence. Quarantined artifacts never enter retrieval. HippoRAG is
+synchronized after graph expansion with canonical triples that survive sidecar rebuilds.
+
+### Research gaps
+
+**Research gaps** is a graph-wide maintenance command. It plans unresolved gaps, runs as observable
 background work, stores external text as untrusted evidence, rejects unsafe result URLs, and
-requires review before knowledge promotion. It is not an automatic truth source.
+requires explicit confirmation before knowledge promotion. It is useful for missing or uncertain
+external facts, but unnecessary when local evidence is sufficient.
 
-Use node-level enrichment for one artifact and Check Online when the graph needs a broader
-evidence pass. Both actions report progress and failures in Monitor.`,
+Automatic enrichment handles graph artifacts internally. Use Research gaps only when the graph
+needs evidence beyond the local vault. Research progress and failures remain visible in Monitor.`,
   },
   {
     id: "graph-performance",
@@ -545,7 +580,8 @@ The release gate exercises both API projection and browser interaction:
 - API budget: 5,000 nodes and 20,000 edges, p95 under 5 seconds, payload under 16 MiB,
   peak memory under 512 MiB.
 - Browser stress: 10,000 nodes and 40,000 edges with progressive pages, cold/warm checks,
-  canvas LOD, selected-node preservation, and interaction p95 measurement.
+  deterministic extreme-scale layout, canvas LOD, bitmap camera gestures, selected-node
+  preservation, and interaction p95 measurement.
 - Default pages: public and authenticated route navigation, script transfer, mobile overflow,
   accessibility, LCP, CLS, and interaction candidates.
 
@@ -560,26 +596,36 @@ cannot be applied safely, \`requiresFullRefresh\` tells the client to reload can
 Insights are discoveries: knowledge gaps, central concepts, possible contradictions, study
 paths, and suggested notes.
 
-- Each insight shows a **confidence %** based on evidence.
-- **Apply** creates a note or review from the insight.
-- **Ignore** discards it.
+- Each insight shows calculated confidence and a **95% evidence interval**; no sample means
+  confidence is unavailable.
+- Suggested insights appear as rectangular graph nodes with description and evidence.
+- **Accept insight** confirms the proposal in the graph.
+- **Reject insight** removes the proposal from active graph retrieval.
 - Deterministic insights work without AI; AI insights add graph-evidence reasoning.
+- The active agent monitor queues generation every 24 hours by default. The interval is
+  configurable; the monitor itself cannot be disabled.
+- Flow answers can be promoted to insights when they retain evidence.
 
-Review confidence before relying on any insight, and create permanent notes from the useful
-ones.`,
+Inspect confidence before relying on an insight, and create permanent notes from useful ones.`,
   },
   {
     id: "connections",
     title: "Connections",
     md: `## Connections
 
-BerryBrain suggests connections automatically. They appear as edges in the graph.
+BerryBrain suggests connections automatically. They appear as directed, typed ontology edges.
+
+Knowledge confidence is calculated from distinct evidence/model signals and stored with its
+95% Wilson interval, sample size, method, factors, and timestamp. This contract covers concepts,
+note connections, graph nodes and edges, insights, cluster assignments, and graph inferences.
+An artifact without evidence reports confidence as unavailable; users cannot edit the value.
 
 - **Suggested** — proposed by the system, awaiting your decision.
 - **Confirm** — becomes an official connection.
 - **Ignore** — discarded.
 
-Confirmed connections feed the Brain View and search; ignored ones keep the graph tidy.`,
+Confirmed connections feed the Brain View and search; ignored ones keep the graph tidy.
+The Legend explains each edge role and distinguishes symmetric relations from arrowed relations.`,
   },
   {
     id: "commands",
@@ -735,6 +781,8 @@ The Autopilot persists work before execution and treats each note version as imm
 - Atomic claim, lease, heartbeat, timeout, retry with backoff, circuit breaker, and dead-letter state.
 - Superseded pipelines cannot overwrite results from a newer note version.
 - AI failures remain visible failures; they do not become empty successful results.
+- Enrichment jobs carry the current evidence fingerprint, skip stale or completed duplicates, and
+  cool down for 15 minutes after a provider dead letter before automatic monitoring retries them.
 - Canonical graph writes prevent duplicate nodes and edges during retry or reprocessing.
 - Suggested graph artifacts can be confirmed, ignored, reprocessed, or reverted.
 
@@ -778,30 +826,192 @@ storage. Your notes remain in the vault.`,
 Expose only the web entrypoint; keep the API internal.`,
   },
   {
+    id: "evaluation",
+    title: "Evaluation & benchmarking",
+    md: `## Evaluation & benchmarking
+
+BerryBrain is evaluated through four complementary comparisons:
+
+1. **Internal ablations** isolate lexical, dense, hybrid, graph, generation, Judge, and continuous-agent contributions under shared controls.
+2. **External technical baselines** run independent BM25, dense cosine, reciprocal-rank hybrid, and vanilla RAG against the same corpus and qrels.
+3. **Historical regression** repeats frozen workloads across revisions and declared hardware profiles.
+4. **Task-level studies** evaluate completion, time, evidence coverage, trust calibration, and workload with real participants after ethics and privacy approval.
+
+The S/M/L/XL profiles cover HTTP, worker queue, on-disk graph/database, browser desktop/mobile,
+retrieval quality, graph semantics, Judge calibration, reliability, and security. Query-level paired
+effects use bootstrap confidence intervals. Each run retains revision and dirty state, environment,
+seed, dataset checksum, configuration, raw observations, summary, and artifact checksums.
+
+Controlled synthetic fixtures are engineering regression evidence. They are not BEIR, HotpotQA,
+MuSiQue, independent HippoRAG, productivity, or field-validation claims. External runners require
+real qrels and embeddings and fail instead of substituting mock outcomes. Participant and private
+vault collection requires an approved ethics/LGPD protocol and informed consent.
+
+Maturity V3 reports Levels 0-5 per capability. Missing or stale evidence remains Level 0;
+synthetic CI evidence cannot award independent or field-validation levels.`,
+  },
+  {
+    id: "measured-performance",
+    title: "Measured performance",
+    md: `## Measured performance
+
+The latest S profile measures distributions rather than isolated best runs. HTTP reports request
+rate, errors, and p50/p95/p99 latency. Worker evidence reports enqueue and drain rates, end-to-end
+queue latency, completion, and duplicate claims. On-disk graph evidence records nodes, edges,
+projection latency, payload, and traced memory. Browser evidence records authenticated desktop and
+mobile navigation, LCP, CLS, long tasks, transfer bytes, heap, and application errors.
+
+Latest executed profile, generated 12 August 2026 at 19:13 UTC:
+
+| Workload | Throughput | p50 | p95 | p99 | Failures |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HTTP, 100 requests, concurrency 10 | 67.98 req/s | 138.02 ms | 248.62 ms | 293.22 ms | 0 |
+| Worker queue, 100 jobs | 12.48 jobs/s drain | 5,036.14 ms | 7,693.75 ms | 7,954.86 ms | 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | - | 175.46 ms | 306.76 ms | - | Gate passed |
+| Semantic retrieval, 45 queries | - | 31.50 ms | 69.20 ms | - | 0 unexpected zero results |
+
+| Graph resource | Actual | Budget | Utilization |
+| --- | ---: | ---: | ---: |
+| Serialized payload | 541,592 B | 16,777,216 B | 3.23% |
+| Peak traced memory | 3,181,953 B | 536,870,912 B | 0.59% |
+
+S is a pull-request engineering profile, not a supported capacity claim. M, L, steady, ramp, spike,
+soak, stress, constrained mobile, and provider-sidecar profiles must run on pinned hardware before
+publishing scalability conclusions. Instrumentation overhead is measured with paired enabled and
+disabled samples and reported separately from endpoint latency.`,
+  },
+  {
+    id: "rag-graph-quality",
+    title: "RAG & graph quality",
+    md: `## RAG & graph quality
+
+Retrieval uses Recall@10, MRR, NDCG@10, negative rejection, stale-evidence rejection, citation
+precision, claim faithfulness, and p50/p95/p99 latency. Paired A0-A6 configurations isolate lexical,
+dense, hybrid, graph expansion, generation, Judge, and continuous-agent effects while keeping
+corpus, qrels, model, context, query order, and cache policy controlled.
+
+The current controlled corpus executed 44 queries per configuration, or 220 query observations:
+
+| Executed configuration | Recall@10 | MRR | NDCG@10 | p95 |
+| --- | ---: | ---: | ---: | ---: |
+| A0 lexical only | 0.050 | 0.017 | 0.025 | 11.01 ms |
+| A1 dense only | 0.500 | 0.500 | 0.500 | 9.70 ms |
+| A2 standard hybrid | 0.500 | 0.500 | 0.500 | 18.27 ms |
+| A3 graph lexical | 0.500 | 0.250 | 0.315 | 21.99 ms |
+| A3 graph hybrid | 1.000 | 0.750 | 0.815 | 30.84 ms |
+
+Graph hybrid improved multi-hop Recall@10 from 0.000 to 1.000, with paired bootstrap 95% CI
+\`[1.000, 1.000]\`, while factual Recall@10 remained 1.000. Citation precision and evidence
+faithfulness were both 1.000. A4-A6 and G0-G3 remain protocol definitions, not measured results.
+
+Graph evaluation covers canonical node types, ontology domain/range, named directed edges,
+duplicates, orphans, evidence provenance, confidence lower bounds, stale deletion, ignored edges,
+and path-answer success. Confidence is calculated from evidence and cannot be edited by clients.
+An edge or insight without valid current provenance cannot be promoted as knowledge.`,
+  },
+  {
+    id: "evaluation-reliability",
+    title: "Reliability evidence",
+    md: `## Reliability evidence
+
+Deterministic gates cover job idempotency, lease ownership, retry, dead letter, cancellation, stale
+pipeline supersession, graph transaction rollback, malformed model output, unavailable providers,
+backup checksums, isolated restore, schema migration, unsafe archives, authorization, CSRF, and
+secret handling. Failures remain observations; a benchmark does not rerun only failed cells until
+they pass.
+
+Release readiness is capped when data integrity, privacy, authorization, stale-evidence, or backup
+gates fail. Long provider, process, network, disk, and soak experiments remain separate scheduled
+evidence and must record recovery time and user-visible degradation.`,
+  },
+  {
+    id: "maturity-v3",
+    title: "Maturity V3",
+    md: `## Maturity V3
+
+- **Level 0**: absent, contradicted, missing, or stale evidence.
+- **Level 1**: implementation without verification.
+- **Level 2**: current unit, integration, or deterministic regression evidence.
+- **Level 3**: representative reproducible benchmark evidence.
+- **Level 4**: independent comparison plus fault evidence.
+- **Level 5**: approved longitudinal field or human-study evidence.
+
+Every awarded level links to a current artifact and expiry. Synthetic evidence cannot award Levels
+4-5. The report publishes minimum and median levels, never a misleading percentage or a “100%
+mature” claim. Mandatory safety and integrity failures set readiness to blocked.`,
+  },
+  {
+    id: "evaluation-reproducibility",
+    title: "Reproducibility",
+    md: `## Reproducibility
+
+Each run retains git revision and dirty state, Docker/image and runtime versions, hardware and
+container limits, seed, dataset checksum, configuration, raw JSONL observations, aggregate summary,
+and SHA-256 artifact checksums. Result directories are immutable; reruns receive new identifiers.
+
+An independent evaluator verifies source and dataset checksums, confirms that no private production
+vault is mounted, executes unchanged thresholds, recomputes aggregates from raw observations, and
+records every environmental or protocol deviation. A dirty exploratory run cannot become a
+confirmatory release certificate.`,
+  },
+  {
+    id: "research-use",
+    title: "Research use",
+    md: `## Research use
+
+The candidate thesis theme evaluates ontology-aware graph-augmented retrieval and continuous
+knowledge enrichment in a local-first personal knowledge system. The mixed-method design combines
+paired technical ablations, external datasets, task-level comparison, and an optional longitudinal
+study. Primary hypotheses, smallest effect of interest, exclusions, metrics, and statistical tests
+must be preregistered after pilot work and before confirmatory collection.
+
+Participant or private-vault data requires institutional ethics/LGPD approval or exemption,
+informed consent, minimization, pseudonymization, retention/deletion rules, and incident handling.
+The repository contains the protocol but no fabricated participant, reviewer, or field results.`,
+  },
+  {
+    id: "evaluation-limitations",
+    title: "Evaluation limitations",
+    md: `## Evaluation limitations
+
+Controlled synthetic fixtures demonstrate production-path behavior and causal regressions; they do
+not establish generalization to personal knowledge, public QA datasets, or competing graph-RAG
+systems. Public QA differs from evolving private vaults. LLM judges can share model bias. Graph
+density is not usefulness. Acceptance rate can reflect fatigue. Cloud latency varies by provider,
+region, and time, and one local hardware profile does not define universal capacity.
+
+BEIR, HotpotQA, and MuSiQue payloads are not vendored and remain unexecuted until licenses and
+checksums are verified. Independent replication, human annotation, participant studies, and field
+evidence remain open external requirements and are reported as missing rather than replaced.`,
+  },
+  {
     id: "verification",
     title: "Verification & release status",
     md: `## Verification & release status
 
-Current v1.3.0 release-candidate evidence from 9 August 2026:
+Latest exploratory S-profile evidence from 12 August 2026:
 
-- **API**: 346 tests and 55 subtests pass.
-- **Worker / HippoRAG**: 44 Worker tests and 7 sidecar tests pass.
-- **Browser**: 43 API-backed Playwright E2E checks pass, including 10k-node graph stress
-  and healthy-worker heartbeat regression.
-- **Web**: ESLint, TypeScript, production build, accessibility, and route budgets pass.
-- **Graph API**: 5,000 nodes / 20,000 edges at p95 \`2.54 s\`, \`11.3 MB\` payload,
-  and \`82.1 MB\` peak memory.
-- **Semantic benchmark**: Recall@10, MRR, and NDCG@10 are \`1.0\`; p95 is \`47.34 ms\`.
-- **Maturity**: insight usefulness, provenance, graph integrity, stale cleanup, and cognitive
-  precision/recall gates pass with no failed gate.
-- **Security**: source audit, production npm audit, Python dependency audits, and container
-  scans pass. All four images have zero fixable HIGH/CRITICAL findings; validated CycloneDX
-  1.7 SBOMs cover 496 components.
-- **Recovery**: checksum backup and isolated restore tests pass; the release backup manifest
-  verifies all files and canonical table counts.
+| Evidence | Executed sample | Result |
+| --- | ---: | --- |
+| Composed engineering gate | Retrieval, cognition, insight, Judge, graph, HTTP, worker, and faults | Passed, zero failed gates |
+| Controlled retrieval | 44 queries x 5 configurations | 220 observations; graph-hybrid Recall@10 1.000 |
+| Judge calibration | 100 evaluations; 30 human reviews | Weighted kappa 0.9801; calibrated |
+| Fault injection | 3 isolated faults | 3/3 contained; prior state preserved; maximum 9.26 ms |
+| HTTP | 100 requests | 100/100 successful; 67.98 req/s; p95 248.62 ms |
+| Worker queue | 100 jobs | 100/100 completed; 12.48 jobs/s drain; no duplicate claims |
+| On-disk graph | 500 nodes; 1,000 edges | p95 306.76 ms; 541,592 B payload |
+| Maturity V3 | 11 capability groups | \`incomplete-evidence\`; minimum 0; median 2 |
+
+Authenticated desktop/mobile browser exploration recorded zero application errors. Five repetitions
+showed host-load variance and are not a confirmatory browser performance claim. Public external
+datasets, independent comparison, and approved participant/field evidence remain open.
+
+The machine-readable evidence bundle is authoritative. Manually copied values must not be used
+after a newer run without updating the linked report.
 
 Local evidence becomes a published release certificate only after protected remote checks,
-tagging, signed registry artifacts, SBOM/provenance publication, and post-deploy smoke.`,
+clean-revision reproduction, tagging, signed registry artifacts, SBOM/provenance publication,
+and post-deploy smoke.`,
   },
   {
     id: "troubleshooting",

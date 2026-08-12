@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { usePathname } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import packageMetadata from "../../../package.json";
@@ -22,6 +22,7 @@ type FolderInfo = {
   has_subfolders?: boolean;
 };
 function encodeFolder(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
+function encodeVaultPath(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 
 type WorkspaceSidebarProps = {
   mobileOpen?: boolean;
@@ -34,10 +35,27 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [attentionCount, setAttentionCount] = useState(0);
-  const [dueReviewCount, setDueReviewCount] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number>(0);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [folderOrder, setFolderOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(localStorage.getItem("bb_vault_folder_order") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [noteOrder, setNoteOrder] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      return JSON.parse(localStorage.getItem("bb_vault_note_order") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [dragOverFolder, setDragOverFolder] = useState("");
+  const [dragOverNote, setDragOverNote] = useState("");
 
   useEffect(() => {
     const stored = localStorage.getItem("bb_notif_dismissed_at");
@@ -47,7 +65,6 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   useEffect(() => {
     if (w.demo) {
       setAttentionCount(0);
-      setDueReviewCount(0);
       return;
     }
     let cancelled = false;
@@ -60,12 +77,10 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           const now = Date.now();
           const count = (payload.needsAttention || []).length;
           setAttentionCount(dismissedAt > now - 60000 ? 0 : count);
-          setDueReviewCount(payload.stats?.study?.dueReviews || 0);
         }
       } catch {
         if (!cancelled) {
           setAttentionCount(0);
-          setDueReviewCount(0);
         }
       }
     }
@@ -100,8 +115,16 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       const folder = note.folder || note.path.split("/").slice(0, -1).join("/") || "inbox";
       map.set(folder, [...(map.get(folder) || []), note]);
     }
+    const order = new Map(noteOrder.map((path, index) => [path, index]));
+    for (const [folder, items] of map) {
+      map.set(folder, [...items].sort((a, b) => {
+        const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
+        const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
+        return left - right || a.title.localeCompare(b.title);
+      }));
+    }
     return map;
-  }, [notes]);
+  }, [noteOrder, notes]);
 
   const visibleFolders = useMemo(() => {
     const merged = new Map<string, FolderInfo>();
@@ -109,8 +132,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     for (const folder of notesByFolder.keys()) {
       if (!merged.has(folder)) merged.set(folder, { name: folder.split("/").pop() || folder, path: folder });
     }
-    return [...merged.values()].sort((a, b) => a.path.localeCompare(b.path));
-  }, [folders, notesByFolder]);
+    const order = new Map(folderOrder.map((path, index) => [path, index]));
+    return [...merged.values()].sort((a, b) => {
+      const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
+      const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
+      return left - right || a.path.localeCompare(b.path);
+    });
+  }, [folderOrder, folders, notesByFolder]);
 
   async function createFolder(parentPath = "") {
     if (w.demo) return;
@@ -159,6 +187,111 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     await loadFolders();
   }
 
+  function createNoteFromSidebar() {
+    onMobileClose?.();
+    if (pathname === "/brain" || pathname.endsWith("/brain") || pathname === "/demo" || pathname.endsWith("/demo")) {
+      w.setGraphOpen(false);
+      w.createDraft();
+      return;
+    }
+    window.location.href = appPath("/brain?newNote=1");
+  }
+
+  function persistFolderOrder(paths: string[]) {
+    setFolderOrder(paths);
+    try {
+      localStorage.setItem("bb_vault_folder_order", JSON.stringify(paths));
+    } catch {}
+  }
+
+  function persistNoteOrder(paths: string[]) {
+    setNoteOrder(paths);
+    try {
+      localStorage.setItem("bb_vault_note_order", JSON.stringify(paths));
+    } catch {}
+  }
+
+  function reorderFolder(sourcePath: string, targetPath: string) {
+    if (!sourcePath || !targetPath || sourcePath === targetPath) return;
+    const paths = visibleFolders.map((folder) => folder.path);
+    const next = paths.filter((path) => path !== sourcePath);
+    const targetIndex = next.indexOf(targetPath);
+    next.splice(targetIndex < 0 ? next.length : targetIndex, 0, sourcePath);
+    persistFolderOrder(next);
+  }
+
+  function reorderNote(sourcePath: string, targetPath: string) {
+    if (!sourcePath || !targetPath || sourcePath === targetPath) return;
+    const paths = notes.map((note) => note.path);
+    const next = paths.filter((path) => path !== sourcePath);
+    const targetIndex = next.indexOf(targetPath);
+    next.splice(targetIndex < 0 ? next.length : targetIndex, 0, sourcePath);
+    persistNoteOrder(next);
+  }
+
+  async function moveNoteToFolder(notePath: string, folderPath: string) {
+    if (w.demo || !notePath || !folderPath) return;
+    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folder: folderPath }),
+    });
+    if (!response.ok) {
+      w.toast("Failed to move note.", "error");
+      return;
+    }
+    w.toast("Note moved.", "success");
+    await w.loadAll();
+    await loadFolders();
+  }
+
+  async function renameNoteInSidebar(notePath: string, currentTitle: string) {
+    if (w.demo) return;
+    const title = window.prompt("New note title:", currentTitle);
+    if (!title?.trim() || title.trim() === currentTitle) return;
+    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() }),
+    });
+    if (!response.ok) {
+      w.toast("Failed to rename note.", "error");
+      return;
+    }
+    const updated = await response.json();
+    w.toast("Note renamed.", "success");
+    await w.loadAll();
+    if (w.active?.path === notePath && updated.path) {
+      await w.openNote(updated.path);
+    }
+  }
+
+  async function deleteNoteInSidebar(notePath: string, currentTitle: string) {
+    if (w.demo) return;
+    if (!window.confirm(`Delete note "${currentTitle}"?`)) return;
+    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
+    if (!response.ok) {
+      w.toast("Failed to delete note.", "error");
+      return;
+    }
+    w.toast("Note deleted.", "success");
+    if (w.active?.path === notePath) w.closeNote();
+    await w.loadAll();
+    await loadFolders();
+  }
+
+  function handleFolderDrop(event: DragEvent, targetPath: string) {
+    event.preventDefault();
+    setDragOverFolder("");
+    const sourceFolder = event.dataTransfer.getData("application/x-berrybrain-folder");
+    const sourceNote = event.dataTransfer.getData("application/x-berrybrain-note");
+    if (sourceFolder) {
+      reorderFolder(sourceFolder, targetPath);
+      return;
+    }
+    if (sourceNote) void moveNoteToFolder(sourceNote, targetPath);
+  }
+
   function folderIsVisible(path: string) {
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i += 1) {
@@ -182,7 +315,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <Image src={berrylogo} alt="BerryBrain" className="size-28 rounded-2xl cursor-pointer hover:opacity-80 transition-opacity" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} priority />
+        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-xl transition-opacity hover:opacity-80" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} priority />
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v{appVersion}</div>
 
@@ -193,17 +326,9 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       )}
 
       <div className="px-3 pb-2">
-        <button className="bb-action flex w-full items-center gap-2 px-3 py-2 text-sm font-medium" onClick={() => { onMobileClose?.(); w.createDraft(); }}>
+        <button className="bb-action flex w-full items-center gap-2 px-3 py-2 text-sm font-medium" onClick={createNoteFromSidebar}>
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           {t("newNote")}
-        </button>
-        <button
-          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
-          onClick={() => { onMobileClose?.(); window.location.href = appPath("/reviews"); }}
-        >
-          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 11l3 3L22 4M5 4h7a2 2 0 012 2v1M5 4a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5" /></svg>
-          <span className="flex-1 text-left">Review today</span>
-          {dueReviewCount > 0 && <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">{dueReviewCount}</span>}
         </button>
         <button
           className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
@@ -228,7 +353,21 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
             const folderColor = stableFolderColor(folder.path);
             return (
               <div key={folder.path} className="mb-1">
-                <div className="group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70" style={{ paddingLeft: `${8 + depth * 14}px` }}>
+                <div
+                  className={`group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70 ${dragOverFolder === folder.path ? "bg-accent-soft text-foreground" : ""}`}
+                  style={{ paddingLeft: `${8 + depth * 14}px` }}
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("application/x-berrybrain-folder", folder.path);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragOverFolder(folder.path);
+                  }}
+                  onDragLeave={() => setDragOverFolder("")}
+                  onDrop={(event) => handleFolderDrop(event, folder.path)}
+                >
                   <button className="grid size-5 place-items-center" onClick={() => canToggle && setExpanded((current) => ({ ...current, [folder.path]: !isOpen }))} aria-label={isOpen ? "Collapse folder" : "Expand folder"}>
                     {canToggle ? (isOpen ? "▾" : "▸") : "·"}
                   </button>
@@ -248,10 +387,43 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                 {isOpen && (
                   <div style={{ marginLeft: `${22 + depth * 14}px` }}>
                     {folderNotes.map(n => (
-                      <button key={n.path} className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${w.active?.path === n.path ? "bg-accent-soft text-accent font-medium" : "text-muted hover:bg-surface hover:text-foreground"}`} onClick={() => { onMobileClose?.(); w.setGraphOpen(false); w.openNote(n.path); }}>
-                        <span className="grid size-5 shrink-0 place-items-center rounded text-[10px] font-medium bg-surface text-muted">{n.title[0]?.toUpperCase()}</span>
-                        <span className="truncate">{n.title}</span>
-                      </button>
+                      <div key={n.path} className="group/note flex items-center gap-1">
+                        <button
+                          draggable
+                          className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${dragOverNote === n.path ? "bg-surface text-foreground" : w.active?.path === n.path ? "bg-accent-soft text-accent font-medium" : "text-muted hover:bg-surface hover:text-foreground"}`}
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("application/x-berrybrain-note", n.path);
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            setDragOverNote(n.path);
+                          }}
+                          onDragLeave={() => setDragOverNote("")}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            const sourceNote = event.dataTransfer.getData("application/x-berrybrain-note");
+                            setDragOverNote("");
+                            reorderNote(sourceNote, n.path);
+                          }}
+                          onClick={() => { onMobileClose?.(); w.setGraphOpen(false); w.openNote(n.path); }}
+                        >
+                          <span className="grid size-5 shrink-0 place-items-center rounded text-[10px] font-medium bg-surface text-muted">{n.title[0]?.toUpperCase()}</span>
+                          <span className="truncate">{n.title}</span>
+                        </button>
+                        <button
+                          className="hidden rounded px-1 text-[10px] text-muted/60 hover:bg-surface hover:text-foreground group-hover/note:inline"
+                          onClick={() => renameNoteInSidebar(n.path, n.title)}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          className="hidden rounded px-1 text-[10px] text-muted/60 hover:bg-surface hover:text-danger group-hover/note:inline"
+                          onClick={() => deleteNoteInSidebar(n.path, n.title)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     ))}
                     {folderNotes.length === 0 && <div className="px-2 py-1.5 text-[11px] text-muted/40">Empty folder</div>}
                   </div>
@@ -264,7 +436,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
               <div className="font-medium text-foreground/80">No notes yet</div>
               <p className="mt-1 leading-5 text-muted/60">Create a note or scan your vault to start building the graph.</p>
               <div className="mt-3 flex gap-2">
-                <button className="bb-action px-2 py-1 text-[11px]" onClick={() => { onMobileClose?.(); w.createDraft(); }}>New note</button>
+                <button className="bb-action px-2 py-1 text-[11px]" onClick={createNoteFromSidebar}>New note</button>
                 <button className="bb-action px-2 py-1 text-[11px]" onClick={() => { onMobileClose?.(); w.scanVault(); }}>Scan</button>
               </div>
             </div>
@@ -289,7 +461,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <button className={`relative rounded-lg p-1 text-muted hover:bg-surface ${attentionCount ? "text-accent" : ""}`} onClick={() => { onMobileClose?.(); localStorage.setItem("bb_notif_dismissed_at", String(Date.now())); setDismissedAt(Date.now()); setAttentionCount(0); w.setNotificationsOpen(true); }} aria-label="Notifications">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 01-6 0" /></svg>
             {attentionCount > 0 && (
-              <span className="absolute -right-1 -top-1 grid min-w-3.5 place-items-center rounded-full bg-white px-1 text-[8px] font-semibold text-[#BF1755] shadow-sm">
+              <span className="absolute -right-1 -top-1 grid min-w-3.5 place-items-center rounded-full bg-white px-1 text-[8px] font-semibold text-[#CC4168]">
                 {attentionCount}
               </span>
             )}
@@ -304,7 +476,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   );
 }
 
-const FOLDER_PALETTE = ["#BF1755", "#83A637", "#6B8FAF", "#8B6F9F", "#D4A843", "#4A8F6A", "#B85C4A", "#4F7CCB"];
+const FOLDER_PALETTE = ["#CC4168", "#96B55C", "#6B8FAF", "#8B6F9F", "#D4A843", "#4A8F6A", "#B85C4A", "#4F7CCB"];
 
 function stableFolderColor(folderPath: string) {
   const identity = folderPath;

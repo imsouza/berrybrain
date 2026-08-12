@@ -1,0 +1,12 @@
+{
+  "claim_p95_ms": 60.913986099999995,
+  "completed_jobs": 100,
+  "drain_rate_jobs_per_second": 11.567848726583652,
+  "duplicate_claims": 0,
+  "end_to_end_p50_ms": 5355.595478,
+  "end_to_end_p95_ms": 8346.57725455,
+  "end_to_end_p99_ms": 8579.437224860001,
+  "enqueue_rate_jobs_per_second": 54.47134943259747,
+  "jobs": 100,
+  "remaining_jobs": 0
+}

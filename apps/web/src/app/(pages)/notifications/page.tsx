@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { appPath, getApiUrl } from "@/contexts/workspace-context";
 import { t, locale } from "@/i18n";
 
 type Alert = {
-  kind: string;
+  id: number;
+  type: string;
   title: string;
   description: string;
   action: string;
+  actionUrl?: string | null;
+  read: boolean;
 };
 
 type JobBrief = {
@@ -45,13 +48,13 @@ export default function NotificationsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [summaryRes, jobsRes] = await Promise.all([
-        fetch(`${api}/api/v1/home/summary`),
+      const [notificationsRes, jobsRes] = await Promise.all([
+        fetch(`${api}/api/v1/notifications?limit=100`),
         fetch(`${api}/api/v1/jobs?limit=20`),
       ]);
-      if (summaryRes.ok) {
-        const d = await summaryRes.json();
-        setAlerts(d.needsAttention || []);
+      if (notificationsRes.ok) {
+        const d = await notificationsRes.json();
+        setAlerts(d.notifications || []);
       }
       if (jobsRes.ok) {
         const d = await jobsRes.json();
@@ -79,6 +82,16 @@ export default function NotificationsPage() {
     }
   }
 
+  async function markRead(alert: Alert) {
+    await fetch(`${api}/api/v1/notifications/${alert.id}/read`, { method: "POST" });
+    setAlerts((items) => items.map((item) => item.id === alert.id ? { ...item, read: true } : item));
+  }
+
+  async function markAllRead() {
+    await fetch(`${api}/api/v1/notifications/read-all`, { method: "POST" });
+    setAlerts((items) => items.map((item) => ({ ...item, read: true })));
+  }
+
   if (loading) {
     return (
       <div className="flex-1 overflow-y-auto">
@@ -90,9 +103,9 @@ export default function NotificationsPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-10 lg:px-8">
-        <header className="mb-6">
-          <h1 className="text-xl font-semibold">{t("alertsAndStatus")}</h1>
-          <p className="mt-1 text-sm text-muted/60">{t("alertsAndStatusDesc")}</p>
+        <header className="mb-6 flex items-start justify-between gap-4">
+          <div><h1 className="text-xl font-semibold">{t("alertsAndStatus")}</h1><p className="mt-1 text-sm text-muted/60">{t("alertsAndStatusDesc")}</p></div>
+          {alerts.some((alert) => !alert.read) && <button className="bb-action px-3 py-2 text-xs" onClick={markAllRead}>Mark all as read</button>}
         </header>
 
         {alerts.length === 0 && failedJobs.length === 0 ? (
@@ -104,16 +117,17 @@ export default function NotificationsPage() {
           <div className="space-y-6">
             {alerts.length > 0 && (
               <section>
-                <h2 className="mb-3 text-sm font-semibold">{t("needsAttentionSection")}</h2>
+                <h2 className="mb-3 text-sm font-semibold">Notifications</h2>
                 <div className="space-y-2">
-                  {alerts.map((a, i) => (
-                    <div key={a.kind + i} className="rounded-xl bg-surface p-4 ring-1 ring-border/35">
-                      <div className="text-xs font-medium uppercase text-muted/50">{a.kind.replace(/_/g, " ")}</div>
+                  {alerts.map((a) => (
+                    <div key={a.id} className={`rounded-lg p-4 ring-1 ring-border/35 ${a.read ? "bg-surface" : "bg-accent/5"}`}>
+                      <div className="text-xs font-medium uppercase text-muted/50">{a.type.replace(/_/g, " ")}</div>
                       <h3 className="mt-0.5 text-sm font-medium">{a.title}</h3>
                       <p className="mt-0.5 text-xs text-muted/60">{a.description}</p>
                       <a
-                        href={a.kind === "failed_jobs" || a.kind === "ollama_offline" ? "/brain?monitor=open" : "/activity"}
+                        href={appPath(a.actionUrl || "/activity")}
                         className="bb-action mt-2 inline-block px-3 py-1 text-[11px] font-medium"
+                        onClick={() => { void markRead(a); }}
                       >
                         {a.action}
                       </a>

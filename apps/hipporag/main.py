@@ -31,7 +31,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="BerryBrain HippoRAG Sidecar")
 
@@ -71,10 +71,17 @@ SENTENCE_PREDICATES = (
 )
 
 
+class OntologyTriple(BaseModel):
+    subject: str
+    predicate: str
+    object: str
+
+
 class IndexRequest(BaseModel):
     vault_id: str
     doc_id: str
     content: str
+    triples: list[OntologyTriple] = Field(default_factory=list)
 
 
 class RetrieveRequest(BaseModel):
@@ -113,6 +120,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             vault_id TEXT NOT NULL,
             doc_id TEXT NOT NULL,
             content TEXT NOT NULL,
+            ontology_json TEXT NOT NULL DEFAULT '[]',
             created_at REAL NOT NULL,
             PRIMARY KEY (vault_id, doc_id)
         );
@@ -129,6 +137,11 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(vault_id, object);
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(docs)")}
+    if "ontology_json" not in columns:
+        conn.execute(
+            "ALTER TABLE docs ADD COLUMN ontology_json TEXT NOT NULL DEFAULT '[]'"
+        )
 
 
 def _tokens(text: str) -> set[str]:
@@ -352,18 +365,45 @@ def _verify_token(authorization: str | None) -> None:
         raise HTTPException(status_code=403, detail="invalid service token")
 
 
-def _index(conn: sqlite3.Connection, vault_id: str, doc_id: str, content: str) -> int:
+def _index(
+    conn: sqlite3.Connection,
+    vault_id: str,
+    doc_id: str,
+    content: str,
+    ontology_triples: list[dict[str, str]] | None = None,
+) -> int:
     # Replace existing doc + triples (idempotent index)
     conn.execute(
         "DELETE FROM triples WHERE vault_id=? AND doc_id=?",
         (vault_id, doc_id),
     )
     conn.execute(
-        "INSERT OR REPLACE INTO docs(vault_id, doc_id, content, created_at) "
-        "VALUES (?, ?, ?, ?)",
-        (vault_id, doc_id, content, time.time()),
+        "INSERT OR REPLACE INTO docs(vault_id, doc_id, content, ontology_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (
+            vault_id,
+            doc_id,
+            content,
+            json.dumps(ontology_triples or [], ensure_ascii=False),
+            time.time(),
+        ),
     )
     triples = _maybe_llm_triples(content)
+    triples.extend(
+        (
+            _normalize_spaces(item.get("subject", "")),
+            _normalize_spaces(item.get("predicate", "")),
+            _normalize_spaces(item.get("object", "")),
+        )
+        for item in (ontology_triples or [])
+    )
+    triples = sorted(
+        {
+            (subject, predicate, object_)
+            for subject, predicate, object_ in triples
+            if subject and predicate and object_
+        }
+    )
     conn.executemany(
         "INSERT INTO triples(vault_id, doc_id, subject, predicate, object) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -413,7 +453,13 @@ def health():
 def index_document(req: IndexRequest, authorization: str | None = Header(default=None)):
     _verify_token(authorization)
     with _db() as conn:
-        n = _index(conn, req.vault_id, req.doc_id, req.content)
+        n = _index(
+            conn,
+            req.vault_id,
+            req.doc_id,
+            req.content,
+            [item.model_dump() for item in req.triples],
+        )
     return {"status": "indexed", "doc_id": req.doc_id, "triples": n}
 
 
@@ -523,10 +569,22 @@ def rebuild(authorization: str | None = Header(default=None)):
     # Drop triples + docs and re-extract from stored docs (kept in `docs` table)
     with _db() as conn:
         conn.execute("DELETE FROM triples")
-        rows = list(conn.execute("SELECT vault_id, doc_id, content FROM docs"))
+        rows = list(
+            conn.execute("SELECT vault_id, doc_id, content, ontology_json FROM docs")
+        )
         total = 0
         for row in rows:
-            total += _index(conn, row["vault_id"], row["doc_id"], row["content"])
+            try:
+                ontology_triples = json.loads(row["ontology_json"] or "[]")
+            except json.JSONDecodeError:
+                ontology_triples = []
+            total += _index(
+                conn,
+                row["vault_id"],
+                row["doc_id"],
+                row["content"],
+                ontology_triples if isinstance(ontology_triples, list) else [],
+            )
     return {"status": "rebuilt", "triples": total, "docs": len(rows)}
 
 
@@ -537,65 +595,3 @@ def _token_score(query_tokens: set[str], body_tokens: set[str]) -> float:
     if overlap == 0:
         return 0.0
     return overlap / math.sqrt(len(query_tokens) * len(body_tokens))
-
-
-def _demo() -> None:
-    """Self-check: index→retrieve→delete→rebuild roundtrip. Run with `python main.py`."""
-    import tempfile
-
-    global DATA_DIR, DB_PATH
-    tmp = Path(tempfile.mkdtemp(prefix="hipporag_test_"))
-    DATA_DIR = tmp
-    DB_PATH = tmp / "hipporag.db"
-
-    from fastapi.testclient import TestClient
-
-    client = TestClient(app)
-    assert client.get("/health").json()["status"] == "ok"
-
-    content = (
-        "# Distributed Systems\n"
-        "An [[observability]] stack helps debug latency.\n"
-        "**OpenTelemetry** collects traces.\n"
-        "OpenTelemetry connects to Jaeger.\n"
-        "Jaeger stores traces.\n"
-    )
-    r = client.post(
-        "/index",
-        json={"vault_id": "v1", "doc_id": "note1", "content": content},
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["triples"] > 0, "extraction produced no triples"
-
-    r = client.post(
-        "/retrieve",
-        json={"vault_id": "v1", "query": "observability traces", "top_k": 5},
-    )
-    results = r.json()["results"]
-    assert results, "retrieve returned empty for matching query"
-    assert any(
-        "OpenTelemetry" in res["title"] or "OpenTelemetry" in res["text"]
-        for res in results
-    ), results
-
-    r = client.delete("/index/v1/note1")
-    assert r.json()["removed"] == 1, r.text
-
-    r = client.post(
-        "/retrieve",
-        json={"vault_id": "v1", "query": "observability traces"},
-    )
-    assert r.json()["results"] == [], "delete did not take effect"
-
-    # re-index then rebuild
-    client.post(
-        "/index", json={"vault_id": "v1", "doc_id": "note1", "content": content}
-    )
-    r = client.post("/rebuild")
-    assert r.json()["status"] == "rebuilt"
-
-    print(f"OK: sidecar self-check passed (db={tmp})")
-
-
-if __name__ == "__main__":
-    _demo()

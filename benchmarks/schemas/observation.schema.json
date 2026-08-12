@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://berrybrain.local/schemas/observation.schema.json",
+  "title": "BerryBrain Benchmark Observation",
+  "type": "object",
+  "required": ["benchmark", "caseId", "configuration", "success", "latencyMs"],
+  "properties": {
+    "benchmark": { "type": "string", "minLength": 1 },
+    "caseId": { "type": "string", "minLength": 1 },
+    "configuration": { "type": "string", "minLength": 1 },
+    "success": { "type": "boolean" },
+    "latencyMs": { "type": "number", "minimum": 0 },
+    "metrics": { "type": "object" },
+    "errorClass": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

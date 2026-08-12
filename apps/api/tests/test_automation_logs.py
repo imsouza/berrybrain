@@ -29,7 +29,7 @@ class AutomationLogTest(unittest.TestCase):
             action_type="ENQUEUE_JOB",
             target_type="note",
             target_id="inbox/a.md",
-            description="Criou job PARSE_NOTE",
+            description="Created PARSE_NOTE job",
             before_state={},
             after_state={"job_type": "PARSE_NOTE"},
             reversible=False,
