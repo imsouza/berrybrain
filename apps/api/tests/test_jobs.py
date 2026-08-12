@@ -46,6 +46,7 @@ from berrybrain_api.models import (
 from berrybrain_api.services import (
     find_similar_chunk_notes,
     find_similar_chunks_by_vector,
+    find_similar_notes,
     store_embedding,
 )
 
@@ -88,7 +89,7 @@ class JobServiceTest(unittest.TestCase):
             "CLASSIFY_NOTE",
             {
                 "note_id": note.id,
-                "note_path": "inbox/rascunho.md",
+                "note_path": "inbox/untitled-note.md",
                 "content_hash": "same-hash",
             },
         )
@@ -171,9 +172,8 @@ class JobServiceTest(unittest.TestCase):
         naive = datetime(2026, 1, 2, 3, 4, 5)
         self.assertEqual(normalize_utc(naive).tzinfo, UTC)
         self.assertTrue(serialize_datetime(naive).endswith("Z"))
-        self.assertTrue(should_generate_note_title("inbox/rascunho.md"))
-        self.assertTrue(should_generate_note_title("inbox/rascunho-2.md"))
-        self.assertTrue(should_generate_note_title("inbox/nota-sem-titulo.md"))
+        self.assertTrue(should_generate_note_title("inbox/untitled-note.md"))
+        self.assertTrue(should_generate_note_title("inbox/untitled-note-2.md"))
         self.assertFalse(should_generate_note_title("notes/docker.md"))
 
         with self.assertRaises(HTTPException) as missing:
@@ -454,7 +454,7 @@ class JobServiceTest(unittest.TestCase):
     def test_enqueue_note_changed_jobs_adds_title_job_for_drafts_only(self) -> None:
         draft_jobs = enqueue_note_changed_jobs(
             self.session,
-            note_path="inbox/rascunho.md",
+            note_path="inbox/untitled-note.md",
             event_type="NOTE_CREATED",
             content_hash="abc",
         )
@@ -604,7 +604,7 @@ class JobServiceTest(unittest.TestCase):
 
     def test_affected_job_types_detects_body_update_as_full_pipeline(self) -> None:
         affected = affected_job_types_for_note_update(
-            "# Title\nOld body", "# Title\nNew body", "inbox/rascunho.md"
+            "# Title\nOld body", "# Title\nNew body", "inbox/untitled-note.md"
         )
 
         self.assertIn("GENERATE_EMBEDDING", affected)
@@ -731,6 +731,54 @@ class JobServiceTest(unittest.TestCase):
         )
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].content_hash, "new-hash")
+
+    def test_store_embedding_updates_existing_vector_metadata(self) -> None:
+        initial = store_embedding(
+            self.session,
+            note_id=321,
+            content_hash="same-hash",
+            vector=[1.0, 0.0],
+            model="old-model",
+            provider="old-provider",
+        )
+        updated = store_embedding(
+            self.session,
+            note_id=321,
+            content_hash="same-hash",
+            vector=[0.0, 1.0, 0.0],
+            model="new-model",
+            provider="new-provider",
+        )
+
+        self.assertEqual(updated.id, initial.id)
+        self.assertEqual(updated.vector_dimensions, 3)
+        self.assertEqual(updated.model, "new-model")
+        self.assertEqual(updated.provider, "new-provider")
+
+    def test_find_similar_notes_filters_invalid_and_zero_vectors(self) -> None:
+        self.session.add_all(
+            [
+                NoteRecord(
+                    id=11, title="Source", slug="source-11", path="source-11.md"
+                ),
+                NoteRecord(id=12, title="Close", slug="close-12", path="close-12.md"),
+                NoteRecord(id=13, title="Zero", slug="zero-13", path="zero-13.md"),
+            ]
+        )
+        self.session.commit()
+        store_embedding(self.session, 11, "h11", [1.0, 0.0], "m")
+        store_embedding(self.session, 12, "h12", [0.9, 0.1], "m")
+        store_embedding(self.session, 13, "h13", [0.0, 0.0], "m")
+        store_embedding(self.session, 14, "h14", [1.0], "m")
+
+        results = find_similar_notes(
+            self.session, [1.0, 0.0], exclude_note_id=11, limit=5
+        )
+
+        self.assertEqual([item["note_id"] for item in results], [12])
+        self.assertEqual(results[0]["title"], "Close")
+        self.assertEqual(results[0]["path"], "close-12.md")
+        self.assertGreater(results[0]["similarity"], 0.99)
 
     def test_find_similar_chunk_notes_groups_and_excludes_source(self) -> None:
         self.session.add_all(

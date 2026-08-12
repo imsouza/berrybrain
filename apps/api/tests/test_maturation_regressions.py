@@ -51,12 +51,12 @@ class MaturationRegressionTest(unittest.TestCase):
         notes = [
             (
                 "Docker Essentials",
-                "permanentes/docker.md",
+                "permanent/docker.md",
                 ["docker", "containers", "linux"],
             ),
             (
                 "Linux Shell Scripting",
-                "permanentes/linux.md",
+                "permanent/linux.md",
                 ["linux", "automation", "shell"],
             ),
             (
@@ -66,33 +66,33 @@ class MaturationRegressionTest(unittest.TestCase):
             ),
             (
                 "Kubernetes Basics",
-                "permanentes/kubernetes.md",
+                "permanent/kubernetes.md",
                 ["kubernetes", "containers", "orchestration"],
             ),
             (
                 "Observability Signals",
-                "permanentes/observability.md",
+                "permanent/observability.md",
                 ["observability", "metrics", "traces"],
             ),
             (
                 "Edge Computing",
-                "permanentes/edge.md",
+                "permanent/edge.md",
                 ["edge computing", "latency", "distributed systems"],
             ),
             (
                 "RAG Embeddings",
-                "permanentes/rag.md",
+                "permanent/rag.md",
                 ["rag", "embeddings", "retrieval"],
             ),
             (
                 "Vector Databases",
-                "permanentes/vector-db.md",
+                "permanent/vector-db.md",
                 ["embeddings", "retrieval", "vector database"],
             ),
-            ("NVIDIA NIM", "permanentes/nim.md", ["nvidia nim", "llm", "inference"]),
+            ("NVIDIA NIM", "permanent/nim.md", ["nvidia nim", "llm", "inference"]),
             (
                 "Knowledge Graphs",
-                "permanentes/kg.md",
+                "permanent/kg.md",
                 ["knowledge graph", "entities", "connections"],
             ),
         ]

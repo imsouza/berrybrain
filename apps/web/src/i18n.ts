@@ -182,7 +182,6 @@ export const I18N: Record<LangKind, Record<string, string>> = {
     relatedNotes: "Related notes",
     applyBtn: "Apply",
     ignoreBtn: "Ignore",
-    generateReview: "Generate review",
     createPermanentNote: "Create permanent note",
     viewInGraph: "View in graph",
     createNoteJobSent: "Note created from insight",
@@ -199,7 +198,6 @@ export const I18N: Record<LangKind, Record<string, string>> = {
     ins_duplicate_content: "Duplicate content",
     ins_permanent_note_candidate: "Permanent note candidate",
     ins_study_path: "Study path",
-    ins_review_opportunity: "Review opportunity",
     ins_possible_contradiction: "Possible contradiction",
     ins_emerging_context: "Emerging context",
     ins_context: "Central theme",
@@ -212,12 +210,7 @@ export const I18N: Record<LangKind, Record<string, string>> = {
     // filter labels (en)
     filterAll: "All",
     filterGaps: "Gaps",
-    filterConexoes: "Connections",
-    filterReview: "Review",
     filterContext: "Context",
-    filterAltaPrioridade: "High priority",
-    filterAplicados: "Applied",
-    filterIgnorados: "Ignored",
 
     // editor (en)
     backlinks: "Backlinks",
@@ -409,7 +402,7 @@ export const GUIDE_STEPS: Record<LangKind, { num: number; title: string; html: s
   "en": [
     { num: 1, title: "Write your notes", html: "<p>Use the sidebar (<strong>New note</strong>) or press <kbd>Ctrl+K</kbd> for the command palette. Type directly in the Home box or the editor. Everything you write becomes a real Markdown file in the vault <code>inbox</code> folder.</p><p>Generated structures use English, while source-note content stays exactly as you typed it.</p>" },
     { num: 2, title: "The autopilot processes everything", html: "<p>Whenever you create or edit a note, BerryBrain runs the pipeline automatically:</p><ul class='list-disc pl-5 space-y-1 text-muted'><li><strong>Parse</strong>: reads the Markdown.</li><li><strong>Classify</strong>: detects the type.</li><li><strong>Assimilate</strong>: extracts concepts, entities and topics.</li><li><strong>Embed</strong>: builds a similarity vector (if an embeddings provider is configured).</li><li><strong>Connect</strong>: finds connections with other notes.</li><li><strong>Expand</strong>: builds and enriches the knowledge graph.</li></ul><p>Follow each step in <strong>Activity</strong> and in <strong>Monitor / Jobs</strong>.</p>" },
-    { num: 3, title: "Knowledge graph", html: "<p>The graph shows your concepts, topics, entities and notes as connected nodes. Click once to open details; double-click a note node to open the source note. Use <strong>Hide insights</strong> / <strong>Show insights</strong> to focus the Brain View with or without AI insight nodes.</p><p>Each node can expose scoped actions:</p><ul class='list-disc pl-5 space-y-1 text-muted'><li><strong>Open note</strong> opens the original note when available.</li><li><span class='text-emerald-600'><strong>Confirm Node</strong></span> validates a suggested node.</li><li><span class='text-amber-500'><strong>Ignore Node</strong></span> hides a suggested node from the default Brain View.</li><li><strong>Reprocess node</strong> queues enrichment for this node only.</li><li><strong>Enrich with AI</strong> improves summary, context and evidence using the configured provider.</li><li><strong>Validate with web</strong> appears only when Research Mode is enabled.</li></ul><p>Connections use <strong>Confirm Connection</strong>, <strong>Ignore Connection</strong> and <strong>Save as insight</strong>.</p>" },
+    { num: 3, title: "Knowledge graph", html: "<p>The graph shows notes, concepts, topics, entities, insights, and evidence as ontology-aware nodes and directed relationships. Dragging moves a node; a click zooms into it and opens its full page.</p><p>Node pages expose evidence, provenance, incoming and outgoing relationships, calculated confidence, editing, deletion for generated nodes, and insight decisions. Enrichment and recalculation run automatically after valid changes.</p><p><strong>Research gaps</strong> is available when Research Mode is enabled. It searches external sources only for unresolved or low-confidence graph knowledge and keeps results untrusted until confirmation.</p>" },
     { num: 4, title: "Connections between notes", html: "<p>BerryBrain suggests connections automatically. They appear as edges in the graph. You review them:</p><ul class='list-disc pl-5 space-y-1 text-muted'><li><strong>Suggested</strong>: the connection was proposed by the system and awaits your decision.</li><li><strong>Confirm</strong>: becomes an official connection.</li><li><strong>Ignore</strong>: discards it.</li></ul><p>Confirmed connections feed the Brain View and search.</p>" },
     { num: 5, title: "Insights", html: "<p>Insights are findings: knowledge gaps, central concepts, possible contradictions. They should be AI-generated from graph evidence. Each insight shows a <strong>% confidence</strong>, based on evidence. You can <strong>Apply</strong> or <strong>Ignore</strong>.</p>" },
     { num: 6, title: "Note editor", html: "<p>In the editor use <code>[[Note Name]]</code> to create links (backlinks) between notes. The side panel shows Backlinks and the index. Shortcuts: <kbd>Ctrl+S</kbd> saves, <kbd>Ctrl+K</kbd> opens commands. Toggle <strong>Edit</strong>, <strong>Preview</strong> and <strong>Split</strong>.</p>" },

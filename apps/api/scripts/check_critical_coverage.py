@@ -9,7 +9,6 @@ CRITICAL_THRESHOLDS = {
     "src/berrybrain_api/graph_write_service.py": 80.0,
     "src/berrybrain_api/search.py": 90.0,
     "src/berrybrain_api/backup.py": 85.0,
-    "src/berrybrain_api/review_service.py": 80.0,
     "src/berrybrain_api/attachment_processing.py": 70.0,
     "src/berrybrain_api/maturity_service.py": 90.0,
     "src/berrybrain_api/settings_store.py": 90.0,

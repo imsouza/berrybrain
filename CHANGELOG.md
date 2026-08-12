@@ -2,6 +2,129 @@
 
 All notable BerryBrain changes are documented here.
 
+## 1.4.4 - 2026-08-12
+
+### Added
+
+- Versioned benchmark evidence manifests, raw observations, checksums, schemas, and scale profiles.
+- Executed retrieval ablations, independent retrieval baselines, HTTP/worker/on-disk graph/browser
+  runners, instrumentation overhead analysis, and a composed evaluation runner.
+- Evidence-based Maturity V3, dataset registry, thesis methodology, reproducibility protocol,
+  limitations, analysis tables, chart specifications, and documentation freshness checks.
+- Privacy-safe API request correlation, `Server-Timing`, and bounded route performance aggregates.
+
+### Changed
+
+- Retrieval quality is computed from real executed queries and qrels rather than assigned outcomes.
+- Authenticated Brain and Ask startup avoids a redundant setup-status request in the normal path.
+- README and public Docs use current exploratory evidence and explicitly separate regression,
+  independent-comparison, and human-study claims.
+- The minimum `pypdf` version is now 6.15.0, resolving PYSEC-2026-3655 and PYSEC-2026-3656.
+
+### Evidence boundary
+
+- Public datasets, independent replication, ethics approval, participant studies, and longitudinal
+  field evidence remain external requirements; no result is fabricated for those layers.
+
+## 1.4.3 - 2026-08-11
+
+### Added
+
+- Dedicated Ask workspace with voice input, Flow history, Graph/Home navigation, an
+  evidence-derived question queue, and a graph-backed topic cloud.
+- Non-blocking Ask suggestions: live graph questions render immediately while AI generation runs
+  in the background, validates node references, and caches richer suggestions per graph version.
+- Automatic worker-heartbeat monitor for enrichment, insight and gap discovery, Judge, and clusters.
+- Graph node deletion with automatic statistics and cluster recalculation.
+- Persistent notifications for insight proposals and jobs that exhaust their retry budget.
+
+### Changed
+
+- Insights are graph-first proposals with accept/reject actions on the node page.
+- AI enrichment is an internal always-active process; manual controls were removed.
+- Graph gap research stays explicit and external content remains untrusted until confirmed.
+- Ask Flow is the multi-turn memory layer for grounded follow-up questions.
+
+### Removed
+
+- Review Today UI, API routes, worker handler, jobs, and tests.
+- Separate Insights page and Home insight cards.
+
+### Fixed
+
+- Notification UI now reads persistent records, marks them read, and follows valid routes.
+- Node deletion schedules the recalculation required by changed graph topology.
+- Automatic enrichment now carries a live evidence fingerprint, skips stale or duplicate jobs,
+  returns invalid semantic contracts as `422`, and cools down after provider dead letters.
+
+## 1.4.2 - 2026-08-11
+
+### Added
+
+- Live microphone waveform and explicit browser speech-recognition failure states in every Ask entry point.
+- Rich graph hover summaries with semantic context, calculated confidence, provenance, path, and directed relationships.
+- Persisted 95% confidence intervals for concepts, legacy note connections, and graph inferences.
+- Schema migration v10 and idempotent runtime backfill for remaining knowledge-confidence records.
+
+### Changed
+
+- Node labels now adapt bounded geometry to content, wrap to three lines, and truncate at 58 characters.
+- Dragging pins a node without opening it; a click runs the camera zoom before node-page navigation.
+- Node navigation now exposes distinct **Back to Home** and **Back to graph** routes.
+- Merged graph artifacts recalculate confidence from consolidated evidence instead of retaining the largest old score.
+- Deterministic extraction fallbacks derive confidence from source occurrences and Wilson bounds.
+- Graphs with 8,000 or more nodes use a deterministic progressive layout; active camera gestures
+  transform the canvas bitmap and redraw crisply after idle.
+- Semantic clustering v5 publishes neutral, grammatical fallback labels without exposing legacy
+  profile prose.
+
+### Fixed
+
+- Restored microphone activation by preserving the browser user gesture during recognition startup.
+- Corrected graph-edge confidence scale in deterministic graph answers.
+- Newly created AI edges now always queue Judge evaluation.
+- Removed remaining non-English fixture text and production self-check knowledge payloads.
+- Removed extreme-graph force-simulation contention; repeated 10,000-node interaction p95 is
+  `33-40 ms`.
+
+## 1.4.1 - 2026-08-11
+
+### Added
+
+- Internal graph ontology mapped to SKOS, PROV-O, schema.org, RDF, OWL, and Dublin Core,
+  with explicit node criteria and edge domain, range, direction, and symmetry.
+- Semantic quarantine and review workflow for invalid generated names and relationships.
+- Evidence-derived confidence with persisted 95% Wilson intervals, sample size, factors,
+  method, and calculation timestamp.
+- Full-page graph node details with zoom-in navigation, context validation, read-only
+  confidence, editable manual notes, relationship direction, and semantic-analysis retry.
+- Voice prompt controls in Home Ask and Graph Ask.
+- Ontology triples synchronized into HippoRAG and retained across sidecar rebuilds.
+- Sidebar drag-and-drop ordering and inline note/folder management.
+
+### Changed
+
+- Replaced transitive threshold clustering with deterministic medoid selection and
+  silhouette-based cluster count; pending semantic nodes receive provisional colors.
+- Graph labels now render once as readable words instead of initials or overlapping text.
+- Every node type has a distinct geometry; note roots remain Berry red and insights use a
+  highlighted rectangle while context controls the remaining palette.
+- Replaced generic graph relationships with canonical ontology roles such as `mentions`,
+  `references`, `supports`, `prerequisite_for`, `example_of`, and `contextualizes`.
+- Node edits invalidate stale confidence and automatically queue enrichment, Judge,
+  expansion, clustering, and graph statistics recalculation.
+- New note always opens the editor, including when invoked outside the Brain workspace.
+- Insights can be created from Flow answers and generated automatically on a configurable
+  interval, defaulting to 24 hours.
+
+### Fixed
+
+- Judge Settings content can scroll instead of being clipped.
+- Removed repeated `connections` filler from insight evidence formatting.
+- Graph RAG excludes quarantined artifacts and ranks typed, directed relationships by the
+  lower bound of calculated confidence.
+- PWA code assets now refresh network-first, preventing stale JavaScript after a new deploy.
+
 ## 1.3.0 - 2026-08-08
 
 ### Added

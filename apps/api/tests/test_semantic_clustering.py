@@ -1,4 +1,5 @@
 import json
+import math
 import unittest
 
 from sqlalchemy import create_engine
@@ -104,10 +105,68 @@ class SemanticClusteringTest(unittest.TestCase):
 
         self.assertTrue(applied["applied"])
         self.assertEqual(len(assignments), 2)
+        self.assertTrue(all(item.version == 5 for item in assignments))
         self.assertEqual(first.color_id, second.color_id)
         self.assertIn("pending", {item["namespace"] for item in palette["colors"]})
         self.assertIn("vault", {item["namespace"] for item in palette["colors"]})
         self.assertEqual(palette["vaults"][0]["vaultId"], "default")
+
+        reapplied = apply_cluster_preview(self.session, preview)
+        self.assertEqual(reapplied["assignmentsUpdated"], 0)
+        self.assertTrue(all(item.version == 5 for item in assignments))
+
+    def test_algorithm_upgrade_bypasses_assignment_hysteresis(self) -> None:
+        self._node("Forecasting", "Time series forecasting and prediction.")
+        self._node("Prediction", "Forecasting future time series values.")
+        self.session.commit()
+        preview = build_cluster_preview(self.session)
+        apply_cluster_preview(self.session, preview)
+
+        assignments = list(self.session.query(SemanticClusterAssignmentRecord))
+        for assignment in assignments:
+            assignment.version = 3
+            assignment.confidence_upper = 1.0
+        self.session.commit()
+
+        migrated = apply_cluster_preview(self.session, preview)
+        self.assertEqual(migrated["assignmentsUpdated"], 2)
+        self.assertTrue(all(item.version == 5 for item in assignments))
+
+    def test_provisional_cluster_uses_neutral_label_and_singular_grammar(self) -> None:
+        self.session.add(
+            GraphNodeRecord(
+                type="context",
+                label="Temporal Forecasting",
+                summary="Time series prediction",
+                semantic_state="pending",
+            )
+        )
+        self.session.commit()
+
+        preview = build_cluster_preview(self.session)
+        cluster = preview["clusters"][0]
+
+        self.assertEqual(cluster["label"], "Context · Group 1")
+        self.assertEqual(
+            cluster["description"],
+            "Semantic context represented by 1 graph node.",
+        )
+
+    def test_legacy_profile_terms_are_not_published_as_cluster_labels(self) -> None:
+        node = self._node(
+            "Legacy source phrase",
+            "Legacy source prose that must never become a published cluster label.",
+        )
+        profile = (
+            self.session.query(SemanticProfileRecord).filter_by(node_id=node.id).one()
+        )
+        profile.prompt_version = "enrich-node.v2"
+        self.session.commit()
+
+        preview = build_cluster_preview(self.session)
+
+        self.assertNotIn("legacy", preview["clusters"][0]["label"].casefold())
+        self.assertEqual(preview["clusters"][0]["label"], "Entity · Group 1")
 
     def test_vault_nodes_do_not_join_semantic_clusters(self) -> None:
         vault = GraphNodeRecord(
@@ -143,6 +202,39 @@ class SemanticClusteringTest(unittest.TestCase):
         )
         self.assertIsNone(vault.cluster_id)
         self.assertTrue(vault.color_id.startswith("vault-"))
+
+    def test_pending_nodes_receive_provisional_context_color(self) -> None:
+        node = GraphNodeRecord(
+            type="concept",
+            label="Time series",
+            summary="Forecasting observations ordered through time.",
+            semantic_state="pending",
+        )
+        self.session.add(node)
+        self.session.commit()
+
+        preview = build_cluster_preview(self.session)
+        apply_cluster_preview(self.session, preview)
+
+        self.assertIn(node.id, preview["provisionalNodeIds"])
+        self.assertNotEqual(node.color_id, "pending")
+
+    def test_cluster_selection_prevents_a_dominant_context_bucket(self) -> None:
+        for index in range(40):
+            self._node(
+                f"Shared artifact {index}",
+                "Shared context with intentionally equal semantic evidence.",
+            )
+        self.session.commit()
+
+        preview = build_cluster_preview(self.session)
+        max_cluster_size = math.ceil(2 * math.sqrt(preview["nodeCount"]))
+
+        self.assertGreater(preview["clusterCount"], 1)
+        self.assertLessEqual(
+            max(len(item["memberIds"]) for item in preview["clusters"]),
+            max_cluster_size,
+        )
 
 
 if __name__ == "__main__":

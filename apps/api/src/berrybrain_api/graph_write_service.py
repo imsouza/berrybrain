@@ -10,6 +10,11 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.confidence import (
+    ConfidenceSignal,
+    estimate_confidence,
+    persist_confidence,
+)
 from berrybrain_api.graph_contracts import (
     CONCEPTUAL_NODE_TYPES,
     SYMMETRIC_EDGE_TYPES,
@@ -18,6 +23,13 @@ from berrybrain_api.graph_contracts import (
     canonical_node_type,
     normalize_graph_label,
     stored_node_types,
+)
+from berrybrain_api.graph_ontology import (
+    canonical_label,
+    ontology_class,
+    ontology_property,
+    validate_edge_types,
+    validate_node_name,
 )
 from berrybrain_api.models import (
     AutomationLogRecord,
@@ -73,6 +85,47 @@ def _json_list(raw: str | None) -> list[Any]:
 
 def _json_dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _unique_json_values(*raw_values: str) -> list[Any]:
+    unique: dict[str, Any] = {}
+    for raw in raw_values:
+        for item in _json_list(raw):
+            key = _json_dump(item) if isinstance(item, dict | list) else str(item)
+            unique[key] = item
+    return list(unique.values())
+
+
+def _recalculate_node_confidence(node: GraphNodeRecord) -> None:
+    signals = [
+        ConfidenceSignal(1.0, f"source-note:{note_id}")
+        for note_id in _json_list(node.source_note_ids)
+    ]
+    signals.extend(
+        ConfidenceSignal(1.0, f"source-attachment:{attachment_id}")
+        for attachment_id in _json_list(node.source_attachment_ids)
+    )
+    signals.extend(
+        ConfidenceSignal(
+            1.0,
+            "node-evidence:"
+            + hashlib.sha256(_json_dump(item).encode()).hexdigest()[:16],
+        )
+        for item in _json_list(node.source_evidence)
+    )
+    persist_confidence(node, estimate_confidence(signals))
+
+
+def _recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
+    signals = [
+        ConfidenceSignal(
+            1.0,
+            "edge-evidence:"
+            + hashlib.sha256(_json_dump(item).encode()).hexdigest()[:16],
+        )
+        for item in _json_list(edge.evidence)
+    ]
+    persist_confidence(edge, estimate_confidence(signals))
 
 
 def _node_state(node: GraphNodeRecord) -> dict[str, Any]:
@@ -159,7 +212,7 @@ class GraphWriteService:
         source_id: int = 0,
         source_note_ids: list[int] | None = None,
         status: str = "suggested",
-        confidence: float = 0.5,
+        confidence: float | None = None,
         created_by: str = "system",
         model: str = "",
         title: str = "",
@@ -183,6 +236,12 @@ class GraphWriteService:
         if status not in VALID_STATUSES:
             raise HTTPException(
                 status_code=422, detail=f"Unsupported graph status: {status}"
+            )
+        name_issues = validate_node_name(canonical_type, label)
+        if name_issues:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_graph_node_name", "issues": name_issues},
             )
 
         query = select(GraphNodeRecord).where(GraphNodeRecord.type == canonical_type)
@@ -237,9 +296,12 @@ class GraphWriteService:
                 source_id=source_id,
                 source_note_ids=_json_dump(sorted(set(source_note_ids or []))),
                 status=status,
-                confidence=max(0.0, min(1.0, confidence)),
+                confidence=0.0,
                 created_by=created_by,
                 created_by_model=model,
+                semantic_status="active",
+                ontology_class=ontology_class(canonical_type),
+                canonical_label=canonical_label(label).casefold(),
             )
             self.session.add(existing)
             self.session.flush()
@@ -277,9 +339,11 @@ class GraphWriteService:
                 if str(value).isdigit()
             }
             existing.source_note_ids = _json_dump(sorted(combined_ids))
-            existing.confidence = max(existing.confidence or 0.0, confidence)
             existing.type = canonical_type
         existing.label = label.strip()
+        existing.canonical_label = canonical_label(label).casefold()
+        existing.ontology_class = ontology_class(canonical_type)
+        existing.semantic_status = "active"
         existing.title = title.strip() or existing.title or label.strip()
         existing.summary = summary or existing.summary
         existing.ai_notes = ai_notes or existing.ai_notes
@@ -304,6 +368,35 @@ class GraphWriteService:
         existing.provider = provider or existing.provider
         existing.model = model or existing.model
         existing.prompt_version = prompt_version or existing.prompt_version
+        confidence_signals = [
+            ConfidenceSignal(1.0, f"source-note:{note_id}")
+            for note_id in _json_list(existing.source_note_ids)
+        ]
+        confidence_signals.extend(
+            ConfidenceSignal(1.0, f"source-attachment:{attachment_id}")
+            for attachment_id in _json_list(existing.source_attachment_ids)
+        )
+        confidence_signals.extend(
+            ConfidenceSignal(
+                1.0,
+                "node-evidence:"
+                + hashlib.sha256(_json_dump(item).encode()).hexdigest()[:16],
+            )
+            for item in _json_list(existing.source_evidence)
+        )
+        if confidence is not None:
+            source_key = (
+                ":".join(
+                    part
+                    for part in (provider, model, prompt_version, created_by)
+                    if part
+                )
+                or f"{source}:{source_id}"
+            )
+            confidence_signals.append(
+                ConfidenceSignal(float(confidence), f"model:{source_key}")
+            )
+        persist_confidence(existing, estimate_confidence(confidence_signals))
         if graph_metadata is not None:
             existing.graph_metadata = (
                 graph_metadata
@@ -333,7 +426,7 @@ class GraphWriteService:
         edge_type: str,
         reason: str,
         evidence: list[dict[str, Any] | str],
-        confidence: float,
+        confidence: float | None = None,
         source_note_ids: list[int] | None = None,
         created_by: str = "system",
         provider: str = "",
@@ -356,12 +449,21 @@ class GraphWriteService:
             raise HTTPException(
                 status_code=422, detail="Graph edges require reason and evidence"
             )
-        if (
-            self.session.get(GraphNodeRecord, source_node_id) is None
-            or self.session.get(GraphNodeRecord, target_node_id) is None
-        ):
+        source_node = self.session.get(GraphNodeRecord, source_node_id)
+        target_node = self.session.get(GraphNodeRecord, target_node_id)
+        if source_node is None or target_node is None:
             raise HTTPException(
                 status_code=404, detail="Graph edge endpoint node not found"
+            )
+        ontology_issues = validate_edge_types(
+            canonical_type,
+            canonical_node_type(source_node.type),
+            canonical_node_type(target_node.type),
+        )
+        if ontology_issues:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_graph_edge", "issues": ontology_issues},
             )
         if created_by == "ai":
             self._validate_ai_evidence(
@@ -375,14 +477,14 @@ class GraphWriteService:
         if canonical_type in SYMMETRIC_EDGE_TYPES and source_node_id > target_node_id:
             source_node_id, target_node_id = target_node_id, source_node_id
 
-        edge = self.session.execute(
+        existing_edge = self.session.execute(
             select(GraphEdgeRecord).where(
                 GraphEdgeRecord.source_node_id == source_node_id,
                 GraphEdgeRecord.target_node_id == target_node_id,
                 GraphEdgeRecord.type == canonical_type,
             )
         ).scalar_one_or_none()
-        if edge is None:
+        if existing_edge is None:
             edge = GraphEdgeRecord(
                 source_node_id=source_node_id,
                 target_node_id=target_node_id,
@@ -390,21 +492,10 @@ class GraphWriteService:
             )
             self.session.add(edge)
             self.session.flush()
-            if edge.created_by == "ai":
-                from berrybrain_api.job_contracts import judge_artifact_payload
-                from berrybrain_api.jobs import enqueue_job
-
-                enqueue_job(
-                    self.session,
-                    "JUDGE_ARTIFACT",
-                    judge_artifact_payload(
-                        self.session,
-                        "edge",
-                        edge.id,
-                        str(edge.updated_at.timestamp()),
-                    ),
-                    priority=20,
-                )
+            created = True
+        else:
+            edge = existing_edge
+            created = False
         before = _edge_state(edge)
         merged_evidence = _json_list(edge.evidence) + evidence
         unique_evidence = {
@@ -415,7 +506,29 @@ class GraphWriteService:
         edge.reason = reason.strip()
         edge.evidence = _json_dump(list(unique_evidence.values()))
         edge.source_note_ids = _json_dump(sorted(set(source_note_ids or [])))
-        edge.confidence = max(edge.confidence or 0.0, max(0.0, min(1.0, confidence)))
+        confidence_signals = [
+            ConfidenceSignal(
+                1.0,
+                "edge-evidence:"
+                + hashlib.sha256(_json_dump(item).encode()).hexdigest()[:16],
+            )
+            for item in unique_evidence.values()
+        ]
+        if confidence is not None:
+            signal_source = (
+                ":".join(
+                    part
+                    for part in (provider, model, prompt_version, created_by)
+                    if part
+                )
+                or "unspecified-model"
+            )
+            confidence_signals.append(
+                ConfidenceSignal(float(confidence), f"model:{signal_source}")
+            )
+        persist_confidence(edge, estimate_confidence(confidence_signals))
+        edge.ontology_property = ontology_property(canonical_type)
+        edge.semantic_status = "active"
         edge.created_by = created_by
         edge.created_by_model = model
         edge.provider = provider
@@ -425,6 +538,21 @@ class GraphWriteService:
         edge.updated_at = datetime.now(UTC)
         metadata = {"pipeline_run_id": pipeline_run_id} if pipeline_run_id else {}
         edge.ai_notes = _json_dump(metadata) if metadata else edge.ai_notes
+        if created and created_by == "ai":
+            from berrybrain_api.job_contracts import judge_artifact_payload
+            from berrybrain_api.jobs import enqueue_job
+
+            enqueue_job(
+                self.session,
+                "JUDGE_ARTIFACT",
+                judge_artifact_payload(
+                    self.session,
+                    "edge",
+                    edge.id,
+                    str(edge.updated_at.timestamp()),
+                ),
+                priority=20,
+            )
         self._record(
             "GRAPH_EDGE_UPSERTED",
             "graph_edge",
@@ -499,6 +627,81 @@ class GraphWriteService:
             _node_state(node),
         )
         self._persist(node)
+        return node
+
+    def update_node_fields(
+        self,
+        node_id: int,
+        *,
+        node_type: str | None = None,
+        label: str | None = None,
+        title: str | None = None,
+        summary: str | None = None,
+        source: str | None = None,
+        status: str | None = None,
+    ) -> GraphNodeRecord:
+        node = self.session.get(GraphNodeRecord, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Graph node not found")
+        if status is not None and status not in VALID_STATUSES:
+            raise HTTPException(
+                status_code=422, detail=f"Unsupported graph status: {status}"
+            )
+        before = _node_state(node)
+        next_type = (
+            canonical_node_type(node_type)
+            if node_type is not None
+            else canonical_node_type(node.type)
+        )
+        next_label = label.strip() if label is not None else node.label
+        issues = validate_node_name(next_type, next_label)
+        if (
+            label is not None
+            and label.strip() != node.label
+            and next_type in CONCEPTUAL_NODE_TYPES
+        ):
+            context = " ".join(
+                (node.summary, node.ai_summary, node.ai_context, node.source_evidence)
+            ).casefold()
+            label_terms = {
+                term
+                for term in normalize_graph_label(next_label).split()
+                if len(term) > 2
+            }
+            if label_terms and not any(term in context for term in label_terms):
+                issues.append(
+                    "Edited name is not supported by this node's current evidence or context."
+                )
+        if issues:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "node_edit_context_mismatch", "issues": issues},
+            )
+        node.type = next_type
+        node.label = next_label[:255]
+        node.canonical_label = canonical_label(next_label).casefold()
+        node.ontology_class = ontology_class(next_type)
+        if title is not None:
+            node.title = title.strip()[:255]
+        if summary is not None:
+            node.summary = summary.strip()
+        if source is not None:
+            node.source = source.strip()[:255]
+        if status is not None:
+            node.status = status
+        node.semantic_state = "pending"
+        persist_confidence(node, estimate_confidence([]))
+        node.updated_at = datetime.now(UTC)
+        log = self._record(
+            "GRAPH_NODE_FIELDS_CHANGED",
+            "graph_node",
+            node.id,
+            f'Graph node edited: "{node.label}"',
+            before,
+            _node_state(node),
+        )
+        self._persist(node)
+        node.mutation_log_id = log.id  # type: ignore[attr-defined]
         return node
 
     def set_edge_user_notes(self, edge_id: int, notes: str) -> GraphEdgeRecord:
@@ -656,9 +859,7 @@ class GraphWriteService:
                     }
                 )
             )
-            existing.confidence = max(
-                existing.confidence or 0.0, edge.confidence or 0.0
-            )
+            _recalculate_edge_confidence(existing)
             if not existing.reason and edge.reason:
                 existing.reason = edge.reason
             if edge.status == "confirmed":
@@ -732,9 +933,19 @@ class GraphWriteService:
                         }
                     )
                 )
-                survivor.confidence = max(
-                    survivor.confidence or 0.0, victim.confidence or 0.0
+                survivor.source_attachment_ids = _json_dump(
+                    _unique_json_values(
+                        survivor.source_attachment_ids,
+                        victim.source_attachment_ids,
+                    )
                 )
+                survivor.source_evidence = _json_dump(
+                    _unique_json_values(
+                        survivor.source_evidence,
+                        victim.source_evidence,
+                    )
+                )
+                _recalculate_node_confidence(survivor)
                 self.session.delete(victim)
                 self._record(
                     "GRAPH_NODE_DEDUPLICATED",
@@ -757,6 +968,22 @@ class GraphWriteService:
         if edge is None:
             raise HTTPException(status_code=404, detail="Graph edge not found")
         canonical_type = canonical_edge_type(edge_type)
+        source = self.session.get(GraphNodeRecord, edge.source_node_id)
+        target = self.session.get(GraphNodeRecord, edge.target_node_id)
+        if source is None or target is None:
+            raise HTTPException(
+                status_code=404, detail="Graph edge endpoint node not found"
+            )
+        issues = validate_edge_types(
+            canonical_type,
+            canonical_node_type(source.type),
+            canonical_node_type(target.type),
+        )
+        if issues:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_graph_edge", "issues": issues},
+            )
         duplicate = self.session.execute(
             select(GraphEdgeRecord).where(
                 GraphEdgeRecord.id != edge.id,
@@ -773,6 +1000,7 @@ class GraphWriteService:
             )
         before = _edge_state(edge)
         edge.type = canonical_type
+        edge.ontology_property = ontology_property(canonical_type)
         edge.updated_at = datetime.now(UTC)
         self._record(
             "GRAPH_EDGE_TYPE_CHANGED",
@@ -826,7 +1054,16 @@ class GraphWriteService:
             if str(value).isdigit()
         }
         survivor.source_note_ids = _json_dump(sorted(source_ids))
-        survivor.confidence = max(survivor.confidence or 0.0, merged.confidence or 0.0)
+        survivor.source_attachment_ids = _json_dump(
+            _unique_json_values(
+                survivor.source_attachment_ids,
+                merged.source_attachment_ids,
+            )
+        )
+        survivor.source_evidence = _json_dump(
+            _unique_json_values(survivor.source_evidence, merged.source_evidence)
+        )
+        _recalculate_node_confidence(survivor)
         survivor.updated_at = datetime.now(UTC)
         merged.status = "archived"
         merged.updated_at = datetime.now(UTC)
@@ -851,11 +1088,15 @@ class GraphWriteService:
             ).scalar_one_or_none()
             if duplicate is not None:
                 duplicate.evidence = _json_dump(
-                    _json_list(duplicate.evidence) + _json_list(edge.evidence)
+                    _unique_json_values(duplicate.evidence, edge.evidence)
                 )
-                duplicate.confidence = max(
-                    duplicate.confidence or 0.0, edge.confidence or 0.0
+                duplicate.source_note_ids = _json_dump(
+                    _unique_json_values(
+                        duplicate.source_note_ids,
+                        edge.source_note_ids,
+                    )
                 )
+                _recalculate_edge_confidence(duplicate)
                 edge.status = "archived"
 
         after = {
@@ -968,9 +1209,18 @@ class GraphWriteService:
                 raise HTTPException(
                     status_code=409, detail="Merged graph node no longer exists"
                 )
-            for field in ("type", "label", "status", "source_note_ids", "user_notes"):
+            for field in (
+                "type",
+                "label",
+                "status",
+                "source_note_ids",
+                "source_attachment_ids",
+                "source_evidence",
+                "user_notes",
+            ):
                 if field in state:
                     setattr(node, field, state[field])
+            _recalculate_node_confidence(node)
             node.updated_at = datetime.now(UTC)
         for state in before.get("edges") or []:
             edge = self.session.get(GraphEdgeRecord, state.get("id"))
@@ -988,6 +1238,7 @@ class GraphWriteService:
             ):
                 if field in state:
                     setattr(edge, field, state[field])
+            _recalculate_edge_confidence(edge)
             edge.updated_at = datetime.now(UTC)
 
     @staticmethod

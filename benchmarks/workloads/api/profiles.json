@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "berrybrain-workload.v1",
+  "profiles": {
+    "smoke": {"durationSeconds": 30, "concurrency": 1, "warmupSeconds": 5},
+    "steady": {"durationSeconds": 900, "concurrency": 10, "warmupSeconds": 60},
+    "ramp": {"durationSeconds": 1200, "concurrencyStart": 1, "concurrencyEnd": 100, "warmupSeconds": 60},
+    "spike": {"durationSeconds": 300, "concurrency": 100, "warmupSeconds": 30},
+    "soak": {"durationSeconds": 14400, "concurrency": 10, "warmupSeconds": 300},
+    "stress": {"durationSeconds": 1800, "concurrencyStart": 10, "concurrencyEnd": 250, "warmupSeconds": 60}
+  }
+}

@@ -13,65 +13,25 @@ from berrybrain_api.models import (
 PROMPT_VERSION = "graph-expand.deterministic.v1"
 STOPWORDS = {
     "a",
-    "as",
-    "de",
-    "do",
-    "da",
-    "das",
-    "dos",
-    "e",
-    "em",
-    "o",
-    "os",
-    "para",
-    "por",
-    "que",
-    "um",
-    "uma",
-    "com",
-    "sobre",
-    "qual",
-    "quais",
-    "relacao",
-    "relação",
-    "tem",
-    "ver",
-}
-
-CONTENT_CONCEPT_PATTERNS = {
-    "frontend": "Frontend development",
-    "backend": "Backend development",
-    "full stack": "Full Stack development",
-    "ux/ui": "UX/UI design",
-    "ux ui": "UX/UI design",
-    "desenvolvimento web": "Web development",
-    "design de interfaces": "Interface design",
-    "design gráfico": "Graphic design",
-    "ciência da computação": "Computer Science",
-    "html": "HTML",
-    "css": "CSS",
-    "javascript": "JavaScript",
-    "typescript": "TypeScript",
-    "react": "React",
-    "next.js": "Next.js",
-    "node.js": "Node.js",
-    "tailwind": "Tailwind CSS",
-    "docker": "Docker",
-    "postgresql": "PostgreSQL",
-    "hulk": "Hulk",
-    "bruce banner": "Bruce Banner",
-    "radiação": "Radiation",
-    "raiva": "Emotional control",
-    "emoções": "Emotional control",
-    "equilíbrio": "Balance",
-    "conflitos internos": "Internal conflict",
-    "força": "Strength",
-    "superação": "Overcoming adversity",
-    "rio de janeiro": "Rio de Janeiro",
-    "desafios sociais": "Social challenges",
-    "desafios urbanos": "Urban challenges",
-    "desenvolvimento": "Development",
-    "transformação": "Transformation",
+    "about",
+    "an",
+    "and",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "of",
+    "on",
+    "relationship",
+    "relationships",
+    "see",
+    "the",
+    "to",
+    "what",
+    "which",
+    "with",
 }
 
 
@@ -146,29 +106,15 @@ def _is_valid_concept_name(name: str) -> bool:
         return False
     lowered = clean.lower()
     if normalize_concept_name(clean) in {
-        "assim",
-        "apesar",
-        "baixe",
-        "contatos",
-        "durante",
-        "foto",
         "home",
         "study",
         "studies",
         "note",
         "notes",
         "draft",
-        "rascunho",
         "inbox",
-        "janeiro",
-        "meus",
-        "processo",
-        "projetos",
-        "resumo",
-        "rio",
-        "servicos",
-        "serviços",
-        "tanto",
+        "untitled",
+        "untitled note",
     }:
         return False
     if "/" in lowered or "\\" in lowered:
@@ -176,12 +122,6 @@ def _is_valid_concept_name(name: str) -> bool:
     if lowered.endswith(".md"):
         return False
     blocked_prefixes = (
-        "falta ",
-        "faltam ",
-        "nao ha ",
-        "não há ",
-        "sem ",
-        "lacuna",
         "missing ",
         "no ",
     )
@@ -202,10 +142,10 @@ def _is_valid_topic_name(name: str, note_title_key: str = "") -> bool:
         "note",
         "notes",
         "permanent",
-        "permanente",
         "inbox",
         "draft",
-        "rascunho",
+        "untitled",
+        "untitled note",
     }
     if normalized in generic:
         return False
@@ -223,19 +163,15 @@ def _extract_content_concepts(note: NoteRecord) -> list[str]:
     text = _clean_note_text_for_concepts(note.content or "")
     if not text.strip():
         return []
-    lowered = text.lower()
     candidates: list[str] = []
-    for needle, concept in CONTENT_CONCEPT_PATTERNS.items():
-        if needle in lowered:
-            candidates.append(concept)
 
-    # Capture explicit proper names that often act as entities/concepts.
+    # Proper names are evidence-backed candidates; semantic enrichment classifies them.
     for match in re.finditer(
         r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:[ \t]+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text
     ):
         name = " ".join(match.group(1).split())
         normalized = normalize_concept_name(name)
-        if _is_valid_concept_name(name) and normalized not in {"home", "resumo"}:
+        if _is_valid_concept_name(name) and normalized != "home":
             candidates.append(name)
 
     return _unique_concept_names(candidates)[:18]

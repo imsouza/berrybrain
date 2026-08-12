@@ -22,7 +22,7 @@ class NoteRecord(Base):
     frontmatter: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     links: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="new")
-    language: Mapped[str] = mapped_column(String(20), nullable=False, default="pt-BR")
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="und")
     note_type: Mapped[str] = mapped_column(String(50), nullable=False, default="note")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -322,14 +322,26 @@ class ConceptRecord(Base):
     normalized_name: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False
     )
-    language: Mapped[str] = mapped_column(String(20), nullable=False, default="pt-BR")
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="und")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     frequency: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     related_note_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     extracted_by: Mapped[str] = mapped_column(
         String(80), nullable=False, default="system"
     )
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="suggested")
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
@@ -391,6 +403,18 @@ class ConnectionRecord(Base):
     target_note_id: Mapped[int] = mapped_column(Integer, nullable=False)
     connection_type: Mapped[str] = mapped_column(String(80), nullable=False)
     confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     ai_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -424,7 +448,19 @@ class InsightRecord(Base):
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     suggested_action: Mapped[str] = mapped_column(Text, nullable=False, default="")
     graph_impact: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="suggested")
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
@@ -461,6 +497,18 @@ class GraphInferenceRecord(Base):
         String(50), nullable=False, default="insufficient_evidence", index=True
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     related_nodes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -475,7 +523,7 @@ class GraphInferenceRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
-class ReviewItemRecord(Base):
+class LegacyRecallItemRecord(Base):
     __tablename__ = "review_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -485,7 +533,7 @@ class ReviewItemRecord(Base):
     source_content_hashes: Mapped[str] = mapped_column(
         Text, nullable=False, default="{}"
     )
-    review_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    item_type: Mapped[str] = mapped_column("review_type", String(50), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     expected_points: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -623,7 +671,19 @@ class GraphNodeRecord(Base):
     source_attachment_ids: Mapped[str] = mapped_column(
         Text, nullable=False, default="[]"
     )
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_by: Mapped[str] = mapped_column(
         String(80), nullable=False, default="system"
     )
@@ -661,6 +721,14 @@ class GraphNodeRecord(Base):
     color_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     color_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     color_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    semantic_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="active", index=True
+    )
+    ontology_class: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    canonical_label: Mapped[str] = mapped_column(
+        String(255), nullable=False, default=""
+    )
+    aliases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     graph_metadata: Mapped[str] = mapped_column(
         "metadata", Text, nullable=False, default="{}"
@@ -677,7 +745,19 @@ class GraphEdgeRecord(Base):
     target_node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
+    confidence_factors: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     evidence: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     ai_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -696,6 +776,12 @@ class GraphEdgeRecord(Base):
     )
     quality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     latest_evaluation_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    semantic_status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="active", index=True
+    )
+    ontology_property: Mapped[str] = mapped_column(
+        String(120), nullable=False, default=""
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -747,6 +833,14 @@ class SemanticClusterAssignmentRecord(Base):
     node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     cluster_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_sample_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    confidence_method: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="unavailable"
+    )
     alternative_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     margin: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -756,6 +850,25 @@ class SemanticClusterAssignmentRecord(Base):
     )
     pinned_by_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class GraphSemanticCandidateRecord(Base):
+    __tablename__ = "graph_semantic_candidates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    candidate_kind: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    source_record_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, index=True
+    )
+    proposed_type: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    proposed_label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 

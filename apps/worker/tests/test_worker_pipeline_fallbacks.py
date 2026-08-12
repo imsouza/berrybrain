@@ -31,8 +31,8 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         async def fake_fetch_note(client, api_url, note_path):
             return {
                 "path": note_path,
-                "title": "Observabilidade Distribuida",
-                "content": "# Observabilidade\nLogs, metricas e traces em Edge Computing.",
+                "title": "Distributed Observability",
+                "content": "# Observability\nLogs, metrics, and traces in edge computing.",
             }
 
         async def fake_ollama_call(*args, **kwargs):
@@ -171,7 +171,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             return {
                 "path": note_path,
                 "title": "Edge Computing",
-                "content": "# Edge Computing\nProcessamento na borda.",
+                "content": "# Edge Computing\nProcessing at the edge.",
             }
 
         async def fake_cloud_embedding(*args, **kwargs):
@@ -314,74 +314,6 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("duration_ms", status)
         self.assertEqual(calls[-1], ("complete", 12))
 
-    async def test_review_generation_persists_cognitive_items_not_notes(self) -> None:
-        calls = []
-
-        async def fake_ollama_call(*args, **kwargs):
-            self.assertTrue(kwargs.get("json_mode"))
-            return {
-                "items": [
-                    {
-                        "review_type": "explain",
-                        "prompt": "Explain why traces complement metrics.",
-                        "expected_points": ["Traces show request flow"],
-                    }
-                ]
-            }
-
-        async def fake_complete_job(client, api_url, job_id):
-            calls.append(("complete", job_id))
-
-        class FakeResponse:
-            status_code = 200
-
-            def __init__(self, payload=None):
-                self._payload = payload or {}
-
-            def json(self):
-                return self._payload
-
-            def raise_for_status(self):
-                return None
-
-        class FakeClient:
-            async def get(self, url, **kwargs):
-                return FakeResponse(
-                    {
-                        "insights": [
-                            {
-                                "id": 7,
-                                "title": "Observability signals",
-                                "description": "Traces and metrics provide complementary evidence.",
-                                "whyItMatters": "Together they improve diagnosis.",
-                                "evidence": ["source excerpt"],
-                            }
-                        ]
-                    }
-                )
-
-            async def post(self, url, json=None, **kwargs):
-                calls.append((url, json))
-                return FakeResponse({"review": {"id": 1}})
-
-        worker_main.ollama_call = fake_ollama_call
-        worker_main.complete_job = fake_complete_job
-
-        await worker_main.process_create_review_from_insight(
-            FakeClient(), WorkerSettings(), {"id": 91}, {"insight_id": 7}
-        )
-
-        review_posts = [
-            call
-            for call in calls
-            if isinstance(call[0], str) and call[0].startswith("http")
-        ]
-        self.assertEqual(len(review_posts), 1)
-        self.assertIn("/api/v1/reviews/from-insight", review_posts[0][0])
-        self.assertNotIn("/api/v1/notes", review_posts[0][0])
-        self.assertEqual(review_posts[0][1]["source_insight_id"], 7)
-        self.assertEqual(calls[-1], ("complete", 91))
-
     async def test_find_connections_does_not_complete_empty_on_ai_error(self) -> None:
         calls = []
 
@@ -393,7 +325,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                     "results": [
                         {
                             "title": "Docker Essentials",
-                            "path": "permanentes/docker.md",
+                            "path": "permanent/docker.md",
                             "snippet": "Containers and Linux namespaces.",
                         }
                     ]
@@ -454,7 +386,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                             "similar": [
                                 {
                                     "title": "Docker Runtime",
-                                    "path": "permanentes/docker.md",
+                                    "path": "permanent/docker.md",
                                     "similarity": 0.92,
                                     "updatedAt": "2026-07-13T00:00:00",
                                     "evidence": {
@@ -470,7 +402,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                         "results": [
                             {
                                 "title": "Docker Runtime",
-                                "path": "permanentes/docker.md",
+                                "path": "permanent/docker.md",
                                 "snippet": "Linux namespaces appear in containers.",
                                 "evidence": [
                                     {
@@ -500,7 +432,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             return {
                 "connections": [
                     {
-                        "target_path": "permanentes/docker.md",
+                        "target_path": "permanent/docker.md",
                         "type": "semantic_similarity",
                         "confidence": 0.8,
                         "reason": "Both notes discuss Linux namespaces.",
@@ -608,7 +540,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                         "results": [
                             {
                                 "title": "Docker Essentials",
-                                "path": "permanentes/docker.md",
+                                "path": "permanent/docker.md",
                                 "snippet": "Docker basics.",
                             }
                         ]
@@ -633,7 +565,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             return {
                 "connections": [
                     {
-                        "target_path": "permanentes/docker.md",
+                        "target_path": "permanent/docker.md",
                         "type": "backlink",
                         "confidence": 1.0,
                         "reason": "The source note links to Docker Essentials.",
@@ -708,17 +640,17 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                                     "label": "Docker Essentials",
                                 },
                                 {
-                                    "id": "topico:2",
-                                    "type": "topico",
+                                    "id": "topic:2",
+                                    "type": "topic",
                                     "label": "containers",
                                 },
                             ],
                             "edges": [
                                 {
                                     "source": "note:1",
-                                    "target": "topico:2",
+                                    "target": "topic:2",
                                     "type": "related",
-                                    "reason": "A nota explica containers.",
+                                    "reason": "The note explains containers.",
                                     "evidence": ["Docker Essentials", "containers"],
                                 }
                             ],
@@ -730,8 +662,8 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                             "notes": [
                                 {
                                     "title": "Docker Essentials",
-                                    "path": "permanentes/docker-essentials.md",
-                                    "content": "Docker usa containers para empacotar serviços.",
+                                    "path": "permanent/docker-essentials.md",
+                                    "content": "Docker uses containers to package services.",
                                 }
                             ]
                         }
@@ -749,9 +681,9 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                 "insights": [
                     {
                         "type": "hypothesis",
-                        "title": "Docker como base de runtime",
-                        "description": "A nota sugere Docker como base para empacotar serviços.",
-                        "evidence": ["Docker Essentials: Docker usa containers"],
+                        "title": "Docker as a runtime foundation",
+                        "description": "The note presents Docker as a foundation for packaging services.",
+                        "evidence": ["Docker Essentials: Docker uses containers"],
                         "confidence": 0.82,
                     }
                 ]
@@ -774,7 +706,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             FakeClient(),
             WorkerSettings(),
             {"id": 12},
-            {"note_path": "permanentes/docker-essentials.md"},
+            {"note_path": "permanent/docker-essentials.md"},
         )
 
         sync_call = next(
@@ -785,7 +717,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         synced = sync_call[2]["payload"]["insights"][0]
         prompt = next(call[1] for call in calls if call[0] == "prompt")
 
-        self.assertIn("Docker usa containers", prompt)
+        self.assertIn("Docker uses containers", prompt)
         self.assertEqual(synced["provider"], "nvidia-nim")
         self.assertEqual(synced["model"], "qwen/qwen3.5-397b-a17b")
         self.assertEqual(calls[-1], ("complete", 12))

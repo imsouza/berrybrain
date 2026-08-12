@@ -8,7 +8,12 @@ from sqlalchemy.orm import sessionmaker
 import berrybrain_api.models  # noqa: F401
 from berrybrain_api.database import Base
 from berrybrain_api.graph_write_service import GraphWriteService
-from berrybrain_api.models import AutomationLogRecord, GraphEdgeRecord, GraphNodeRecord
+from berrybrain_api.models import (
+    AutomationLogRecord,
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    JobRecord,
+)
 
 
 class GraphWriteServiceTest(unittest.TestCase):
@@ -18,7 +23,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.session = sessionmaker(bind=self.engine)()
         self.writer = GraphWriteService(self.session)
         self.left = self.writer.upsert_node(
-            node_type="conceito",
+            node_type="concept",
             label="Distributed Systems",
             source_note_ids=[1],
         )
@@ -41,6 +46,17 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.id, self.left.id)
         self.assertEqual(json.loads(duplicate.source_note_ids), [1, 3])
 
+    def test_node_edit_invalidates_computed_confidence(self) -> None:
+        self.assertGreater(self.left.confidence_sample_size, 0)
+        updated = self.writer.update_node_fields(
+            self.left.id,
+            summary="Distributed components coordinate through messages.",
+        )
+        self.assertEqual(updated.confidence_sample_size, 0)
+        self.assertIsNone(updated.confidence_lower)
+        self.assertEqual(updated.confidence_method, "unavailable")
+        self.assertEqual(updated.semantic_state, "pending")
+
     def test_edge_normalization_and_symmetric_deduplication(self) -> None:
         first = self.writer.upsert_edge(
             source_node_id=self.left.id,
@@ -54,7 +70,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         duplicate = self.writer.upsert_edge(
             source_node_id=self.right.id,
             target_node_id=self.left.id,
-            edge_type="shared_concept",
+            edge_type="semantic_similarity",
             reason="The same relationship was found from the opposite direction.",
             evidence=["note:2"],
             confidence=0.9,
@@ -63,8 +79,11 @@ class GraphWriteServiceTest(unittest.TestCase):
         edges = list(self.session.execute(select(GraphEdgeRecord)).scalars())
         self.assertEqual(first.id, duplicate.id)
         self.assertEqual(len(edges), 1)
-        self.assertEqual(duplicate.type, "semantic_relation")
-        self.assertEqual(duplicate.confidence, 0.9)
+        self.assertEqual(duplicate.type, "related")
+        self.assertAlmostEqual(duplicate.confidence, 0.966667)
+        self.assertEqual(duplicate.confidence_sample_size, 3)
+        self.assertEqual(duplicate.confidence_method, "wilson-evidence-v1")
+        self.assertLess(duplicate.confidence_lower, duplicate.confidence)
 
     def test_ai_edge_requires_traceable_chunk_evidence(self) -> None:
         with self.assertRaises(HTTPException) as raised:
@@ -111,6 +130,10 @@ class GraphWriteServiceTest(unittest.TestCase):
         )
         self.assertEqual(edge.provider, "nvidia-nim")
         self.assertIn("pipeline_run_id", edge.ai_notes)
+        judge_job = self.session.execute(
+            select(JobRecord).where(JobRecord.type == "JUDGE_ARTIFACT")
+        ).scalar_one()
+        self.assertEqual(json.loads(judge_job.payload)["artifact_id"], edge.id)
 
     def test_invalid_nodes_edges_and_ai_provenance_are_rejected(self) -> None:
         with self.assertRaises(HTTPException) as invalid_node:
@@ -167,7 +190,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         edge = self.writer.upsert_edge(
             source_node_id=self.left.id,
             target_node_id=self.right.id,
-            edge_type="explicit_link",
+            edge_type="related",
             reason="The source note links to the target note.",
             evidence=["[[Observability]]"],
             confidence=1.0,
@@ -260,7 +283,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         evidence = json.loads(edge.evidence)
         self.assertEqual(evidence[-1]["kind"], "manual")
         edge = self.writer.update_edge_type(edge.id, "prerequisite")
-        self.assertEqual(edge.type, "prerequisite")
+        self.assertEqual(edge.type, "prerequisite_for")
         reversible_logs = list(
             self.session.execute(
                 select(AutomationLogRecord).where(AutomationLogRecord.reversible == 1)
@@ -295,7 +318,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.status, "suggested")
 
     def test_maintenance_deduplicates_legacy_nodes_and_edges(self) -> None:
-        legacy = GraphNodeRecord(type="conceito", label="Distributed_Systems")
+        legacy = GraphNodeRecord(type="concept", label="Distributed_Systems")
         self.session.add(legacy)
         self.session.flush()
         self.session.add_all(
@@ -303,7 +326,7 @@ class GraphWriteServiceTest(unittest.TestCase):
                 GraphEdgeRecord(
                     source_node_id=legacy.id,
                     target_node_id=self.right.id,
-                    type="shared_concept",
+                    type="semantic_similarity",
                     reason="Legacy relationship",
                     evidence='["note:1"]',
                 ),
@@ -325,7 +348,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(merged, 1)
         self.assertEqual(len(nodes), 2)
         self.assertEqual(len(edges), 1)
-        self.assertEqual(edges[0].type, "semantic_relation")
+        self.assertEqual(edges[0].type, "related")
         self.assertEqual(set(json.loads(edges[0].evidence)), {"note:1", "note:2"})
 
 

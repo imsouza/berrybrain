@@ -12,6 +12,10 @@ from sqlalchemy.orm import Session
 from berrybrain_api.ai_configuration import load_configuration
 from berrybrain_api.cognitive_layer import answer_cognitive_query
 from berrybrain_api.config import get_settings
+from berrybrain_api.graph_inference_service import (
+    create_insight_from_persisted_inference,
+    persist_graph_inference,
+)
 from berrybrain_api.models import AskSessionRecord, AskTurnRecord, GraphInferenceRecord
 
 
@@ -98,7 +102,13 @@ async def append_ask_turn(
     try:
         result = await answer_cognitive_query(
             session,
-            (f"Flow conversation context:\n{context}\n\nCurrent question:\n{question}"),
+            (
+                "Use BerryBrain's knowledge graph as queryable data when the "
+                "turn asks about nodes, node types, connections, graph areas, "
+                "or clusters. Inspect graph entities and relationships before "
+                "falling back to note text search.\n\n"
+                f"Flow conversation context:\n{context}\n\nCurrent question:\n{question}"
+            ),
         )
     except Exception:
         user_turn.status = "failed"
@@ -149,6 +159,58 @@ def get_ask_session_payload(session: Session, session_id: str) -> dict[str, Any]
         "session": serialize_ask_session(item),
         "turns": [serialize_ask_turn(turn) for turn in turns],
     }
+
+
+def create_insight_from_flow_session(
+    session: Session, session_id: str
+) -> dict[str, Any]:
+    item = session.get(AskSessionRecord, session_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Flow session not found")
+    assistant_turn = session.execute(
+        select(AskTurnRecord)
+        .where(
+            AskTurnRecord.session_id == session_id,
+            AskTurnRecord.role == "assistant",
+            AskTurnRecord.status == "completed",
+        )
+        .order_by(AskTurnRecord.sequence.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if assistant_turn is None:
+        raise HTTPException(status_code=409, detail="Flow has no completed answer")
+    user_turn = session.execute(
+        select(AskTurnRecord)
+        .where(
+            AskTurnRecord.session_id == session_id,
+            AskTurnRecord.role == "user",
+            AskTurnRecord.sequence < assistant_turn.sequence,
+        )
+        .order_by(AskTurnRecord.sequence.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    evidence = [
+        {
+            "nodeId": value,
+            "source": "flow",
+            "reference": f"ask_turn:{assistant_turn.id}",
+        }
+        for value in _evidence_ids_from_json(assistant_turn.evidence_ids)
+    ]
+    inference = persist_graph_inference(
+        session,
+        user_turn.content if user_turn is not None else item.title or "Flow insight",
+        {
+            "answer": assistant_turn.content,
+            "status": "answered" if evidence else "insufficient_evidence",
+            "routes": ["flow", "knowledge_graph"],
+            "evidence": evidence,
+            "relatedNodes": evidence,
+            "provider": assistant_turn.provider,
+            "model": assistant_turn.model,
+        },
+    )
+    return create_insight_from_persisted_inference(session, inference.id)
 
 
 def cancel_ask_session(session: Session, session_id: str) -> AskSessionRecord:
@@ -280,6 +342,14 @@ def _evidence_ids(value: object) -> list[str]:
             if identity is not None:
                 result.append(str(identity))
     return list(dict.fromkeys(result))
+
+
+def _evidence_ids_from_json(raw: str) -> list[str]:
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = []
+    return [str(item) for item in parsed if str(item).strip()]
 
 
 def _seed_from_inference(

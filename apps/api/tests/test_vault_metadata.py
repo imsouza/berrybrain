@@ -21,40 +21,40 @@ from berrybrain_api.vault import (
 class VaultMetadataTest(unittest.TestCase):
     def test_parse_markdown_note_extracts_frontmatter_body_and_links(self) -> None:
         content = """---
-note_type: aula
-language: pt-BR
+note_type: lesson
+language: en
 tags:
   - python
-aliases: [IA local, machine learning]
+aliases: [local AI, machine learning]
 ---
-# IA local
+# Local AI
 
-Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
+Connects [[Machine Learning|ML]] with [[studies/Ollama]].
 """
 
         metadata = parse_markdown_note(content)
 
-        self.assertEqual(metadata.frontmatter["note_type"], "aula")
-        self.assertEqual(metadata.frontmatter["language"], "pt-BR")
+        self.assertEqual(metadata.frontmatter["note_type"], "lesson")
+        self.assertEqual(metadata.frontmatter["language"], "en")
         self.assertEqual(metadata.frontmatter["tags"], ["python"])
         self.assertEqual(
-            metadata.frontmatter["aliases"], ["IA local", "machine learning"]
+            metadata.frontmatter["aliases"], ["local AI", "machine learning"]
         )
-        self.assertTrue(metadata.body.startswith("# IA local"))
-        self.assertEqual(metadata.links, ["Machine Learning", "estudos/Ollama"])
+        self.assertTrue(metadata.body.startswith("# Local AI"))
+        self.assertEqual(metadata.links, ["Machine Learning", "studies/Ollama"])
 
     def test_extract_internal_links_ignores_duplicates_and_headings(self) -> None:
-        content = "Veja [[Nota]], [[Nota#Secao]] e [[Outra Nota|alias]]."
+        content = "See [[Note]], [[Note#Section]], and [[Other Note|alias]]."
 
-        self.assertEqual(extract_internal_links(content), ["Nota", "Outra Nota"])
+        self.assertEqual(extract_internal_links(content), ["Note", "Other Note"])
 
     def test_sync_note_record_upserts_markdown_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             vault_path = Path(temp_dir) / "vault"
-            note_path = vault_path / "inbox" / "ia-local.md"
+            note_path = vault_path / "inbox" / "local-ai.md"
             note_path.parent.mkdir(parents=True)
             note_path.write_text(
-                "---\nnote_type: aula\nlanguage: pt-BR\n---\n# IA Local\n\nLink [[Ollama]].\n",
+                "---\nnote_type: lesson\nlanguage: en\n---\n# Local AI\n\nLink [[Ollama]].\n",
                 encoding="utf-8",
             )
 
@@ -64,19 +64,19 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
             Base.metadata.create_all(bind=engine)
             session = sessionmaker(bind=engine)()
 
-            record = sync_note_record(session, vault_path, "inbox/ia-local.md")
+            record = sync_note_record(session, vault_path, "inbox/local-ai.md")
 
             loaded = session.execute(
-                select(NoteRecord).where(NoteRecord.path == "inbox/ia-local.md")
+                select(NoteRecord).where(NoteRecord.path == "inbox/local-ai.md")
             ).scalar_one()
             self.assertEqual(record.id, loaded.id)
-            self.assertEqual(loaded.title, "IA Local")
-            self.assertEqual(loaded.slug, "ia-local")
-            self.assertEqual(loaded.note_type, "aula")
-            self.assertEqual(loaded.language, "pt-BR")
+            self.assertEqual(loaded.title, "Local AI")
+            self.assertEqual(loaded.slug, "local-ai")
+            self.assertEqual(loaded.note_type, "lesson")
+            self.assertEqual(loaded.language, "en")
             self.assertTrue(loaded.content_hash)
             self.assertEqual(
-                loaded.frontmatter, '{"language":"pt-BR","note_type":"aula"}'
+                loaded.frontmatter, '{"language":"en","note_type":"lesson"}'
             )
             self.assertEqual(loaded.links, '["Ollama"]')
 
@@ -124,10 +124,10 @@ Conecta [[Machine Learning|ML]] com [[estudos/Ollama]].
             first = create_note(vault_path, "", "inbox", "")
             second = create_note(vault_path, "", "inbox", "")
 
-            self.assertEqual(first["path"], "inbox/rascunho.md")
-            self.assertEqual(second["path"], "inbox/rascunho-2.md")
-            self.assertTrue((vault_path / "inbox" / "rascunho.md").exists())
-            self.assertTrue((vault_path / "inbox" / "rascunho-2.md").exists())
+            self.assertEqual(first["path"], "inbox/untitled-note.md")
+            self.assertEqual(second["path"], "inbox/untitled-note-2.md")
+            self.assertTrue((vault_path / "inbox" / "untitled-note.md").exists())
+            self.assertTrue((vault_path / "inbox" / "untitled-note-2.md").exists())
 
     def test_resolve_note_path_rejects_paths_outside_vault(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

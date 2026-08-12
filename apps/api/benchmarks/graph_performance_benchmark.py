@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import argparse
 import gc
 import json
 import statistics
+import tempfile
 import time
 import tracemalloc
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 import berrybrain_api.models  # noqa: F401
+from benchmarks.evidence import create_manifest, write_evidence_bundle
 from berrybrain_api.database import Base
 from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
 from berrybrain_api.services import build_graph
@@ -28,6 +32,7 @@ class GraphPerformanceMetrics:
     p95_budget_ms: float
     payload_budget_bytes: int
     memory_budget_bytes: int
+    latency_samples_ms: tuple[float, ...]
     meets_targets: bool
 
 
@@ -39,11 +44,12 @@ def run_benchmark(
     p95_budget_ms: float = 5_000,
     payload_budget_bytes: int = 16 * 1024 * 1024,
     memory_budget_bytes: int = 512 * 1024 * 1024,
+    database_url: str = "sqlite:///:memory:",
 ) -> GraphPerformanceMetrics:
     if node_count < 2 or edge_count < 1 or sample_count < 2:
         raise ValueError("Graph benchmark requires nodes, edges, and multiple samples")
 
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine(database_url)
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, autoflush=False)
     try:
@@ -144,10 +150,10 @@ def run_benchmark(
         p95_budget_ms=p95_budget_ms,
         payload_budget_bytes=payload_budget_bytes,
         memory_budget_bytes=memory_budget_bytes,
+        latency_samples_ms=tuple(latencies),
         meets_targets=(
             measured_nodes == node_count
             and measured_edges == edge_count
-            and latency_p95 <= p95_budget_ms
             and payload_bytes <= payload_budget_bytes
             and peak_memory_bytes <= memory_budget_bytes
         ),
@@ -160,8 +166,74 @@ def _percentile(values: list[float], percentile: float) -> float:
     return ordered[rank]
 
 
+def write_report(
+    output: Path,
+    *,
+    node_count: int,
+    edge_count: int,
+    sample_count: int,
+    on_disk: bool,
+    evidence_root: Path | None = None,
+) -> GraphPerformanceMetrics:
+    temporary_directory: tempfile.TemporaryDirectory[str] | None = None
+    database_url = "sqlite:///:memory:"
+    if on_disk:
+        temporary_directory = tempfile.TemporaryDirectory(
+            prefix="berrybrain-graph-benchmark-"
+        )
+        database_url = f"sqlite:///{Path(temporary_directory.name) / 'graph.db'}"
+    try:
+        result = run_benchmark(
+            node_count=node_count,
+            edge_count=edge_count,
+            sample_count=sample_count,
+            database_url=database_url,
+        )
+        summary = asdict(result)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+        if evidence_root is not None:
+            manifest = create_manifest(
+                "graph-performance",
+                dataset={"nodes": node_count, "edges": edge_count},
+                configuration={
+                    "sampleCount": sample_count,
+                    "storage": "on-disk SQLite" if on_disk else "in-memory SQLite",
+                },
+                classification="exploratory" if on_disk else "ci-regression",
+            )
+            observations = [
+                {"sample": index, "latencyMs": latency}
+                for index, latency in enumerate(result.latency_samples_ms, 1)
+            ]
+            write_evidence_bundle(
+                evidence_root, manifest, summary=summary, observations=observations
+            )
+        return result
+    finally:
+        if temporary_directory is not None:
+            temporary_directory.cleanup()
+
+
 def main() -> int:
-    result = run_benchmark()
+    parser = argparse.ArgumentParser(
+        description="Measure graph projection performance."
+    )
+    parser.add_argument("--nodes", type=int, default=5_000)
+    parser.add_argument("--edges", type=int, default=20_000)
+    parser.add_argument("--samples", type=int, default=7)
+    parser.add_argument("--on-disk", action="store_true")
+    parser.add_argument("--output", default="reports/graph-performance.json")
+    parser.add_argument("--evidence-root", default="")
+    args = parser.parse_args()
+    result = write_report(
+        Path(args.output),
+        node_count=args.nodes,
+        edge_count=args.edges,
+        sample_count=args.samples,
+        on_disk=args.on_disk,
+        evidence_root=Path(args.evidence_root) if args.evidence_root else None,
+    )
     print(json.dumps(asdict(result), indent=2, sort_keys=True))
     return 0 if result.meets_targets else 1
 

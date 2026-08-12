@@ -758,7 +758,7 @@ def _upsert_attachment_node(
         source_note_ids=[note.id],
         source_attachment_ids=[attachment.id],
         source_evidence=evidence,
-        confidence=extraction.confidence or 0.5,
+        confidence=extraction.confidence or None,
         created_by="system",
         model=extraction.model,
         provider=extraction.provider,

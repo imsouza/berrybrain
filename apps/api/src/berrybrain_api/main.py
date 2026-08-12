@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -8,12 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from berrybrain_api import __version__
 from berrybrain_api.ai_gateway import generate_query_embedding, get_ai_config
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import serialize_datetime
 from berrybrain_api.models import JobRecord, NoteRecord
+from berrybrain_api.performance_metrics import begin_request, record_request
 from berrybrain_api.routers import (
     ai_configuration,
     ask,
@@ -35,7 +38,7 @@ from berrybrain_api.routers import (
     monitor,
     notes,
     notifications,
-    reviews,
+    observability,
     security_tokens,
     vault,
 )
@@ -92,7 +95,7 @@ async def lifespan(app: FastAPI):
 
 # --- App ---
 
-app = FastAPI(title="BerryBrain API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="BerryBrain API", version=__version__, lifespan=lifespan)
 settings = get_settings()
 
 origins = settings.cors_origins.replace(" ", "").split(",")
@@ -180,6 +183,24 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def performance_metrics_middleware(request: Request, call_next):
+    correlation_id = begin_request(dict(request.headers))
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+    finally:
+        duration_ms = (time.perf_counter() - started) * 1000
+        route_object = request.scope.get("route")
+        route = str(getattr(route_object, "path", "unmatched"))
+        record_request(request.method, route, status_code, duration_ms)
+    response.headers["X-Correlation-ID"] = correlation_id
+    response.headers["Server-Timing"] = f"app;dur={duration_ms:.3f}"
+    return response
+
+
 # --- Routers ---
 
 app.include_router(notes.router)
@@ -197,7 +218,6 @@ app.include_router(folders.router)
 app.include_router(graph.router)
 app.include_router(monitor.router)
 app.include_router(notifications.router)
-app.include_router(reviews.router)
 app.include_router(security_tokens.router)
 app.include_router(vault.router)
 app.include_router(settings_router.router)
@@ -206,6 +226,7 @@ app.include_router(automation.router)
 app.include_router(judge.router)
 app.include_router(hipporag.router)
 app.include_router(metrics.router)
+app.include_router(observability.router)
 
 # --- Core endpoints ---
 
@@ -230,6 +251,7 @@ def status():
         return {
             "app": "berrybrain",
             "environment": cfg.environment,
+            "public_app_url": cfg.public_app_url,
             "vault_path": str(cfg.vault_path),
             "notes": count,
         }
@@ -463,7 +485,7 @@ def list_activity(limit: int = 50) -> dict:
                     {
                         "id": job.id,
                         "action": job.type,
-                        "description": f"{job.type} falhou",
+                        "description": f"{job.type} failed",
                         "technicalDescription": job.type,
                         "when": serialize_datetime(job.created_at),
                         "type": "failed",

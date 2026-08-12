@@ -1,0 +1,3 @@
+{"contained": true, "detail": "URLError", "fault": "provider-or-sidecar-unavailable", "integrity_preserved": true, "recovery_ms": 10.544222081080079, "user_visible_state": "degraded"}
+{"contained": true, "detail": "invalid-model-output", "fault": "malformed-model-output", "integrity_preserved": true, "recovery_ms": 0.08172099478542805, "user_visible_state": "failed"}
+{"contained": true, "detail": "write-blocked-before-mutation", "fault": "disk-write-unavailable", "integrity_preserved": true, "recovery_ms": 2.844955073669553, "user_visible_state": "failed"}

@@ -37,7 +37,7 @@ const STEPS: TourStep[] = [
     eyebrow: "Insights",
     title: "Turn evidence into next actions.",
     body: "Insights surface gaps, patterns, hypotheses, and possible contradictions grounded in graph evidence.",
-    bullets: ["Review confidence before applying.", "Create notes or reviews from useful insights.", "Ignore low-value suggestions to keep the graph clean."],
+    bullets: ["Inspect confidence before applying.", "Create notes from useful insights.", "Ignore low-value suggestions to keep the graph clean."],
   },
   {
     eyebrow: "Account",

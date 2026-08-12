@@ -9,16 +9,11 @@ export function humanNodeType(type?: string) {
     note: "Note",
     concept: "Concept",
     topic: "Topic",
-    topico: "Topic",
     entity: "Entity",
-    entidade: "Entity",
     context: "Context",
-    contexto: "Context",
     gap: "Knowledge gap",
-    lacuna: "Knowledge gap",
     insight: "Insight",
     attachment: "Attachment",
-    anexo: "Attachment",
     source: "Source",
     web_source: "Source",
   };
@@ -59,12 +54,12 @@ function parseMaybeJson(value: string): unknown {
 export function formatEvidenceLabel(item: unknown): string {
   const parsed = typeof item === "string" ? parseMaybeJson(item) : item;
   if (typeof parsed === "string") {
-    return parsed
+    return cleanEvidenceText(parsed
       .replace(/[_-]+/g, " ")
       .replace(/\bexplainedConnections\b/g, "explained connections")
       .replace(/\bgraphNotes\b/g, "graph notes")
       .replace(/\bjobsByType\.[A-Z0-9_]+\b/g, "system activity")
-      .replace(/\bGENERATE_NOTE_TITLE\b/g, "automatic title generation");
+      .replace(/\bGENERATE_NOTE_TITLE\b/g, "automatic title generation"));
   }
   if (!parsed || typeof parsed !== "object") return "";
   const record = parsed as Record<string, unknown>;
@@ -72,6 +67,15 @@ export function formatEvidenceLabel(item: unknown): string {
     record.title || record.label || record.source || "",
     record.text || record.reference || record.path || record.reason || "",
     record.whyRelevant || record.quoteOrSummary || "",
-  ].filter(Boolean);
-  return parts.join(": ") || "Evidence available in technical details.";
+  ].filter((part) => Boolean(part) && String(part).trim().toLowerCase() !== "connections");
+  return cleanEvidenceText(parts.join(": ")) || "Evidence available in technical details.";
+}
+
+function cleanEvidenceText(value: string) {
+  return value
+    .replace(/\b(connections)(?:\s*[:\-·]\s*\1\b)+/gi, "$1")
+    .replace(/\bconnections(?:\s+connections\b)+/gi, "connections")
+    .replace(/(?:^|\s)(connections)(?=\s*[:\-·]\s*$)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }

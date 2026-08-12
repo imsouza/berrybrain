@@ -32,16 +32,16 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
     def test_expand_knowledge_graph_persists_explainable_nodes_and_edges(self) -> None:
         source = NoteRecord(
-            title="Observabilidade em Sistemas Distribuidos",
-            slug="observabilidade",
-            path="estudos/observabilidade.md",
+            title="Observability in Distributed Systems",
+            slug="observability",
+            path="study/observability.md",
             content_hash="hash-a",
             links=json.dumps(["Edge Computing"]),
         )
         target = NoteRecord(
             title="Edge Computing",
             slug="edge-computing",
-            path="estudos/edge-computing.md",
+            path="study/edge-computing.md",
             content_hash="hash-b",
         )
         self.session.add_all([source, target])
@@ -53,9 +53,9 @@ class SecondBrainPhase1Test(unittest.TestCase):
             "concepts",
             {
                 "concepts": [
-                    "observabilidade",
-                    "sistemas distribuidos",
-                    "logs metricas traces",
+                    "observability",
+                    "distributed systems",
+                    "logs metrics traces",
                 ]
             },
             "hash-a",
@@ -65,7 +65,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             self.session,
             target.id,
             "concepts",
-            {"concepts": ["sistemas distribuidos"]},
+            {"concepts": ["distributed systems"]},
             "hash-b",
             model_used="nvidia/nemotron",
         )
@@ -81,17 +81,17 @@ class SecondBrainPhase1Test(unittest.TestCase):
         backlink = next(c for c in connections if c.connection_type == "backlink")
 
         self.assertGreaterEqual(result["concepts"], 3)
-        self.assertTrue(any(c.name == "observabilidade" for c in concepts))
+        self.assertTrue(any(c.name == "observability" for c in concepts))
         self.assertTrue(any(n.type == "concept" for n in nodes))
-        self.assertTrue(any(e.type == "semantic_relation" for e in edges))
+        self.assertTrue(any(e.type in {"mentions", "related"} for e in edges))
         self.assertTrue(any(c.connection_type == "shared_concept" for c in connections))
         self.assertEqual(backlink.status, "confirmed")
         self.assertIn("Edge Computing", backlink.evidence)
 
     def test_graph_inference_uses_evidence_and_refuses_unsupported_claims(self) -> None:
         note_a = NoteRecord(
-            title="Observabilidade",
-            slug="observabilidade",
+            title="Observability",
+            slug="observability",
             path="obs.md",
             content_hash="a",
         )
@@ -109,8 +109,8 @@ class SecondBrainPhase1Test(unittest.TestCase):
                 target_note_id=note_b.id,
                 connection_type="semantic_similarity",
                 confidence=84,
-                reason="Ambas tratam de sistemas descentralizados e monitoramento.",
-                evidence=json.dumps(["Observabilidade", "Edge Computing"]),
+                reason="Both cover decentralized systems and monitoring.",
+                evidence=json.dumps(["Observability", "Edge Computing"]),
                 created_by="ai",
                 provider="nvidia-nim",
                 model="nvidia/nemotron",
@@ -121,13 +121,15 @@ class SecondBrainPhase1Test(unittest.TestCase):
         from berrybrain_api.second_brain import infer_from_graph
 
         supported = infer_from_graph(
-            self.session, "o que edge computing tem a ver com observabilidade?"
+            self.session, "how does edge computing relate to observability?"
         )
-        unsupported = infer_from_graph(self.session, "qual relacao com culinaria?")
+        unsupported = infer_from_graph(
+            self.session, "what is the relationship with cooking?"
+        )
 
         self.assertEqual(supported["status"], "answered")
         self.assertGreaterEqual(len(supported["evidence"]), 1)
-        self.assertIn("Observabilidade", supported["relatedNodes"])
+        self.assertIn("Observability", supported["relatedNodes"])
         self.assertEqual(unsupported["status"], "insufficient_evidence")
 
     def test_connection_status_can_be_confirmed_and_ignored(self) -> None:
@@ -149,8 +151,8 @@ class SecondBrainPhase1Test(unittest.TestCase):
             source_note_id=note_a.id,
             target_note_id=note_b.id,
             connection_type="shared_concept",
-            reason="Compartilham um conceito real.",
-            evidence=json.dumps(["conceito"]),
+            reason="They share a grounded concept.",
+            evidence=json.dumps(["concept"]),
             status="suggested",
         )
         self.session.add(connection)
@@ -288,7 +290,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
         edges = list(self.session.query(GraphEdgeRecord).all())
         self.assertEqual(
             {edge.type for edge in edges},
-            {"prerequisite", "example_of", "contrasts_with"},
+            {"prerequisite_for", "example_of", "contrasts_with"},
         )
         self.assertTrue(all(edge.reason and edge.evidence for edge in edges))
         self.assertTrue(all(edge.provider == "nvidia-nim" for edge in edges))
@@ -310,18 +312,18 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
     def test_graph_inference_calls_configured_ai_with_graph_context(self) -> None:
         note = NoteRecord(
-            title="Regressão Linear",
-            slug="regressao-linear",
-            path="regressao.md",
+            title="Linear Regression",
+            slug="linear-regression",
+            path="linear-regression.md",
             content_hash="r",
         )
         self.session.add(note)
         self.session.flush()
         node = GraphNodeRecord(
             type="note",
-            label="Regressão Linear",
-            title="Regressão Linear",
-            summary="Nota sobre regressão linear e modelos estatísticos.",
+            label="Linear Regression",
+            title="Linear Regression",
+            summary="Note about linear regression and statistical models.",
             source_id=note.id,
             source_note_ids=json.dumps([note.id]),
             status="confirmed",
@@ -337,9 +339,9 @@ class SecondBrainPhase1Test(unittest.TestCase):
             called["prompt"] = prompt
             return {
                 "status": "answered",
-                "answer": "Regressão Linear aparece como nó do grafo.",
-                "evidence": ["Regressão Linear"],
-                "relatedNodes": ["Regressão Linear"],
+                "answer": "Linear Regression appears as a graph node.",
+                "evidence": ["Linear Regression"],
+                "relatedNodes": ["Linear Regression"],
                 "suggestions": [],
             }
 
@@ -348,7 +350,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
         try:
             result = asyncio.run(
                 second_brain.infer_from_graph_with_ai(
-                    self.session, "quais notas falam desse modelo estatístico?"
+                    self.session, "which notes discuss this statistical model?"
                 )
             )
         finally:
@@ -356,7 +358,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
         self.assertEqual(result["status"], "answered")
         self.assertIn("graphContext", called["prompt"])
-        self.assertIn("Regressão Linear", called["prompt"])
+        self.assertIn("Linear Regression", called["prompt"])
 
     def test_expand_generates_graph_insights_and_manual_node_notes(self) -> None:
         note_a = NoteRecord(title="ML A", slug="ml-a", path="ml-a.md", content_hash="a")
@@ -422,18 +424,18 @@ class SecondBrainPhase1Test(unittest.TestCase):
 
         result = expand_knowledge_graph(self.session)
         node = self.session.query(GraphNodeRecord).filter_by(type="insight").first()
-        updated = set_node_user_notes(self.session, node.id, "Minha nota manual")
+        updated = set_node_user_notes(self.session, node.id, "My manual note")
 
         self.assertEqual(result["insights"], 0)
         self.assertIsNotNone(node)
         self.assertEqual(node.created_by_model, "qwen/qwen3.5")
-        self.assertEqual(updated.user_notes, "Minha nota manual")
+        self.assertEqual(updated.user_notes, "My manual note")
 
     def test_expand_ignores_generic_note_type_and_path_slug_topics(self) -> None:
         note = NoteRecord(
             title="Docker Essentials",
             slug="docker-essentials",
-            path="permanentes/docker-essentials.md",
+            path="permanent/docker-essentials.md",
             content_hash="docker",
         )
         self.session.add(note)
@@ -444,7 +446,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             "classification",
             {
                 "note_type": "study",
-                "topics": ["permanentes/docker-essentials", "containers"],
+                "topics": ["permanent/docker-essentials", "containers"],
                 "tags": ["docker-essentials"],
             },
             "docker",
@@ -513,7 +515,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             any(
                 edge.source_node_id == note_nodes[0].id
                 and edge.target_node_id == concept.id
-                and edge.type == "semantic_relation"
+                and edge.type == "mentions"
                 for edge in edges
             )
         )
@@ -599,9 +601,9 @@ class SecondBrainPhase1Test(unittest.TestCase):
         note = NoteRecord(
             title="Docker Essentials",
             slug="docker-essentials",
-            path="permanentes/docker-essentials.md",
+            path="permanent/docker-essentials.md",
             content_hash="docker",
-            links=json.dumps(["permanentes/docker-essentials"]),
+            links=json.dumps(["permanent/docker-essentials"]),
         )
         self.session.add(note)
         self.session.flush()

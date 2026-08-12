@@ -54,7 +54,7 @@ NOTE_JOB_TYPES = {
     "ORGANIZE_VAULT",
     "PROCESS_ATTACHMENT",
     "CREATE_NOTE_FROM_INSIGHT",
-    "CREATE_REVIEW_FROM_INSIGHT",
+    "SYNC_HIPPORAG_GRAPH",
 }
 
 
@@ -69,7 +69,9 @@ JOB_PAYLOAD_REGISTRY: dict[str, JobPayloadContract] = {
 }
 JOB_PAYLOAD_REGISTRY.update(
     {
-        "ENRICH_GRAPH_NODE": JobPayloadContract(required_fields=("node_id",)),
+        "ENRICH_GRAPH_NODE": JobPayloadContract(
+            required_fields=("node_id", "source_fingerprint")
+        ),
         "JUDGE_ARTIFACT": JobPayloadContract(
             required_fields=(
                 "artifact_type",

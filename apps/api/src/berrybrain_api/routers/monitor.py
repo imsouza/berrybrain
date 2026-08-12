@@ -180,6 +180,9 @@ def worker_heartbeat(payload: HeartbeatRequest) -> dict:
         ws.ollama_healthy = payload.ollama_healthy
         session.commit()
         session.refresh(ws)
+        from berrybrain_api.agent_monitor import ensure_agent_monitoring
+
+        agent_monitor = ensure_agent_monitoring(session)
         return {
             "worker": {
                 "status": ws.status,
@@ -187,7 +190,8 @@ def worker_heartbeat(payload: HeartbeatRequest) -> dict:
                 "jobs_processed": ws.jobs_processed,
                 "errors": ws.errors,
                 "ollama_healthy": ws.ollama_healthy,
-            }
+            },
+            "agentMonitor": agent_monitor,
         }
 
 

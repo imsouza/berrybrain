@@ -1,6 +1,6 @@
 {
   "name": "@berrybrain/web",
-  "version": "1.3.0",
+  "version": "1.4.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "benchmark:browser": "node scripts/browser-benchmark.mjs",
     "clean": "rm -rf .next"
   },
   "dependencies": {

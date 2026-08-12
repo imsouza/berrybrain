@@ -1,4 +1,28 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+async function mockPagedGraph(page: Page, nodes: Record<string, unknown>[], edges: Record<string, unknown>[] = []) {
+  await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ node_count: nodes.length, edge_count: edges.length, orphan_count: edges.length ? 0 : nodes.length, graphVersion: 91 }),
+  }));
+  await page.route("**/api/v1/graph/palette", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ colors: [] }),
+  }));
+  await page.route("**/api/v1/graph/nodes?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ nodes, nextCursor: null, graphVersion: 91 }),
+  }));
+  await page.route("**/api/v1/graph/edges?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ edges, nextCursor: null, graphVersion: 91 }),
+  }));
+}
 
 test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
   test.beforeEach(async ({ page }) => {
@@ -77,7 +101,105 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(page.getByText("Docker is a containerization platform")).toBeVisible({ timeout: 10_000 });
   });
 
-  test("graph ask can be saved as an insight and shown in Insights", async ({ page }) => {
+  test("voice prompt shows a live waveform and writes recognized speech", async ({ page }) => {
+    await page.addInitScript(() => {
+      class MockRecognition {
+        lang = "";
+        continuous = false;
+        interimResults = false;
+        maxAlternatives = 1;
+        onstart: (() => void) | null = null;
+        onerror: ((event: { error?: string }) => void) | null = null;
+        onend: (() => void) | null = null;
+        onresult: ((event: unknown) => void) | null = null;
+        start() {
+          (window as typeof window & { __mockRecognition?: MockRecognition }).__mockRecognition = this;
+          this.onstart?.();
+        }
+        stop() { this.onend?.(); }
+        abort() { this.onend?.(); }
+      }
+      class MockAudioContext {
+        state = "running";
+        createAnalyser() {
+          return { fftSize: 0, smoothingTimeConstant: 0, frequencyBinCount: 8, getByteFrequencyData: (values: Uint8Array) => values.fill(24) };
+        }
+        createMediaStreamSource() { return { connect: () => undefined }; }
+        close() { this.state = "closed"; return Promise.resolve(); }
+      }
+      Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+      Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: MockRecognition });
+      Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: MockRecognition });
+      Object.defineProperty(window, "AudioContext", { configurable: true, value: MockAudioContext });
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+        configurable: true,
+        value: async () => ({ getTracks: () => [{ stop: () => undefined }] }),
+      });
+    });
+    await mockPagedGraph(page, []);
+    await page.goto("/brain?graph=open");
+
+    await page.getByRole("button", { name: "Use voice prompt" }).click();
+    const stopButton = page.getByRole("button", { name: "Stop voice input" });
+    await expect(stopButton).toBeVisible();
+    await expect(stopButton.locator("span > span")).toHaveCount(5);
+    const recognitionState = await page.evaluate(() => {
+      const recognition = (window as typeof window & { __mockRecognition?: { onresult?: ((event: unknown) => void) | null; onend?: (() => void) | null } }).__mockRecognition;
+      const state = { exists: Boolean(recognition), onresult: typeof recognition?.onresult, onend: typeof recognition?.onend };
+      recognition?.onresult?.({ results: [[{ transcript: "show temporal series nodes" }]] });
+      recognition?.onend?.();
+      return state;
+    });
+    expect(recognitionState).toEqual({ exists: true, onresult: "function", onend: "function" });
+    await expect(page.getByPlaceholder(/ask your graph/i)).toHaveValue("show temporal series nodes", { timeout: 3_000 });
+  });
+
+  test("node hover stays anchored, drag does not open, and click zooms before navigation", async ({ page }) => {
+    test.setTimeout(60_000);
+    const node = {
+      id: "concept_11",
+      recordId: 11,
+      type: "concept",
+      label: "A deliberately long temporal series forecasting concept label for responsive rendering",
+      summary: "Forecasting methods connect temporal observations with predictive evidence.",
+      status: "confirmed",
+      semanticState: "ready",
+      clusterId: 4,
+      confidence: 0.88,
+      createdBy: "ai",
+    };
+    await mockPagedGraph(page, [node]);
+    await page.goto("/brain?graph=open");
+    const canvas = page.getByRole("img", { name: /Knowledge graph with 1 nodes/i });
+    await expect(canvas).toHaveAttribute("data-node-label-max-lines", "3");
+    await expect(canvas).toHaveAttribute("data-node-label-max-characters", "58");
+    await page.waitForTimeout(900);
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const center = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+
+    await page.mouse.move(center.x, center.y);
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toContainText("Semantic state");
+    await expect(tooltip).toContainText("Confidence");
+    const tooltipBox = await tooltip.boundingBox();
+    expect(Math.abs((tooltipBox?.x || 0) - center.x)).toBeLessThan(380);
+
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down();
+    await page.mouse.move(center.x + 70, center.y + 40, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(750);
+    await expect(page).toHaveURL(/\/brain\?graph=open$/);
+
+    await page.mouse.click(center.x + 70, center.y + 40);
+    await expect(canvas).toHaveAttribute("data-selected-node", "concept_11");
+    await page.waitForTimeout(180);
+    await expect(page).toHaveURL(/\/brain\?graph=open$/);
+    await expect(page).toHaveURL(/\/graph\/nodes\/11$/, { timeout: 15_000 });
+  });
+
+  test("graph ask can be saved as a graph insight proposal", async ({ page }) => {
     const insight = {
       id: 42,
       type: "new_connection",
@@ -116,13 +238,6 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
         body: JSON.stringify({ status: "created", insight }),
       }),
     );
-    await page.route("**/api/v1/insights?limit=50", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ insights: [insight] }),
-      }),
-    );
     await page.route("**/api/v1/graph", (route) =>
       route.fulfill({
         status: 200,
@@ -137,9 +252,6 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.getByRole("button", { name: "Create insight" }).click();
     await expect(page.getByText("Saved as insight: Docker depends on Linux namespaces")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: "Insight created" })).toBeVisible();
-
-    await page.goto("/insights");
-    await expect(page.getByText("Docker depends on Linux namespaces")).toBeVisible({ timeout: 10_000 });
   });
 
   test("graph ask no evidence refusal", async ({ page }) => {
@@ -336,7 +448,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     expect(cancellationRequested).toBeTruthy();
   });
 
-  test("runs global online research and reports completion", async ({ page }) => {
+  test("runs graph gap research and reports completion", async ({ page }) => {
     await page.unroute("**/api/v1/settings");
     await page.route("**/api/v1/settings", (route) => route.fulfill({
       status: 200,
@@ -363,14 +475,15 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     }));
 
     await page.goto("/brain?graph=open");
-    const checkOnline = page.getByRole("button", { name: "Check Online" });
-    await expect(checkOnline).toBeEnabled();
-    await checkOnline.click();
-    await expect(page.getByRole("button", { name: "Checking online 10%" })).toBeVisible();
+    const researchGaps = page.getByRole("button", { name: "Research gaps" });
+    await expect(researchGaps).toBeEnabled();
+    await researchGaps.click();
+    await expect(page.getByRole("button", { name: "Researching gaps 10%" })).toBeVisible();
     await expect(page.getByText("Research completed. 2 queries checked.")).toBeVisible({ timeout: 5_000 });
   });
 
-  test("explains failed semantic analysis and queues a retry from the node sidebar", async ({ page }) => {
+  test("opens the node page and queues a failed semantic analysis retry", async ({ page }) => {
+    test.setTimeout(60_000);
     await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -399,7 +512,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes/11/summary", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ title: "Docker", summary: "Container platform", status: "suggested", confidence: 0.8, userNotes: "" }),
+      body: JSON.stringify({ id: 11, type: "note", label: "Docker", title: "Docker", summary: "Container platform", status: "suggested", semanticState: "failed", confidenceInterval: { score: 0.8, lower: 0.6, upper: 0.9, sampleSize: 2, method: "wilson-evidence-v1" }, userNotes: "" }),
     }));
     await page.route("**/api/v1/graph/nodes/11/semantic-analysis", (route) => route.fulfill({
       status: 200,
@@ -414,8 +527,16 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     await page.goto("/brain?graph=open");
     await page.getByRole("button", { name: "List view" }).click();
-    await page.getByRole("listitem", { name: /Docker/ }).click();
-    await expect(page.getByText("The last analysis failed.")).toBeVisible();
+    const dockerNode = page.getByRole("listitem", { name: /Docker/ });
+    await expect(dockerNode).toHaveAttribute("href", /\/graph\/nodes\/11$/);
+    await dockerNode.click();
+    await expect(page).toHaveURL(/\/graph\/nodes\/11$/, { timeout: 15_000 });
+    await expect(page.getByText("The last analysis failed.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: "Back to Home" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Back to graph/i })).toBeVisible();
+    const navigation = page.getByRole("complementary", { name: "Navigation" });
+    await expect(navigation).toBeVisible();
+    await expect(navigation.getByAltText("BerryBrain")).toBeVisible();
     const visibleText = await page.locator("body").innerText();
     for (const internalKey of [
       "layoutBrain",
@@ -429,5 +550,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     }
     await page.getByRole("button", { name: "Retry analysis" }).click();
     await expect(page.getByText("Semantic analysis queued. Job 404")).toBeVisible();
+    await page.getByRole("button", { name: /Back to graph/i }).click();
+    await expect(page).toHaveURL(/\/brain\?graph=open$/, { timeout: 15_000 });
   });
 });

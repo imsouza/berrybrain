@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from berrybrain_api.confidence import serialize_confidence
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.home_summary import list_detected_concepts
@@ -30,7 +31,10 @@ def get_concept(concept_id: int) -> dict:
             "description": concept.description,
             "frequency": concept.frequency,
             "relatedNoteIds": concept.related_note_ids,
-            "confidence": concept.confidence,
+            "confidence": (
+                concept.confidence if concept.confidence_sample_size else None
+            ),
+            "confidenceInterval": serialize_confidence(concept),
             "status": concept.status,
             "provider": concept.provider,
             "model": concept.model,

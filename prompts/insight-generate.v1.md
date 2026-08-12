@@ -50,7 +50,7 @@ Insight types:
 - **assertion** — A proposition supported by at least two pieces of evidence. Example: "Backlinks confirm that the user connects Docker to Linux Shell."
 - **knowledge_gap** — Missing or weak knowledge. Example: "The vault lacks a note about orchestration with Docker Compose or Kubernetes."
 - **new_connection** — A non-obvious relationship with a reason. Example: "Async Python connects to Docker through the concept of scalability."
-- **study_path** — Sequencia logica de estudo. Ex: "Trilha sugerida: Shell basico → Docker essentials → Python async → FastAPI deploy."
+- **study_path** - A logical learning sequence. Example: "Suggested path: Shell basics -> Docker essentials -> Python async -> FastAPI deployment."
 
 Return valid JSON:
 

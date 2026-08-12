@@ -30,7 +30,7 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     record.content_hash = metadata.content_hash
     record.frontmatter = compact_json(metadata.frontmatter)
     record.links = compact_json(metadata.links)
-    record.language = string_frontmatter(metadata.frontmatter, "language", "pt-BR")
+    record.language = string_frontmatter(metadata.frontmatter, "language", "und")
     record.note_type = string_frontmatter(metadata.frontmatter, "note_type", "note")
     record.status = "synced"
 

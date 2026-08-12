@@ -216,9 +216,8 @@ test.describe("Public performance budgets", () => {
       "/account",
       "/activity",
       "/admin",
-      "/insights",
+      "/ask",
       "/notifications",
-      "/reviews",
     ];
     const results = [];
     for (const route of routes) results.push(await navigationMetrics(page, route));

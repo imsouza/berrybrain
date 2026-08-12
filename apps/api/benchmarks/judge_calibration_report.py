@@ -6,6 +6,13 @@ from pathlib import Path
 
 from berrybrain_api.routers.judge import _scorecard_agreement
 
+DEFAULT_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "tests"
+    / "fixtures"
+    / "judge_calibration_fixture.json"
+)
+
 
 def load_fixture(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -62,9 +69,7 @@ def write_report(fixture_path: Path, output_path: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="BerryBrain judge calibration report")
-    parser.add_argument(
-        "--fixture", default="tests/fixtures/judge_calibration_fixture.json"
-    )
+    parser.add_argument("--fixture", default=str(DEFAULT_FIXTURE))
     parser.add_argument("--output", default="reports/judge-calibration-report.json")
     args = parser.parse_args()
     report = write_report(Path(args.fixture), Path(args.output))

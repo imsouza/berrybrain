@@ -37,12 +37,12 @@ from berrybrain_api.models import (
     InsightRecord,
     JobRecord,
     JudgeVerdictRecord,
+    LegacyRecallItemRecord,
     MetricRecord,
     ModelInvocationRecord,
     NoteAttachmentRecord,
     NoteRecord,
     NotificationRecord,
-    ReviewItemRecord,
     SettingRecord,
     TagRecord,
     WorkerInboxRecord,
@@ -248,7 +248,7 @@ class WipeDataRequest(BaseModel):
 
 WIPE_MODELS = [
     WorkerInboxRecord,
-    ReviewItemRecord,
+    LegacyRecallItemRecord,
     HumanReviewRecord,
     JudgeVerdictRecord,
     ArtifactEvaluationRecord,
