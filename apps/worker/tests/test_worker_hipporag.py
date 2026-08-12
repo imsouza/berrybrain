@@ -7,6 +7,7 @@ from berrybrain_worker.main import (
     process_hipp_index,
     process_hipp_rebuild,
     process_hipp_reconcile,
+    process_sync_hipporag_graph,
 )
 
 
@@ -15,6 +16,9 @@ class _SuccessfulResponse:
 
     def raise_for_status(self) -> None:
         return None
+
+    def json(self) -> dict:
+        return {"status": "completed"}
 
 
 class WorkerHippoRagTest(unittest.IsolatedAsyncioTestCase):
@@ -77,6 +81,20 @@ class WorkerHippoRagTest(unittest.IsolatedAsyncioTestCase):
                 "http://api/api/v1/jobs/44/complete",
                 "http://hipporag:8000/rebuild",
                 "http://api/api/v1/jobs/45/complete",
+            ],
+        )
+
+    async def test_syncs_graph_retrieval_after_topology_changes(self) -> None:
+        await process_sync_hipporag_graph(
+            self.client, self.settings, {"id": 46}, {"trigger": "node_deleted"}
+        )
+
+        requested_urls = [call.args[0] for call in self.client.post.await_args_list]
+        self.assertEqual(
+            requested_urls,
+            [
+                "http://api/api/v1/hipporag/sync-graph",
+                "http://api/api/v1/jobs/46/complete",
             ],
         )
 

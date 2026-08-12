@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "berrybrain-workload.v1",
+  "profiles": {
+    "S": {"jobs": 100, "workers": 1},
+    "M": {"jobs": 1000, "workers": 4},
+    "L": {"jobs": 10000, "workers": 8},
+    "saturation": {"jobs": 25000, "workers": 16}
+  },
+  "requiredMetrics": ["enqueueRate", "drainRate", "queueWaitP95", "endToEndP95", "duplicates", "deadLetters"]
+}

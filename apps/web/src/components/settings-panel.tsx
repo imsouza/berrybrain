@@ -83,7 +83,7 @@ type Settings = {
   editor_font_size: string;
   ui_font: string;
   editor_font: string;
-  nome: string;
+  display_name: string;
   ai_provider: "local" | "cloud";
   ai_api_url: string;
   ai_custom_url: string;
@@ -108,8 +108,7 @@ type Settings = {
   chroma_collection: string;
   cognitive_retrieval_mode: "hybrid" | "kb_first" | "graph_first";
   semantic_data_enabled: "true" | "false";
-  cognitive_enrich_on_save: "true" | "false";
-  cognitive_insights_on_save: "true" | "false";
+  insights_auto_interval_hours: string;
   research_mode_enabled: "true" | "false";
   remote_content_consent: "true" | "false";
   attachment_image_limit_mb: string;
@@ -166,7 +165,7 @@ function defaults(): Settings {
     editor_font_size: "15",
     ui_font: "inter",
     editor_font: "mono",
-    nome: "",
+    display_name: "",
     ai_provider: "local",
     ai_api_url: NVIDIA_NIM_URL,
     ai_custom_url: "",
@@ -191,8 +190,7 @@ function defaults(): Settings {
     chroma_collection: "berrybrain",
     cognitive_retrieval_mode: "hybrid",
     semantic_data_enabled: "true",
-    cognitive_enrich_on_save: "true",
-    cognitive_insights_on_save: "true",
+    insights_auto_interval_hours: "24",
     research_mode_enabled: "false",
     remote_content_consent: "false",
     attachment_image_limit_mb: "10",
@@ -245,7 +243,7 @@ function loadSettings(): Settings {
     editor_font_size: localStorage.getItem("bb_editor_font_size") || d.editor_font_size,
     ui_font: localStorage.getItem("bb_ui_font") || d.ui_font,
     editor_font: localStorage.getItem("bb_editor_font") || d.editor_font,
-    nome: localStorage.getItem("bb_nome") || d.nome,
+    display_name: localStorage.getItem("bb_display_name") || d.display_name,
     ai_provider: d.ai_provider,
     ai_api_url: d.ai_api_url,
     ai_custom_url: d.ai_custom_url,
@@ -270,8 +268,7 @@ function loadSettings(): Settings {
     chroma_collection: localStorage.getItem("bb_chroma_collection") || d.chroma_collection,
     cognitive_retrieval_mode: (localStorage.getItem("bb_cognitive_retrieval_mode") as Settings["cognitive_retrieval_mode"]) || d.cognitive_retrieval_mode,
     semantic_data_enabled: (localStorage.getItem("bb_semantic_data_enabled") as Settings["semantic_data_enabled"]) || d.semantic_data_enabled,
-    cognitive_enrich_on_save: (localStorage.getItem("bb_cognitive_enrich_on_save") as Settings["cognitive_enrich_on_save"]) || d.cognitive_enrich_on_save,
-    cognitive_insights_on_save: (localStorage.getItem("bb_cognitive_insights_on_save") as Settings["cognitive_insights_on_save"]) || d.cognitive_insights_on_save,
+    insights_auto_interval_hours: localStorage.getItem("bb_insights_auto_interval_hours") || d.insights_auto_interval_hours,
     research_mode_enabled: (localStorage.getItem("bb_research_mode_enabled") as Settings["research_mode_enabled"]) || d.research_mode_enabled,
     remote_content_consent: d.remote_content_consent,
     attachment_image_limit_mb: localStorage.getItem("bb_attachment_image_limit_mb") || d.attachment_image_limit_mb,
@@ -300,12 +297,12 @@ function applyTheme(s: Settings) {
   r.style.setProperty("--color-muted", p.mu);
   r.style.setProperty("--color-panel", p.pn);
   r.style.setProperty("--color-border", p.bd);
-  r.style.setProperty("--color-accent", "#BF1755");
+  r.style.setProperty("--color-accent", "#CC4168");
   r.style.setProperty("--color-accent-hover", s.theme === "dark" ? "#E67592" : "#B33654");
   r.style.setProperty("--color-accent-soft", s.theme === "dark" ? "#422631" : "#E8D5DA");
-  r.style.setProperty("--color-brand-green", "#83A637");
-  r.style.setProperty("--color-brand-red", "#BF1755");
-  r.style.setProperty("--color-danger", "#BF1755");
+  r.style.setProperty("--color-brand-green", "#96B55C");
+  r.style.setProperty("--color-brand-red", "#CC4168");
+  r.style.setProperty("--color-danger", "#CC4168");
   r.style.setProperty("--font-ui", UI_FONTS[s.ui_font] || UI_FONTS.inter);
   r.style.setProperty("--font-editor", EDITOR_FONTS[s.editor_font] || EDITOR_FONTS.mono);
   document.body.style.fontSize = `${s.font_size}px`;
@@ -325,7 +322,7 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "editor_font_size",
   "ui_font",
   "editor_font",
-  "nome",
+  "display_name",
   "graph_auto_confirm_confidence",
   "graph_default_layout",
   "kb_vector_store",
@@ -337,8 +334,7 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "chroma_collection",
   "cognitive_retrieval_mode",
   "semantic_data_enabled",
-  "cognitive_enrich_on_save",
-  "cognitive_insights_on_save",
+  "insights_auto_interval_hours",
   "research_mode_enabled",
   "judge_enabled",
   "hipporag_enabled",
@@ -385,8 +381,8 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       },
       {
         title: "Automatic learning",
-        ready: s.cognitive_enrich_on_save === "true" && s.cognitive_insights_on_save === "true",
-        detail: "Enrichment and insights should stay enabled for most users.",
+        ready: true,
+        detail: "Enrichment, gap discovery, Judge evaluation, clustering, and insight agents run automatically.",
       },
       {
         title: "Online validation",
@@ -674,7 +670,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-8">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={requestClose} />
-      <div className="bb-card bb-card--elevated relative z-50 w-full max-w-[94vw] overflow-hidden text-foreground sm:w-[860px]" role="dialog" aria-label="Settings">
+      <div className="bb-card bb-card--elevated relative z-50 flex max-h-[calc(100dvh-4rem)] w-full max-w-[94vw] flex-col overflow-hidden text-foreground sm:w-[860px]" role="dialog" aria-label="Settings">
         <div className="flex items-center justify-between border-b border-border/45 px-6 py-4">
           <div>
             <h2 className="text-base font-semibold tracking-tight">Settings</h2>
@@ -683,7 +679,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           <button className="rounded-md p-1.5 text-muted hover:bg-surface hover:text-foreground" onClick={requestClose} aria-label="Close settings">x</button>
         </div>
 
-        <div className="grid max-h-[72vh] min-h-[32rem] grid-cols-1 overflow-hidden sm:grid-cols-[13rem_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[13rem_minmax(0,1fr)]">
           <nav className="overflow-y-auto border-b border-border bg-background/50 p-3 sm:border-b-0 sm:border-r" aria-label="Settings sections">
             <input
               type="search"
@@ -717,7 +713,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           <SettingsFilterContext.Provider
             value={{ area: activeArea, query: settingsQuery }}
           >
-          <div className="space-y-1 overflow-y-auto px-5 py-3">
+          <div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain px-5 py-3">
           <Section title="Setup assistant" description="Start here when Ask, graph AI, or automatic processing does not behave as expected.">
             <div className="grid gap-2 sm:grid-cols-2">
               {setupItems.map((item) => (
@@ -729,7 +725,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
           <Section title="Appearance" description="Interface identity and theme.">
             <Field label="Display name" description="Used in the Home greeting.">
-              <TextInput value={s.nome} onChange={(value) => update("nome", value)} placeholder="Your name" />
+              <TextInput value={s.display_name} onChange={(value) => update("display_name", value)} placeholder="Your name" />
             </Field>
             <Field label="Theme" description="Current visual mode.">
               <Select value={s.theme} onChange={(value) => update("theme", value as ThemeKind)}>
@@ -783,8 +779,8 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           </Section>
 
           <Section title="Attachment processing" description="Local OCR and transcription used to turn files into evidence.">
-            <Field label="OCR language" description="Installed Tesseract code, such as eng, por, or por+eng. Settings do not download language packs; verify them with tesseract --list-langs in the API container.">
-              <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng or por+eng" />
+            <Field label="OCR language" description="Installed Tesseract code, such as eng, spa, or eng+spa. Settings do not download language packs; verify them with tesseract --list-langs in the API container.">
+              <TextInput value={s.attachment_ocr_language} onChange={(value) => update("attachment_ocr_language", value)} placeholder="eng or eng+spa" />
             </Field>
             <Field label="Transcription engine" description="Faster Whisper is bundled and local. Custom CLI requires a compatible executable in the API image.">
               <Select value={s.attachment_transcription_executable} onChange={(value) => update("attachment_transcription_executable", value as Settings["attachment_transcription_executable"])}>
@@ -848,7 +844,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 className="bb-action h-9 px-4 text-xs font-semibold"
                 onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
               >
-                Review AI capabilities
+                Inspect AI capabilities
               </button>
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -874,18 +870,6 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                   <option value="false">Disabled</option>
                 </Select>
               </Field>
-              <Field label="Enrich graph on save" description="Queue node enrichment when notes are processed.">
-                <Select value={s.cognitive_enrich_on_save} onChange={(value) => update("cognitive_enrich_on_save", value as Settings["cognitive_enrich_on_save"])}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </Select>
-              </Field>
-              <Field label="Generate insights on save" description="Queue evidence-based insights after graph expansion.">
-                <Select value={s.cognitive_insights_on_save} onChange={(value) => update("cognitive_insights_on_save", value as Settings["cognitive_insights_on_save"])}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </Select>
-              </Field>
               <Field label="Research Mode" description="Allow graph validation to query external web sources.">
                 <Select value={s.research_mode_enabled} onChange={(value) => update("research_mode_enabled", value as Settings["research_mode_enabled"])}>
                   <option value="false">Disabled</option>
@@ -893,6 +877,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 </Select>
               </Field>
             </div>
+            <Field label="Automatic insight interval (hours)" description="The active agent monitor queues evidence-based insight analysis at this interval. Minimum 1, maximum 168.">
+              <TextInput value={s.insights_auto_interval_hours} onChange={(value) => update("insights_auto_interval_hours", value)} placeholder="24" />
+            </Field>
             
             <div className="mt-4 border-t border-border/30 pt-4" />
             <div className="grid gap-3 sm:grid-cols-3">
@@ -1060,9 +1047,9 @@ function SetupStep({ title, ready, detail }: { title: string; ready: boolean; de
 
 function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
-    <label className="block">
+    <label className="block min-w-0">
       <span className="block text-xs font-medium text-foreground">{label}</span>
-      {description && <span className="mb-1.5 mt-0.5 block text-[11px] leading-4 text-muted/70">{description}</span>}
+      {description && <span className="mb-1.5 mt-0.5 block break-words text-[11px] leading-4 text-muted/70">{description}</span>}
       {children}
     </label>
   );

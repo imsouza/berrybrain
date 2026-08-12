@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "berrybrain-dataset.v1",
+  "id": "musique-answerable-subset",
+  "source": "MuSiQue",
+  "license": "Upstream dataset license; verify current terms before acquisition",
+  "version": "upstream-pinned-at-acquisition",
+  "citation": "Trivedi et al., MuSiQue: Multihop Questions via Single-hop Question Composition",
+  "acquisition": "Acquire from the official repository, retain decompositions and supporting paragraphs, then record SHA-256.",
+  "status": "not-installed",
+  "files": [
+    {"path": "musique/answerable-subset.jsonl", "sha256": null, "split": "validation", "sourceUrl": "https://github.com/StonyBrookNLP/musique"}
+  ]
+}

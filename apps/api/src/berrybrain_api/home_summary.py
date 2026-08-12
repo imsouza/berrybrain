@@ -9,6 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.assimilation import note_assimilation_map
+from berrybrain_api.confidence import (
+    serialize_confidence,
+    serialize_percentage_confidence,
+)
 from berrybrain_api.jobs import (
     COMPLETED,
     FAILED,
@@ -29,11 +33,9 @@ from berrybrain_api.models import (
     InsightRecord,
     JobRecord,
     NoteRecord,
-    ReviewItemRecord,
     SettingRecord,
     WorkerStatus,
 )
-from berrybrain_api.review_service import serialize_review
 from berrybrain_api.services import _is_visible_insight
 from berrybrain_api.settings_store import decode_setting_value
 
@@ -116,25 +118,6 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         ).scalars()
     )
     insights = [insight for insight in raw_insights if _is_visible_insight(insight)][:5]
-    reviews = list(
-        session.execute(
-            select(ReviewItemRecord)
-            .where(ReviewItemRecord.status == "active")
-            .order_by(ReviewItemRecord.due_at.asc())
-            .limit(20)
-        ).scalars()
-    )
-    due_reviews = [
-        review
-        for review in reviews
-        if review.due_at
-        and (
-            review.due_at.replace(tzinfo=UTC)
-            if review.due_at.tzinfo is None
-            else review.due_at
-        )
-        <= now
-    ]
     embeddings = session.query(EmbeddingRecord).count()
     metadata_count = session.query(GeneratedMetadataRecord).count()
 
@@ -234,12 +217,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 "newToday": sum(1 for c in concepts if _same_day(c.created_at, today)),
                 "withoutPermanentNote": _concepts_without_notes(concepts, notes),
             },
-            "study": {
-                "dueReviews": len(due_reviews),
-                "activeReviews": len(reviews),
-                "suggestedReviews": sum(
-                    1 for insight in insights if insight.type == "review_opportunity"
-                ),
+            "knowledge": {
                 "weakConcepts": sum(
                     1 for concept in concepts if concept.confidence < 0.6
                 ),
@@ -268,7 +246,6 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             },
         },
         "recentNotes": recent_notes,
-        "dueReviews": [serialize_review(review) for review in due_reviews[:3]],
         "activeJobs": active_jobs,
         "recentlyCompleted": recently_completed,
         "recentActivity": recent_activity,
@@ -543,7 +520,8 @@ def _serialize_insight(insight: InsightRecord) -> dict[str, Any]:
         "evidence": _safe_json_list(getattr(insight, "evidence", "[]")),
         "suggestedAction": getattr(insight, "suggested_action", ""),
         "graphImpact": getattr(insight, "graph_impact", ""),
-        "confidence": getattr(insight, "confidence", 0.5),
+        "confidence": (insight.confidence if insight.confidence_sample_size else None),
+        "confidenceInterval": serialize_confidence(insight),
         "status": getattr(insight, "status", "suggested"),
         "provider": getattr(insight, "provider", ""),
         "model": getattr(insight, "model", ""),
@@ -573,7 +551,6 @@ def _suggested_action(insight_type: str) -> str:
         "isolated_concept": "Connect concept",
         "duplicate_content": "Review duplicate",
         "study_path": "Open suggested path",
-        "review_opportunity": "Review now",
     }.get(insight_type, "Open insight")
 
 
@@ -597,12 +574,15 @@ def _detected_concepts(
             "frequency": concept.frequency or frequency.get(concept.normalized_name, 1),
             "relatedNotesCount": concept.frequency
             or frequency.get(concept.normalized_name, 0),
-            "trend": "novo"
+            "trend": "new"
             if _same_day(concept.created_at, utc_now().date())
-            else "recorrente",
+            else "recurring",
             "hasPermanentNote": False,
             "extractedBy": getattr(concept, "extracted_by", "ai"),
-            "confidence": getattr(concept, "confidence", None),
+            "confidence": (
+                concept.confidence if concept.confidence_sample_size else None
+            ),
+            "confidenceInterval": serialize_confidence(concept),
             "status": getattr(concept, "status", "suggested"),
             "provider": getattr(concept, "provider", ""),
             "model": getattr(concept, "model", ""),
@@ -643,6 +623,7 @@ def _serialize_connection(
         if connection.confidence > 1
         else connection.confidence,
         "confidencePercent": connection.confidence,
+        "confidenceInterval": serialize_percentage_confidence(connection),
         "reason": connection.reason,
         "evidence": _safe_json_list(getattr(connection, "evidence", "[]")),
         "createdBy": connection.created_by,

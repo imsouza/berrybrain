@@ -33,7 +33,6 @@ const JOB_LABELS: Record<string, string> = {
   GENERATE_AGENDA: "Agenda generation",
   AGGREGATE_CONCEPTS: "Concept aggregation",
   CREATE_NOTE_FROM_INSIGHT: "Note created from insight",
-  CREATE_REVIEW_FROM_INSIGHT: "Review created from insight",
 };
 
 type Job = { id: number; type: string; status: string; payload: any; attempts: number; max_attempts: number; error_message?: string; created_at?: string; completed_at?: string; started_at?: string };

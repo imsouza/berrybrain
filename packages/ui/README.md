@@ -1,5 +1,5 @@
 # UI
 
-Design system interno do BerryBrain.
+BerryBrain internal design system.
 
-Nenhuma tela deve depender de componentes visuais improvisados quando houver componente equivalente nesta camada.
+Screens must use this layer's established components whenever an equivalent component exists.

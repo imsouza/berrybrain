@@ -3,6 +3,7 @@ import unittest
 from berrybrain_worker.content_fallbacks import (
     chunk_note_for_embedding,
     fallback_classification,
+    fallback_concepts,
 )
 
 
@@ -28,6 +29,27 @@ class ContentFallbacksTest(unittest.TestCase):
 
         self.assertIn("Container Runtime", result["concepts"])
         self.assertEqual(result["source"], "deterministic_fallback")
+
+    def test_fallback_confidence_uses_source_occurrences_and_wilson_interval(
+        self,
+    ) -> None:
+        result = fallback_concepts(
+            {
+                "title": "Telemetry",
+                "path": "notes/telemetry.md",
+                "content": "# Telemetry\nTelemetry links traces. Telemetry supports alerts.",
+            }
+        )
+        concept = next(
+            item for item in result["concepts"] if item["name"] == "Telemetry"
+        )
+
+        self.assertEqual(concept["confidenceInterval"]["sampleSize"], 4)
+        self.assertEqual(
+            concept["confidenceInterval"]["method"],
+            "wilson-source-occurrence-v1",
+        )
+        self.assertEqual(concept["confidence"], concept["confidenceInterval"]["lower"])
 
 
 if __name__ == "__main__":

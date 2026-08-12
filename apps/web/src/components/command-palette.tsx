@@ -31,6 +31,7 @@ export function CommandPalette({
   const [results, setResults] = useState<CommandResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: CommandResult[] = useMemo(() => {
@@ -51,13 +52,17 @@ export function CommandPalette({
   useLayoutEffect(() => {
     if (!open) return;
     const focusSearch = () => inputRef.current?.focus({ preventScroll: true });
+    const keepFocusInside = (event: FocusEvent) => {
+      if (!dialogRef.current?.contains(event.target as Node)) focusSearch();
+    };
     focusSearch();
     const frame = requestAnimationFrame(focusSearch);
-    // Covers late workspace mounts (editor/quick capture use autofocus too).
-    const settleTimer = window.setTimeout(focusSearch, 80);
+    const settleTimer = window.setTimeout(focusSearch, 250);
+    document.addEventListener("focusin", keepFocusInside);
     return () => {
       cancelAnimationFrame(frame);
       window.clearTimeout(settleTimer);
+      document.removeEventListener("focusin", keepFocusInside);
     };
   }, [open]);
 
@@ -132,6 +137,7 @@ export function CommandPalette({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh]"
       role="dialog"
       aria-modal="true"

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "data": {
+    "values": [
+      {
+        "configuration": "lexical_only",
+        "latencyP95Ms": 11.013995,
+        "mrr": 0.016667,
+        "ndcgAt10": 0.024678,
+        "recallAt10": 0.05
+      },
+      {
+        "configuration": "dense_only",
+        "latencyP95Ms": 9.698286,
+        "mrr": 0.5,
+        "ndcgAt10": 0.5,
+        "recallAt10": 0.5
+      },
+      {
+        "configuration": "standard_hybrid",
+        "latencyP95Ms": 18.266231,
+        "mrr": 0.5,
+        "ndcgAt10": 0.5,
+        "recallAt10": 0.5
+      },
+      {
+        "configuration": "graph_lexical",
+        "latencyP95Ms": 21.988873,
+        "mrr": 0.25,
+        "ndcgAt10": 0.315465,
+        "recallAt10": 0.5
+      },
+      {
+        "configuration": "graph_hybrid",
+        "latencyP95Ms": 30.842898,
+        "mrr": 0.75,
+        "ndcgAt10": 0.815465,
+        "recallAt10": 1.0
+      }
+    ]
+  },
+  "description": "Exploratory BerryBrain retrieval quality and latency by configuration. Source: reports/evaluation/full-evaluation.json.",
+  "hconcat": [
+    {
+      "encoding": {
+        "color": {
+          "value": "#CC4168"
+        },
+        "x": {
+          "field": "configuration",
+          "sort": null,
+          "type": "nominal"
+        },
+        "y": {
+          "field": "recallAt10",
+          "scale": {
+            "domain": [
+              0,
+              1
+            ]
+          },
+          "type": "quantitative"
+        }
+      },
+      "mark": "bar",
+      "title": "Recall@10"
+    },
+    {
+      "encoding": {
+        "color": {
+          "value": "#96B55C"
+        },
+        "x": {
+          "field": "configuration",
+          "sort": null,
+          "type": "nominal"
+        },
+        "y": {
+          "field": "latencyP95Ms",
+          "type": "quantitative"
+        }
+      },
+      "mark": "bar",
+      "title": "p95 latency (ms)"
+    }
+  ],
+  "usermeta": {
+    "caption": "Internal controlled retrieval ablation; not an external benchmark.",
+    "classification": "exploratory",
+    "generatedAt": "2026-08-12T19:13:05.786163+00:00",
+    "profile": "S"
+  }
+}

@@ -30,102 +30,6 @@ export function apiFetch(input: string, init: RequestInit = {}) {
 }
 let _tid = 0;
 
-const DEMO_NOTE_DETAILS: NoteDetail[] = [
-  {
-    title: "Evidence-first thinking",
-    path: "demo/evidence-first-thinking.md",
-    folder: "demo",
-    content: [
-      "# Evidence-first thinking",
-      "",
-      "BerryBrain keeps notes, graph links, and generated insights tied to the source material that produced them.",
-      "",
-      "Use the graph to see how concepts connect, then open each note to inspect the reasoning trail before accepting a connection.",
-    ].join("\n"),
-  },
-  {
-    title: "Knowledge graph workflow",
-    path: "demo/knowledge-graph-workflow.md",
-    folder: "demo",
-    content: [
-      "# Knowledge graph workflow",
-      "",
-      "- Capture raw notes.",
-      "- Let the system extract concepts and possible relationships.",
-      "- Confirm, ignore, or expand graph nodes as your understanding changes.",
-      "",
-      "The graph is most useful when it remains reviewable instead of becoming a black box.",
-    ].join("\n"),
-  },
-  {
-    title: "Account safety checklist",
-    path: "demo/account-safety-checklist.md",
-    folder: "security",
-    content: [
-      "# Account safety checklist",
-      "",
-      "- Verified email before trusted account actions.",
-      "- Session cookies with CSRF headers for sensitive mutations.",
-      "- Owner actions limited to the authenticated local account.",
-      "- Audit events for account and sensitive activity.",
-    ].join("\n"),
-  },
-];
-
-const DEMO_JOBS: JobSummary[] = [
-  { id: 1, type: "FIND_CONNECTIONS", status: "completed", payload: { note_path: "demo/evidence-first-thinking.md" }, error_message: null },
-  { id: 2, type: "GENERATE_GRAPH_INSIGHTS", status: "completed", payload: { note_path: "demo/knowledge-graph-workflow.md" }, error_message: null },
-  { id: 3, type: "ASSIMILATE_NOTE", status: "pending", payload: { note_path: "security/account-safety-checklist.md" }, error_message: null },
-];
-
-const DEMO_INSIGHTS: Insight[] = [
-  {
-    id: 1,
-    type: "new_connection",
-    title: "Security controls should be visible in the workflow",
-    description: "The account safety note connects directly to the evidence-first workflow: users need to inspect why a sensitive action is allowed.",
-    priority: 1,
-    evidence: ["Account safety checklist", "Evidence-first thinking"],
-    suggested_action: "Review the security model before enabling public access.",
-    confidence: 0.88,
-    status: "suggested",
-    provider: "local-demo",
-    model: "demo",
-  },
-  {
-    id: 2,
-    type: "study_path",
-    title: "Start with graph review, then refine notes",
-    description: "The demo notes show a useful loop: capture, connect, inspect evidence, then rewrite the source note.",
-    priority: 0,
-    evidence: ["Knowledge graph workflow"],
-    suggested_action: "Open the graph and inspect the connected notes.",
-    confidence: 0.81,
-    status: "suggested",
-    provider: "local-demo",
-    model: "demo",
-  },
-];
-
-const DEMO_STATS: Stats = {
-  notes: DEMO_NOTE_DETAILS.length,
-  connections: 5,
-  metadata: 9,
-  jobs: { pending: 1 },
-};
-
-function demoNoteSummaries(): NoteSummary[] {
-  return DEMO_NOTE_DETAILS.map((note) => ({
-    title: note.title,
-    path: note.path,
-    folder: note.folder,
-  }));
-}
-
-function demoContentMap() {
-  return Object.fromEntries(DEMO_NOTE_DETAILS.map((note) => [note.path, note.content]));
-}
-
 type Ctx = {
   api: string;
   demo: boolean;
@@ -151,14 +55,13 @@ export function useWorkspace() { return useContext(C); }
 
 export function WorkspaceProvider({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
   const api = useMemo(() => demo ? "__demo__" : getApiUrl(), [demo]);
-  const [notes, setNotes] = useState<NoteSummary[]>(() => demo ? demoNoteSummaries() : []);
+  const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [active, setActive] = useState<NoteDetail | null>(null);
   const [draft, setDraft] = useState("");
-  const [jobs, setJobs] = useState<JobSummary[]>(() => demo ? DEMO_JOBS : []);
+  const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [stats, setStats] = useState<Stats | null>(() => demo ? DEMO_STATS : null);
-  const [insights, setInsights] = useState<Insight[]>(() => demo ? DEMO_INSIGHTS : []);
-  const [demoContents, setDemoContents] = useState<Record<string, string>>(() => demo ? demoContentMap() : {});
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [insights, setInsights] = useState<Insight[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(() => typeof window === "undefined" ? 280 : Number(localStorage.getItem("bb_sidebar_w") || 280));
   const [rightOpen, setRightOpen] = useState(false);
   const [autosave, setAutosave] = useState<AutosaveStatus>("saved");
@@ -202,10 +105,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
 
   async function openNote(path: string) {
     if (demo) {
-      const note = notes.find((item) => item.path === path);
-      if (!note) { toast("Demo note not found.", "error"); return; }
-      const detail = { ...note, content: demoContents[path] || "" };
-      setActive(detail); setDraft(detail.content); draftRef.current = detail.content; setSaveConflict(null); setRightOpen(false); setAutosave("saved");
+      toast("Demo mode contains no seeded notes.", "info");
       return;
     }
     const r = await apiFetch(`${api}/api/v1/notes/${encode(path)}`);
@@ -217,10 +117,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const persistDraft = useCallback(async (baseContentHash?: string) => {
     if (!active) return;
     if (demo) {
-      setDemoContents((current) => ({ ...current, [active.path]: draft }));
-      setActive({ ...active, content: draft });
-      setSaveConflict(null);
-      setAutosave("saved");
+      toast("Demo mode is read-only.", "info");
       return;
     }
     const expectedHash = baseContentHash || active.content_hash;
@@ -266,7 +163,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
       toast("The API is unavailable. Your draft is still available.", "error");
       setAutosave("unsaved");
     }
-  }, [active, api, demo, draft, toast]);
+  }, [active, api, demo, toast]);
 
   const save = useCallback(async () => {
     await persistDraft();
@@ -294,17 +191,8 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     setCreatingDraft(true);
     try {
       if (demo) {
-        const id = Date.now();
-        const note: NoteDetail = {
-          title: content.trim().split("\n")[0]?.replace(/^#+\s*/, "").slice(0, 48) || "Demo draft",
-          path: `demo/demo-draft-${id}.md`,
-          folder: "demo",
-          content,
-        };
-        setNotes((prev) => [{ title: note.title, path: note.path, folder: note.folder }, ...prev]);
-        setDemoContents((current) => ({ ...current, [note.path]: note.content }));
-        setActive(note); setDraft(note.content); draftRef.current = note.content; setSaveConflict(null); setAutosave("saved");
-        return true;
+        toast("Demo mode is read-only and contains no seeded data.", "info");
+        return false;
       }
       const r = await apiFetch(`${api}/api/v1/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -326,14 +214,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   async function deleteActive() {
     if (!active || !confirm(`Delete ${active.path}?`)) return;
     if (demo) {
-      const path = active.path;
-      setNotes((current) => current.filter((note) => note.path !== path));
-      setDemoContents((current) => {
-        const next = { ...current };
-        delete next[path];
-        return next;
-      });
-      setActive(null); setDraft(""); draftRef.current = ""; setSaveConflict(null); toast("Demo note deleted.", "success");
+      toast("Demo mode is read-only.", "info");
       return;
     }
     try {
@@ -350,7 +231,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
 
   async function scanVault() {
     if (demo) {
-      toast("Demo vault is already loaded.", "info");
+      toast("Demo mode contains no seeded vault data.", "info");
       return;
     }
     let r = await apiFetch(`${api}/api/v1/vault/scan-and-rebuild`, { method: "POST" });
@@ -384,9 +265,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     const newTitle = window.prompt("New title:", active.title);
     if (!newTitle || newTitle === active.title) return;
     if (demo) {
-      setActive({ ...active, title: newTitle });
-      setNotes((current) => current.map((note) => note.path === active.path ? { ...note, title: newTitle } : note));
-      toast("Demo note renamed.", "success");
+      toast("Demo mode is read-only.", "info");
       return;
     }
     try {
@@ -418,7 +297,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
     setDraft(val);
     draftRef.current = val;
     setAutosave((current) => current === "conflict" ? "conflict" : "unsaved");
-    if (val.length > 50 && active && /^(rascunho|nota-sem-titulo)/i.test(active.title) && !renameSent.current) {
+    if (val.length > 50 && active && /^(untitled note|untitled-note)/i.test(active.title) && !renameSent.current) {
       renameSent.current = true;
       aiRename(active.path);
     }

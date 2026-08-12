@@ -61,7 +61,7 @@ UPDATE_GRAPH_QUALITY = "UPDATE_GRAPH_QUALITY"
 ORGANIZE_VAULT = "ORGANIZE_VAULT"
 PROCESS_ATTACHMENT = "PROCESS_ATTACHMENT"
 CREATE_NOTE_FROM_INSIGHT = "CREATE_NOTE_FROM_INSIGHT"
-CREATE_REVIEW_FROM_INSIGHT = "CREATE_REVIEW_FROM_INSIGHT"
+SYNC_HIPPORAG_GRAPH = "SYNC_HIPPORAG_GRAPH"
 RESEARCH_GRAPH = "RESEARCH_GRAPH"
 NOTE_PIPELINE_ORDER = [
     PARSE_NOTE,
@@ -345,10 +345,6 @@ def enqueue_note_changed_jobs(
         select(NoteRecord).where(NoteRecord.path == note_path)
     ).scalar_one_or_none()
     note_id = note.id if note is not None else 0
-    if note_id:
-        from berrybrain_api.review_service import mark_reviews_stale_for_note
-
-        mark_reviews_stale_for_note(session, note_id, content_hash)
     superseded = list(
         session.execute(
             select(JobRecord).where(
@@ -397,7 +393,7 @@ def enqueue_note_changed_jobs(
             action_type="ENQUEUE_JOB",
             target_type="note",
             target_id=note_path,
-            description=f"Criou job {job_type} para {event_type}",
+            description=f"Created {job_type} job for {event_type}",
             before_state={},
             after_state={"job_id": job.id, "job_type": job_type, "payload": payload},
             reversible=False,
@@ -408,7 +404,7 @@ def enqueue_note_changed_jobs(
 
 def _needs_generated_title(note_path: str) -> bool:
     filename = note_path.rsplit("/", 1)[-1].lower()
-    return filename.startswith("rascunho") or filename.startswith("nota-sem-titulo")
+    return filename.startswith("untitled-note")
 
 
 def affected_job_types_for_note_update(
@@ -595,7 +591,7 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
                 action_type="RECOVER_STALE_JOB",
                 target_type="job",
                 target_id=str(job.id),
-                description=f"Recuperou job stale {job.type} como {job.status}",
+                description=f"Recovered stale {job.type} job as {job.status}",
                 before_state={},
                 after_state={
                     "job_id": job.id,
@@ -811,6 +807,20 @@ def fail_job(
             retryability=retryability or "retryable",
         )
 
+    if job.status == DEAD_LETTER:
+        from berrybrain_api.notification_service import create_notification
+
+        create_notification(
+            session,
+            notification_type="job_failed",
+            title="Job needs attention",
+            description=job.error_message
+            or "A background job exhausted its retry budget.",
+            action="Open Monitor",
+            action_url="/brain?monitor=open",
+            related_job_id=job.id,
+        )
+
     session.commit()
     session.refresh(job)
     return job
@@ -928,6 +938,4 @@ def normalize_utc(value: datetime) -> datetime:
 
 def should_generate_note_title(note_path: str) -> bool:
     name = note_path.rsplit("/", 1)[-1].removesuffix(".md")
-    return (
-        name == "rascunho" or name.startswith("rascunho-") or name == "nota-sem-titulo"
-    )
+    return name == "untitled-note" or name.startswith("untitled-note-")

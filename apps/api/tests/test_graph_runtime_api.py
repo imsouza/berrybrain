@@ -6,9 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
-from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
+from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, JobRecord
 from berrybrain_api.routers.graph import (
     ReclusterRequest,
+    delete_graph_node_endpoint,
     get_graph_delta,
     get_graph_edges_page,
     get_graph_nodes_page,
@@ -91,6 +92,29 @@ class GraphRuntimeApiTest(unittest.TestCase):
             )
 
         self.assertTrue(applied["applied"])
+
+    def test_delete_node_schedules_graph_recalculation(self) -> None:
+        with self.factory() as session:
+            target = GraphNodeRecord(
+                type="concept",
+                label="Disposable concept",
+                semantic_status="active",
+            )
+            session.add(target)
+            session.commit()
+            target_id = target.id
+
+        with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
+            result = delete_graph_node_endpoint(target_id)
+
+        with self.factory() as session:
+            job_types = set(session.query(JobRecord.type).all())
+            self.assertIsNone(session.get(GraphNodeRecord, target_id))
+
+        self.assertEqual(result["status"], "deleted")
+        self.assertIn(("UPDATE_GRAPH_STATS",), job_types)
+        self.assertIn(("UPDATE_GRAPH_CLUSTERS",), job_types)
+        self.assertIn(("SYNC_HIPPORAG_GRAPH",), job_types)
 
 
 if __name__ == "__main__":

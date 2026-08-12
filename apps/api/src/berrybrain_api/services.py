@@ -9,6 +9,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.confidence import (
+    estimate_connection_confidence,
+    persist_confidence,
+    persist_percentage_confidence,
+    serialize_percentage_confidence,
+)
 from berrybrain_api.graph_quality import (
     _filter_nodes_by_view,
     graph_quality_report,  # noqa: F401
@@ -30,6 +36,7 @@ from berrybrain_api.models import (
     ConnectionRecord,
     EmbeddingRecord,
     GraphEdgeRecord,
+    GraphInferenceRecord,
     GraphNodeRecord,
     NoteRecord,
 )
@@ -53,10 +60,7 @@ VALID_INSIGHT_TYPES = {
     "isolated_concept",
     "duplicate_content",
     "study_path",
-    "review_opportunity",
 }
-
-VALID_REVIEW_RESULTS = {"correct", "wrong", "hard"}
 
 
 def create_connection(
@@ -64,7 +68,7 @@ def create_connection(
     source_note_id: int,
     target_note_id: int,
     connection_type: str,
-    confidence: int = 0,
+    confidence: int | float | None = None,
     reason: str = "",
     created_by: str = "system",
     evidence: list[str] | None = None,
@@ -73,18 +77,32 @@ def create_connection(
     prompt_version: str = "",
     status: str = "suggested",
 ) -> ConnectionRecord:
+    evidence_items = evidence or []
     conn = ConnectionRecord(
         source_note_id=source_note_id,
         target_note_id=target_note_id,
         connection_type=connection_type,
-        confidence=confidence,
+        confidence=0,
         reason=reason,
-        evidence=json.dumps(evidence or [], ensure_ascii=False),
+        evidence=json.dumps(evidence_items, ensure_ascii=False),
         created_by=created_by,
         provider=provider,
         model=model,
         prompt_version=prompt_version,
         status=status,
+    )
+    model_source = (
+        ":".join(part for part in (provider, model, prompt_version, created_by) if part)
+        or "connection-model"
+    )
+    persist_percentage_confidence(
+        conn,
+        estimate_connection_confidence(
+            reason=reason,
+            evidence=evidence_items,
+            model_score=confidence,
+            model_source=model_source,
+        ),
     )
     session.add(conn)
     session.flush()
@@ -106,6 +124,105 @@ def create_connection(
     session.commit()
     session.refresh(conn)
     return conn
+
+
+def audit_connection_confidence(
+    session: Session, *, apply: bool = False
+) -> dict[str, int]:
+    """Find and optionally recalculate migrated note-connection confidence."""
+    connections = list(
+        session.execute(
+            select(ConnectionRecord).order_by(ConnectionRecord.id)
+        ).scalars()
+    )
+    pending = [
+        connection
+        for connection in connections
+        if connection.confidence_updated_at is None
+    ]
+    result = {
+        "examined": len(connections),
+        "pending": len(pending),
+        "recalculated": 0,
+        "available": 0,
+        "unavailable": 0,
+    }
+    if not apply:
+        return result
+
+    for connection in pending:
+        estimate = estimate_connection_confidence(
+            reason=connection.reason,
+            evidence=_parse_json_list(connection.evidence),
+        )
+        persist_percentage_confidence(connection, estimate)
+        result["recalculated"] += 1
+        availability = "available" if estimate.score is not None else "unavailable"
+        result[availability] += 1
+    return result
+
+
+def audit_knowledge_confidence(
+    session: Session, *, apply: bool = False
+) -> dict[str, dict[str, int]]:
+    """Audit all migrated knowledge records that now require confidence intervals."""
+    result = {
+        "connections": audit_connection_confidence(session, apply=apply),
+        "concepts": _audit_float_confidence_records(
+            list(
+                session.execute(
+                    select(ConceptRecord).order_by(ConceptRecord.id)
+                ).scalars()
+            ),
+            apply=apply,
+            reason=lambda item: item.description or item.name,
+            evidence=lambda item: _parse_json_list(item.source_evidence)
+            + [
+                {"sourceNoteId": note_id}
+                for note_id in _parse_json_list(item.related_note_ids)
+            ],
+        ),
+        "graphInferences": _audit_float_confidence_records(
+            list(
+                session.execute(
+                    select(GraphInferenceRecord).order_by(GraphInferenceRecord.id)
+                ).scalars()
+            ),
+            apply=apply,
+            reason=lambda item: item.answer,
+            evidence=lambda item: _parse_json_list(item.evidence),
+        ),
+    }
+    return result
+
+
+def _audit_float_confidence_records(
+    records: list[Any],
+    *,
+    apply: bool,
+    reason: Any,
+    evidence: Any,
+) -> dict[str, int]:
+    pending = [record for record in records if record.confidence_updated_at is None]
+    result = {
+        "examined": len(records),
+        "pending": len(pending),
+        "recalculated": 0,
+        "available": 0,
+        "unavailable": 0,
+    }
+    if not apply:
+        return result
+    for record in pending:
+        estimate = estimate_connection_confidence(
+            reason=reason(record),
+            evidence=evidence(record),
+        )
+        persist_confidence(record, estimate)
+        result["recalculated"] += 1
+        availability = "available" if estimate.score is not None else "unavailable"
+        result[availability] += 1
+    return result
 
 
 def get_connections_for_note(
@@ -171,6 +288,7 @@ def serialize_connection(
         else None,
         "connection_type": conn.connection_type,
         "confidence": conn.confidence,
+        "confidenceInterval": serialize_percentage_confidence(conn),
         "reason": conn.reason,
         "evidence": _parse_json_list(getattr(conn, "evidence", "[]")),
         "ai_notes": getattr(conn, "ai_notes", ""),
@@ -200,6 +318,59 @@ def _parse_json_dict(value: str) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _compact_confidence(target: Any) -> dict[str, Any] | None:
+    sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
+    if sample_size <= 0:
+        return None
+    return {
+        "score": getattr(target, "confidence", None),
+        "lower": getattr(target, "confidence_lower", None),
+        "upper": getattr(target, "confidence_upper", None),
+        "sampleSize": sample_size,
+        "method": getattr(target, "confidence_method", "unavailable") or "unavailable",
+    }
+
+
+def _prune_empty_projection(
+    payload: dict[str, Any], *, preserve: frozenset[str]
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key in preserve or value not in (None, "", [], {})
+    }
+
+
+_NODE_PROJECTION_REQUIRED = frozenset(
+    {
+        "id",
+        "recordId",
+        "label",
+        "title",
+        "summary",
+        "type",
+        "status",
+        "confidence",
+        "confidenceInterval",
+        "semanticState",
+        "semanticStatus",
+    }
+)
+_EDGE_PROJECTION_REQUIRED = frozenset(
+    {
+        "id",
+        "source",
+        "target",
+        "type",
+        "confidence",
+        "confidenceInterval",
+        "semanticStatus",
+        "reason",
+        "status",
+    }
+)
 
 
 def resolve_note_id(session: Session, note_path: str) -> int:
@@ -248,13 +419,22 @@ def build_graph(
     session: Session,
     max_depth: int = 2,
     view: str = "",
-) -> dict[str, list[dict]]:
-    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
+) -> dict[str, Any]:
+    graph_nodes = list(
+        session.execute(
+            select(GraphNodeRecord.__table__).where(
+                GraphNodeRecord.semantic_status == "active"
+            )
+        ).all()
+    )
     if graph_nodes:
         graph_edges = list(
             session.execute(
-                select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
-            ).scalars()
+                select(GraphEdgeRecord.__table__).where(
+                    GraphEdgeRecord.status != "ignored",
+                    GraphEdgeRecord.semantic_status == "active",
+                )
+            ).all()
         )
         graph_nodes = [
             node for node in graph_nodes if not _is_system_diagnostic_graph_node(node)
@@ -270,56 +450,37 @@ def build_graph(
         for node in graph_nodes:
             metadata = _parse_json_dict(getattr(node, "graph_metadata", "{}"))
             nodes.append(
-                {
-                    "id": node_ids[node.id],
-                    "recordId": node.id,
-                    "label": node.label,
-                    "title": getattr(node, "title", "") or node.label,
-                    "summary": getattr(node, "summary", ""),
-                    "aiNotes": getattr(node, "ai_notes", ""),
-                    "userNotes": getattr(node, "user_notes", ""),
-                    "type": node.type,
-                    "source": getattr(node, "source", ""),
-                    "sourceId": node.source_id,
-                    "sourceNoteIds": _parse_json_list(
-                        getattr(node, "source_note_ids", "[]")
-                    ),
-                    "status": getattr(node, "status", "suggested"),
-                    "confidence": getattr(node, "confidence", 0.5),
-                    "createdBy": getattr(node, "created_by", "system"),
-                    "createdByModel": getattr(node, "created_by_model", ""),
-                    "aiSummary": getattr(node, "ai_summary", ""),
-                    "aiContext": getattr(node, "ai_context", ""),
-                    "sourceEvidence": getattr(node, "source_evidence", ""),
-                    "learningValue": getattr(node, "learning_value", ""),
-                    "sourceQuality": getattr(node, "source_quality", ""),
-                    "validationStatus": getattr(
-                        node, "validation_status", "unvalidated"
-                    ),
-                    "provider": getattr(node, "provider", ""),
-                    "model": getattr(node, "model", ""),
-                    "promptVersion": getattr(node, "prompt_version", ""),
-                    "semanticState": getattr(node, "semantic_state", "pending"),
-                    "semanticProfileVersion": getattr(
-                        node, "semantic_profile_version", 0
-                    ),
-                    "clusterId": getattr(node, "cluster_id", None),
-                    "vaultId": getattr(node, "vault_id", "default"),
-                    "colorId": getattr(node, "color_id", "pending"),
-                    "colorConfidence": getattr(node, "color_confidence", 0.0),
-                    "colorReason": getattr(node, "color_reason", ""),
-                    "colorUpdatedAt": getattr(
-                        node, "color_updated_at", None
-                    ).isoformat()
-                    if getattr(node, "color_updated_at", None)
-                    else None,
-                    "generatedAt": getattr(node, "generated_at", None).isoformat()
-                    if getattr(node, "generated_at", None)
-                    else None,
-                    "path": metadata.get("path", ""),
-                    "folder": metadata.get("folder", ""),
-                    "metadata": metadata,
-                }
+                _prune_empty_projection(
+                    {
+                        "id": node_ids[node.id],
+                        "recordId": node.id,
+                        "label": node.label,
+                        "title": getattr(node, "title", "") or node.label,
+                        "summary": getattr(node, "summary", ""),
+                        "type": node.type,
+                        "source": getattr(node, "source", ""),
+                        "sourceId": node.source_id,
+                        "status": getattr(node, "status", "suggested"),
+                        "confidence": (
+                            node.confidence if node.confidence_sample_size else None
+                        ),
+                        "confidenceInterval": _compact_confidence(node),
+                        "createdBy": getattr(node, "created_by", "system"),
+                        "aiSummary": getattr(node, "ai_summary", ""),
+                        "aiContext": getattr(node, "ai_context", ""),
+                        "sourceEvidence": getattr(node, "source_evidence", ""),
+                        "validationStatus": getattr(
+                            node, "validation_status", "unvalidated"
+                        ),
+                        "semanticState": getattr(node, "semantic_state", "pending"),
+                        "clusterId": getattr(node, "cluster_id", None),
+                        "colorId": getattr(node, "color_id", "pending"),
+                        "colorConfidence": getattr(node, "color_confidence", 0.0),
+                        "path": metadata.get("path", ""),
+                        "folder": metadata.get("folder", ""),
+                    },
+                    preserve=_NODE_PROJECTION_REQUIRED,
+                )
             )
 
         if view:
@@ -336,25 +497,25 @@ def build_graph(
             if source not in visible_node_ids or target not in visible_node_ids:
                 continue
             edges.append(
-                {
-                    "id": edge.id,
-                    "source": source,
-                    "target": target,
-                    "type": edge.type,
-                    "label": getattr(edge, "label", ""),
-                    "confidence": edge.confidence,
-                    "reason": edge.reason,
-                    "evidence": _parse_json_list(getattr(edge, "evidence", "[]")),
-                    "aiNotes": getattr(edge, "ai_notes", ""),
-                    "userNotes": getattr(edge, "user_notes", ""),
-                    "sourceNoteIds": _parse_json_list(
-                        getattr(edge, "source_note_ids", "[]")
-                    ),
-                    "createdBy": edge.created_by,
-                    "provider": getattr(edge, "provider", ""),
-                    "model": getattr(edge, "model", ""),
-                    "status": getattr(edge, "status", "suggested"),
-                }
+                _prune_empty_projection(
+                    {
+                        "id": edge.id,
+                        "source": source,
+                        "target": target,
+                        "type": edge.type,
+                        "label": getattr(edge, "label", ""),
+                        "confidence": (
+                            edge.confidence if edge.confidence_sample_size else None
+                        ),
+                        "confidenceInterval": _compact_confidence(edge),
+                        "reason": edge.reason,
+                        "evidence": _parse_json_list(getattr(edge, "evidence", "[]")),
+                        "provider": getattr(edge, "provider", ""),
+                        "model": getattr(edge, "model", ""),
+                        "status": getattr(edge, "status", "suggested"),
+                    },
+                    preserve=_EDGE_PROJECTION_REQUIRED,
+                )
             )
             degrees[source] = degrees.get(source, 0) + 1
             degrees[target] = degrees.get(target, 0) + 1
@@ -408,21 +569,20 @@ def build_graph(
             }
         )
 
-    node_ids = {n["id"] for n in nodes}
-    degrees: dict[str, int] = {n["id"]: 0 for n in nodes}
+    fallback_degrees: dict[str, int] = {n["id"]: 0 for n in nodes}
     for edge in edges:
-        degrees[edge["source"]] = degrees.get(edge["source"], 0) + 1
-        degrees[edge["target"]] = degrees.get(edge["target"], 0) + 1
+        fallback_degrees[edge["source"]] = fallback_degrees.get(edge["source"], 0) + 1
+        fallback_degrees[edge["target"]] = fallback_degrees.get(edge["target"], 0) + 1
 
     for node in nodes:
-        node["connectionsCount"] = degrees.get(node["id"], 0)
+        node["connectionsCount"] = fallback_degrees.get(node["id"], 0)
 
     orphan_count = 0
-    for _node_id, deg in degrees.items():
+    for _node_id, deg in fallback_degrees.items():
         if deg == 0:
             orphan_count += 1
 
-    central = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:5]
+    central = sorted(fallback_degrees.items(), key=lambda x: x[1], reverse=True)[:5]
 
     return {
         "nodes": nodes,
@@ -454,7 +614,6 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
             source_note_ids=[note.id],
             source_evidence=[note.path, note.title],
             status="confirmed",
-            confidence=1.0,
             graph_metadata={
                 "path": note.path,
                 "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
@@ -500,7 +659,7 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
             edge_type=conn.connection_type,
             reason=conn.reason or "Persisted relationship between the source notes.",
             evidence=evidence or [f"notes:{conn.source_note_id},{conn.target_note_id}"],
-            confidence=conn.confidence / 100 if conn.confidence else 0.5,
+            confidence=conn.confidence / 100 if conn.confidence > 0 else None,
             source_note_ids=[conn.source_note_id, conn.target_note_id],
             created_by="legacy_ai" if conn.created_by == "ai" else conn.created_by,
             model=conn.model,
@@ -633,13 +792,14 @@ def find_similar_notes(
 
     results.sort(key=lambda x: x[1], reverse=True)
     note_ids = [r[0] for r in results[:limit]]
-    notes = dict(
-        session.execute(
+    notes = {
+        note_id: (title, path)
+        for note_id, title, path in session.execute(
             select(NoteRecord.id, NoteRecord.title, NoteRecord.path).where(
                 NoteRecord.id.in_(note_ids)
             )
         ).all()
-    )
+    }
 
     return [
         {
@@ -885,7 +1045,6 @@ def validate_node_with_web(
                 source="web",
                 source_id=0,
                 status="suggested",
-                confidence=0.6,
                 created_by="system",
                 model="searxng",
                 provider="searxng",
@@ -911,8 +1070,8 @@ def validate_node_with_web(
             edge_type = "source_expands"
 
         writer.upsert_edge(
-            source_node_id=node.id,
-            target_node_id=web_node.id,
+            source_node_id=web_node.id,
+            target_node_id=node.id,
             edge_type=edge_type,
             label=f"Web: {r['title'][:100]}",
             reason=(
@@ -920,7 +1079,7 @@ def validate_node_with_web(
                 f"and classified as {edge_type.replace('_', ' ')}."
             ),
             evidence=[url],
-            confidence=min(0.95, 0.5 + overlap * 0.4),
+            confidence=overlap,
             source_note_ids=[
                 int(value)
                 for value in _parse_json_list(node.source_note_ids)

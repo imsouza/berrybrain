@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "berrybrain-dataset.v1",
+  "id": "beir-selected-subsets",
+  "source": "BEIR benchmark",
+  "license": "Dataset-specific upstream licenses; verify each selected subset before acquisition",
+  "version": "upstream-pinned-at-acquisition",
+  "citation": "Thakur et al., BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
+  "acquisition": "Use the official BEIR repository or dataset host, retain upstream split, then record SHA-256 before any run.",
+  "status": "not-installed",
+  "files": [
+    {"path": "beir/corpus.jsonl", "sha256": null, "split": "selected", "sourceUrl": "https://github.com/beir-cellar/beir"}
+  ]
+}

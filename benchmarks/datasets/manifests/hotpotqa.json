@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "berrybrain-dataset.v1",
+  "id": "hotpotqa-distractor-subset",
+  "source": "HotpotQA",
+  "license": "CC BY-SA 4.0 as declared by the upstream project",
+  "version": "upstream-pinned-at-acquisition",
+  "citation": "Yang et al., HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering",
+  "acquisition": "Acquire from the official project, sample by a recorded seed, retain supporting facts, then record SHA-256.",
+  "status": "not-installed",
+  "files": [
+    {"path": "hotpotqa/distractor-subset.jsonl", "sha256": null, "split": "validation", "sourceUrl": "https://hotpotqa.github.io/"}
+  ]
+}

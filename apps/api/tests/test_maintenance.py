@@ -50,7 +50,7 @@ class MaintenanceTest(unittest.TestCase):
             ai_context="This is a pipeline bottleneck diagnostic.",
             status="suggested",
         )
-        note = GraphNodeRecord(type="note", label="Rascunho", status="confirmed")
+        note = GraphNodeRecord(type="note", label="Draft", status="confirmed")
         self.session.add_all([node, note])
         self.session.commit()
         edge = GraphEdgeRecord(
@@ -180,12 +180,12 @@ class MaintenanceTest(unittest.TestCase):
                 payload=json.dumps(
                     {
                         "note_id": note.id,
-                        "note_path": "inbox/rascunho.md",
+                        "note_path": "inbox/untitled-note.md",
                         "content_hash": "same-hash",
                     }
                 ),
                 note_id=note.id,
-                note_path="inbox/rascunho.md",
+                note_path="inbox/untitled-note.md",
                 content_hash="same-hash",
                 status="dead_letter",
             )

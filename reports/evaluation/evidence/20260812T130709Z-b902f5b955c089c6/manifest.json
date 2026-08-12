@@ -1,0 +1,20 @@
+{
+  "benchmark": "worker-queue",
+  "classification": "exploratory",
+  "configuration": {
+    "database": "isolated SQLite",
+    "jobs": 100
+  },
+  "cpu_count": 4,
+  "dataset_checksum": "6382cdd0ca16871b3ef4b51613195e7a759fbfcb3e793b3646fa12cd8d44a8a1",
+  "git_commit": "057ca4e408dce5f09cb9fc5d5ac5304c2179cec5",
+  "git_dirty": true,
+  "machine": "aarch64",
+  "platform": "Linux-6.12.62+rpt-rpi-v8-aarch64-with-glibc2.36",
+  "processor": "unknown",
+  "python_version": "3.13.13",
+  "random_seed": 20260812,
+  "run_id": "20260812T130709Z-b902f5b955c089c6",
+  "schema_version": "berrybrain-benchmark.v1",
+  "started_at": "2026-08-12T13:07:09.491093+00:00"
+}

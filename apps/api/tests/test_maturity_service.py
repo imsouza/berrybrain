@@ -153,7 +153,7 @@ class MaturityServiceTest(unittest.TestCase):
         metrics = insight_outcome_metrics(self.session, now=self.now)
 
         self.assertFalse(metrics["meetsTarget"])
-        self.assertEqual(metrics["reviewed"], 1)
+        self.assertEqual(metrics["evaluated"], 1)
         self.assertEqual(metrics["observationDays"], 2)
         self.assertEqual(len(metrics["blockers"]), 2)
 

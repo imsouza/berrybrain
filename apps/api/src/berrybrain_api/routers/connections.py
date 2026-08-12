@@ -49,7 +49,8 @@ def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
                 "application",
             }:
                 conn_type = "semantic"
-            confidence = int(conn.get("confidence", 0.5) * 100)
+            raw_confidence = conn.get("confidence")
+            confidence = float(raw_confidence) if raw_confidence is not None else None
             reason = conn.get("reason", "")
             existing = session.execute(
                 select(ConnectionRecord).where(

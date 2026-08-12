@@ -10,17 +10,17 @@
   --color-muted-faint: #7A746B;
   --color-panel: #FFFFFF;
   --color-border: #E4E0D8;
-  --color-accent: #BF1755;
-  --color-accent-hover: #A81249;
-  --color-accent-soft: #F1D5DF;
+  --color-accent: #CC4168;
+  --color-accent-hover: #B33654;
+  --color-accent-soft: #E8D5DA;
   --color-accent-muted: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  --color-success: #83A637;
-  --color-success-hover: #6F8F2C;
-  --color-success-soft: #E5EBCF;
+  --color-success: #96B55C;
+  --color-success-hover: #7FA04A;
+  --color-success-soft: #E8EDD8;
   --color-warning: #D4A843;
-  --color-danger: #BF1755;
-  --color-brand-green: #83A637;
-  --color-brand-red: #BF1755;
+  --color-danger: #CC4168;
+  --color-brand-green: #96B55C;
+  --color-brand-red: #CC4168;
   --color-card-edge: #E4E0D8;
   --color-surface: #F4F1EC;
   --radius-control: 8px;
@@ -39,17 +39,17 @@
   --color-muted-faint: #8A837B;
   --color-panel: #1D1B19;
   --color-border: #393530;
-  --color-accent: #BF1755;
-  --color-accent-hover: #D12A69;
+  --color-accent: #CC4168;
+  --color-accent-hover: #DC5B80;
   --color-accent-soft: #422631;
   --color-accent-muted: color-mix(in srgb, var(--color-accent) 20%, transparent);
-  --color-success: #83A637;
-  --color-success-hover: #97B94B;
+  --color-success: #96B55C;
+  --color-success-hover: #A8C66D;
   --color-success-soft: #28321D;
   --color-warning: #D4A843;
-  --color-danger: #BF1755;
-  --color-brand-green: #83A637;
-  --color-brand-red: #BF1755;
+  --color-danger: #CC4168;
+  --color-brand-green: #96B55C;
+  --color-brand-red: #CC4168;
   --color-card-edge: #393530;
   --color-surface: #25221F;
 }
@@ -245,9 +245,7 @@ textarea::placeholder { color: var(--color-muted); opacity: 0.4; }
 }
 
 .bb-brain-view {
-  background:
-    radial-gradient(circle at 82% 0%, color-mix(in srgb, var(--color-accent-soft) 42%, transparent) 0, transparent 26rem),
-    var(--color-background);
+  background: var(--color-background);
 }
 
 .bb-brain-hero {
@@ -301,10 +299,26 @@ textarea::placeholder { color: var(--color-muted); opacity: 0.4; }
 }
 
 .bb-landing-hero {
-  background:
-    radial-gradient(circle at 76% 20%, color-mix(in srgb, var(--color-accent-soft) 58%, transparent) 0, transparent 25rem),
-    radial-gradient(circle at 12% 86%, color-mix(in srgb, var(--color-success-soft) 62%, transparent) 0, transparent 22rem),
-    var(--color-background);
+  background: var(--color-background);
+}
+
+@keyframes bb-voice-wave {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+
+.bb-voice-wave--unmetered .bb-voice-wave-bar {
+  animation: bb-voice-wave 720ms ease-in-out infinite;
+  transform-origin: center;
+}
+
+.bb-voice-wave--unmetered .bb-voice-wave-bar:nth-child(2),
+.bb-voice-wave--unmetered .bb-voice-wave-bar:nth-child(4) {
+  animation-delay: 120ms;
+}
+
+.bb-voice-wave--unmetered .bb-voice-wave-bar:nth-child(3) {
+  animation-delay: 240ms;
 }
 
 .bb-landing-eyebrow {

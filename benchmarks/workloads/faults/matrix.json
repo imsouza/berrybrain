@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "berrybrain-fault-matrix.v1",
+  "faults": [
+    {"id": "provider-unavailable", "layer": "AI", "expected": "bounded retry, visible degradation, no promoted claim"},
+    {"id": "sidecar-unavailable", "layer": "retrieval", "expected": "fallback or explicit unavailable state, no fabricated result"},
+    {"id": "malformed-output", "layer": "model contract", "expected": "validation failure, no persistence as knowledge"},
+    {"id": "worker-process-loss", "layer": "queue", "expected": "lease expiry and idempotent recovery"},
+    {"id": "network-timeout", "layer": "transport", "expected": "bounded timeout and classified failure"},
+    {"id": "disk-write-unavailable", "layer": "storage", "expected": "atomic failure and unchanged prior state"},
+    {"id": "backup-corruption", "layer": "recovery", "expected": "checksum rejection before restore"},
+    {"id": "unsafe-archive", "layer": "security", "expected": "path traversal rejection"}
+  ],
+  "requiredMetrics": ["contained", "integrityPreserved", "recoveryMs", "userVisibleState", "retries", "deadLetters"]
+}

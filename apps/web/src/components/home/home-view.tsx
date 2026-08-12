@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
-import { GraphScreen } from "@/components/graph-screen";
+import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
@@ -41,16 +41,14 @@ type HomeSummary = {
     notes: { total: number; createdToday: number; unassimilated: number };
     connections: { total: number; createdToday: number; averageConfidence: number };
     concepts: { total: number; newToday: number; withoutPermanentNote: number };
-    study: { dueReviews: number; activeReviews: number; suggestedReviews: number; weakConcepts: number; openGaps: number };
+    knowledge: { weakConcepts: number; openGaps: number };
     jobs: { pending: number; active: number; failed: number; completedToday: number; total: number };
     ai: { provider: string; model: string; metadata: number; embeddings: number; jobsProcessed: number; errors: number };
   };
   recentNotes: NoteItem[];
-  dueReviews: ReviewItem[];
   activeJobs: ActiveJob[];
   recentlyCompleted: CompletionItem[];
   recentActivity: ActivityItem[];
-  recentInsights: InsightItem[];
   recentConnections: ConnectionItem[];
   graphSummary: {
     nodes: number;
@@ -68,56 +66,9 @@ type NoteItem = { title: string; path: string; folder?: string; status?: string 
 type ActiveJob = { id: number; type: string; label: string; notePath?: string; noteTitle?: string; provider?: string; model?: string; elapsedSeconds?: number; progress?: number | null };
 type CompletionItem = { id: number; type: string; label: string; noteTitle?: string; completedAt?: string | null };
 type ActivityItem = { id?: number; action: string; description: string; technicalDescription?: string; when?: string | null };
-type InsightItem = { id: number; type: string; title: string; description: string; priority: number; relatedNotes?: string[]; suggestedAction?: string; confidence?: number; provider?: string; model?: string; reasoning?: string; evidence?: any[]; status?: string; whyItMatters?: string };
 type ConnectionItem = { id: number; type: string; confidence: number; confidencePercent: number; reason: string; source?: NoteRef | null; target?: NoteRef | null; status?: string };
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
-type ReviewItem = { id: number; reviewType: string; prompt: string; dueAt?: string | null; intervalDays: number };
-
-const DEMO_HOME_SUMMARY: HomeSummary = {
-  status: {
-    worker: "online",
-    workerLastHeartbeat: new Date().toISOString(),
-    ollama: "offline",
-    cloudProvider: "local-demo",
-    cloudModel: "demo",
-    cloudStatus: "connected",
-    cloudConfigured: true,
-    remoteContentConsent: true,
-    pendingJobs: 0,
-    activeJobs: 0,
-    lastProcessingAt: new Date().toISOString(),
-  },
-  progress: {
-    mode: "determinate",
-    percent: 100,
-    active: 0,
-    pending: 0,
-    completed: 2,
-    failed: 0,
-    currentStep: "",
-    lastResult: "GENERATE_GRAPH_INSIGHTS",
-    status: "completed",
-  },
-  stats: {
-    notes: { total: 3, createdToday: 3, unassimilated: 0 },
-    connections: { total: 4, createdToday: 4, averageConfidence: 0.82 },
-    concepts: { total: 8, newToday: 8, withoutPermanentNote: 2 },
-    study: { dueReviews: 0, activeReviews: 0, suggestedReviews: 0, weakConcepts: 0, openGaps: 0 },
-    jobs: { pending: 0, active: 0, failed: 0, completedToday: 2, total: 2 },
-    ai: { provider: "local-demo", model: "demo", metadata: 3, embeddings: 3, jobsProcessed: 2, errors: 0 },
-  },
-  recentNotes: [],
-  dueReviews: [],
-  activeJobs: [],
-  recentlyCompleted: [],
-  recentActivity: [],
-  recentInsights: [],
-  recentConnections: [],
-  graphSummary: { nodes: 8, edges: 4, orphans: 0, clusters: 2, centralNotes: [], updatedAt: new Date().toISOString() },
-  needsAttention: [],
-  jobsByType: {},
-};
 
 function homeJobLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -147,7 +98,6 @@ export function HomeView() {
   const [error, setError] = useState(false);
   const [starterText, setStarterText] = useState("");
   const [askText, setAskText] = useState("");
-  const [askModalQuery, setAskModalQuery] = useState<string | null>(null);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]>([]);
 
@@ -155,13 +105,8 @@ export function HomeView() {
     setLoading(true);
     setError(false);
     if (w.demo) {
-      // ponytail: reflect the cloud provider the user configured in the demo
-      const provider = localStorage.getItem("bb_ai_provider") || "local";
-      const model = localStorage.getItem("bb_ai_model") || "";
-      setSummary({
-        ...DEMO_HOME_SUMMARY,
-        status: { ...DEMO_HOME_SUMMARY.status, cloudProvider: provider, cloudModel: model },
-      });
+      setSummary(null);
+      setError(true);
       setLoading(false);
       return;
     }
@@ -235,47 +180,23 @@ export function HomeView() {
     );
   }
 
-  const nome = w.demo ? "" : (typeof window !== "undefined" ? localStorage.getItem("bb_nome") || "Owner" : "Owner");
+  const displayName = w.demo ? "" : (typeof window !== "undefined" ? localStorage.getItem("bb_display_name") || "Owner" : "Owner");
   const noNotes = summary.stats.notes.total === 0 && w.notes.length === 0;
   const progressStatus = normalizeStatus(summary.progress.status);
 
   return (
     <div className="bb-brain-view flex-1 overflow-y-auto">
       <div className="bb-page-shell px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <HomeHeader summary={summary} nome={nome} onGraph={() => w.setGraphOpen(true)} />
+        <HomeHeader summary={summary} displayName={displayName} onGraph={() => w.setGraphOpen(true)} />
         <HomeAskBar
           value={askText}
           onChange={setAskText}
           onSubmit={() => {
             if (!askText.trim()) return;
-            setAskModalQuery(askText.trim());
-            setAskText("");
+            window.location.href = appPath(`/ask?q=${encodeURIComponent(askText.trim())}`);
           }}
+          onOpenWorkspace={() => { window.location.href = appPath("/ask"); }}
         />
-
-        {askModalQuery && (
-          <div className="fixed inset-0 z-[90] grid place-items-center bg-foreground/20 p-3 backdrop-blur-sm sm:p-6" role="presentation">
-            <section
-              className="flex h-[min(540px,88vh)] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-panel shadow-2xl"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Ask BerryBrain"
-            >
-              <GraphScreen
-                apiUrl={w.api}
-                askOnly
-                autoFocusAsk
-                autoSubmitAsk
-                initialAskQuery={askModalQuery}
-                onClose={() => setAskModalQuery(null)}
-                onNavigate={(path) => {
-                  setAskModalQuery(null);
-                  void w.openNote(path);
-                }}
-              />
-            </section>
-          </div>
-        )}
 
         <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
           <ComposeCard
@@ -303,12 +224,10 @@ export function HomeView() {
 
         <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
           <div className="space-y-6">
-            <InsightsPreview insights={summary.recentInsights} apiUrl={w.api} onUpdate={loadSummary} />
             <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
             <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
           </div>
           <aside className="space-y-6">
-            <ReviewTodayCard reviews={summary.dueReviews || []} total={summary.stats.study?.dueReviews || 0} />
             <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
             <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
             {summary.needsAttention.length > 0 && (
@@ -321,7 +240,6 @@ export function HomeView() {
 
         <div className="bb-card mt-8 flex flex-wrap gap-2 p-4">
           <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
-          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => (window.location.href = appPath("/reviews"))}>Review today</button>
           <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
           <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={w.scanVault}>{t("scanVault")}</button>
         </div>
@@ -389,39 +307,7 @@ function FirstRunGuide({
   );
 }
 
-function ReviewTodayCard({ reviews, total }: { reviews: ReviewItem[]; total: number }) {
-  return (
-    <section className="bb-card p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted/50">Review today</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{total}</p>
-        </div>
-        <button
-          className="bb-action px-3 py-2 text-xs font-medium"
-          disabled={total === 0}
-          onClick={() => (window.location.href = appPath("/reviews"))}
-        >
-          Start review
-        </button>
-      </div>
-      {reviews.length > 0 ? (
-        <div className="mt-4 space-y-2">
-          {reviews.slice(0, 2).map((review) => (
-            <div key={review.id} className="bb-subcard px-3 py-2">
-              <p className="line-clamp-2 text-xs text-foreground/85">{review.prompt}</p>
-              <p className="mt-1 text-[10px] uppercase tracking-wide text-muted/45">{review.reviewType.replaceAll("_", " ")}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="mt-3 text-xs text-muted/55">Nothing due. Your active review schedule is up to date.</p>
-      )}
-    </section>
-  );
-}
-
-function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: string; onGraph: () => void }) {
+function HomeHeader({ summary, displayName, onGraph }: { summary: HomeSummary; displayName: string; onGraph: () => void }) {
   const usingCloud = Boolean(summary.status.cloudProvider && summary.status.cloudProvider !== "local");
   const providerState = summary.status.cloudStatus;
   const providerStatus = usingCloud
@@ -435,12 +321,12 @@ function HomeHeader({ summary, nome, onGraph }: { summary: HomeSummary; nome: st
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">{t("home")}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">{nome ? `${t("homeGreeting")}, ${nome}.` : `${t("homeGreeting")}.`}</h1>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">{displayName ? `${t("homeGreeting")}, ${displayName}.` : `${t("homeGreeting")}.`}</h1>
           <p className="mt-2 text-sm leading-6 text-muted/70">{t("keepWriting")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
-          <HeaderLink onClick={() => (window.location.href = appPath("/insights"))}>{t("viewInsights")}</HeaderLink>
+          <HeaderLink onClick={() => (window.location.href = appPath("/ask"))}>Ask</HeaderLink>
           <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
         </div>
       </div>
@@ -464,10 +350,12 @@ function HomeAskBar({
   value,
   onChange,
   onSubmit,
+  onOpenWorkspace,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onOpenWorkspace: () => void;
 }) {
   return (
     <form
@@ -493,6 +381,8 @@ function HomeAskBar({
           />
         </div>
       </div>
+      <VoicePromptButton value={value} onChange={onChange} />
+      <button type="button" className="bb-action grid h-10 w-10 shrink-0 place-items-center text-base" aria-label="Open Ask workspace" title="Open Ask workspace" onClick={onOpenWorkspace}>↗</button>
       <button type="submit" disabled={!value.trim()} className="bb-action bb-action--primary h-10 shrink-0 px-5 text-sm font-semibold">
         Ask
       </button>
@@ -576,42 +466,6 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
       </div>
       {running && <div className="mt-3 text-[11px] text-muted/45">{t("clickForJobDetails")}</div>}
     </button>
-  );
-}
-
-function InsightsPreview({ insights, apiUrl, onUpdate }: { insights: InsightItem[]; apiUrl: string; onUpdate: () => void }) {
-  const dismissInsight = async (id: number, action: "dismiss" | "ignore") => {
-    try {
-      await fetch(`${apiUrl}/api/v1/insights/${id}/${action}`, { method: "POST" });
-      onUpdate();
-    } catch {}
-  };
-
-  return (
-    <Section title={t("aiInsights")}>
-      {insights.length === 0 ? (
-        <EmptyState title={t("noInsightsYet")} text={t("keepWritingForInsights")} />
-      ) : (
-        <div className="space-y-2">
-          {insights.slice(0, 4).map((insight) => (
-            <div key={insight.id} className="bb-subcard p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-medium uppercase text-accent">{insightTypeLabel(insight.type)}</span>
-                {insight.priority > 0 && <span className="text-[10px] text-muted/40">Priority {insight.priority}</span>}
-                <span className="text-[10px] text-muted/40 ml-auto">{Math.round((insight.confidence || 0) * 100)}%</span>
-              </div>
-              <p className="mt-1 text-xs font-medium">{insight.title}</p>
-              {insight.description && <p className="mt-1 text-[11px] leading-5 text-muted/65 line-clamp-2">{insight.description}</p>}
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                <button className="bb-action px-2.5 py-1" onClick={() => window.location.href = appPath("/insights")}>{t("viewDetails")}</button>
-                <button className="bb-action px-2.5 py-1 text-emerald-600" onClick={() => dismissInsight(insight.id, "dismiss")}>{t("apply")}</button>
-                <button className="bb-action bb-action--danger px-2.5 py-1" onClick={() => dismissInsight(insight.id, "ignore")}>{t("ignore")}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Section>
   );
 }
 
@@ -916,29 +770,6 @@ function cloudStatusLabel(provider: string, status: string) {
     failed: "connection failed",
   };
   return `AI · ${name} ${suffix[status] || status}`;
-}
-
-function insightTypeLabel(type: string) {
-  return {
-    context: "Central theme",
-    conclusion: "Confirmed relationship",
-    hypothesis: "Possible connection",
-    premise: "Recurring pattern",
-    assertion: "Strong evidence",
-    knowledge_gap: "Gap to explore",
-    new_connection: "New connection",
-    study_path: "Study path",
-    possible_contradiction: "Possible conflict",
-    deepening_opportunity: "Deepening opportunity",
-    recurring_concept: "Recurring concept",
-    review_opportunity: "Suggested review",
-    permanent_note_candidate: "Suggested note",
-    emerging_context: "Emerging context",
-    isolated_note: "Isolated note",
-    isolated_concept: "Isolated concept",
-    weak_note: "Weak note",
-    duplicate_content: "Duplicate content",
-  }[type] || type.replace(/_/g, " ");
 }
 
 function percent(value: number) {

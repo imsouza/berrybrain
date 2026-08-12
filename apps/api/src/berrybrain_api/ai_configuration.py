@@ -13,7 +13,7 @@ from berrybrain_api.models import SettingRecord
 from berrybrain_api.settings_store import decode_setting_value, set_setting
 
 AI_CONFIGURATION_KEY = "ai_configuration_v2"
-AI_CONFIGURATION_SCHEMA_VERSION = 2
+AI_CONFIGURATION_SCHEMA_VERSION: Literal[2] = 2
 
 PROVIDERS = {
     "nvidia-nim": {

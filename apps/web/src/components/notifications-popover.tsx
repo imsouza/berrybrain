@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { appPath } from "@/contexts/workspace-context";
 
 type Alert = {
-  kind: string;
+  id: number;
+  type: string;
   title: string;
   description: string;
   action: string;
+  actionUrl?: string | null;
+  read: boolean;
 };
 
 type Props = {
@@ -32,10 +35,10 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
     async function load() {
       try {
-        const r = await fetch(`${apiUrl}/api/v1/home/summary`);
+        const r = await fetch(`${apiUrl}/api/v1/notifications?limit=30`);
         if (r.ok && !cancelled) {
           const data = await r.json();
-          setAlerts(data.needsAttention || []);
+          setAlerts(data.notifications || []);
         }
       } catch {}
       if (!cancelled) setLoading(false);
@@ -50,22 +53,16 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
     };
   }, [open, apiUrl]);
 
-  const handleAction = (alert: Alert) => {
-    switch (alert.kind) {
-      case "ollama_offline":
-      case "failed_jobs":
-      case "provider_issue":
-        window.location.href = appPath("/brain?monitor=open");
-        break;
-      case "pending_jobs":
-        window.location.href = appPath("/activity");
-        break;
-      case "no_notes":
-        break;
-      default:
-        window.location.href = appPath("/activity");
-    }
+  const handleAction = async (alert: Alert) => {
+    await fetch(`${apiUrl}/api/v1/notifications/${alert.id}/read`, { method: "POST" }).catch(() => undefined);
+    const destination = alert.actionUrl || "/activity";
+    window.location.href = destination.startsWith("/") ? appPath(destination) : destination;
     onClose();
+  };
+
+  const markAllRead = async () => {
+    await fetch(`${apiUrl}/api/v1/notifications/read-all`, { method: "POST" });
+    setAlerts((items) => items.map((item) => ({ ...item, read: true })));
   };
 
   if (!open) return null;
@@ -102,8 +99,8 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
             <div className="space-y-1 p-2">
               {alerts.map((a, i) => (
                 <button
-                  key={a.kind + i}
-                  className="w-full rounded-lg p-3 text-left text-sm transition bg-accent/5 hover:bg-accent/10"
+                  key={a.id || i}
+                  className={`w-full rounded-lg p-3 text-left text-sm transition hover:bg-accent/10 ${a.read ? "bg-surface" : "bg-accent/5"}`}
                   onClick={() => handleAction(a)}
                 >
                   <div className="text-xs font-medium">{a.title}</div>
@@ -118,12 +115,9 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
         <div className="border-t border-border/35 p-2">
           <button
             className="bb-action w-full px-3 py-1.5 text-xs font-medium"
-            onClick={() => {
-              window.location.href = appPath("/activity");
-              onClose();
-            }}
+            onClick={markAllRead}
           >
-            Ver atividade
+            Mark all as read
           </button>
         </div>
       </div>

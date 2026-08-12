@@ -1,0 +1,5 @@
+{"component": "release-gate", "passed": true}
+{"component": "graph-on-disk", "passed": true}
+{"component": "worker-queue", "passed": true}
+{"component": "fault-injection", "passed": true}
+{"component": "http-load", "passed": true}

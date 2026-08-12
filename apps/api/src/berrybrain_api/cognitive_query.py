@@ -214,7 +214,8 @@ def orchestrate_retrieval(session: Session, question: str) -> dict[str, Any]:
     cognitive = cognitive_config(session)
     tokens = _tokens(question)
     semantic_needed = bool(
-        tokens & {"job", "jobs", "erro", "erros", "fila", "worker", "stats", "status"}
+        tokens
+        & {"job", "jobs", "error", "errors", "queue", "worker", "stats", "status"}
     )
     mode = cognitive["cognitive_retrieval_mode"]
     graph_needed = mode in {"hybrid", "graph_first"}
@@ -287,8 +288,12 @@ def retrieve_hipporag(
     try:
         import httpx
 
+        service_token = os.getenv("HIPPORAG_SERVICE_TOKEN", "")
         r = httpx.post(
             f"{url}/retrieve",
+            headers=(
+                {"Authorization": f"Bearer {service_token}"} if service_token else {}
+            ),
             json={"vault_id": "default", "query": query, "top_k": limit},
             timeout=5,
         )
@@ -404,17 +409,24 @@ def retrieve_graph(
     query_tokens = _tokens(query)
     nodes = list(
         session.execute(
-            select(GraphNodeRecord).where(GraphNodeRecord.status != "ignored")
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
         ).scalars()
     )
     edges = list(
         session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
         ).scalars()
     )
     node_by_id = {node.id: node for node in nodes}
     results: list[RetrievalEvidence] = []
     related_nodes: list[str] = []
+    seed_scores: dict[int, float] = {}
     for node in nodes:
         body = " ".join(
             [
@@ -423,11 +435,18 @@ def retrieve_graph(
                 node.ai_summary or "",
                 node.ai_context or "",
                 node.source_evidence or "",
+                node.ontology_class or "",
+                node.aliases_json or "",
             ]
         )
         score = _token_score(query_tokens, _tokens(body))
         if score <= 0:
             continue
+        confidence_floor = (
+            node.confidence_lower if node.confidence_lower is not None else 0.0
+        )
+        score *= confidence_floor
+        seed_scores[node.id] = score
         related_nodes.append(f"{node.type}_{node.id}")
         results.append(
             RetrievalEvidence(
@@ -440,8 +459,12 @@ def retrieve_graph(
                 metadata={
                     "nodeId": node.id,
                     "type": node.type,
-                    "confidence": node.confidence,
+                    "confidence": (
+                        node.confidence if node.confidence_sample_size else None
+                    ),
+                    "confidenceLower": node.confidence_lower,
                     "status": node.status,
+                    "ontologyClass": node.ontology_class,
                     "evidence": _json_list(node.source_evidence),
                     "provider": node.provider,
                     "model": node.model,
@@ -461,6 +484,13 @@ def retrieve_graph(
             ]
         )
         score = _token_score(query_tokens, _tokens(body))
+        source_seed = seed_scores.get(edge.source_node_id, 0.0)
+        target_seed = seed_scores.get(edge.target_node_id, 0.0)
+        confidence_floor = (
+            edge.confidence_lower if edge.confidence_lower is not None else 0.0
+        )
+        propagated = max(source_seed, target_seed) * confidence_floor
+        score = max(score * confidence_floor, propagated)
         if score <= 0:
             continue
         if source:
@@ -476,8 +506,16 @@ def retrieve_graph(
                 metadata={
                     "edgeId": edge.id,
                     "type": edge.type,
-                    "confidence": edge.confidence,
+                    "confidence": (
+                        edge.confidence if edge.confidence_sample_size else None
+                    ),
+                    "confidenceLower": edge.confidence_lower,
                     "status": edge.status,
+                    "ontologyProperty": edge.ontology_property,
+                    "direction": {
+                        "sourceNodeId": edge.source_node_id,
+                        "targetNodeId": edge.target_node_id,
+                    },
                     "evidence": _json_list(edge.evidence),
                     "provider": edge.provider,
                     "model": edge.model,

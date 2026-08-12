@@ -10,6 +10,13 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.confidence import (
+    ConfidenceSignal,
+    estimate_confidence,
+    evidence_coverage_signal,
+    persist_confidence,
+    serialize_confidence,
+)
 from berrybrain_api.models import (
     InsightRecord,
 )
@@ -33,10 +40,7 @@ VALID_INSIGHT_TYPES = {
     "isolated_concept",
     "duplicate_content",
     "study_path",
-    "review_opportunity",
 }
-
-VALID_REVIEW_RESULTS = {"correct", "wrong", "hard"}
 
 
 def _parse_json_list(value: str) -> list[Any]:
@@ -63,7 +67,7 @@ def create_insight(
     evidence: list[str] | None = None,
     suggested_action: str = "",
     graph_impact: str = "",
-    confidence: float = 0.5,
+    confidence: float | None = None,
     status: str = "suggested",
     provider: str = "",
     model: str = "",
@@ -115,10 +119,27 @@ def create_insight(
         evidence=source_evidence,
         suggested_action=suggested_action,
         graph_impact=graph_impact,
-        confidence=confidence,
+        confidence=confidence or 0.0,
     )
     adjusted_priority = max(0, priority - (2 if quality_score < 0.5 else 0))
-    adjusted_confidence = min(confidence, max(0.2, quality_score + 0.15))
+    signals = [
+        ConfidenceSignal(1.0, f"insight-evidence:{index}:{item}")
+        for index, item in enumerate(source_evidence)
+    ]
+    signals.extend(
+        ConfidenceSignal(1.0, f"related-note:{note_id}") for note_id in related
+    )
+    coverage_signal = evidence_coverage_signal(
+        [title, description, why_it_matters, suggested_action, graph_impact],
+        source_evidence,
+    )
+    if coverage_signal is not None:
+        signals.append(coverage_signal)
+    if confidence is not None and (provider or model):
+        signals.append(
+            ConfidenceSignal(confidence, f"model:{provider}:{model}:{prompt_version}")
+        )
+    estimate = estimate_confidence(signals)
     now = datetime.now(UTC)
     if existing is not None:
         existing.title = title
@@ -129,7 +150,7 @@ def create_insight(
         existing.evidence = json.dumps(source_evidence, ensure_ascii=False)
         existing.suggested_action = suggested_action
         existing.graph_impact = graph_impact
-        existing.confidence = max(existing.confidence, adjusted_confidence)
+        persist_confidence(existing, estimate)
         existing.provider = provider or existing.provider
         existing.model = model or existing.model
         existing.prompt_version = prompt_version or existing.prompt_version
@@ -156,7 +177,7 @@ def create_insight(
         evidence=json.dumps(source_evidence, ensure_ascii=False),
         suggested_action=suggested_action,
         graph_impact=graph_impact,
-        confidence=adjusted_confidence,
+        confidence=0.0,
         status=status,
         provider=provider,
         model=model,
@@ -170,6 +191,7 @@ def create_insight(
     )
     session.add(insight)
     session.flush()
+    persist_confidence(insight, estimate)
 
     from berrybrain_api.job_contracts import judge_artifact_payload
     from berrybrain_api.jobs import enqueue_job
@@ -185,6 +207,17 @@ def create_insight(
                 str(insight.updated_at.timestamp()),
             ),
             priority=20,
+        )
+        from berrybrain_api.notification_service import create_notification
+
+        create_notification(
+            session,
+            notification_type="insight_ready",
+            title="Insight proposed",
+            description=insight.title,
+            action="Inspect in graph",
+            action_url="/brain?graph=open",
+            related_insight_id=insight.id,
         )
 
     if autocommit:
@@ -410,12 +443,7 @@ def _is_visible_insight(insight: InsightRecord) -> bool:
         )
     ):
         return False
-    legacy_prefixes = (
-        "Nó central no grafo:",
-        "No central no grafo:",
-        "Conceito recorrente:",
-        "Lacuna detectada:",
-    )
+    legacy_prefixes = ("Central graph node:", "Recurring concept:")
     if title.startswith(legacy_prefixes) and provider in {
         "",
         "system",
@@ -469,7 +497,8 @@ def serialize_insight(insight: InsightRecord) -> dict[str, Any]:
         "evidence": _parse_json_list(getattr(insight, "evidence", "[]")),
         "suggestedAction": getattr(insight, "suggested_action", ""),
         "graphImpact": getattr(insight, "graph_impact", ""),
-        "confidence": getattr(insight, "confidence", 0.5),
+        "confidence": insight.confidence if insight.confidence_sample_size else None,
+        "confidenceInterval": serialize_confidence(insight),
         "status": getattr(insight, "status", "suggested"),
         "provider": getattr(insight, "provider", ""),
         "model": getattr(insight, "model", ""),

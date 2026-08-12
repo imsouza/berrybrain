@@ -32,7 +32,7 @@ class VaultScanTest(unittest.TestCase):
 
         first = scan_vault(self.session, self.vault_path)
         second = scan_vault(self.session, self.vault_path)
-        note_path.write_text("# A\n\nAlterada com [[B]].", encoding="utf-8")
+        note_path.write_text("# A\n\nChanged with [[B]].", encoding="utf-8")
         third = scan_vault(self.session, self.vault_path)
         note_path.unlink()
         fourth = scan_vault(self.session, self.vault_path)

@@ -83,6 +83,10 @@ class RenameNoteRequest(BaseModel):
     title: str = Field(min_length=1, max_length=160)
 
 
+class MoveNoteRequest(BaseModel):
+    folder: str = Field(default="inbox", max_length=240)
+
+
 class AttachmentUploadRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     mime_type: str = ""
@@ -669,6 +673,55 @@ def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
         else:
             sync_note_record(session, settings.vault_path, str(result["path"]))
     return result
+
+
+@router.put("/{note_path:path}/move")
+def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
+    settings = get_settings()
+    old_path = resolve_note_path(settings.vault_path, note_path)
+    if not old_path.exists():
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    folder = payload.folder.strip().strip("/") or "inbox"
+    folder_parts = Path(folder).parts
+    if (
+        "\\" in folder
+        or Path(folder).is_absolute()
+        or any(part in {"", ".", ".."} for part in folder_parts)
+    ):
+        raise HTTPException(status_code=400, detail="Invalid target folder")
+
+    root = settings.vault_path.resolve()
+    target_folder = root.joinpath(*folder_parts).resolve()
+    try:
+        target_folder.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid target folder") from exc
+    target_folder.mkdir(parents=True, exist_ok=True)
+
+    target_path = target_folder / old_path.name
+    if target_path.exists() and target_path != old_path:
+        stem = old_path.stem
+        counter = 2
+        while target_path.exists():
+            target_path = target_folder / f"{stem}-{counter}.md"
+            counter += 1
+    old_rel = old_path.relative_to(root).as_posix()
+    old_path.rename(target_path)
+    new_rel = target_path.relative_to(root).as_posix()
+
+    with SessionLocal() as session:
+        record = session.execute(
+            select(NoteRecord).where(NoteRecord.path == old_rel)
+        ).scalar_one_or_none()
+        if record is not None:
+            record.path = new_rel
+            record.updated_at = datetime.now(UTC)
+            session.commit()
+            _update_internal_links(session, old_rel, new_rel)
+        else:
+            sync_note_record(session, settings.vault_path, new_rel)
+    return read_note(settings.vault_path, new_rel)
 
 
 @router.put("/{note_path:path}")

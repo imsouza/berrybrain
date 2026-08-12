@@ -89,9 +89,12 @@ function Shell({ children }: { children: React.ReactNode }) {
             <div className="border-b border-border/50 px-4 py-2 flex items-center gap-2">
               <button
                 className="rounded-lg px-2 py-1 text-xs text-muted hover:bg-surface hover:text-foreground"
-                onClick={() => (window.location.href = appPath("/brain"))}
+                onClick={() => {
+                  w.setGraphOpen(false);
+                  window.location.href = appPath("/brain");
+                }}
               >
-                Back to Brain
+                Back to Home
               </button>
             </div>
             {children}

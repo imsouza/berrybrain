@@ -17,10 +17,11 @@ from berrybrain_api.ask_flow import (
     cancel_ask_session,
     close_ask_session,
     create_ask_session,
+    create_insight_from_flow_session,
     get_ask_session_payload,
 )
 from berrybrain_api.database import Base
-from berrybrain_api.models import GraphInferenceRecord
+from berrybrain_api.models import GraphInferenceRecord, InsightRecord
 
 
 class AskFlowTest(unittest.IsolatedAsyncioTestCase):
@@ -101,6 +102,35 @@ class AskFlowTest(unittest.IsolatedAsyncioTestCase):
             [inference.question, inference.answer],
         )
         self.assertEqual(payload["turns"][1]["evidenceIds"], ["7"])
+
+    async def test_flow_answer_can_be_saved_as_insight(self) -> None:
+        flow = create_ask_session(self.session)
+        answer = AsyncMock(
+            return_value={
+                "status": "answered",
+                "answer": "Docker and the API connect through local automation.",
+                "evidence": [{"nodeId": 7}],
+                "provider": "local",
+                "model": "main",
+            }
+        )
+        with patch("berrybrain_api.ask_flow.answer_cognitive_query", answer):
+            await append_ask_turn(
+                self.session, flow.id, "How does Docker connect to the API?"
+            )
+
+        result = create_insight_from_flow_session(self.session, flow.id)
+
+        self.assertEqual(result["status"], "created")
+        self.assertIsNotNone(result["insight"]["id"])
+        self.assertIsNotNone(self.session.get(InsightRecord, result["insight"]["id"]))
+        inference = (
+            self.session.query(GraphInferenceRecord)
+            .filter_by(insight_id=result["insight"]["id"])
+            .one()
+        )
+        self.assertGreater(inference.confidence_sample_size, 0)
+        self.assertEqual(inference.confidence_method, "wilson-evidence-v1")
 
     async def test_cancelled_turn_does_not_persist_provider_answer(self) -> None:
         flow = create_ask_session(self.session)

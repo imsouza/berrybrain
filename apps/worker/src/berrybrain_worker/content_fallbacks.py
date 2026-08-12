@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
+from statistics import NormalDist
 
 
 def normalize_slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def fallback_evidence_confidence(note: dict, term: str) -> dict:
+    """Calculate a conservative Wilson lower bound from exact source occurrences."""
+    title = str(note.get("title") or Path(str(note.get("path", ""))).stem)
+    source = f"{title}\n{note.get('content') or ''}".casefold()
+    occurrences = max(1, source.count(term.casefold()))
+    level = 0.95
+    z = NormalDist().inv_cdf(0.5 + level / 2)
+    denominator = 1 + (z * z / occurrences)
+    score = occurrences / occurrences
+    center = (score + (z * z / (2 * occurrences))) / denominator
+    margin = z * math.sqrt(z * z / (4 * occurrences * occurrences)) / denominator
+    lower = round(max(0.0, center - margin), 6)
+    upper = round(min(score, center + margin), 6)
+    return {
+        "score": score,
+        "lower": lower,
+        "upper": upper,
+        "level": level,
+        "sampleSize": occurrences,
+        "method": "wilson-source-occurrence-v1",
+    }
 
 
 def fallback_terms(note: dict, limit: int = 8) -> list[str]:
@@ -65,7 +90,8 @@ def fallback_concepts(note: dict) -> dict:
             {
                 "name": term,
                 "description": "",
-                "confidence": 0.35,
+                "confidence": fallback_evidence_confidence(note, term)["lower"],
+                "confidenceInterval": fallback_evidence_confidence(note, term),
                 "source": "deterministic_fallback",
             }
             for term in terms
@@ -81,7 +107,8 @@ def fallback_entities(note: dict) -> dict:
             {
                 "name": term,
                 "type": "term",
-                "confidence": 0.3,
+                "confidence": fallback_evidence_confidence(note, term)["lower"],
+                "confidenceInterval": fallback_evidence_confidence(note, term),
                 "source": "deterministic_fallback",
             }
             for term in terms
@@ -96,7 +123,8 @@ def fallback_topics(note: dict) -> dict:
         "topics": [
             {
                 "name": term,
-                "confidence": 0.3,
+                "confidence": fallback_evidence_confidence(note, term)["lower"],
+                "confidenceInterval": fallback_evidence_confidence(note, term),
                 "source": "deterministic_fallback",
             }
             for term in terms
@@ -107,12 +135,15 @@ def fallback_topics(note: dict) -> dict:
 
 def fallback_context(note: dict) -> dict:
     title = note.get("title") or Path(str(note.get("path", ""))).stem
+    context_name = str(title).replace("-", " ")
+    confidence = fallback_evidence_confidence(note, context_name)
     return {
         "contexts": [
             {
-                "name": str(title).replace("-", " "),
+                "name": context_name,
                 "description": "Context inferred locally because the AI did not return valid JSON.",
-                "confidence": 0.25,
+                "confidence": confidence["lower"],
+                "confidenceInterval": confidence,
                 "source": "deterministic_fallback",
             }
         ],

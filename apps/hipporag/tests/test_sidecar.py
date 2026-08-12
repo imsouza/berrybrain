@@ -136,6 +136,40 @@ def test_delete_and_rebuild(client):
     assert r.json()["docs"] == 0
 
 
+def test_explicit_ontology_triples_survive_rebuild(client):
+    payload = {
+        "vault_id": "v1",
+        "doc_id": "ontology-note",
+        "content": "# Forecasting",
+        "triples": [
+            {
+                "subject": "Stationarity",
+                "predicate": "bb:prerequisiteFor",
+                "object": "Time series forecasting",
+            }
+        ],
+    }
+    indexed = client.post("/index", json=payload)
+    assert indexed.status_code == 200
+    result = client.post(
+        "/retrieve",
+        json={"vault_id": "v1", "query": "Stationarity time series"},
+    )
+    assert any(
+        item["metadata"].get("predicate") == "bb:prerequisiteFor"
+        for item in result.json()["results"]
+    )
+    assert client.post("/rebuild").status_code == 200
+    rebuilt = client.post(
+        "/retrieve",
+        json={"vault_id": "v1", "query": "Stationarity time series"},
+    )
+    assert any(
+        item["metadata"].get("predicate") == "bb:prerequisiteFor"
+        for item in rebuilt.json()["results"]
+    )
+
+
 def test_reconcile(client):
     r = client.post("/reconcile")
     assert r.status_code == 200
@@ -197,6 +231,9 @@ if __name__ == "__main__":
     shutil.rmtree(tmp, ignore_errors=True)
     c, tmp = _fresh_client()
     test_delete_and_rebuild(c)
+    shutil.rmtree(tmp, ignore_errors=True)
+    c, tmp = _fresh_client()
+    test_explicit_ontology_triples_survive_rebuild(c)
     shutil.rmtree(tmp, ignore_errors=True)
     c, tmp = _fresh_client()
     test_reconcile(c)

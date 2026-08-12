@@ -16,6 +16,10 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.confidence import (
+    estimate_connection_confidence,
+    persist_percentage_confidence,
+)
 from berrybrain_api.models import (
     ChunkRecord,
     ConnectionRecord,
@@ -27,29 +31,25 @@ from berrybrain_api.models import (
 PROMPT_VERSION = "graph-expand.deterministic.v1"
 STOPWORDS = {
     "a",
-    "as",
-    "de",
-    "do",
-    "da",
-    "das",
-    "dos",
-    "e",
-    "em",
-    "o",
-    "os",
-    "para",
-    "por",
-    "que",
-    "um",
-    "uma",
-    "com",
-    "sobre",
-    "qual",
-    "quais",
-    "relacao",
-    "relação",
-    "tem",
-    "ver",
+    "about",
+    "an",
+    "and",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "of",
+    "on",
+    "relationship",
+    "relationships",
+    "see",
+    "the",
+    "to",
+    "what",
+    "which",
+    "with",
 }
 
 
@@ -69,7 +69,7 @@ def _dump_json(value: object) -> str:
 
 async def generate_inferred_graph_connections(
     session: Session, max_pairs: int = 20
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     """Use AI to find non-obvious connections between existing graph nodes.
 
     Only one AI provider is used (cloud NVIDIA NIM or local Ollama), never both.
@@ -80,7 +80,7 @@ async def generate_inferred_graph_connections(
     generate_fn = getattr(facade, "generate_graph_answer", generate_graph_answer)
     config = config_fn(session)
     nodes = list(session.execute(select(GraphNodeRecord)).scalars())
-    candidate_types = {"concept", "topico", "entidade", "contexto", "note"}
+    candidate_types = {"concept", "topic", "entity", "context", "note"}
     candidates = [n for n in nodes if n.type in candidate_types and n.label]
     if len(candidates) < 2:
         return {"connections": 0, "reason": "not_enough_nodes"}
@@ -114,16 +114,20 @@ async def generate_inferred_graph_connections(
     ]
     if len(evidenced_candidates) < 2:
         return {"connections": 0, "reason": "insufficient_chunk_evidence"}
-    context = "\n".join(
-        f"- [{node.type}] {node.label}: {chunk_by_node_id[node.id][0].text[:280]}"
-        for node in evidenced_candidates
-    )
+    context_lines: list[str] = []
+    for node in evidenced_candidates:
+        chunk_and_note = chunk_by_node_id[node.id]
+        if chunk_and_note is not None:
+            context_lines.append(
+                f"- [{node.type}] {node.label}: {chunk_and_note[0].text[:280]}"
+            )
+    context = "\n".join(context_lines)
     prompt = (
         "Below are nodes from a knowledge graph. Identify non-obvious, "
         "semantically meaningful connections between DIFFERENT nodes.\n\n"
         f"{context}\n\n"
         'Return JSON: {"connections": [{"source": "<exact label>", '
-        '"target": "<exact label>", "type": "<semantic_relation|prerequisite|example_of|contrasts_with|duplicates|applies_to|supports|contradicts>", '
+        '"target": "<exact label>", "type": "<mentions|about|references|derived_from|supports|contradicts|broader|narrower|instance_of|part_of|prerequisite_for|example_of|applies_to|same_as|contrasts_with|attached_to|related>", '
         '"reason": "<why they connect using the supplied excerpts>", '
         '"confidence": 0.0}]}. Maximum 20 connections. Confidence between 0 and 1.'
     )
@@ -178,10 +182,11 @@ async def generate_inferred_graph_connections(
             continue
         source_chunk, source_note = source_pair
         target_chunk, target_note = target_pair
+        raw_confidence = c.get("confidence")
         try:
-            conf = float(c.get("confidence", 0.5))
+            conf = float(raw_confidence) if raw_confidence is not None else None
         except (TypeError, ValueError):
-            conf = 0.5
+            conf = None
         reason = (
             str(c.get("reason", "")).strip()
             or f"Relationship between {src_label} and {tgt_label}."
@@ -208,13 +213,17 @@ async def generate_inferred_graph_connections(
             edge = writer.upsert_edge(
                 source_node_id=source_node.id,
                 target_node_id=target_node.id,
-                edge_type=str(c.get("type") or "semantic_relation"),
+                edge_type=str(c.get("type") or ""),
                 label=reason[:255],
                 reason=reason,
                 evidence=[evidence],
                 source_note_ids=[source_note.id, target_note.id],
                 created_by="ai",
-                status="confirmed" if conf >= auto_confirm else "suggested",
+                status=(
+                    "confirmed"
+                    if conf is not None and conf >= auto_confirm
+                    else "suggested"
+                ),
                 provider=provider,
                 model=model,
                 prompt_version="graph-infer.v1",
@@ -234,11 +243,11 @@ def _upsert_note_connection(
     source_note_id: int,
     target_note_id: int,
     connection_type: str,
-    confidence: int,
     reason: str,
     evidence: list[str],
     created_by: str,
     status: str,
+    confidence: int | float | None = None,
 ) -> ConnectionRecord:
     conn = session.execute(
         select(ConnectionRecord).where(
@@ -255,12 +264,18 @@ def _upsert_note_connection(
         )
         session.add(conn)
         session.flush()
-    conn.confidence = confidence
     conn.reason = reason
     conn.evidence = _dump_json(evidence)
+    estimate = estimate_connection_confidence(
+        reason=reason,
+        evidence=evidence,
+        model_score=confidence,
+        model_source=f"{created_by}:{connection_type}",
+    )
+    persist_percentage_confidence(conn, estimate)
     conn.ai_notes = (
         f"Subagent connection-reasoner: {connection_type} connection created with "
-        f"{confidence}% confidence using registered evidence."
+        f"a calculated {conn.confidence}% confidence using registered evidence."
     )
     conn.created_by = created_by
     conn.provider = "deterministic"

@@ -11,10 +11,6 @@ SAFE_FOLDERS = {
     "study",
     "permanent",
     "review",
-    # Legacy folder names remain readable for existing vaults.
-    "estudos",
-    "permanentes",
-    "revisao",
     "templates",
 }
 
@@ -201,7 +197,7 @@ def create_note(
     if folder not in SAFE_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid folder")
 
-    clean_title = title.strip() or "Rascunho"
+    clean_title = title.strip() or "Untitled note"
     slug = slugify_title(clean_title)
     path = unique_note_path(vault_path, folder, slug)
 

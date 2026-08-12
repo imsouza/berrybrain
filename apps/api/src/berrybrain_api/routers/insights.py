@@ -13,6 +13,7 @@ from berrybrain_api.graph_inference_service import (
     create_insight_from_persisted_inference,
     persist_graph_inference,
 )
+from berrybrain_api.jobs import GENERATE_GRAPH_INSIGHTS, create_job
 from berrybrain_api.models import InsightRecord, JobRecord
 from berrybrain_api.second_brain import expand_knowledge_graph
 from berrybrain_api.services import (
@@ -45,7 +46,6 @@ VALID_INSIGHT_TYPES = {
     "duplicate_content",
     "permanent_note_candidate",
     "study_path",
-    "review_opportunity",
     "possible_contradiction",
     "emerging_context",
     "growing_cluster",
@@ -100,7 +100,6 @@ INSIGHT_TYPE_DISPLAY = {
     "possible_contradiction": "Possible conflict",
     "deepening_opportunity": "Deepening opportunity",
     "recurring_concept": "Recurring concept",
-    "review_opportunity": "Suggested review",
     "permanent_note_candidate": "Suggested note",
     "emerging_context": "Emerging context",
 }
@@ -116,8 +115,6 @@ GENERIC_INSIGHT_TITLES = {
 }
 
 GENERIC_PHRASES = (
-    "node central in the graph",
-    "nó central no grafo",
     "central node in the graph",
     "continue writing",
     "keep writing",
@@ -198,15 +195,9 @@ def _has_knowledge_evidence(evidence: list) -> bool:
             for marker in (
                 ".md",
                 "note:",
-                "nota:",
                 "concept",
-                "conceito",
                 "connection",
-                "conexao",
-                "conexão",
                 "vertex",
-                "vertice",
-                "vértice",
                 "node:",
                 "edge:",
                 "↔",
@@ -243,7 +234,7 @@ def _is_valid_generated_insight(
     suggested_action: str,
     graph_impact: str,
     evidence: list,
-    confidence: float,
+    confidence: float | None,
 ) -> tuple[bool, str]:
     normalized_title = _normalize_text(title)
     combined = _normalize_text(
@@ -272,7 +263,7 @@ def _is_valid_generated_insight(
         return False, "weak_evidence"
     if not _has_knowledge_evidence(evidence):
         return False, "missing_knowledge_evidence"
-    if confidence < 0.3:
+    if confidence is not None and confidence < 0.3:
         return False, "low_confidence"
     return True, ""
 
@@ -317,13 +308,15 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             priority = _as_int(item.get("priority", 5), 5)
             related = item.get("related_notes", []) or []
             evidence_count = len(evidence)
-            confidence = _as_float(item.get("confidence", 0.7), 0.7)
-            # Confidence = estimated probability the insight is valid, in [0,1].
-            # When the model is silent or uncertain, derive deterministically from
-            # evidence volume so the same insight yields a stable, reproducible %.
-            if confidence < 0.3 or confidence == 0.5:
-                base = 0.45 + (evidence_count * 0.08)
-                confidence = min(0.95, max(0.35, base))
+            confidence_raw = item.get("confidence")
+            try:
+                confidence = (
+                    max(0.0, min(1.0, float(confidence_raw)))
+                    if confidence_raw is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                confidence = None
             if priority == 0 or priority == 5:
                 priority = min(9, 3 + evidence_count)
             # Diversify types if model only generates knowledge_gap
@@ -331,7 +324,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             if itype == "knowledge_gap":
                 if any(
                     w in title_lower
-                    for w in ["conclus", "confirmado", "interdep", "ecossistema"]
+                    for w in ["conclusion", "confirmed", "interdepend", "ecosystem"]
                 ):
                     itype = "conclusion"
                 elif any(
@@ -340,10 +333,6 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                         "path",
                         "sequence",
                         "next steps",
-                        "trilha",
-                        "sequência",
-                        "caminho",
-                        "próximos passos",
                     ]
                 ):
                     itype = "study_path"
@@ -354,9 +343,6 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                         "possible",
                         "maybe",
                         "speculat",
-                        "hipótese",
-                        "possivel",
-                        "talvez",
                     ]
                 ):
                     itype = "hypothesis"
@@ -382,7 +368,6 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                     w in title_lower
                     for w in [
                         "context",
-                        "ecossistema",
                         "ecosystem",
                         "cluster",
                         "core",
@@ -436,8 +421,12 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
 @router.get("")
 def list_insights(limit: int = 10) -> dict:
     with SessionLocal() as session:
+        auto_job = _ensure_auto_graph_insights(session)
         insights = get_active_insights(session, limit=min(limit, 50))
-        return {"insights": [serialize_insight(i) for i in insights]}
+        return {
+            "insights": [serialize_insight(i) for i in insights],
+            "autoGeneration": auto_job,
+        }
 
 
 @router.post("/from-inference")
@@ -510,20 +499,6 @@ def apply_insight_endpoint(insight_id: int) -> dict:
         return {"status": "accepted", "insight": serialize_insight(insight)}
 
 
-@router.post("/{insight_id}/reviewed")
-def reviewed_insight_endpoint(insight_id: int) -> dict:
-    with SessionLocal() as session:
-        insight = session.get(InsightRecord, insight_id)
-        if insight is None:
-            return {"status": "insight_not_found"}
-        if insight.status == "suggested":
-            insight.status = "reviewed"
-            insight.updated_at = datetime.now(UTC)
-            session.commit()
-            session.refresh(insight)
-        return {"status": insight.status, "insight": serialize_insight(insight)}
-
-
 @router.post("/{insight_id}/converted-to-note")
 def converted_to_note_endpoint(insight_id: int) -> dict:
     with SessionLocal() as session:
@@ -557,33 +532,31 @@ def create_note_from_insight(insight_id: int) -> dict:
         return {"status": "job_created", "job_id": job.id}
 
 
-@router.post("/{insight_id}/create-review")
-def create_review_from_insight(insight_id: int) -> dict:
-    with SessionLocal() as session:
-        insight = session.get(InsightRecord, insight_id)
-        if insight is None:
-            return {"status": "insight_not_found"}
-
-        job = JobRecord(
-            type="CREATE_REVIEW_FROM_INSIGHT",
-            status="pending",
-            payload=f'{{"insight_id": {insight_id}}}',
-        )
-        session.add(job)
-        session.commit()
-        session.refresh(job)
-        return {"status": "job_created", "job_id": job.id}
-
-
 @router.post("/generate")
 def generate_insights() -> dict:
     with SessionLocal() as session:
-        job = JobRecord(
-            type="GENERATE_GRAPH_INSIGHTS",
-            status="pending",
-            payload="{}",
+        job = create_job(
+            session,
+            GENERATE_GRAPH_INSIGHTS,
+            {"trigger": "manual", "idempotency_key": "manual-graph-insights"},
+            max_attempts=2,
         )
-        session.add(job)
-        session.commit()
-        session.refresh(job)
         return {"status": "job_created", "job_id": job.id}
+
+
+def _ensure_auto_graph_insights(session: Session) -> dict:
+    from berrybrain_api.agent_monitor import ensure_agent_monitoring
+
+    result = ensure_agent_monitoring(session)
+    insight_job = next(
+        (
+            item
+            for item in result.get("jobs", [])
+            if item.get("type") == GENERATE_GRAPH_INSIGHTS
+        ),
+        None,
+    )
+    return {
+        "status": "queued" if insight_job else result.get("status", "monitoring"),
+        "jobId": insight_job.get("id") if insight_job else None,
+    }

@@ -30,6 +30,15 @@ from berrybrain_api.concept_extraction import (  # noqa: F401
     _unique_concept_names,
     normalize_concept_name,
 )
+from berrybrain_api.confidence import (
+    ConfidenceSignal,
+    estimate_confidence,
+    evidence_coverage_signal,
+    persist_confidence,
+    serialize_confidence,
+    serialize_estimate,
+    serialize_percentage_confidence,
+)
 
 # Facade imports for extracted modules
 from berrybrain_api.connection_detection import (  # noqa: F401
@@ -47,6 +56,7 @@ from berrybrain_api.deduplication import (  # noqa: F401
     _prune_stale_graph_insights,
     _prune_title_duplicate_typed_nodes,
 )
+from berrybrain_api.graph_contracts import canonical_edge_type, canonical_node_type
 from berrybrain_api.graph_expansion import (  # noqa: F401
     _display_concept_name,
     _human_join,
@@ -62,6 +72,8 @@ from berrybrain_api.graph_expansion import (  # noqa: F401
     set_node_status,
     set_node_user_notes,
 )
+from berrybrain_api.graph_ontology import validate_node_name
+from berrybrain_api.graph_semantic_service import quarantine_generated_candidate
 from berrybrain_api.models import (
     ChunkRecord,
     ConceptRecord,
@@ -76,29 +88,25 @@ from berrybrain_api.models import (
 PROMPT_VERSION = "graph-expand.deterministic.v1"
 STOPWORDS = {
     "a",
-    "as",
-    "de",
-    "do",
-    "da",
-    "das",
-    "dos",
-    "e",
-    "em",
-    "o",
-    "os",
-    "para",
-    "por",
-    "que",
-    "um",
-    "uma",
-    "com",
-    "sobre",
-    "qual",
-    "quais",
-    "relacao",
-    "relação",
-    "tem",
-    "ver",
+    "about",
+    "an",
+    "and",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "of",
+    "on",
+    "relationship",
+    "relationships",
+    "see",
+    "the",
+    "to",
+    "what",
+    "which",
+    "with",
 }
 
 
@@ -179,7 +187,7 @@ def _build_node_context(
         )
         return summary, context, "source"
 
-    if node_type in {"concept", "conceito"}:
+    if node_type == "concept":
         summary = (
             node.summary or f'"{label}" is a recurring concept grounded in {note_text}.'
         )
@@ -190,7 +198,7 @@ def _build_node_context(
         )
         return summary, context, "concept"
 
-    if node_type in {"topico", "topic"}:
+    if node_type == "topic":
         summary = node.summary or f'"{label}" is a topic detected from {note_text}.'
         context = (
             f"This topic groups nearby ideas from the source material. It is useful when "
@@ -198,7 +206,7 @@ def _build_node_context(
         )
         return summary, context, "topic"
 
-    if node_type in {"entidade", "entity"}:
+    if node_type == "entity":
         summary = node.summary or f'"{label}" is an entity mentioned in {note_text}.'
         context = (
             f"This entity can anchor references to people, tools, systems, projects, or named "
@@ -206,7 +214,7 @@ def _build_node_context(
         )
         return summary, context, "entity"
 
-    if node_type in {"contexto", "context"}:
+    if node_type == "context":
         summary = node.summary or f'"{label}" is a context inferred from {note_text}.'
         context = (
             f"This context explains the situation or domain where related concepts are being "
@@ -214,7 +222,7 @@ def _build_node_context(
         )
         return summary, context, "context"
 
-    if node_type in {"lacuna", "gap"}:
+    if node_type == "gap":
         summary = (
             node.summary or f'"{label}" is a knowledge gap detected in {note_text}.'
         )
@@ -224,7 +232,7 @@ def _build_node_context(
         )
         return summary, context, "gap"
 
-    if node_type in {"fonte", "source"}:
+    if node_type == "source":
         summary = node.summary or f'"{label}" is a referenced source from {note_text}.'
         context = (
             f"This source node preserves where knowledge came from and can be validated or "
@@ -406,6 +414,7 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
             "excerpt": f"{source_chunk.text[:240]} | {target_chunk.text[:240]}",
             "hash": f"{source_chunk.content_hash}:{target_chunk.content_hash}",
         }
+        edge.type = canonical_edge_type(edge.type)
         writer.upsert_edge(
             source_node_id=edge.source_node_id,
             target_node_id=edge.target_node_id,
@@ -415,7 +424,9 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
             or "Legacy AI relation recovered from current note chunks.",
             evidence=[evidence],
             source_note_ids=selected_ids,
-            confidence=edge.confidence or 0.5,
+            confidence=(
+                edge.confidence if getattr(edge, "confidence_sample_size", 0) else None
+            ),
             status=edge.status or "suggested",
             created_by="ai",
             provider=edge.provider or "legacy-ai",
@@ -503,7 +514,8 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
             "question": question,
             "answer": edge.reason
             or f"{graph_source.label} is connected to {graph_target.label}.",
-            "confidence": round((edge.confidence or 0) / 100, 2),
+            "confidence": edge.confidence if edge.confidence_sample_size else None,
+            "confidenceInterval": serialize_confidence(edge),
             "relatedNodes": [graph_source.label, graph_target.label],
             "connections": [
                 {
@@ -529,7 +541,10 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
         "status": "answered",
         "question": question,
         "answer": conn.reason,
-        "confidence": round((conn.confidence or 0) / 100, 2),
+        "confidence": (conn.confidence or 0) / 100
+        if conn.confidence_sample_size
+        else None,
+        "confidenceInterval": serialize_percentage_confidence(conn),
         "relatedNodes": [source.title, target.title],
         "connections": [
             {
@@ -589,7 +604,6 @@ def _generate_deterministic_insights(session: Session) -> int:
                 f'Keeps "{concept.name}" as a concept node and connects it to the '
                 "source notes that support it."
             ),
-            confidence=min(0.95, 0.72 + (len(note_ids) * 0.05)),
             priority=7,
         )
         if insight:
@@ -638,7 +652,6 @@ def _generate_deterministic_insights(session: Session) -> int:
                 "connect this note to nearby ideas."
             ),
             graph_impact="Marks an orphan note that needs more context or connections.",
-            confidence=0.68,
             priority=5,
         )
         if insight:
@@ -690,7 +703,7 @@ def _generate_graph_insights(session: Session) -> int:
             "ai"
             if insight.provider and insight.provider != "deterministic"
             else "system",
-            confidence=insight.confidence or 0.7,
+            confidence=(insight.confidence if insight.confidence_sample_size else None),
             status=graph_status,
             model=insight.model or "graph-insight.v1",
         )
@@ -711,8 +724,7 @@ def _upsert_content_insight(
     why_it_matters: str,
     suggested_action: str,
     graph_impact: str,
-    confidence: float,
-    priority: int,
+    priority: int = 0,
 ) -> InsightRecord | None:
     if len([item for item in evidence if str(item or "").strip()]) < 2:
         return None
@@ -733,7 +745,21 @@ def _upsert_content_insight(
     insight.evidence = _dump_json(evidence[:8])
     insight.suggested_action = suggested_action
     insight.graph_impact = graph_impact
-    insight.confidence = confidence
+    signals = [
+        ConfidenceSignal(1.0, f"insight-evidence:{index}:{item}")
+        for index, item in enumerate(evidence[:8])
+    ]
+    signals.extend(
+        ConfidenceSignal(1.0, f"related-note:{note_id}")
+        for note_id in sorted(set(related_note_ids))
+    )
+    coverage_signal = evidence_coverage_signal(
+        [title, description, why_it_matters, suggested_action, graph_impact],
+        evidence,
+    )
+    if coverage_signal is not None:
+        signals.append(coverage_signal)
+    persist_confidence(insight, estimate_confidence(signals))
     insight.status = (
         insight.status if insight.status in {"applied", "ignored"} else "suggested"
     )
@@ -835,7 +861,7 @@ def _connect_insight_to_sources(
             provider=insight.provider or "unknown",
             model=insight.model or "insight-generate.v2",
             prompt_version=insight.prompt_version or "insight-generate.v2",
-            confidence=insight.confidence or 0.7,
+            confidence=(insight.confidence if insight.confidence_sample_size else None),
         )
         if edge is not None:
             created += 1
@@ -849,7 +875,7 @@ def _resolve_insight_source_nodes(
     targets: dict[int, GraphNodeRecord] = {}
 
     for match in re.finditer(
-        r"\b(?:note|concept|topico|topic|contexto|context|entidade|entity|gap|lacuna|source)_(\d+)\b",
+        r"\b(?:note|concept|topic|context|entity|gap|source)_(\d+)\b",
         evidence_text,
         re.IGNORECASE,
     ):
@@ -990,14 +1016,19 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
         notes = list(session.execute(select(NoteRecord)).scalars())
         if not notes:
             return _insufficient(question)
+        note_evidence = [f"Note: {note.title} ({note.path})" for note in notes[:12]]
+        estimate = estimate_confidence(
+            ConfidenceSignal(1.0, f"source-note:{note.id}") for note in notes[:12]
+        )
         return {
             "status": "context_ready",
             "question": question,
             "answer": "",
-            "confidence": 0.4,
+            "confidence": estimate.score,
+            "confidenceInterval": serialize_estimate(estimate),
             "relatedNodes": [note.title for note in notes[:12]],
             "connections": [],
-            "evidence": [f"Note: {note.title} ({note.path})" for note in notes[:12]],
+            "evidence": note_evidence,
             "graphContext": {
                 "nodes": [
                     {
@@ -1095,11 +1126,23 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
     if not evidence:
         evidence = [f"{node.type}: {node.label}" for node in matched_nodes[:8]]
 
+    confidence_signals = [
+        ConfidenceSignal(node.confidence, f"graph-node:{node.id}")
+        for node in matched_nodes
+        if node.confidence_sample_size
+    ]
+    confidence_signals.extend(
+        ConfidenceSignal(edge.confidence, f"graph-edge:{edge.id}")
+        for edge in matched_edges
+        if edge.confidence_sample_size
+    )
+    estimate = estimate_confidence(confidence_signals)
     return {
         "status": "context_ready",
         "question": question,
         "answer": "",
-        "confidence": 0.5,
+        "confidence": estimate.score,
+        "confidenceInterval": serialize_estimate(estimate),
         "relatedNodes": [node["label"] for node in context_nodes],
         "connections": context_edges,
         "evidence": evidence[:12],
@@ -1133,6 +1176,8 @@ def summarize_graph(session: Session) -> dict[str, Any]:
 
 
 def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
+    from berrybrain_api.semantic_enrichment import source_fingerprint
+
     node = session.get(GraphNodeRecord, node_id)
     if node is None:
         raise HTTPException(status_code=404, detail="Graph node not found")
@@ -1167,7 +1212,9 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         "summary": synthetic_summary,
         "source": node.source,
         "sourceNoteIds": note_ids,
-        "confidence": node.confidence,
+        "sourceFingerprint": source_fingerprint(session, node),
+        "confidence": node.confidence if node.confidence_sample_size else None,
+        "confidenceInterval": serialize_confidence(node),
         "createdBy": node.created_by,
         "createdByModel": node.created_by_model,
         "status": node.status,
@@ -1188,6 +1235,11 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         "colorId": getattr(node, "color_id", "pending"),
         "colorConfidence": getattr(node, "color_confidence", 0.0),
         "colorReason": getattr(node, "color_reason", ""),
+        "semanticStatus": getattr(node, "semantic_status", "active"),
+        "ontology": {
+            "class": getattr(node, "ontology_class", ""),
+            "canonicalLabel": getattr(node, "canonical_label", ""),
+        },
         "generatedAt": node.generated_at.isoformat()
         if getattr(node, "generated_at", None)
         else None,
@@ -1201,43 +1253,6 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
     }
 
 
-CONTENT_CONCEPT_PATTERNS = {
-    "frontend": "Frontend development",
-    "backend": "Backend development",
-    "full stack": "Full Stack development",
-    "ux/ui": "UX/UI design",
-    "ux ui": "UX/UI design",
-    "desenvolvimento web": "Web development",
-    "design de interfaces": "Interface design",
-    "design gráfico": "Graphic design",
-    "ciência da computação": "Computer Science",
-    "html": "HTML",
-    "css": "CSS",
-    "javascript": "JavaScript",
-    "typescript": "TypeScript",
-    "react": "React",
-    "next.js": "Next.js",
-    "node.js": "Node.js",
-    "tailwind": "Tailwind CSS",
-    "docker": "Docker",
-    "postgresql": "PostgreSQL",
-    "hulk": "Hulk",
-    "bruce banner": "Bruce Banner",
-    "radiação": "Radiation",
-    "raiva": "Emotional control",
-    "emoções": "Emotional control",
-    "equilíbrio": "Balance",
-    "conflitos internos": "Internal conflict",
-    "força": "Strength",
-    "superação": "Overcoming adversity",
-    "rio de janeiro": "Rio de Janeiro",
-    "desafios sociais": "Social challenges",
-    "desafios urbanos": "Urban challenges",
-    "desenvolvimento": "Development",
-    "transformação": "Transformation",
-}
-
-
 def _serialize_edge(edge: GraphEdgeRecord) -> dict[str, Any]:
     return {
         "id": edge.id,
@@ -1249,8 +1264,11 @@ def _serialize_edge(edge: GraphEdgeRecord) -> dict[str, Any]:
         "evidence": _parse_json_list(edge.evidence),
         "aiNotes": edge.ai_notes,
         "userNotes": getattr(edge, "user_notes", ""),
-        "confidence": edge.confidence,
+        "confidence": edge.confidence if edge.confidence_sample_size else None,
+        "confidenceInterval": serialize_confidence(edge),
         "status": edge.status,
+        "semanticStatus": getattr(edge, "semantic_status", "active"),
+        "ontology": {"property": getattr(edge, "ontology_property", "")},
         "createdBy": edge.created_by,
         "provider": edge.provider,
         "model": edge.model,
@@ -1286,7 +1304,7 @@ def _build_node_summary(
         snippet = (getattr(notes[0], "content", "") or "")[:150].strip()
         if snippet:
             parts.append(f'Content: "{snippet}..."')
-    if node.type in {"topic", "topico"} and node.label:
+    if node.type == "topic" and node.label:
         parts.append(
             "This topic was extracted from notes. Enrich it with AI, turn it into a permanent note, or connect it to other concepts."
         )
@@ -1313,14 +1331,14 @@ def _why_node_exists(node: GraphNodeRecord, notes: list[NoteRecord]) -> str:
             if titles
             else "Extracted from system metadata."
         )
-    if node.type in {"topic", "topico"}:
+    if node.type == "topic":
         titles = ", ".join(note.title for note in notes[:3])
         return (
             f"Topic extracted from: {titles}."
             if titles
             else "Topic detected from note headings."
         )
-    if node.type in {"entity", "entidade"}:
+    if node.type == "entity":
         return "Technical entity detected from metadata."
     return f"This node ({node.type}) was created by the knowledge pipeline."
 
@@ -1382,12 +1400,24 @@ def _upsert_typed_node(
     source_note_ids: list[int],
     evidence: list[str],
     created_by: str,
-    confidence: float = 0.7,
+    confidence: float | None = None,
     status: str = "suggested",
     model: str = "",
 ) -> GraphNodeRecord | None:
     normalized_label = normalize_concept_name(label)
     if not normalized_label:
+        return None
+    canonical_type = canonical_node_type(node_type)
+    issues = validate_node_name(canonical_type, label)
+    if issues:
+        quarantine_generated_candidate(
+            session,
+            kind="node",
+            proposed_type=canonical_type,
+            proposed_label=label,
+            issues=issues,
+            payload={"source": source, "sourceId": source_id, "evidence": evidence},
+        )
         return None
     candidates = list(
         session.execute(
@@ -1422,7 +1452,7 @@ def _upsert_typed_node(
         source_id=source_id,
         source_note_ids=source_note_ids,
         source_evidence=merged_evidence,
-        confidence=confidence,
+        confidence=None,
         created_by=created_by,
         model=model or "deterministic",
         status=status,
@@ -1430,6 +1460,15 @@ def _upsert_typed_node(
         learning_value=node_type[:20],
         graph_metadata={"evidence": merged_evidence},
     )
+    signals = [ConfidenceSignal(1.0, "ontology:name-validator-v1")]
+    signals.extend(
+        ConfidenceSignal(1.0, f"source-note:{note_id}") for note_id in source_note_ids
+    )
+    signals.extend(
+        ConfidenceSignal(1.0, f"source-evidence:{index}:{item}")
+        for index, item in enumerate(merged_evidence)
+    )
+    persist_confidence(node, estimate_confidence(signals))
     return None if existing is not None else node
 
 
@@ -1470,7 +1509,7 @@ def _extract_topics_from_metadata(
                     seen.add(seen_key)
                     node = _upsert_typed_node(
                         session,
-                        "topico",
+                        "topic",
                         name,
                         name,
                         f"Topic detected in note metadata: {name}",
@@ -1479,7 +1518,6 @@ def _extract_topics_from_metadata(
                         [note_id],
                         [name],
                         "system",
-                        confidence=0.6,
                         status="suggested",
                         model=record.model_used or "",
                     )
@@ -1500,7 +1538,7 @@ def _extract_topics_from_metadata(
                     seen.add(seen_key)
                     node = _upsert_typed_node(
                         session,
-                        "topico",
+                        "topic",
                         name,
                         name,
                         "Topic extracted from note headings",
@@ -1509,7 +1547,6 @@ def _extract_topics_from_metadata(
                         [note_id],
                         [name],
                         "system",
-                        confidence=0.5,
                         status="suggested",
                         model="content-based",
                     )
@@ -1553,7 +1590,7 @@ def _extract_entities_from_metadata(
                     seen.add(seen_key)
                     node = _upsert_typed_node(
                         session,
-                        "entidade",
+                        "entity",
                         name,
                         name,
                         f"Entity detected in metadata: {name}",
@@ -1562,7 +1599,6 @@ def _extract_entities_from_metadata(
                         [note_id],
                         [name],
                         "system",
-                        confidence=0.6,
                         status="suggested",
                         model=record.model_used or "",
                     )
@@ -1583,7 +1619,7 @@ def _extract_entities_from_metadata(
                     seen.add(seen_key)
                     node = _upsert_typed_node(
                         session,
-                        "entidade",
+                        "entity",
                         name,
                         name,
                         "Entity extracted from note headings",
@@ -1592,7 +1628,6 @@ def _extract_entities_from_metadata(
                         [note_id],
                         [name],
                         "system",
-                        confidence=0.45,
                         status="suggested",
                         model="content-based",
                     )
@@ -1626,7 +1661,7 @@ def _extract_context_from_metadata(
                 seen.add(seen_key)
                 node = _upsert_typed_node(
                     session,
-                    "contexto",
+                    "context",
                     ctx_name,
                     ctx_name,
                     f"Detected context: {ctx_name}",
@@ -1635,7 +1670,6 @@ def _extract_context_from_metadata(
                     [note_id],
                     [ctx_name],
                     "system",
-                    confidence=0.5,
                     status="suggested",
                     model=record.model_used or "",
                 )
@@ -1649,7 +1683,7 @@ def _extract_context_from_metadata(
                     seen.add(seen_key)
                     node = _upsert_typed_node(
                         session,
-                        "contexto",
+                        "context",
                         nt,
                         nt,
                         f"Note type: {nt}",
@@ -1658,7 +1692,6 @@ def _extract_context_from_metadata(
                         [note_id],
                         [nt],
                         "system",
-                        confidence=0.5,
                         status="suggested",
                         model="deterministic",
                     )
@@ -1674,13 +1707,9 @@ def _is_valid_context_name(name: str) -> bool:
     generic = {
         "study",
         "studies",
-        "pt br",
-        "pt-br",
         "unknown",
         "general",
         "outro",
-        "nao especificado no prompt",
-        "não especificado no prompt",
         "not specified",
         "unspecified",
     }
@@ -1723,16 +1752,15 @@ def _extract_gaps_from_metadata(
                     )
                     node = _upsert_typed_node(
                         session,
-                        "lacuna",
+                        "gap",
                         name,
                         name,
-                        desc or f"Lacuna detectada: {name}",
+                        desc or f"Knowledge gap detected: {name}",
                         "metadata",
                         record.id,
                         [note_id],
                         [name],
                         "system",
-                        confidence=0.5,
                         status="suggested",
                         model=record.model_used or "",
                     )
@@ -1748,7 +1776,7 @@ def _extract_sources_from_notes(session: Session, notes: list[NoteRecord]) -> in
         fm = _parse_json_object(note.frontmatter)
         if not isinstance(fm, dict):
             continue
-        for key in ("source", "fonte", "source_url", "references", "origin"):
+        for key in ("source", "source_url", "references", "origin"):
             val = fm.get(key)
             if not val:
                 continue
@@ -1764,16 +1792,15 @@ def _extract_sources_from_notes(session: Session, notes: list[NoteRecord]) -> in
                     seen.add(name)
                     node = _upsert_typed_node(
                         session,
-                        "fonte",
+                        "source",
                         name,
                         name,
-                        f"Fonte mencionada no frontmatter: {name}",
+                        f"Source mentioned in frontmatter: {name}",
                         "frontmatter",
                         note.id,
                         [note.id],
                         [name],
                         "system",
-                        confidence=0.7,
                         status="suggested",
                     )
                     if node:
@@ -1784,16 +1811,15 @@ def _extract_sources_from_notes(session: Session, notes: list[NoteRecord]) -> in
                 seen.add(val.strip())
                 node = _upsert_typed_node(
                     session,
-                    "fonte",
+                    "source",
                     val.strip(),
                     val.strip(),
-                    f"Fonte mencionada no frontmatter: {val.strip()}",
+                    f"Source mentioned in frontmatter: {val.strip()}",
                     "frontmatter",
                     note.id,
                     [note.id],
                     [val.strip()],
                     "system",
-                    confidence=0.7,
                     status="suggested",
                 )
                 if node:

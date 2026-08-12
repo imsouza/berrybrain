@@ -8,6 +8,11 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
+from berrybrain_api.confidence import (
+    estimate_connection_confidence,
+    persist_confidence,
+    serialize_confidence,
+)
 from berrybrain_api.jobs import EXPAND_KNOWLEDGE_GRAPH, create_job
 from berrybrain_api.models import GraphInferenceRecord, InsightRecord
 from berrybrain_api.modules.graph_inference.domain import (
@@ -26,19 +31,31 @@ def persist_graph_inference(
     question: str,
     result: dict[str, Any],
 ) -> GraphInferenceRecord:
+    raw_evidence = result.get("evidence")
+    evidence: list[Any] = list(raw_evidence) if isinstance(raw_evidence, list) else []
+    provider = str(result.get("provider") or "")
+    model = str(result.get("model") or "")
     record = GraphInferenceRecord(
         question=question.strip(),
         answer=str(result.get("answer") or "").strip(),
         status=str(result.get("status") or "insufficient_evidence"),
-        confidence=_confidence(result.get("confidence")),
+        confidence=0.0,
         routes=_json(result.get("routes")),
-        evidence=_json(result.get("evidence")),
+        evidence=_json(evidence),
         related_nodes=_json(result.get("relatedNodes")),
         suggestions=_json(result.get("suggestions")),
-        provider=str(result.get("provider") or ""),
-        model=str(result.get("model") or ""),
+        provider=provider,
+        model=model,
         prompt_version=PROMPT_VERSION,
     )
+    estimate = estimate_connection_confidence(
+        reason=record.answer,
+        evidence=evidence,
+        model_score=result.get("confidence"),
+        model_source=":".join(part for part in (provider, model) if part)
+        or "graph-inference",
+    )
+    persist_confidence(record, estimate)
     session.add(record)
     session.commit()
     session.refresh(record)
@@ -55,7 +72,8 @@ def serialize_graph_inference(record: GraphInferenceRecord) -> dict[str, Any]:
         "evidence": _list(record.evidence),
         "relatedNodes": _list(record.related_nodes),
         "suggestions": _list(record.suggestions),
-        "confidence": record.confidence,
+        "confidence": (record.confidence if record.confidence_sample_size else None),
+        "confidenceInterval": serialize_confidence(record),
         "provider": record.provider,
         "model": record.model,
         "promptVersion": record.prompt_version,
@@ -71,6 +89,15 @@ def create_insight_from_persisted_inference(
     inference = session.get(GraphInferenceRecord, inference_id)
     if inference is None:
         raise HTTPException(status_code=404, detail="Graph inference not found")
+    if inference.confidence_updated_at is None:
+        persist_confidence(
+            inference,
+            estimate_connection_confidence(
+                reason=inference.answer,
+                evidence=_list(inference.evidence),
+            ),
+        )
+        session.flush()
     routes = tuple(str(item) for item in _list(inference.routes) if str(item).strip())
     snapshot = InferenceSnapshot(
         id=inference.id,
@@ -174,10 +201,3 @@ def _list(value: str) -> list[Any]:
     except (TypeError, json.JSONDecodeError):
         return []
     return parsed if isinstance(parsed, list) else []
-
-
-def _confidence(value: Any) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
-        return 0.0
