@@ -1,3 +1,3 @@
 # Config
 
-Configuracoes compartilhadas entre apps e pacotes.
+Configuration shared by applications and packages.

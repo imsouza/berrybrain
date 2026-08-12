@@ -4,74 +4,43 @@ import re
 
 from fastapi import HTTPException
 
-CANONICAL_NODE_TYPES = {
-    "note",
-    "concept",
-    "entity",
-    "topic",
-    "source",
-    "attachment",
-    "insight",
-    "context",
-    "gap",
-    "review_question",
-    "study_path",
-    "cluster",
-}
+from berrybrain_api.graph_ontology import EDGE_RULES, NODE_RULES
+
+CANONICAL_NODE_TYPES = set(NODE_RULES)
 
 NODE_TYPE_ALIASES = {
-    "nota": "note",
-    "conceito": "concept",
-    "entidade": "entity",
-    "topico": "topic",
-    "tópico": "topic",
-    "fonte": "source",
     "web_source": "source",
-    "anexo": "attachment",
-    "contexto": "context",
-    "lacuna": "gap",
 }
 
-CANONICAL_EDGE_TYPES = {
-    "explicit_link",
-    "semantic_relation",
-    "prerequisite",
-    "example_of",
-    "contrasts_with",
-    "duplicates",
-    "applies_to",
-    "derived_from",
-    "mentions",
-    "supports",
-    "contradicts",
-}
+CANONICAL_EDGE_TYPES = set(EDGE_RULES)
 
 EDGE_TYPE_ALIASES = {
-    "backlink": "explicit_link",
-    "semantic": "semantic_relation",
-    "semantic_similarity": "semantic_relation",
-    "shared_concept": "semantic_relation",
-    "shared_context": "semantic_relation",
-    "related": "semantic_relation",
-    "duplicate": "duplicates",
+    "backlink": "references",
+    "explicit_link": "references",
+    "semantic": "related",
+    "semantic_relation": "related",
+    "semantic_similarity": "related",
+    "shared_concept": "related",
+    "shared_context": "related",
+    "duplicate": "same_as",
+    "duplicates": "same_as",
     "contrast": "contrasts_with",
     "example": "example_of",
     "application": "applies_to",
+    "prerequisite": "prerequisite_for",
     "source_supports": "supports",
     "source_contradicts": "contradicts",
-    "source_expands": "derived_from",
+    "source_expands": "contextualizes",
     "insight_evidence": "derived_from",
     "insight_suggested": "derived_from",
-    "attachment_related": "derived_from",
+    "attachment_related": "attached_to",
     "review_related": "derived_from",
     "topic_note": "mentions",
     "concept_note": "mentions",
 }
 
 SYMMETRIC_EDGE_TYPES = {
-    "semantic_relation",
-    "contrasts_with",
-    "duplicates",
+    edge_type for edge_type, rule in EDGE_RULES.items() if rule.symmetric
 }
 
 VALID_STATUSES = {

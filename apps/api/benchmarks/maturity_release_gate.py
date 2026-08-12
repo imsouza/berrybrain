@@ -12,6 +12,14 @@ from benchmarks.graph_performance_benchmark import (
 from benchmarks.insight_usefulness_benchmark import (
     run_benchmark as run_insight_benchmark,
 )
+from benchmarks.judge_calibration_report import (
+    DEFAULT_FIXTURE,
+    build_report,
+    load_fixture,
+)
+from benchmarks.retrieval_quality_benchmark import (
+    run_benchmark as run_retrieval_benchmark,
+)
 from benchmarks.semantic_search_benchmark import (
     run_benchmark as run_semantic_benchmark,
 )
@@ -24,6 +32,8 @@ class MaturityReleaseGate:
     insights: dict[str, object]
     cognition: dict[str, object]
     graph_performance: dict[str, object]
+    retrieval_ablation: dict[str, object]
+    judge_calibration: dict[str, object]
     failed_gates: tuple[str, ...]
 
 
@@ -32,6 +42,8 @@ def run_release_gate() -> MaturityReleaseGate:
     insights = run_insight_benchmark()
     cognition = run_cognitive_benchmark()
     graph_performance = run_graph_performance_benchmark()
+    retrieval = run_retrieval_benchmark()
+    judge_calibration = build_report(load_fixture(DEFAULT_FIXTURE))
     failed: list[str] = []
 
     semantic_gates = {
@@ -51,6 +63,13 @@ def run_release_gate() -> MaturityReleaseGate:
         failed.append("cognition.graph_integrity_and_provenance")
     if not graph_performance.meets_targets:
         failed.append("graph.performance_budget")
+    if not retrieval.gates_passed:
+        failed.append("retrieval.executed_ablation")
+    if not judge_calibration["calibrated"]:
+        failed.append("judge.human_calibration")
+
+    retrieval_payload = asdict(retrieval)
+    retrieval_payload.pop("observations", None)
 
     return MaturityReleaseGate(
         passed=not failed,
@@ -58,6 +77,8 @@ def run_release_gate() -> MaturityReleaseGate:
         insights=asdict(insights),
         cognition=asdict(cognition),
         graph_performance=asdict(graph_performance),
+        retrieval_ablation=retrieval_payload,
+        judge_calibration=judge_calibration,
         failed_gates=tuple(failed),
     )
 

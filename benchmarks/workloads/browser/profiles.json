@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "berrybrain-browser-workload.v1",
+  "profiles": {
+    "desktop": {"viewport": "1440x900", "network": "native", "cpuThrottle": 1},
+    "mobile": {"device": "Pixel 7", "network": "native", "cpuThrottle": 1},
+    "mobile-constrained": {"device": "Pixel 7", "network": "Fast 3G", "cpuThrottle": 4}
+  },
+  "routes": ["/berrybrain", "/berrybrain/brain", "/berrybrain/ask"],
+  "requiredMetrics": ["LCP", "CLS", "longTasks", "transferBytes", "heapBytes", "errors"]
+}

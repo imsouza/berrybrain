@@ -47,20 +47,30 @@ function Shell() {
   const w = useWorkspace();
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
+  const isAskPage = pathname === "/ask" || pathname.endsWith("/ask");
+  const [askInitialQuery, setAskInitialQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    setAskInitialQuery(params.get("q")?.trim() || "");
     const notePath = params.get("note");
+    const newNote = params.get("newNote");
     if (notePath) {
       const url = new URL(window.location.href);
       url.searchParams.delete("note");
       window.history.replaceState({}, "", url.toString());
       w.openNote(notePath);
     }
+    if (newNote === "1") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("newNote");
+      window.history.replaceState({}, "", url.toString());
+      w.createDraft();
+    }
     const graph = params.get("graph");
-    if (graph === "open") {
+    if (graph === "open" || graph === "1") {
       w.setGraphOpen(true);
     }
     const monitor = params.get("monitor");
@@ -105,7 +115,19 @@ function Shell() {
        <section className="min-w-0 flex-1 flex flex-col">
         <MobileWorkspaceBar onMenu={() => setMobileNavOpen(true)} />
         {isDemo && <DemoNotice />}
-        {w.graphOpen ? (
+        {isAskPage ? (
+          <GraphScreen
+            apiUrl={w.api}
+            askOnly
+            autoFocusAsk
+            autoSubmitAsk={Boolean(askInitialQuery)}
+            initialAskQuery={askInitialQuery}
+            onClose={() => { window.location.href = appPath("/brain"); }}
+            onOpenHome={() => { window.location.href = appPath("/brain"); }}
+            onOpenGraph={() => { window.location.href = appPath("/brain?graph=open"); }}
+            onNavigate={(path) => { void w.openNote(path); }}
+          />
+        ) : w.graphOpen ? (
           <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : w.active ? (
           <NoteEditor />

@@ -13,7 +13,7 @@
 - D3.js v7 drives `forceCollide` (`node radius + 11`), `forceManyBody`, elastic `forceLink`, weak centering and `velocityDecay(0.15)`.
 - Nodes spawn in a compact center cluster. D3 zoom-to-fit runs at 450 ms, 1.25 s and 2.4 s while the graph settles, unless the user moves the camera.
 - D3 zoom provides pointer-centered zoom and unbounded pan. Drag pins the node and reheats the network with `alphaTarget(0.3)`; release restores fluid settling.
-- Graphs below 8,000 nodes keep a live interactive simulation. Extreme graphs run the same D3 forces in a Web Worker to preserve main-thread interaction.
+- Graphs below 8,000 nodes keep a live interactive simulation. Extreme graphs use a deterministic progressive layout and bitmap camera transforms to preserve main-thread interaction.
 - Labels are centered inside nodes and use semantic zoom. Focus isolates the selected/hovered node and every direct neighbor.
 - Node colors come from persisted `pending`, `semantic` and `vault` palettes. Edge colors use relation types; unknown types receive a deterministic FNV-based HSL color.
 - The 42-node demonstration fixture exists only in Playwright and is never bundled as runtime data.
@@ -34,4 +34,4 @@
 - Final production build: 24 static pages; `/brain` 56.7 kB route, 230 kB first load.
 - 10k graph: cold first visual 1.86 s, complete load 5.55 s, interaction p95 164.3 ms, heap 35.1 MB.
 - Runtime image: targeted D3 and Review today tests passed against Docker production.
-- Planning: 259/259 evidence-backed items checked in `docs/planning/planejamento-design-fix.md`.
+- Planning: 259/259 evidence-backed items checked in `docs/planning/design-fix-plan.md`.

@@ -1,0 +1,22 @@
+{
+  "edge_count": 1000,
+  "latency_p50_ms": 151.1587610002607,
+  "latency_p95_ms": 160.05074605345726,
+  "latency_samples_ms": [
+    146.93379285745323,
+    148.02281185984612,
+    151.1587610002607,
+    160.05074605345726,
+    152.2248920518905,
+    150.66243591718376,
+    152.44661108590662
+  ],
+  "meets_targets": true,
+  "memory_budget_bytes": 536870912,
+  "node_count": 500,
+  "p95_budget_ms": 5000,
+  "payload_budget_bytes": 16777216,
+  "payload_bytes": 541592,
+  "peak_memory_bytes": 3181953,
+  "sample_count": 7
+}

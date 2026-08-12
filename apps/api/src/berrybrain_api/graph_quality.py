@@ -31,10 +31,7 @@ VALID_INSIGHT_TYPES = {
     "isolated_concept",
     "duplicate_content",
     "study_path",
-    "review_opportunity",
 }
-
-VALID_REVIEW_RESULTS = {"correct", "wrong", "hard"}
 
 
 def graph_quality_report(session: Session) -> dict:
@@ -211,7 +208,6 @@ def graph_quality_report(session: Session) -> dict:
         "misc",
         "notes",
         "other",
-        "rascunho",
         "study",
         "topic",
         "untitled",
@@ -391,7 +387,7 @@ def _filter_nodes_by_view(nodes: list[dict], view: str) -> list[dict]:
             n.get("type") == "heading"
             or n.get("status") == "ignored"
             or (
-                n.get("type") in ("topico", "topic")
+                n.get("type") == "topic"
                 and not n.get("aiContext")
                 and not n.get("aiSummary")
             )

@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.confidence import ConfidenceSignal, estimate_confidence
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -20,49 +21,35 @@ from berrybrain_api.models import (
     SemanticProfileRecord,
     VaultVisualIdentityRecord,
 )
+from berrybrain_api.semantic_enrichment import SEMANTIC_PROMPT_VERSION
 
-ALGORITHM_VERSION = 1
-MIN_ASSIGNMENT_CONFIDENCE = 0.35
-MERGE_SIMILARITY = 0.28
-HYSTERESIS_MARGIN = 0.12
+ALGORITHM_VERSION = 5
 PENDING_COLOR_ID = "pending"
 TOKEN_RE = re.compile(r"[^\W_]{3,}", re.UNICODE)
 STOP_WORDS = {
     "about",
     "after",
     "also",
-    "como",
-    "com",
-    "das",
-    "dos",
+    "and",
+    "but",
+    "concept",
+    "concepts",
+    "detected",
+    "evidence",
     "for",
     "from",
-    "mais",
-    "para",
-    "por",
-    "que",
+    "graph",
+    "metadata",
+    "node",
+    "nodes",
+    "note",
+    "notes",
     "the",
     "this",
-    "uma",
+    "suggested",
+    "was",
     "with",
 }
-
-
-class _UnionFind:
-    def __init__(self, node_ids: list[int]) -> None:
-        self.parent = {node_id: node_id for node_id in node_ids}
-
-    def find(self, node_id: int) -> int:
-        parent = self.parent[node_id]
-        if parent != node_id:
-            self.parent[node_id] = self.find(parent)
-        return self.parent[node_id]
-
-    def union(self, left: int, right: int) -> None:
-        left_root = self.find(left)
-        right_root = self.find(right)
-        if left_root != right_root:
-            self.parent[max(left_root, right_root)] = min(left_root, right_root)
 
 
 def build_cluster_preview(session: Session) -> dict[str, Any]:
@@ -71,12 +58,20 @@ def build_cluster_preview(session: Session) -> dict[str, Any]:
             select(GraphNodeRecord)
             .where(
                 GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
                 GraphNodeRecord.type != "vault",
             )
             .order_by(GraphNodeRecord.id)
         ).scalars()
     )
-    edges = list(session.execute(select(GraphEdgeRecord)).scalars())
+    edges = list(
+        session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
+        ).scalars()
+    )
     latest_profiles: dict[int, SemanticProfileRecord] = {}
     for profile in session.execute(
         select(SemanticProfileRecord).order_by(SemanticProfileRecord.id)
@@ -94,65 +89,53 @@ def build_cluster_preview(session: Session) -> dict[str, Any]:
 
     node_by_id = {node.id: node for node in nodes}
     vectors: dict[int, Counter[str]] = {}
-    unresolved: list[int] = []
+    provisional_ids: list[int] = []
     for node in nodes:
         profile = latest_profiles.get(node.id)
-        if profile is None or node.semantic_state != "completed":
-            unresolved.append(node.id)
-            continue
         context_labels = " ".join(
             node_by_id[item].label
             for item in sorted(neighbors[node.id])
             if item in node_by_id
         )
         vectors[node.id] = _semantic_vector(node, profile, context_labels)
+        if profile is None or node.semantic_state != "completed":
+            provisional_ids.append(node.id)
 
-    eligible_ids = sorted(vectors)
-    groups = _UnionFind(eligible_ids)
-    candidate_pairs = set(edge_confidence)
-    buckets: dict[str, list[int]] = defaultdict(list)
-    for node_id, vector in vectors.items():
-        for token, _ in vector.most_common(4):
-            buckets[token].append(node_id)
-    for bucket in buckets.values():
-        for index, left in enumerate(bucket):
-            for right in bucket[index + 1 :]:
-                candidate_pairs.add(tuple(sorted((left, right))))
-
-    for left, right in sorted(candidate_pairs):
-        if left not in vectors or right not in vectors:
-            continue
-        similarity = _weighted_jaccard(vectors[left], vectors[right])
-        relationship = edge_confidence.get((left, right), 0.0)
-        if similarity >= MERGE_SIMILARITY or (
-            relationship >= 0.8 and similarity >= 0.12
-        ):
-            groups.union(left, right)
-
-    components: dict[int, list[int]] = defaultdict(list)
-    for node_id in eligible_ids:
-        components[groups.find(node_id)].append(node_id)
+    components, memberships = _select_clusters(vectors, edge_confidence)
 
     clusters: list[dict[str, Any]] = []
-    for member_ids in sorted(components.values(), key=lambda item: min(item)):
+    for cluster_position, member_ids in enumerate(
+        sorted(components, key=lambda item: min(item)), start=1
+    ):
         centroid = Counter[str]()
+        display_centroid = Counter[str]()
         for node_id in member_ids:
             centroid.update(vectors[node_id])
-        terms = [token for token, _ in centroid.most_common(5)]
-        label = " · ".join(terms[:3]) or "Unresolved"
+            profile = latest_profiles.get(node_id)
+            if profile and profile.prompt_version == SEMANTIC_PROMPT_VERSION:
+                display_centroid.update(_profile_display_tokens(profile))
+        semantic_terms = [token for token, _ in centroid.most_common(5)]
+        terms = [token for token, _ in display_centroid.most_common(5)]
+        if not terms:
+            node_types = Counter(
+                _display_node_type(node_by_id[node_id].type) for node_id in member_ids
+            )
+            primary_type = node_types.most_common(1)[0][0]
+            terms = [primary_type, f"Group {cluster_position}"]
+        label = " · ".join(terms[:3])
+        signature = "|".join([*semantic_terms, f"anchor:{min(member_ids)}"])
         stable_key = (
-            "semantic-"
-            + hashlib.sha256("|".join(terms).encode("utf-8")).hexdigest()[:20]
+            "semantic-" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:20]
         )
-        member_confidence = {
-            node_id: round(_weighted_jaccard(vectors[node_id], centroid), 4)
-            for node_id in member_ids
-        }
+        member_confidence = {node_id: memberships[node_id] for node_id in member_ids}
         clusters.append(
             {
                 "stableKey": stable_key,
                 "label": label,
-                "description": f"Semantic context shared by {len(member_ids)} graph nodes.",
+                "description": (
+                    f"Semantic context represented by {len(member_ids)} graph "
+                    f"{'node' if len(member_ids) == 1 else 'nodes'}."
+                ),
                 "terms": terms,
                 "memberIds": member_ids,
                 "memberConfidence": member_confidence,
@@ -162,7 +145,8 @@ def build_cluster_preview(session: Session) -> dict[str, Any]:
         "algorithmVersion": ALGORITHM_VERSION,
         "nodeCount": len(nodes),
         "clusterCount": len(clusters),
-        "unresolvedNodeIds": unresolved,
+        "unresolvedNodeIds": [],
+        "provisionalNodeIds": provisional_ids,
         "clusters": clusters,
     }
 
@@ -191,13 +175,25 @@ def apply_cluster_preview(session: Session, preview: dict[str, Any]) -> dict[str
             session.add(cluster)
             session.flush()
         else:
+            centroid_ref = json.dumps(item["terms"], ensure_ascii=False)
+            cluster_changed = any(
+                (
+                    cluster.label != item["label"],
+                    cluster.description != item["description"],
+                    cluster.centroid_ref != centroid_ref,
+                    cluster.color_id != color_id,
+                    cluster.version != ALGORITHM_VERSION,
+                    cluster.status != "active",
+                )
+            )
             cluster.label = item["label"]
             cluster.description = item["description"]
-            cluster.centroid_ref = json.dumps(item["terms"], ensure_ascii=False)
+            cluster.centroid_ref = centroid_ref
             cluster.color_id = color_id
-            cluster.version += 1
+            cluster.version = ALGORITHM_VERSION
             cluster.status = "active"
-            cluster.updated_at = now
+            if cluster_changed:
+                cluster.updated_at = now
         active_ids.add(cluster.id)
         for node_id in item["memberIds"]:
             confidence = float(item["memberConfidence"][node_id])
@@ -293,10 +289,10 @@ def serialize_palette(session: Session) -> dict[str, Any]:
 
 def _semantic_vector(
     node: GraphNodeRecord,
-    profile: SemanticProfileRecord,
+    profile: SemanticProfileRecord | None,
     context_labels: str,
 ) -> Counter[str]:
-    profile_data = _json_object(profile.profile_json)
+    profile_data = _json_object(profile.profile_json) if profile is not None else {}
     profile_text = " ".join(
         _flatten_text(profile_data.get(key))
         for key in (
@@ -310,7 +306,209 @@ def _semantic_vector(
     context = _tokens(context_labels)
     vector = Counter({token: count * 3 for token, count in direct.items()})
     vector.update(context)
+    if not vector:
+        vector.update(_tokens(f"{node.type} {node.label}"))
     return vector
+
+
+def _profile_display_tokens(profile: SemanticProfileRecord) -> Counter[str]:
+    data = _json_object(profile.profile_json)
+    return _tokens(
+        " ".join(
+            _flatten_text(data.get(key))
+            for key in (
+                "meaning_in_context",
+                "use_in_notes",
+                "why_it_matters_here",
+                "supported_findings",
+                "inferences",
+            )
+        )
+    )
+
+
+def _display_node_type(value: str) -> str:
+    normalized = str(value or "node").replace("_", " ").strip()
+    if normalized == "gap":
+        normalized = "knowledge gap"
+    return normalized.capitalize()
+
+
+def _select_clusters(
+    vectors: dict[int, Counter[str]],
+    edge_confidence: dict[tuple[int, int], float],
+) -> tuple[list[list[int]], dict[int, float]]:
+    node_ids = sorted(vectors)
+    if not node_ids:
+        return [], {}
+    if len(node_ids) == 1:
+        return [node_ids], {node_ids[0]: 1.0}
+
+    similarities: dict[tuple[int, int], float] = {}
+    for index, left in enumerate(node_ids):
+        for right in node_ids[index + 1 :]:
+            lexical = _weighted_jaccard(vectors[left], vectors[right])
+            relationship = edge_confidence.get((left, right), 0.0)
+            similarities[(left, right)] = max(
+                lexical, lexical * (0.5 + relationship / 2)
+            )
+
+    max_cluster_size = max(2, math.ceil(2 * math.sqrt(len(node_ids))))
+    max_k = min(len(node_ids), max(2, math.ceil(math.sqrt(len(node_ids)))))
+    min_k = min(max_k, max(2, math.ceil(len(node_ids) / max_cluster_size)))
+    candidates = range(min_k, max_k + 1) if len(node_ids) > 2 else range(1, 2)
+    best_groups: list[list[int]] = [node_ids]
+    best_score = float("-inf")
+    for cluster_count in candidates:
+        groups = _k_medoids(node_ids, similarities, cluster_count)
+        score = _cluster_selection_score(
+            groups,
+            similarities,
+            node_count=len(node_ids),
+            max_cluster_size=max_cluster_size,
+        )
+        if score > best_score:
+            best_score = score
+            best_groups = groups
+
+    best_groups = _enforce_cluster_capacity(
+        best_groups, similarities, max_cluster_size=max_cluster_size
+    )
+
+    memberships: dict[int, float] = {}
+    medoids = [_medoid(group, similarities) for group in best_groups]
+    for group, medoid in zip(best_groups, medoids, strict=True):
+        for node_id in group:
+            own = _similarity(node_id, medoid, similarities)
+            alternatives = [
+                _similarity(node_id, other, similarities)
+                for other in medoids
+                if other != medoid
+            ]
+            alternative = max(alternatives, default=0.0)
+            margin = max(0.0, own - alternative)
+            memberships[node_id] = round((own + margin) / 2, 6)
+    return best_groups, memberships
+
+
+def _cluster_selection_score(
+    groups: list[list[int]],
+    similarities: dict[tuple[int, int], float],
+    *,
+    node_count: int,
+    max_cluster_size: int,
+) -> float:
+    silhouette = _silhouette(groups, similarities)
+    overload = sum(max(0, len(group) - max_cluster_size) for group in groups)
+    concentration_penalty = overload / max(1, node_count)
+    proportions = [len(group) / node_count for group in groups if group]
+    entropy = -sum(value * math.log(value) for value in proportions)
+    normalized_entropy = entropy / math.log(len(groups)) if len(groups) > 1 else 0.0
+    return silhouette + 0.12 * normalized_entropy - 2.0 * concentration_penalty
+
+
+def _enforce_cluster_capacity(
+    groups: list[list[int]],
+    similarities: dict[tuple[int, int], float],
+    *,
+    max_cluster_size: int,
+) -> list[list[int]]:
+    pending = list(groups)
+    balanced: list[list[int]] = []
+    while pending:
+        group = pending.pop(0)
+        if len(group) <= max_cluster_size:
+            balanced.append(group)
+            continue
+        split_count = math.ceil(len(group) / max_cluster_size)
+        splits = _k_medoids(group, similarities, split_count)
+        if len(splits) <= 1 or max(map(len, splits)) == len(group):
+            splits = [
+                group[index : index + max_cluster_size]
+                for index in range(0, len(group), max_cluster_size)
+            ]
+        pending.extend(splits)
+    return balanced
+
+
+def _k_medoids(
+    node_ids: list[int], similarities: dict[tuple[int, int], float], cluster_count: int
+) -> list[list[int]]:
+    medoids = [node_ids[0]]
+    while len(medoids) < cluster_count:
+        candidate = max(
+            (node_id for node_id in node_ids if node_id not in medoids),
+            key=lambda node_id: (
+                min(
+                    1 - _similarity(node_id, medoid, similarities) for medoid in medoids
+                ),
+                -node_id,
+            ),
+        )
+        medoids.append(candidate)
+    for _ in range(12):
+        groups = [[] for _ in medoids]
+        for node_id in node_ids:
+            index = max(
+                range(len(medoids)),
+                key=lambda item: (
+                    _similarity(node_id, medoids[item], similarities),
+                    -len(groups[item]),
+                    -medoids[item],
+                ),
+            )
+            groups[index].append(node_id)
+        updated = [_medoid(group, similarities) for group in groups]
+        if updated == medoids:
+            break
+        medoids = updated
+    return [sorted(group) for group in groups if group]
+
+
+def _medoid(group: list[int], similarities: dict[tuple[int, int], float]) -> int:
+    return max(
+        group,
+        key=lambda node_id: (
+            sum(_similarity(node_id, other, similarities) for other in group),
+            -node_id,
+        ),
+    )
+
+
+def _silhouette(
+    groups: list[list[int]], similarities: dict[tuple[int, int], float]
+) -> float:
+    scores: list[float] = []
+    for group in groups:
+        for node_id in group:
+            own = [
+                1 - _similarity(node_id, other, similarities)
+                for other in group
+                if other != node_id
+            ]
+            if not own:
+                scores.append(0.0)
+                continue
+            a = sum(own) / len(own)
+            other_distances = [
+                sum(
+                    1 - _similarity(node_id, other, similarities) for other in candidate
+                )
+                / len(candidate)
+                for candidate in groups
+                if candidate is not group and candidate
+            ]
+            b = min(other_distances, default=a)
+            scores.append((b - a) / max(a, b) if max(a, b) else 0.0)
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _similarity(
+    left: int, right: int, similarities: dict[tuple[int, int], float]
+) -> float:
+    if left == right:
+        return 1.0
+    return similarities.get(tuple(sorted((left, right))), 0.0)
 
 
 def _apply_assignment(
@@ -336,47 +534,77 @@ def _apply_assignment(
     )
     if assignment and assignment.pinned_by_user:
         return 0
-    if (
-        assignment
-        and assignment.cluster_id != cluster.id
-        and confidence < assignment.confidence + HYSTERESIS_MARGIN
-    ):
-        return 0
-    previous_cluster_id = assignment.cluster_id if assignment else None
+    estimate = estimate_confidence(
+        [ConfidenceSignal(confidence, "cluster-membership-v2")]
+    )
+    algorithm_upgrade = bool(assignment and assignment.version < ALGORITHM_VERSION)
+    if assignment and assignment.cluster_id != cluster.id and not algorithm_upgrade:
+        previous_upper = assignment.confidence_upper
+        if (
+            previous_upper is not None
+            and estimate.lower is not None
+            and estimate.lower <= previous_upper
+        ):
+            return 0
     evidence = json.dumps(
-        {"terms": terms, "previousClusterId": previous_cluster_id},
+        {"terms": terms, "clusterId": cluster.id},
         ensure_ascii=False,
     )
     reason = f"Semantic profile matches cluster terms: {', '.join(terms[:3])}."
+    changed = assignment is None
     if assignment is None:
         assignment = SemanticClusterAssignmentRecord(
             node_id=node_id,
             cluster_id=cluster.id,
             confidence=confidence,
-            margin=max(0.0, confidence - MIN_ASSIGNMENT_CONFIDENCE),
+            margin=max(0.0, confidence),
             reason=reason,
             evidence_json=evidence,
             version=ALGORITHM_VERSION,
         )
         session.add(assignment)
     else:
+        changed = changed or any(
+            (
+                assignment.cluster_id != cluster.id,
+                not math.isclose(assignment.confidence, confidence),
+                not math.isclose(assignment.margin, max(0.0, confidence)),
+                assignment.reason != reason,
+                assignment.evidence_json != evidence,
+                assignment.version != ALGORITHM_VERSION,
+                assignment.confidence_lower != estimate.lower,
+                assignment.confidence_upper != estimate.upper,
+                assignment.confidence_sample_size != estimate.sample_size,
+                assignment.confidence_method != estimate.method,
+            )
+        )
         assignment.cluster_id = cluster.id
         assignment.confidence = confidence
-        assignment.margin = max(0.0, confidence - MIN_ASSIGNMENT_CONFIDENCE)
+        assignment.margin = max(0.0, confidence)
         assignment.reason = reason
         assignment.evidence_json = evidence
-        assignment.version += 1
-        assignment.updated_at = now
-    node.cluster_id = cluster.id
-    node.color_id = (
-        cluster.color_id
-        if confidence >= MIN_ASSIGNMENT_CONFIDENCE
-        else PENDING_COLOR_ID
+        assignment.version = ALGORITHM_VERSION
+        if changed:
+            assignment.updated_at = now
+    changed = changed or any(
+        (
+            node.cluster_id != cluster.id,
+            node.color_id != cluster.color_id,
+            not math.isclose(node.color_confidence or 0.0, confidence),
+            node.color_reason != reason,
+        )
     )
+    node.cluster_id = cluster.id
+    assignment.confidence_lower = estimate.lower
+    assignment.confidence_upper = estimate.upper
+    assignment.confidence_sample_size = estimate.sample_size
+    assignment.confidence_method = estimate.method
+    node.color_id = cluster.color_id
     node.color_confidence = confidence
     node.color_reason = reason
-    node.color_updated_at = now
-    return 1
+    if changed:
+        node.color_updated_at = now
+    return int(changed)
 
 
 def _ensure_pending_palette(session: Session) -> None:
@@ -485,7 +713,7 @@ def _ensure_vault_identities(session: Session, now: datetime) -> None:
         identity = identities.get(node.vault_id) or identities["default"]
         node.cluster_id = None
         node.color_id = identity.color_id
-        node.color_confidence = 1.0
+        node.color_confidence = float(node.vault_id == identity.vault_id)
         node.color_reason = "Reserved visual identity for this vault."
         node.color_updated_at = now
 

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 10
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 
 
@@ -68,6 +68,22 @@ MIGRATIONS = (
             "and versioned delta reads."
         ),
     ),
+    SchemaMigration(
+        version=9,
+        name="graph-ontology-and-confidence-intervals",
+        description=(
+            "Adds semantic quarantine, ontology identifiers, and auditable "
+            "95 percent confidence intervals for graph artifacts."
+        ),
+    ),
+    SchemaMigration(
+        version=10,
+        name="remaining-knowledge-confidence-intervals",
+        description=(
+            "Adds auditable 95 percent confidence intervals to note connections, "
+            "concepts, and persisted graph inferences."
+        ),
+    ),
 )
 
 
@@ -126,6 +142,74 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
 
 
 def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 9:
+        from berrybrain_api.models import GraphSemanticCandidateRecord
+
+        GraphSemanticCandidateRecord.__table__.create(bind=connection, checkfirst=True)
+        confidence_columns = {
+            "confidence_lower": "FLOAT",
+            "confidence_upper": "FLOAT",
+            "confidence_sample_size": "INTEGER NOT NULL DEFAULT 0",
+            "confidence_method": "VARCHAR(80) NOT NULL DEFAULT 'unavailable'",
+            "confidence_factors": "TEXT NOT NULL DEFAULT '[]'",
+            "confidence_updated_at": "DATETIME",
+        }
+        for table in ("graph_nodes", "graph_edges", "insights"):
+            _add_columns(connection, table, confidence_columns)
+        _add_columns(
+            connection,
+            "semantic_cluster_assignments",
+            {
+                key: value
+                for key, value in confidence_columns.items()
+                if key not in {"confidence_factors", "confidence_updated_at"}
+            },
+        )
+        _add_columns(
+            connection,
+            "graph_nodes",
+            {
+                "semantic_status": "VARCHAR(30) NOT NULL DEFAULT 'active'",
+                "ontology_class": "VARCHAR(120) NOT NULL DEFAULT ''",
+                "canonical_label": "VARCHAR(255) NOT NULL DEFAULT ''",
+                "aliases_json": "TEXT NOT NULL DEFAULT '[]'",
+            },
+        )
+        _add_columns(
+            connection,
+            "graph_edges",
+            {
+                "semantic_status": "VARCHAR(30) NOT NULL DEFAULT 'active'",
+                "ontology_property": "VARCHAR(120) NOT NULL DEFAULT ''",
+            },
+        )
+        existing_tables = set(inspect(connection).get_table_names())
+        for table, column in (
+            ("graph_nodes", "semantic_status"),
+            ("graph_edges", "semantic_status"),
+            ("graph_semantic_candidates", "candidate_kind"),
+            ("graph_semantic_candidates", "status"),
+        ):
+            if table not in existing_tables:
+                continue
+            connection.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} ON {table} ({column})"
+                )
+            )
+        return
+    if version == 10:
+        confidence_columns = {
+            "confidence_lower": "FLOAT",
+            "confidence_upper": "FLOAT",
+            "confidence_sample_size": "INTEGER NOT NULL DEFAULT 0",
+            "confidence_method": "VARCHAR(80) NOT NULL DEFAULT 'unavailable'",
+            "confidence_factors": "TEXT NOT NULL DEFAULT '[]'",
+            "confidence_updated_at": "DATETIME",
+        }
+        for table in ("connections", "concepts", "graph_inferences"):
+            _add_columns(connection, table, confidence_columns)
+        return
     if version == 8:
         _add_columns(
             connection,

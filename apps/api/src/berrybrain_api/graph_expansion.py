@@ -13,6 +13,11 @@ from berrybrain_api.concept_extraction import (
     _extract_note_concepts,
     normalize_concept_name,
 )
+from berrybrain_api.confidence import (
+    ConfidenceSignal,
+    estimate_confidence,
+    persist_confidence,
+)
 from berrybrain_api.connection_detection import _upsert_note_connection
 from berrybrain_api.deduplication import (
     _delete_graph_node_with_edges,
@@ -37,29 +42,25 @@ from berrybrain_api.models import (
 PROMPT_VERSION = "graph-expand.deterministic.v1"
 STOPWORDS = {
     "a",
-    "as",
-    "de",
-    "do",
-    "da",
-    "das",
-    "dos",
-    "e",
-    "em",
-    "o",
-    "os",
-    "para",
-    "por",
-    "que",
-    "um",
-    "uma",
-    "com",
-    "sobre",
-    "qual",
-    "quais",
-    "relacao",
-    "relação",
-    "tem",
-    "ver",
+    "about",
+    "an",
+    "and",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "of",
+    "on",
+    "relationship",
+    "relationships",
+    "see",
+    "the",
+    "to",
+    "what",
+    "which",
+    "with",
 }
 
 
@@ -195,7 +196,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                 session,
                 note_node.id,
                 concept_node.id,
-                edge_type="shared_concept",
+                edge_type="mentions",
                 label="shared concept",
                 reason=f'The note mentions the concept "{concept_node.label}".',
                 evidence=[concept_node.label],
@@ -206,10 +207,10 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
             if edge:
                 edges_count += 1
 
-        note_ids = sorted(concept_to_note_ids[normalized])
-        if len(note_ids) > 1:
-            for index, source_id in enumerate(note_ids):
-                for target_id in note_ids[index + 1 :]:
+        shared_note_ids = sorted(concept_to_note_ids[normalized])
+        if len(shared_note_ids) > 1:
+            for index, source_id in enumerate(shared_note_ids):
+                for target_id in shared_note_ids[index + 1 :]:
                     valid_shared_pairs.add((source_id, target_id))
                     source_note = next(
                         (note for note in notes if note.id == source_id), None
@@ -228,7 +229,6 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                         source_id,
                         target_id,
                         connection_type="shared_concept",
-                        confidence=78,
                         reason=reason,
                         evidence=[
                             concept_node.label,
@@ -247,7 +247,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                             session,
                             source_node.id,
                             target_node.id,
-                            edge_type="shared_concept",
+                            edge_type="related",
                             label="shared concept",
                             reason=reason,
                             evidence=_parse_json_list(conn.evidence),
@@ -280,7 +280,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                     session,
                     left.id,
                     right.id,
-                    edge_type="shared_context",
+                    edge_type="related",
                     label="shared context",
                     reason=(
                         f'The concepts "{left.label}" and "{right.label}" appear '
@@ -308,7 +308,6 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                 source.id,
                 target.id,
                 connection_type="backlink",
-                confidence=100,
                 reason=f'The note "{source.title}" references "{target.title}" through a backlink.',
                 evidence=[str(link), source.path, target.path],
                 created_by="backlink",
@@ -346,33 +345,64 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         session.execute(
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type.in_(
-                    ("topico", "entidade", "contexto", "lacuna", "fonte", "insight")
+                    (
+                        "concept",
+                        "topic",
+                        "entity",
+                        "context",
+                        "gap",
+                        "source",
+                        "insight",
+                    )
                 )
             )
         )
         .scalars()
         .all()
     )
+    note_id_by_graph_node_id: dict[int, int] = {}
+    for note_node in note_nodes.values():
+        if note_node.source_id is not None:
+            note_id_by_graph_node_id[note_node.id] = int(note_node.source_id)
+    legacy_edges_by_node: dict[int, list[GraphEdgeRecord]] = defaultdict(list)
+    for legacy_edge in session.execute(select(GraphEdgeRecord)).scalars():
+        legacy_edges_by_node[legacy_edge.source_node_id].append(legacy_edge)
+        legacy_edges_by_node[legacy_edge.target_node_id].append(legacy_edge)
     for typed_node in typed_nodes:
-        source_ids = _parse_json_list(typed_node.source_note_ids)
-        for note_id in source_ids:
+        source_ids = {
+            int(value)
+            for value in _parse_json_list(typed_node.source_note_ids)
+            if str(value).isdigit()
+        }
+        for legacy_edge in legacy_edges_by_node.get(typed_node.id, []):
+            other_id = (
+                legacy_edge.target_node_id
+                if legacy_edge.source_node_id == typed_node.id
+                else legacy_edge.source_node_id
+            )
+            related_note_id = note_id_by_graph_node_id.get(other_id)
+            if related_note_id:
+                source_ids.add(related_note_id)
+        typed_node.source_note_ids = json.dumps(sorted(source_ids))
+        for note_id in sorted(source_ids):
             note_node = note_nodes.get(_node_key("note", note_id))
             if not note_node:
                 continue
             existing = session.execute(
                 select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.source_node_id.in_((typed_node.id, note_node.id)),
-                    GraphEdgeRecord.target_node_id.in_((typed_node.id, note_node.id)),
+                    GraphEdgeRecord.source_node_id == note_node.id,
+                    GraphEdgeRecord.target_node_id == typed_node.id,
+                    GraphEdgeRecord.type == "mentions",
                 )
             ).first()
             if existing:
                 continue
             edge = _upsert_graph_edge(
                 session,
-                typed_node.id,
                 note_node.id,
-                edge_type="related",
-                label=f"{typed_node.type}↔note",
+                typed_node.id,
+                edge_type="mentions",
+                label=f"mentions {typed_node.type}",
                 reason=f'"{typed_node.label}" was extracted from the note "{note_node.label}".',
                 evidence=[typed_node.label, note_node.label],
                 source_note_ids=[note_id],
@@ -470,7 +500,6 @@ def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
         source_id=note.id,
         source_note_ids=[note.id],
         source_evidence=[note.path, note.title],
-        confidence=1.0,
         created_by="system",
         status="confirmed",
         source_quality="vault_note",
@@ -499,7 +528,10 @@ def _upsert_concept(
     concept.frequency = len(note_ids)
     concept.related_note_ids = _dump_json(note_ids)
     concept.extracted_by = "system"
-    concept.confidence = 0.7 if len(note_ids) == 1 else 0.85
+    estimate = estimate_confidence(
+        ConfidenceSignal(1.0, f"source-note:{note_id}") for note_id in note_ids
+    )
+    persist_confidence(concept, estimate)
     concept.status = "suggested"
     concept.provider = "deterministic"
     concept.model = model or "metadata-parser"
@@ -568,13 +600,9 @@ def _upsert_graph_edge(
             edge_type=edge_type,
             label=label,
             reason=reason,
-            evidence=evidence,
+            evidence=list(evidence),
             source_note_ids=source_note_ids,
-            confidence=(
-                confidence
-                if confidence is not None
-                else (1.0 if status == "confirmed" else 0.7)
-            ),
+            confidence=confidence,
             created_by=created_by,
             provider=provider,
             model=model,

@@ -134,7 +134,7 @@ class InsightFilterTest(unittest.TestCase):
         args, kwargs = create_insight.call_args
         self.assertIs(args[0], session)
         self.assertEqual(args[1], "new_connection")
-        self.assertAlmostEqual(kwargs["confidence"], 0.61)
+        self.assertAlmostEqual(kwargs["confidence"], 0.5)
         self.assertEqual(args[5], 5)
         self.assertEqual(kwargs["provider"], "nvidia-nim")
         expand_graph.assert_called_once_with(session)
@@ -221,7 +221,7 @@ class InsightFilterTest(unittest.TestCase):
         args, kwargs = create_insight.call_args
         self.assertEqual(args[1], "knowledge_gap")
         self.assertEqual(args[5], 5)
-        self.assertEqual(kwargs["confidence"], 0.7)
+        self.assertIsNone(kwargs["confidence"])
         expand_graph.assert_called_once_with(session)
 
 

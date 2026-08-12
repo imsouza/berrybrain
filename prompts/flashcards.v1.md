@@ -2,7 +2,7 @@
 
 Generate active-recall flashcards from the note.
 
-Regras:
+Rules:
 
 - clear questions;
 - short but complete answers;

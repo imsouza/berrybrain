@@ -1,0 +1,88 @@
+{
+  "assessed_at": "2026-08-12T19:13:05.810413+00:00",
+  "capabilities": [
+    {
+      "capability": "capture-and-extraction",
+      "current_evidence_count": 0,
+      "evidence_count": 0,
+      "level": 0,
+      "rationale": "No current verifiable evidence."
+    },
+    {
+      "capability": "durable-semantic-memory",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "retrieval-and-grounded-inference",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "knowledge-graph-and-ontology",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "insights-and-continuous-agents",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "transparency-confidence-and-user-control",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "performance-efficiency-and-scalability",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "reliability-and-recoverability",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "security-privacy-and-safety",
+      "current_evidence_count": 0,
+      "evidence_count": 0,
+      "level": 0,
+      "rationale": "No current verifiable evidence."
+    },
+    {
+      "capability": "interaction-quality-and-accessibility",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    },
+    {
+      "capability": "maintainability-architecture-and-governance",
+      "current_evidence_count": 1,
+      "evidence_count": 1,
+      "level": 2,
+      "rationale": "Highest current evidence level is 2."
+    }
+  ],
+  "mandatory_gates_passed": true,
+  "median_level": 2,
+  "minimum_level": 0,
+  "readiness": "incomplete-evidence",
+  "rejected_evidence": [],
+  "schema_version": "berrybrain-maturity.v3"
+}

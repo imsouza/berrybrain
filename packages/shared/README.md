@@ -1,3 +1,3 @@
 # Shared
 
-Tipos e utilitarios compartilhados que nao pertencem especificamente ao dominio.
+Shared types and utilities that do not belong to one specific domain layer.

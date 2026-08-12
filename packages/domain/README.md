@@ -1,10 +1,10 @@
 # Domain
 
-Regras puras de negocio do BerryBrain.
+Pure BerryBrain business rules.
 
-Esta camada nao deve depender de React, FastAPI, banco de dados, filesystem, Ollama ou frameworks externos.
+This layer must not depend on React, FastAPI, databases, filesystems, Ollama, or external frameworks.
 
-Entidades planejadas:
+Planned entities:
 
 - Note
 - Vault

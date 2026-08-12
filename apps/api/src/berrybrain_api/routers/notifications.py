@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import InsightRecord, NotificationRecord
+from berrybrain_api.notification_service import create_notification
 
 router = APIRouter(prefix="/api/v1/notifications", tags=["notifications"])
 
@@ -19,31 +20,6 @@ NOTIFICATION_TYPES = {
     "connection_suggested": "Connection suggested",
     "attention_required": "Attention required",
 }
-
-
-def _create_notification(
-    session,
-    notification_type: str,
-    title: str,
-    description: str,
-    action: str,
-    action_url: str | None = None,
-    related_insight_id: int | None = None,
-    related_job_id: int | None = None,
-) -> NotificationRecord:
-    notification = NotificationRecord(
-        type=notification_type,
-        title=title,
-        description=description,
-        action=action,
-        action_url=action_url,
-        related_insight_id=related_insight_id,
-        related_job_id=related_job_id,
-    )
-    session.add(notification)
-    session.commit()
-    session.refresh(notification)
-    return notification
 
 
 def _get_recent_notifications(session, limit: int = 20) -> list[dict]:
@@ -118,28 +94,32 @@ def generate_insight_notification(insight_id: int) -> dict:
         if insight is None:
             return {"status": "insight_not_found"}
 
-        notification = _create_notification(
+        notification = create_notification(
             session=session,
             notification_type="insight_ready",
             title="Insight ready",
             description=insight.title,
-            action="View insight",
-            action_url="/insights",
+            action="View in graph",
+            action_url="/brain?graph=open",
             related_insight_id=insight_id,
         )
+        session.commit()
         return {"status": "created", "notification": {"id": notification.id}}
 
 
 @router.post("/create-from-failed-job")
 def create_from_failed_job(job_id: int, error_message: str | None = None) -> dict:
     with SessionLocal() as session:
-        notification = _create_notification(
+        notification = create_notification(
             session=session,
             notification_type="job_failed",
             title="Job failed",
-            description="Check errors in Monitor.",
+            description=(error_message or "Check the failure details in Monitor.")[
+                :500
+            ],
             action="Open Monitor",
-            action_url="/monitor",
+            action_url="/brain?monitor=open",
             related_job_id=job_id,
         )
+        session.commit()
         return {"status": "created", "notification": {"id": notification.id}}

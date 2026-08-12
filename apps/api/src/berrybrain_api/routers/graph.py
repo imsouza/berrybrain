@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -16,20 +16,30 @@ from berrybrain_api.ai_gateway import (
 )
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
+from berrybrain_api.confidence import serialize_confidence
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, get_session
 from berrybrain_api.graph_inference_service import (
     persist_graph_inference,
     serialize_graph_inference,
 )
+from berrybrain_api.graph_semantic_service import (
+    audit_graph_semantics,
+    list_semantic_candidates,
+    resolve_semantic_candidate,
+)
 from berrybrain_api.graph_write_service import GraphWriteService
+from berrybrain_api.job_contracts import judge_artifact_payload
 from berrybrain_api.jobs import (
     ENRICH_GRAPH_NODE,
+    EXPAND_KNOWLEDGE_GRAPH,
     PENDING,
     RUNNING,
+    SYNC_HIPPORAG_GRAPH,
     UPDATE_GRAPH_CLUSTERS,
     UPDATE_GRAPH_STATS,
     create_job,
+    enqueue_job,
 )
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -68,6 +78,17 @@ class ManualNotesRequest(BaseModel):
     notes: str = ""
 
 
+class UpdateGraphNodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str | None = Field(default=None, max_length=80)
+    label: str | None = Field(default=None, max_length=255)
+    title: str | None = Field(default=None, max_length=255)
+    summary: str | None = None
+    source: str | None = Field(default=None, max_length=255)
+    status: str | None = None
+
+
 class EdgeTypeRequest(BaseModel):
     type: str
 
@@ -92,6 +113,14 @@ class EnrichNodeRequest(BaseModel):
 class ReclusterRequest(BaseModel):
     preview: bool = True
     preview_token: str = ""
+
+
+class OntologyAuditRequest(BaseModel):
+    apply: bool = False
+
+
+class ResolveSemanticCandidateRequest(BaseModel):
+    action: str
 
 
 def _parse_json_list(raw: str | None) -> list[Any]:
@@ -139,7 +168,8 @@ def _serialize_paged_node(node: GraphNodeRecord) -> dict[str, Any]:
         "folder": metadata.get("folder", ""),
         "sourceId": node.source_id,
         "status": node.status,
-        "confidence": node.confidence,
+        "confidence": node.confidence if node.confidence_sample_size else None,
+        "confidenceInterval": serialize_confidence(node),
         "createdBy": node.created_by,
         "createdByModel": node.created_by_model,
         "semanticState": node.semantic_state,
@@ -149,6 +179,11 @@ def _serialize_paged_node(node: GraphNodeRecord) -> dict[str, Any]:
         "colorId": node.color_id,
         "colorConfidence": node.color_confidence,
         "colorReason": node.color_reason,
+        "semanticStatus": node.semantic_status,
+        "ontology": {
+            "class": node.ontology_class,
+            "canonicalLabel": node.canonical_label,
+        },
     }
 
 
@@ -187,7 +222,11 @@ def get_graph_nodes_page(
     with SessionLocal() as session:
         query = (
             select(GraphNodeRecord)
-            .where(GraphNodeRecord.id > cursor, GraphNodeRecord.status != "ignored")
+            .where(
+                GraphNodeRecord.id > cursor,
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
             .order_by(GraphNodeRecord.id)
             .limit(limit + 1)
         )
@@ -213,7 +252,11 @@ def get_graph_edges_page(
     with SessionLocal() as session:
         query = (
             select(GraphEdgeRecord)
-            .where(GraphEdgeRecord.id > cursor, GraphEdgeRecord.status != "ignored")
+            .where(
+                GraphEdgeRecord.id > cursor,
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
             .order_by(GraphEdgeRecord.id)
             .limit(limit + 1)
         )
@@ -251,12 +294,15 @@ def get_graph_edges_page(
                 "target": f"{node_types.get(edge.target_node_id, 'node')}_{edge.target_node_id}",
                 "type": edge.type,
                 "label": edge.label,
-                "confidence": edge.confidence,
+                "confidence": edge.confidence if edge.confidence_sample_size else None,
+                "confidenceInterval": serialize_confidence(edge),
                 "reason": edge.reason,
                 "evidence": _parse_json_list(edge.evidence),
                 "status": edge.status,
                 "provider": edge.provider,
                 "model": edge.model,
+                "semanticStatus": edge.semantic_status,
+                "ontology": {"property": edge.ontology_property},
             }
             for edge in page
             if edge.source_node_id in node_types and edge.target_node_id in node_types
@@ -345,6 +391,26 @@ def recluster_graph(payload: ReclusterRequest) -> dict:
         }
 
 
+@router.post("/ontology/audit")
+def audit_graph_ontology(payload: OntologyAuditRequest) -> dict:
+    with SessionLocal() as session:
+        return audit_graph_semantics(session, apply=payload.apply)
+
+
+@router.get("/semantic-candidates")
+def get_semantic_candidates(status: str = "pending") -> dict:
+    with SessionLocal() as session:
+        return {"items": list_semantic_candidates(session, status=status)}
+
+
+@router.post("/semantic-candidates/{candidate_id}/resolve")
+def resolve_graph_semantic_candidate(
+    candidate_id: int, payload: ResolveSemanticCandidateRequest
+) -> dict:
+    with SessionLocal() as session:
+        return resolve_semantic_candidate(session, candidate_id, payload.action)
+
+
 @router.post("/expand")
 def expand_graph() -> dict:
     with SessionLocal() as session:
@@ -374,8 +440,15 @@ async def infer_graph(
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question is required")
+    graph_question = (
+        "Use BerryBrain's knowledge graph as queryable data. If the user asks "
+        "which nodes, node types, connections, graph areas, or clusters mention "
+        "a subject, inspect graph nodes and edges and answer with matching "
+        "labels, types, and evidence instead of doing only note text search.\n\n"
+        f"Question: {question}"
+    )
     try:
-        result = await answer_cognitive_query(session, question)
+        result = await answer_cognitive_query(session, graph_question)
     except GraphAIUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -473,17 +546,65 @@ def ignore_graph_node(node_id: int) -> dict:
 def delete_graph_node_endpoint(node_id: int) -> dict:
     with SessionLocal() as session:
         GraphWriteService(session).delete_node(node_id)
-        return {"id": node_id, "status": "deleted"}
+        version = _graph_version(session)
+        stats_job = create_job(
+            session,
+            UPDATE_GRAPH_STATS,
+            {
+                "trigger": "node_deleted",
+                "idempotency_key": f"delete-node-stats:{node_id}:{version}",
+            },
+            max_attempts=2,
+        )
+        cluster_job = create_job(
+            session,
+            UPDATE_GRAPH_CLUSTERS,
+            {
+                "trigger": "node_deleted",
+                "idempotency_key": f"delete-node-clusters:{node_id}:{version}",
+            },
+            max_attempts=2,
+        )
+        retrieval_job = create_job(
+            session,
+            SYNC_HIPPORAG_GRAPH,
+            {
+                "trigger": "node_deleted",
+                "idempotency_key": f"delete-node-retrieval:{node_id}:{version}",
+            },
+            max_attempts=2,
+        )
+        return {
+            "id": node_id,
+            "status": "deleted",
+            "jobs": {
+                "stats": stats_job.id,
+                "clusters": cluster_job.id,
+                "retrieval": retrieval_job.id,
+            },
+        }
 
 
 @router.post("/nodes/{node_id}/reprocess")
 def reprocess_graph_node(node_id: int) -> dict:
+    from berrybrain_api.semantic_enrichment import (
+        SEMANTIC_PROMPT_VERSION,
+        source_fingerprint,
+    )
+
     with SessionLocal() as session:
         node = session.get(GraphNodeRecord, node_id)
         if node is None:
             raise HTTPException(status_code=404, detail="Node not found")
         job = create_job(
-            session, ENRICH_GRAPH_NODE, {"node_id": node.id}, max_attempts=2
+            session,
+            ENRICH_GRAPH_NODE,
+            {
+                "node_id": node.id,
+                "source_fingerprint": source_fingerprint(session, node),
+                "prompt_version": SEMANTIC_PROMPT_VERSION,
+            },
+            max_attempts=2,
         )
         create_automation_log(
             session,
@@ -496,6 +617,106 @@ def reprocess_graph_node(node_id: int) -> dict:
             False,
         )
         return {"status": "queued", "job_id": job.id}
+
+
+@router.put("/nodes/{node_id}", status_code=202)
+def update_graph_node(node_id: int, payload: UpdateGraphNodeRequest) -> dict:
+    from berrybrain_api.semantic_enrichment import (
+        SEMANTIC_PROMPT_VERSION,
+        source_fingerprint,
+    )
+
+    with SessionLocal() as session:
+        node = GraphWriteService(session).update_node_fields(
+            node_id,
+            node_type=payload.type,
+            label=payload.label,
+            title=payload.title,
+            summary=payload.summary,
+            source=payload.source,
+            status=payload.status,
+        )
+        version = _graph_version(session)
+        reprocess_job = create_job(
+            session,
+            ENRICH_GRAPH_NODE,
+            {
+                "node_id": node.id,
+                "source_fingerprint": source_fingerprint(session, node),
+                "prompt_version": SEMANTIC_PROMPT_VERSION,
+                "trigger": "manual_node_edit",
+                "idempotency_key": f"edit-node-enrich:{node.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        expand_job = create_job(
+            session,
+            EXPAND_KNOWLEDGE_GRAPH,
+            {
+                "node_id": node.id,
+                "trigger": "manual_node_edit",
+                "idempotency_key": f"edit-node-expand:{node.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        stats_job = create_job(
+            session,
+            UPDATE_GRAPH_STATS,
+            {
+                "trigger": "manual_node_edit",
+                "idempotency_key": f"edit-node-stats:{node.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        cluster_job = create_job(
+            session,
+            UPDATE_GRAPH_CLUSTERS,
+            {
+                "trigger": "manual_node_edit",
+                "idempotency_key": f"edit-node-clusters:{node.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        judge_job = enqueue_job(
+            session,
+            "JUDGE_ARTIFACT",
+            judge_artifact_payload(
+                session,
+                "node",
+                node.id,
+                str(node.updated_at.timestamp()) if node.updated_at else str(version),
+            ),
+            priority=20,
+            max_attempts=2,
+        )
+        return {
+            "id": node.id,
+            "type": node.type,
+            "label": node.label,
+            "title": node.title or node.label,
+            "summary": node.summary,
+            "source": node.source,
+            "status": node.status,
+            "confidence": node.confidence if node.confidence_sample_size else None,
+            "confidenceInterval": serialize_confidence(node),
+            "semanticStatus": node.semantic_status,
+            "ontology": {
+                "class": node.ontology_class,
+                "canonicalLabel": node.canonical_label,
+            },
+            "validation": {
+                "status": "accepted_for_recalculation",
+                "message": "Name, type, and current evidence are context-compatible.",
+            },
+            "mutationLogId": getattr(node, "mutation_log_id", None),
+            "jobs": {
+                "enrich": reprocess_job.id,
+                "expand": expand_job.id,
+                "stats": stats_job.id,
+                "clusters": cluster_job.id,
+                "judge": judge_job.id,
+            },
+        }
 
 
 @router.put("/nodes/{node_id}/notes")
@@ -639,11 +860,14 @@ def enrich_graph_node(node_id: int, payload: EnrichNodeRequest) -> dict:
             node = session.get(GraphNodeRecord, node_id)
             if node is None:
                 raise HTTPException(status_code=404, detail="Node not found")
-            profile = persist_semantic_analysis(
-                session,
-                node,
-                SemanticAnalysis.model_validate(payload.analysis),
-            )
+            try:
+                analysis = SemanticAnalysis.model_validate(payload.analysis)
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Semantic analysis payload is invalid.",
+                ) from exc
+            profile = persist_semantic_analysis(session, node, analysis)
             create_job(
                 session,
                 UPDATE_GRAPH_CLUSTERS,
@@ -1020,19 +1244,27 @@ async def generate_connection_insight(edge_id: int) -> dict:
         if existing:
             return {"status": "exists", "insight": serialize_insight(existing)}
 
-        confidence = float(result.get("confidence") or edge.confidence or 0.5)
+        raw_confidence = result.get("confidence")
+        try:
+            confidence = float(raw_confidence) if raw_confidence is not None else None
+        except (TypeError, ValueError):
+            confidence = None
+        if confidence is None and edge.confidence_sample_size:
+            confidence = edge.confidence
         insight = create_insight(
             session,
             "connection_insight",
             title,
             description,
             related_notes=note_ids,
-            priority=2 if confidence >= 0.7 else 1,
+            priority=2 if confidence is not None and confidence >= 0.7 else 1,
             why_it_matters=str(result.get("why_it_matters") or ""),
             evidence=[str(item) for item in evidence[:8]],
             suggested_action=str(result.get("suggested_action") or ""),
             graph_impact=str(result.get("graph_impact") or ""),
-            confidence=max(0.0, min(1.0, confidence)),
+            confidence=(
+                max(0.0, min(1.0, confidence)) if confidence is not None else None
+            ),
             status="suggested",
             provider=config.get("provider", ""),
             model=model,

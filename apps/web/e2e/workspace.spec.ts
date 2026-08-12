@@ -70,7 +70,7 @@ async function mockCreatedNote(page: Page, content = "", suffix: string | number
       contentType: "application/json",
       body: JSON.stringify({
         id: Number(String(suffix).replace(/\D/g, "").slice(-6)) || 9002,
-        title: "rascunho",
+        title: "untitled note",
         path: `inbox/e2e-draft-${suffix}.md`,
         folder: "inbox",
         content,
@@ -145,54 +145,6 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
-  test("completes a Review today card and persists the grade", async ({ page, context }) => {
-    let submittedRating = "";
-    await page.route("**/api/v1/reviews**", async (route) => {
-      const request = route.request();
-      const url = new URL(request.url());
-      if (request.method() === "POST" && url.pathname.endsWith("/reviews/901/grade")) {
-        submittedRating = String((request.postDataJSON() as { rating?: string }).rating || "");
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ review: { id: 901, intervalDays: 1, lastPerformance: submittedRating } }),
-        });
-        return;
-      }
-      if (request.method() === "GET" && url.pathname.endsWith("/reviews")) {
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            reviews: [{
-              id: 901,
-              reviewType: "explain",
-              prompt: "Explain how notes become durable connections.",
-              expectedPoints: ["Evidence connects the source notes"],
-              evidence: [],
-              perceivedDifficulty: 0,
-              lastPerformance: "new",
-              intervalDays: 0,
-            }],
-          }),
-        });
-        return;
-      }
-      await route.continue();
-    });
-
-    await openWorkspace(page, context);
-    await page.getByRole("button", { name: "Review today" }).click();
-    await expect(page).toHaveURL(/\/reviews$/);
-    await expect(page.getByRole("heading", { name: "Review today" })).toBeVisible();
-    await expect(page.getByText("1 remaining")).toBeVisible();
-    await page.getByRole("button", { name: "Reveal expected points" }).click();
-    await expect(page.getByText("Evidence connects the source notes")).toBeVisible();
-    await page.getByRole("button", { name: "good", exact: true }).click();
-    await expect.poll(() => submittedRating).toBe("good");
-    await expect(page.getByText("Review complete")).toBeVisible();
-  });
-
   test("does not report a recently active worker as offline", async ({ page, context }) => {
     await authenticate(context);
     const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
@@ -233,7 +185,7 @@ test.describe("Authenticated workspace quality", () => {
         contentType: "application/json",
         body: JSON.stringify({
           id: 9001,
-          title: "rascunho",
+          title: "untitled note",
           path: "inbox/e2e-quick-note.md",
           folder: "inbox",
           content: "A short idea that is not a note yet.",
@@ -422,7 +374,22 @@ test.describe("Authenticated workspace quality", () => {
     expect(savedConfiguration.judge?.model_id).toBe("nvidia/e2e-model-a");
   });
 
-  test("answers from the home Ask modal without leaving the workspace", async ({ page, context }) => {
+  test("opens the dedicated Ask workspace from Home and answers there", async ({ page, context }) => {
+    await page.route("**/api/v1/ask/suggestions?*", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        questions: [{
+          id: "deployment-graph",
+          prompt: "How does Deployment connect to the rest of my graph?",
+          topic: "Deployment",
+          source: "ai_graph_structure",
+          nodeIds: [17],
+        }],
+        topics: ["Deployment", "Automation"],
+        graph: { nodes: 9, edges: 12, suggestedInsights: 1, gaps: 0 },
+      }),
+    }));
     await page.route("**/api/v1/graph/infer", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -436,14 +403,22 @@ test.describe("Authenticated workspace quality", () => {
       }),
     }));
     await openWorkspace(page, context);
+    await expect(page.getByRole("button", { name: "Use voice prompt" })).toBeVisible();
     const question = "How do my deployment notes connect?";
     await page.getByRole("textbox", { name: "Ask BerryBrain" }).fill(question);
-    await page.getByRole("button", { name: "Ask", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Ask BerryBrain" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByPlaceholder(/ask your graph/i)).toHaveValue(question);
-    await expect(dialog.getByText("Your deployment notes connect through automation evidence.")).toBeVisible();
-    await expect(page).toHaveURL(/\/brain$/);
+    await page
+      .getByLabel("Ask your knowledge graph")
+      .getByRole("button", { name: "Ask", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/ask\?q=/);
+    await expect(page.getByPlaceholder(/ask your graph/i)).toHaveValue(question);
+    await expect(page.getByText("Your deployment notes connect through automation evidence.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Graph", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "How does Deployment connect to the rest of my graph?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Automation", exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByPlaceholder(/ask your graph/i)).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
   test("supports the main keyboard workflow", async ({ page, context }) => {

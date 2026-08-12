@@ -313,7 +313,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
           {tab === "health" && (
             <div className="space-y-4 pt-2">
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Queue SLO</div>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-block size-2 rounded-full ${
@@ -330,7 +330,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Cognitive maturity</div>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-block size-2 rounded-full ${maturityLabel === "Mature" ? "bg-emerald-400" : "bg-blue-400"}`} />
@@ -341,7 +341,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Model reliability</div>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-block size-2 rounded-full ${
@@ -358,7 +358,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Worker</div>
                 {worker ? (
                   <div className="mt-3 space-y-2">
@@ -379,7 +379,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 )}
               </div>
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Ollama</div>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-block size-2 rounded-full ${worker?.ollama_healthy ? "bg-emerald-400" : "bg-red-400"}`} />
@@ -388,7 +388,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               </div>
 
               {judgeStatus && (
-                <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="rounded-xl bg-black/[0.02] p-5">
                   <div className="text-xs font-medium text-muted">Judge</div>
                   <div className="mt-3 flex items-center gap-2">
                     <span className={`inline-block size-2 rounded-full ${
@@ -404,7 +404,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               )}
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="mb-3 text-xs font-medium text-muted">Summary</div>
                 <div className="grid grid-cols-4 gap-4">
                   {[
@@ -422,7 +422,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               </div>
 
               {stats?.running_jobs && stats.running_jobs.length > 0 && (
-                <div className="rounded-2xl bg-black/[0.02] p-5">
+                <div className="rounded-xl bg-black/[0.02] p-5">
                   <div className="mb-3 text-xs font-medium text-muted">Running sub-agents</div>
                   <div className="space-y-2">
                     {stats.running_jobs.map((rj: any) => (
@@ -472,7 +472,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
 
           {tab === "stats" && stats && (
             <div className="space-y-4 pt-2">
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-medium text-muted">Install Mode</div>
                   <div className="text-[10px] text-muted">
@@ -480,7 +480,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Vault</div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <StatBlock label="Notes" value={stats.notes} />
@@ -491,7 +491,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-black/[0.02] p-5">
+              <div className="rounded-xl bg-black/[0.02] p-5">
                 <div className="text-xs font-medium text-muted">Jobs</div>
                 <div className="mt-3 grid grid-cols-3 gap-3">
                   <StatBlock label="Total" value={stats.jobs?.total ?? 0} />

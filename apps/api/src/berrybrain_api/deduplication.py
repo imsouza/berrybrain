@@ -15,29 +15,25 @@ from berrybrain_api.models import (
 PROMPT_VERSION = "graph-expand.deterministic.v1"
 STOPWORDS = {
     "a",
-    "as",
-    "de",
-    "do",
-    "da",
-    "das",
-    "dos",
-    "e",
-    "em",
-    "o",
-    "os",
-    "para",
-    "por",
-    "que",
-    "um",
-    "uma",
-    "com",
-    "sobre",
-    "qual",
-    "quais",
-    "relacao",
-    "relação",
-    "tem",
-    "ver",
+    "about",
+    "an",
+    "and",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "is",
+    "of",
+    "on",
+    "relationship",
+    "relationships",
+    "see",
+    "the",
+    "to",
+    "what",
+    "which",
+    "with",
 }
 
 
@@ -117,7 +113,7 @@ def _prune_generated_typed_nodes(session: Session) -> int:
         session.execute(
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type.in_(
-                    ("topico", "entidade", "contexto", "lacuna", "fonte")
+                    ("topic", "entity", "context", "gap", "source")
                 ),
                 GraphNodeRecord.status == "suggested",
             )
@@ -215,8 +211,8 @@ def _prune_stale_graph_insights(session: Session, valid_normalized: set[str]) ->
 
 def _insight_concept_name(title: str) -> str:
     clean = str(title or "").strip()
-    if clean.startswith("Conceito recorrente: "):
-        return clean.removeprefix("Conceito recorrente: ").strip()
+    if clean.startswith("Recurring concept: "):
+        return clean.removeprefix("Recurring concept: ").strip()
     if clean.startswith("Connection pattern: "):
         parts = clean.split('"')
         if len(parts) >= 3:

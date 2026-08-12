@@ -442,7 +442,7 @@ function LandingContent() {
     ["Understand", "Extract structure, concepts, context, entities, and evidence-bearing chunks."],
     ["Retrieve", "Combine lexical, vector, and graph signals instead of relying on one model answer."],
     ["Connect", "Create typed graph relations with reasons, confidence, and source evidence."],
-    ["Act", "Review gaps, apply insights, confirm suggestions, and choose the next study step."],
+    ["Act", "Inspect gaps, apply insights, confirm suggestions, and choose the next study step."],
   ];
   const maturityItems = [
     ["Hybrid memory", "Markdown chunks, lexical signals, vector stores, graph context, and optional HippoRAG work together during retrieval."],
@@ -451,7 +451,7 @@ function LandingContent() {
     ["Recoverable jobs", "Leases, heartbeats, idempotency, retries, dead-letter handling, and stale-job recovery protect the pipeline."],
     ["Provider setup", "Cloud presets fill provider URLs automatically, model lists are normalized, and keys stay masked and encrypted at rest."],
     ["Semantic graph", "Stable topic colors, distinct vault namespaces, progressive loading, canvas LOD, and explainable node details keep large graphs usable."],
-    ["Ask and research", "Grounded multi-turn Flow and global Check Online runs retain evidence, cancellation, and provider provenance."],
+    ["Ask and research", "Grounded multi-turn Flow and graph-wide gap research retain evidence, cancellation, and provider provenance."],
     ["Release gates", "The validated scope closes API, worker, sidecar, web, E2E, benchmark, security, container, and architecture checks."],
   ];
   const comparisonColumns = [

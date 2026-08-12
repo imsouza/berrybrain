@@ -34,10 +34,10 @@ class HomeSummaryTest(unittest.TestCase):
     def test_build_home_summary_exposes_progress_and_knowledge_sections(self) -> None:
         now = utc_now()
         note_a = NoteRecord(
-            title="Observabilidade",
-            slug="observabilidade",
-            path="estudos/observabilidade.md",
-            content="Notas sobre logs, métricas e traces.",
+            title="Observability",
+            slug="observability",
+            path="study/observability.md",
+            content="Notes about logs, metrics, and traces.",
             content_hash="a",
             status="synced",
             created_at=now,
@@ -47,7 +47,7 @@ class HomeSummaryTest(unittest.TestCase):
         note_b = NoteRecord(
             title="Edge Computing",
             slug="edge-computing",
-            path="estudos/edge-computing.md",
+            path="study/edge-computing.md",
             content_hash="b",
             status="new",
             created_at=now,
@@ -62,7 +62,7 @@ class HomeSummaryTest(unittest.TestCase):
                 JobRecord(
                     type="GENERATE_EMBEDDING",
                     status="running",
-                    payload='{"note_path":"estudos/observabilidade.md"}',
+                    payload='{"note_path":"study/observability.md"}',
                     started_at=now - timedelta(seconds=34),
                 ),
                 JobRecord(type="FIND_CONNECTIONS", status="pending"),
@@ -79,29 +79,29 @@ class HomeSummaryTest(unittest.TestCase):
                 SettingRecord(key="ai_provider", value="cloud"),
                 SettingRecord(key="ai_model", value="nvidia/nemotron"),
                 ConceptRecord(
-                    name="observabilidade",
-                    normalized_name="observabilidade",
-                    description="Monitoramento de sistemas.",
+                    name="observability",
+                    normalized_name="observability",
+                    description="Monitoring of distributed systems.",
                 ),
                 ConnectionRecord(
                     source_note_id=note_a.id,
                     target_note_id=note_b.id,
                     connection_type="semantic",
                     confidence=82,
-                    reason="Ambas tratam de sistemas distribuídos.",
+                    reason="Both cover distributed systems.",
                     created_by="ai",
                 ),
                 InsightRecord(
                     type="knowledge_gap",
-                    title="Lacuna detectada",
-                    description="Falta uma nota central.",
-                    related_notes='["estudos/observabilidade.md"]',
+                    title="Detected gap",
+                    description="A central note is missing.",
+                    related_notes='["study/observability.md"]',
                     priority=2,
                 ),
                 GeneratedMetadataRecord(
                     note_id=note_a.id,
                     generation_type="summary",
-                    content='{"summary":"Resumo"}',
+                    content='{"summary":"Summary"}',
                     content_hash="a",
                     model_used="nvidia/nemotron",
                 ),
@@ -115,7 +115,7 @@ class HomeSummaryTest(unittest.TestCase):
                     action_type="ENQUEUE_JOB",
                     target_type="note",
                     target_id=note_a.path,
-                    description="Criou job EXPAND_KNOWLEDGE_GRAPH para NOTE_CREATED",
+                    description="Created EXPAND_KNOWLEDGE_GRAPH job for NOTE_CREATED",
                     created_at=now,
                 ),
             ]
@@ -135,7 +135,7 @@ class HomeSummaryTest(unittest.TestCase):
         self.assertEqual(summary["stats"]["notes"]["unassimilated"], 1)
         self.assertEqual(summary["stats"]["connections"]["total"], 1)
         self.assertEqual(summary["stats"]["concepts"]["total"], 1)
-        self.assertIn("study", summary["stats"])
+        self.assertIn("knowledge", summary["stats"])
         self.assertNotIn("flashcards", summary["stats"])
         self.assertNotIn("reviews", summary["stats"])
         self.assertEqual(summary["graphSummary"]["nodes"], 2)

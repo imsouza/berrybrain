@@ -36,7 +36,7 @@ def cognitive_maturity_report(
     session: Session,
     *,
     now: datetime | None = None,
-    minimum_reviewed_insights: int = 20,
+    minimum_evaluated_insights: int = 20,
 ) -> dict[str, Any]:
     reference = now or datetime.now(UTC)
     nodes = list(
@@ -76,7 +76,7 @@ def cognitive_maturity_report(
     outcomes = insight_outcome_metrics(
         session,
         now=reference,
-        minimum_reviewed=minimum_reviewed_insights,
+        minimum_evaluated=minimum_evaluated_insights,
     )
 
     structural_ready = (
@@ -139,7 +139,7 @@ def insight_outcome_metrics(
     *,
     now: datetime | None = None,
     window_days: int = 30,
-    minimum_reviewed: int = 20,
+    minimum_evaluated: int = 20,
 ) -> dict[str, Any]:
     reference = now or datetime.now(UTC)
     start = reference - timedelta(days=window_days)
@@ -148,38 +148,38 @@ def insight_outcome_metrics(
             select(InsightRecord).where(InsightRecord.created_at >= start)
         ).scalars()
     )
-    reviewed = [insight for insight in candidates if _has_outcome(insight)]
-    useful = [insight for insight in reviewed if _is_useful_outcome(insight)]
-    usefulness_rate = _ratio(len(useful), len(reviewed)) if reviewed else 0.0
+    evaluated = [insight for insight in candidates if _has_outcome(insight)]
+    useful = [insight for insight in evaluated if _is_useful_outcome(insight)]
+    usefulness_rate = _ratio(len(useful), len(evaluated)) if evaluated else 0.0
     observation_days = 0
     if candidates:
         earliest = min(_as_utc(insight.created_at) for insight in candidates)
         observation_days = min(window_days, max(0, (reference - earliest).days))
 
     blockers: list[str] = []
-    if len(reviewed) < minimum_reviewed:
+    if len(evaluated) < minimum_evaluated:
         blockers.append(
-            f"Review at least {minimum_reviewed} insights; {len(reviewed)} have outcomes."
+            f"Evaluate at least {minimum_evaluated} insights; {len(evaluated)} have outcomes."
         )
     if observation_days < window_days:
         blockers.append(
             f"Collect {window_days} days of insight outcomes; {observation_days} days observed."
         )
-    if reviewed and usefulness_rate < 0.70:
+    if evaluated and usefulness_rate < 0.70:
         blockers.append(
             f"Insight usefulness is {usefulness_rate:.0%}; the maturity gate is 70%."
         )
 
     meets_target = (
-        len(reviewed) >= minimum_reviewed
+        len(evaluated) >= minimum_evaluated
         and observation_days >= window_days
         and usefulness_rate >= 0.70
     )
     return {
         "windowDays": window_days,
         "observationDays": observation_days,
-        "minimumReviewed": minimum_reviewed,
-        "reviewed": len(reviewed),
+        "minimumEvaluated": minimum_evaluated,
+        "evaluated": len(evaluated),
         "usefulOrApplied": len(useful),
         "usefulnessRate": round(usefulness_rate, 4),
         "meetsTarget": meets_target,
