@@ -53,7 +53,9 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                 requests.append((url, kwargs["json"]))
                 return FakeResponse()
 
-        with patch.object(cloud_gateway.httpx, "AsyncClient", return_value=FakeClient()):
+        with patch.object(
+            cloud_gateway.httpx, "AsyncClient", return_value=FakeClient()
+        ):
             vector = await cloud_gateway.cloud_generate_embedding(
                 "https://integrate.api.nvidia.com/v1",
                 "secret",

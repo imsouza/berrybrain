@@ -85,9 +85,7 @@ def _extract_note_concepts(
                 continue
             if evidence and _is_valid_concept_name(name):
                 seen.add(normalized)
-                concepts.append(
-                    (name, evidence, record.model_used or "")
-                )
+                concepts.append((name, evidence, record.model_used or ""))
     for name in _extract_content_concepts(note):
         normalized = normalize_concept_name(name)
         if not normalized or normalized == note_title_key or normalized in seen:

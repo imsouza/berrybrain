@@ -328,7 +328,9 @@ class GraphWriteService:
             )
         assert existing is not None
         before = {} if created else _node_state(existing)
-        became_ai_generated = not created and existing.created_by != "ai" and created_by == "ai"
+        became_ai_generated = (
+            not created and existing.created_by != "ai" and created_by == "ai"
+        )
         if not created:
             combined_ids = {
                 int(value)

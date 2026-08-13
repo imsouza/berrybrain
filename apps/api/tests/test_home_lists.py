@@ -98,9 +98,7 @@ class HomeListServicesTest(unittest.TestCase):
 
         self.assertEqual(preview["pending"], 1)
         self.assertEqual(applied["recalculated"], 1)
-        self.assertEqual(
-            connection.confidence_method, "jeffreys-wilson-evidence-v2"
-        )
+        self.assertEqual(connection.confidence_method, "jeffreys-wilson-evidence-v2")
         self.assertEqual(connection.confidence_sample_size, 2)
         self.assertIsNotNone(connection.confidence_updated_at)
         self.assertNotEqual(connection.confidence, 91)

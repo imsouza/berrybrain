@@ -93,16 +93,20 @@ class MaturationRegressionTest(unittest.TestCase):
         self.session.commit()
 
         expand_knowledge_graph(self.session)
-        original = self.session.query(GraphNodeRecord).filter_by(
-            type="topic", label="Time Series Analysis"
-        ).one()
+        original = (
+            self.session.query(GraphNodeRecord)
+            .filter_by(type="topic", label="Time Series Analysis")
+            .one()
+        )
         original_id = original.id
         original_updated_at = original.updated_at
 
         expand_knowledge_graph(self.session)
-        retained = self.session.query(GraphNodeRecord).filter_by(
-            type="topic", label="Time Series Analysis"
-        ).one()
+        retained = (
+            self.session.query(GraphNodeRecord)
+            .filter_by(type="topic", label="Time Series Analysis")
+            .one()
+        )
         self.assertEqual(retained.id, original_id)
         self.assertEqual(retained.updated_at, original_updated_at)
 

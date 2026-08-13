@@ -183,7 +183,9 @@ def _resolve_related_note_ids(
                 _normalize_text(note.path or ""),
                 _normalize_text(note.title or ""),
             )
-            if any(reference and reference in evidence_text for reference in references):
+            if any(
+                reference and reference in evidence_text for reference in references
+            ):
                 resolved.add(note.id)
     return sorted(resolved)
 
@@ -399,10 +401,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                     ]
                 ):
                     itype = "new_connection"
-                elif any(
-                    w in title_lower
-                    for w in ["foundation", "base", "premise"]
-                ):
+                elif any(w in title_lower for w in ["foundation", "base", "premise"]):
                     itype = "premise"
                 elif any(
                     w in title_lower

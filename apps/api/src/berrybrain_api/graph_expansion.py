@@ -586,7 +586,9 @@ def _upsert_concept(
     concept.description = concept.description or f'Detected concept: "{name}".'
     concept.frequency = len(note_ids)
     concept.related_note_ids = _dump_json(note_ids)
-    generated_by_ai = bool(model and model not in {"content-analysis", "metadata-parser"})
+    generated_by_ai = bool(
+        model and model not in {"content-analysis", "metadata-parser"}
+    )
     concept.extracted_by = "ai" if generated_by_ai else "system"
     estimate = estimate_confidence(
         ConfidenceSignal(1.0, f"source-note:{note_id}") for note_id in note_ids

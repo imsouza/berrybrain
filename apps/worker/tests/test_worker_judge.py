@@ -54,7 +54,9 @@ class WorkerJudgeTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(client.post.await_count, 2)
-        self.assertIn("/api/v1/jobs/43/complete", client.post.await_args_list[1].args[0])
+        self.assertIn(
+            "/api/v1/jobs/43/complete", client.post.await_args_list[1].args[0]
+        )
 
 
 if __name__ == "__main__":

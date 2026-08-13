@@ -78,9 +78,9 @@ def estimate_confidence(
         )
         / denominator
     )
-    posterior_mean = (
-        sum(item.score for item in observations) + 0.5
-    ) / (sample_size + 1)
+    posterior_mean = (sum(item.score for item in observations) + 0.5) / (
+        sample_size + 1
+    )
     return ConfidenceEstimate(
         round(posterior_mean, 6),
         round(max(0.0, center - margin), 6),
