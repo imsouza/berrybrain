@@ -299,6 +299,25 @@ def _graph_context_suggestions(
             [node.id],
         )
 
+    for node in ranked_nodes:
+        label = display_label(node.label)
+        node_type = " ".join(node.type.replace("_", " ").split())
+        add(
+            f'What recorded evidence supports the graph item "{label}"?',
+            node.label,
+            [node.id],
+        )
+        add(
+            f'Why is "{label}" classified as {node_type}, and does its current context support that classification?',
+            node.label,
+            [node.id],
+        )
+        add(
+            f'What remains uncertain or incomplete about "{label}" in the current graph?',
+            node.label,
+            [node.id],
+        )
+
     topics: list[str] = []
     for item in questions:
         if item["topic"] not in topics:

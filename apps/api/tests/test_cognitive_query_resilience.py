@@ -51,6 +51,7 @@ class CognitiveQueryResilienceTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["status"], "waiting_provider")
+        self.assertEqual(result["answer"], "")
         self.assertIn("80 seconds", result["reason"])
         self.assertTrue(result["evidence"])
         self.assertEqual(generate.await_args.kwargs["timeout"], 80)

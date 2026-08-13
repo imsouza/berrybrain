@@ -125,10 +125,11 @@ function Shell() {
             onClose={() => { window.location.href = appPath("/brain"); }}
             onOpenHome={() => { window.location.href = appPath("/brain"); }}
             onOpenGraph={() => { window.location.href = appPath("/brain?graph=open"); }}
+            onOpenSettings={() => w.setSettingsOpen(true)}
             onNavigate={(path) => { void w.openNote(path); }}
           />
         ) : w.graphOpen ? (
-          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
+          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : w.active ? (
           <NoteEditor />
         ) : (

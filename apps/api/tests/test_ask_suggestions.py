@@ -33,6 +33,27 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["topics"], [])
         self.assertEqual(result["graph"], {"nodes": 0, "edges": 0})
 
+    async def test_single_graph_node_still_provides_a_full_grounded_queue(self) -> None:
+        with self.factory() as session:
+            session.add(
+                GraphNodeRecord(
+                    type="note",
+                    label="Forecasting notes",
+                    status="confirmed",
+                    semantic_status="active",
+                )
+            )
+            session.commit()
+
+        with patch("berrybrain_api.routers.ask.SessionLocal", self.factory):
+            result = await get_suggestions(BackgroundTasks(), limit=16)
+
+        self.assertGreaterEqual(len(result["questions"]), 5)
+        self.assertTrue(
+            all("Forecasting notes" in item["prompt"] for item in result["questions"])
+        )
+        self.assertTrue(all(item["nodeIds"] for item in result["questions"]))
+
     async def test_suggestions_are_derived_from_live_graph_artifacts(self) -> None:
         with self.factory() as session:
             cluster = SemanticClusterRecord(

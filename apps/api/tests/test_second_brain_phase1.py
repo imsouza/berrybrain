@@ -13,6 +13,7 @@ from berrybrain_api.models import (
     ConnectionRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
+    GraphSemanticCandidateRecord,
     InsightRecord,
     NoteRecord,
 )
@@ -87,6 +88,36 @@ class SecondBrainPhase1Test(unittest.TestCase):
         self.assertTrue(any(c.connection_type == "shared_concept" for c in connections))
         self.assertEqual(backlink.status, "confirmed")
         self.assertIn("Edge Computing", backlink.evidence)
+
+    def test_invalid_concept_is_quarantined_without_blocking_graph(self) -> None:
+        note = NoteRecord(
+            title="Time Series Forecasting",
+            slug="time-series",
+            path="study/time-series.md",
+            content_hash="valid-hash",
+        )
+        self.session.add(note)
+        self.session.flush()
+        upsert_generated_metadata(
+            self.session,
+            note.id,
+            "concepts",
+            {"concepts": ["Title", "time series"]},
+            "valid-hash",
+            model_used="test-model",
+        )
+
+        from berrybrain_api.second_brain import expand_knowledge_graph
+
+        result = expand_knowledge_graph(self.session)
+
+        labels = {node.label for node in self.session.query(GraphNodeRecord).all()}
+        quarantined = self.session.query(GraphSemanticCandidateRecord).all()
+        self.assertIn("Time Series Forecasting", labels)
+        self.assertIn("time series", {label.casefold() for label in labels})
+        self.assertNotIn("Title", labels)
+        self.assertEqual(result["rejectedCandidates"], 1)
+        self.assertEqual([item.proposed_label for item in quarantined], ["Title"])
 
     def test_graph_inference_uses_evidence_and_refuses_unsupported_claims(self) -> None:
         note_a = NoteRecord(
@@ -463,7 +494,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             .all()
         ]
 
-        self.assertEqual(topics, ["containers"])
+        self.assertEqual(topics, [])
 
     def test_expand_merges_duplicate_note_nodes_by_source_id(self) -> None:
         note = NoteRecord(

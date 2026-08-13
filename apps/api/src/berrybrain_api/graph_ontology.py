@@ -152,8 +152,9 @@ def validate_node_name(node_type: str, label: str) -> list[str]:
     issues: list[str] = []
     if node_type not in NODE_RULES:
         return [f"Unsupported node type: {node_type}"]
-    if len(clean) < 2 or len(clean) > 120:
-        issues.append("Name must contain between 2 and 120 characters.")
+    minimum_length = 1 if node_type == "note" else 2
+    if len(clean) < minimum_length or len(clean) > 120:
+        issues.append(f"Name must contain between {minimum_length} and 120 characters.")
     if normalized in GENERIC_LABELS:
         issues.append("Name is a metadata key or generic placeholder, not knowledge.")
     if node_type in {"concept", "entity", "topic", "context"}:

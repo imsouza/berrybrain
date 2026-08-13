@@ -24,9 +24,23 @@ class GraphOntologyConfidenceTest(unittest.TestCase):
             ]
         )
         self.assertEqual(estimate.sample_size, 2)
-        self.assertAlmostEqual(estimate.score or 0, 0.9)
+        self.assertAlmostEqual(estimate.score or 0, 0.766667)
+        self.assertEqual(estimate.method, "jeffreys-wilson-evidence-v2")
         self.assertLess(estimate.lower or 0, estimate.score or 0)
         self.assertGreater(estimate.upper or 0, estimate.score or 0)
+
+    def test_positive_evidence_does_not_claim_absolute_certainty(self) -> None:
+        estimate = estimate_confidence(
+            [
+                ConfidenceSignal(1.0, "note:1"),
+                ConfidenceSignal(1.0, "model:1"),
+                ConfidenceSignal(1.0, "evidence:1"),
+            ]
+        )
+
+        self.assertAlmostEqual(estimate.score or 0, 0.875)
+        self.assertLess(estimate.lower or 0, estimate.score or 0)
+        self.assertEqual(estimate.upper, 1.0)
 
     def test_name_validator_rejects_metadata_and_sentences(self) -> None:
         self.assertTrue(validate_node_name("concept", "markdown content"))

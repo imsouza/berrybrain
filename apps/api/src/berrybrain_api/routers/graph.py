@@ -457,6 +457,14 @@ async def infer_graph(
             status_code=502,
             detail="Ask could not complete with the configured AI provider.",
         ) from exc
+    if result.get("status") == "waiting_provider":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_unavailable",
+                "message": "The configured AI provider did not return an answer.",
+            },
+        )
     inference = persist_graph_inference(session, question, result)
     return serialize_graph_inference(inference)
 
@@ -546,6 +554,9 @@ def ignore_graph_node(node_id: int) -> dict:
 def delete_graph_node_endpoint(node_id: int) -> dict:
     with SessionLocal() as session:
         GraphWriteService(session).delete_node(node_id)
+        from berrybrain_api.jobs import supersede_missing_graph_artifact_jobs
+
+        supersede_missing_graph_artifact_jobs(session)
         version = _graph_version(session)
         stats_job = create_job(
             session,

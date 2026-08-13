@@ -7,6 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.jobs import (
+    EXPAND_KNOWLEDGE_GRAPH,
+    FIND_CONNECTIONS,
+    PARSE_NOTE,
+    UPDATE_GRAPH_STATS,
     affected_job_types_for_note_update,
     enqueue_note_changed_jobs,
 )
@@ -20,6 +24,7 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
 
     result = {
         "created": 0,
+        "moved": 0,
         "updated": 0,
         "unchanged": 0,
         "deleted": 0,
@@ -40,6 +45,36 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
         existing = existing_records.get(relative_path)
 
         if existing is None:
+            move_candidates = [
+                candidate
+                for old_path, candidate in existing_records.items()
+                if old_path not in seen_paths
+                and not Path(vault_path, old_path).exists()
+                and candidate.content_hash == current_hash
+            ]
+            if len(move_candidates) == 1:
+                moved = move_candidates[0]
+                old_path = moved.path
+                moved.path = relative_path
+                moved.slug = path.stem
+                session.flush()
+                record = sync_note_record(session, vault_path, relative_path)
+                jobs = enqueue_note_changed_jobs(
+                    session,
+                    record.path,
+                    "NOTE_MOVED",
+                    record.content_hash,
+                    affected_job_types={
+                        PARSE_NOTE,
+                        FIND_CONNECTIONS,
+                        EXPAND_KNOWLEDGE_GRAPH,
+                        UPDATE_GRAPH_STATS,
+                    },
+                )
+                seen_paths.add(old_path)
+                result["moved"] += 1
+                result["jobs_created"] += len(jobs)
+                continue
             record = sync_note_record(session, vault_path, relative_path)
             jobs = enqueue_note_changed_jobs(
                 session,
@@ -71,10 +106,9 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
         result["unchanged"] += 1
 
     for note_path in sorted(set(existing_records) - seen_paths):
-        remove_note_record(session, note_path)
-        jobs = enqueue_note_changed_jobs(session, note_path, "NOTE_DELETED", "")
+        jobs_created = remove_note_record(session, note_path)
         result["deleted"] += 1
-        result["jobs_created"] += len(jobs)
+        result["jobs_created"] += jobs_created
 
     return result
 

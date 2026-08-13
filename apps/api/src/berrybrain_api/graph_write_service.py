@@ -128,18 +128,34 @@ def _recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
     persist_confidence(edge, estimate_confidence(signals))
 
 
+def recalculate_node_confidence(node: GraphNodeRecord) -> None:
+    """Refresh persisted confidence after graph provenance changes."""
+    _recalculate_node_confidence(node)
+
+
+def recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
+    """Refresh persisted confidence after graph provenance changes."""
+    _recalculate_edge_confidence(edge)
+
+
 def _node_state(node: GraphNodeRecord) -> dict[str, Any]:
     return {
         "id": node.id,
         "type": node.type,
+        "ontology_class": node.ontology_class,
+        "canonical_label": node.canonical_label,
         "label": node.label,
         "title": node.title,
         "summary": node.summary,
+        "ai_notes": node.ai_notes,
         "status": node.status,
+        "semantic_status": node.semantic_status,
         "source": node.source,
         "source_id": node.source_id,
         "source_note_ids": node.source_note_ids,
         "source_attachment_ids": node.source_attachment_ids,
+        "created_by": node.created_by,
+        "created_by_model": node.created_by_model,
         "user_notes": node.user_notes,
         "ai_summary": node.ai_summary,
         "ai_context": node.ai_context,
@@ -151,6 +167,11 @@ def _node_state(node: GraphNodeRecord) -> dict[str, Any]:
         "prompt_version": node.prompt_version,
         "validation_status": node.validation_status,
         "graph_metadata": node.graph_metadata,
+        "confidence": node.confidence,
+        "confidence_lower": node.confidence_lower,
+        "confidence_upper": node.confidence_upper,
+        "confidence_sample_size": node.confidence_sample_size,
+        "confidence_method": node.confidence_method,
     }
 
 
@@ -245,37 +266,13 @@ class GraphWriteService:
             )
 
         query = select(GraphNodeRecord).where(GraphNodeRecord.type == canonical_type)
-        if source_id:
+        if source_id and canonical_type in {"note", "attachment", "insight"}:
             query = query.where(GraphNodeRecord.source_id == source_id)
             existing = self.session.execute(query).scalar_one_or_none()
-            if existing is None and canonical_type not in {"note", "attachment"}:
-                candidate_types = (
-                    CONCEPTUAL_NODE_TYPES
-                    if canonical_type in CONCEPTUAL_NODE_TYPES
-                    else {canonical_type}
-                )
-                candidates = self.session.execute(
-                    select(GraphNodeRecord).where(
-                        GraphNodeRecord.type.in_(_stored_node_types(candidate_types))
-                    )
-                ).scalars()
-                existing = next(
-                    (
-                        node
-                        for node in candidates
-                        if normalize_graph_label(node.label) == normalized_label
-                    ),
-                    None,
-                )
         else:
-            candidate_types = (
-                CONCEPTUAL_NODE_TYPES
-                if canonical_type in CONCEPTUAL_NODE_TYPES
-                else {canonical_type}
-            )
             candidates = self.session.execute(
                 select(GraphNodeRecord).where(
-                    GraphNodeRecord.type.in_(_stored_node_types(candidate_types))
+                    GraphNodeRecord.type.in_(_stored_node_types({canonical_type}))
                 )
             ).scalars()
             existing = next(
@@ -331,6 +328,9 @@ class GraphWriteService:
             )
         assert existing is not None
         before = {} if created else _node_state(existing)
+        became_ai_generated = (
+            not created and existing.created_by != "ai" and created_by == "ai"
+        )
         if not created:
             combined_ids = {
                 int(value)
@@ -340,15 +340,19 @@ class GraphWriteService:
             }
             existing.source_note_ids = _json_dump(sorted(combined_ids))
             existing.type = canonical_type
+            existing.created_by = created_by or existing.created_by
+            existing.created_by_model = model or existing.created_by_model
         existing.label = label.strip()
         existing.canonical_label = canonical_label(label).casefold()
         existing.ontology_class = ontology_class(canonical_type)
-        existing.semantic_status = "active"
+        if created or existing.semantic_status != "quarantined":
+            existing.semantic_status = "active"
         existing.title = title.strip() or existing.title or label.strip()
         existing.summary = summary or existing.summary
         existing.ai_notes = ai_notes or existing.ai_notes
         existing.source = source or existing.source
-        existing.source_id = source_id or existing.source_id
+        if created or canonical_type in {"note", "attachment", "insight"}:
+            existing.source_id = source_id or existing.source_id
         existing.source_attachment_ids = _json_dump(
             sorted(
                 set(source_attachment_ids or _json_list(existing.source_attachment_ids))
@@ -403,9 +407,26 @@ class GraphWriteService:
                 if isinstance(graph_metadata, str)
                 else _json_dump(graph_metadata)
             )
-        existing.updated_at = datetime.now(UTC)
         after = _node_state(existing)
-        if not created and before != after:
+        state_changed = created or before != after
+        if state_changed:
+            existing.updated_at = datetime.now(UTC)
+        if became_ai_generated:
+            from berrybrain_api.job_contracts import judge_artifact_payload
+            from berrybrain_api.jobs import enqueue_job
+
+            enqueue_job(
+                self.session,
+                "JUDGE_ARTIFACT",
+                judge_artifact_payload(
+                    self.session,
+                    "node",
+                    existing.id,
+                    str(existing.updated_at.timestamp()),
+                ),
+                priority=20,
+            )
+        if not created and state_changed:
             self._record(
                 "GRAPH_NODE_UPSERTED",
                 "graph_node",
@@ -750,6 +771,8 @@ class GraphWriteService:
         before = _node_state(node)
         for key, value in changes.items():
             setattr(node, key, value)
+        if before == _node_state(node):
+            return node
         node.generated_at = datetime.now(UTC)
         node.updated_at = datetime.now(UTC)
         self._record(

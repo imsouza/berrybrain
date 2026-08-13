@@ -101,6 +101,53 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(page.getByText("Docker is a containerization platform")).toBeVisible({ timeout: 10_000 });
   });
 
+  test("provider failure offers retry and settings without rendering an answer", async ({ page }) => {
+    await mockPagedGraph(page, []);
+    let attempts = 0;
+    await page.route("**/api/v1/graph/infer", (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            detail: {
+              code: "provider_unavailable",
+              message: "The configured AI provider did not return an answer.",
+            },
+          }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "answered",
+          question: "What connects these notes?",
+          answer: "The notes share container orchestration evidence.",
+          evidence: [{ title: "Container notes", text: "Shared orchestration evidence." }],
+          relatedNodes: [],
+        }),
+      });
+    });
+
+    await page.goto("/ask");
+    await page.getByPlaceholder(/ask your graph/i).fill("What connects these notes?");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+
+    await expect(page.getByRole("region", { name: "Ask unavailable" })).toBeVisible();
+    await expect(page.getByText("BerryBrain answer")).toHaveCount(0);
+    await expect(page.getByText(/Strongest evidence/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    await page.getByRole("button", { name: "Open Settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings" }).click();
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByText("The notes share container orchestration evidence.")).toBeVisible();
+    expect(attempts).toBe(2);
+  });
+
   test("voice prompt shows a live waveform and writes recognized speech", async ({ page }) => {
     await page.addInitScript(() => {
       class MockRecognition {
@@ -306,7 +353,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       }),
     );
 
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) =>
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -323,7 +370,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       await fetch("/api/v1/vault/scan-and-rebuild", { method: "POST" });
     });
     await page.reload();
-    await page.getByRole("button", { name: "List view" }).click();
+    await page.getByRole("button", { name: "Graph list" }).click();
     await expect(page.getByText("Test Note")).toBeVisible({ timeout: 10_000 });
   });
 
@@ -352,7 +399,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
         }),
       }),
     );
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) =>
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -367,7 +414,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(page.getByText(/2 Nodes · 1 Connections/i)).toBeVisible({
       timeout: 10_000,
     });
-    await page.getByRole("button", { name: "List view" }).click();
+    await page.getByRole("button", { name: "Graph list" }).click();
 
     const listView = page.getByLabel("Knowledge graph list view");
     const nodesSection = listView.locator("section").filter({ hasText: "Nodes" });
@@ -434,12 +481,12 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("Docker uses Linux namespaces for isolation.")).toBeVisible();
     await page.getByRole("button", { name: "Continue in Flow" }).click();
-    await expect(page.getByRole("button", { name: "Exit Flow · 1 turns" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Exit Flow · 1", exact: true })).toBeVisible();
 
     await askInput.fill("What does that isolate?");
     await page.getByRole("button", { name: "Ask", exact: true }).click();
     await expect(page.getByText("They isolate process views.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Exit Flow · 2 turns" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Exit Flow · 2", exact: true })).toBeVisible();
 
     await askInput.fill("Can this request be cancelled?");
     await page.getByRole("button", { name: "Ask", exact: true }).click();
@@ -475,10 +522,10 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     }));
 
     await page.goto("/brain?graph=open");
-    const researchGaps = page.getByRole("button", { name: "Research gaps" });
+    await page.getByRole("button", { name: "Knowledge", exact: true }).click();
+    const researchGaps = page.getByRole("menuitem", { name: /Research Gaps/ });
     await expect(researchGaps).toBeEnabled();
     await researchGaps.click();
-    await expect(page.getByRole("button", { name: "Researching gaps 10%" })).toBeVisible();
     await expect(page.getByText("Research completed. 2 queries checked.")).toBeVisible({ timeout: 5_000 });
   });
 
@@ -497,7 +544,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ nodes: [{ id: "note_11", recordId: 11, type: "note", label: "Docker", status: "suggested", semanticState: "failed" }], nextCursor: null, graphVersion: 5 }),
+      body: JSON.stringify({ nodes: [{ id: "concept_11", recordId: 11, type: "concept", label: "Docker", status: "suggested", semanticState: "failed" }], nextCursor: null, graphVersion: 5 }),
     }));
     await page.route("**/api/v1/graph/edges?*", (route) => route.fulfill({
       status: 200,
@@ -512,7 +559,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes/11/summary", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: 11, type: "note", label: "Docker", title: "Docker", summary: "Container platform", status: "suggested", semanticState: "failed", confidenceInterval: { score: 0.8, lower: 0.6, upper: 0.9, sampleSize: 2, method: "wilson-evidence-v1" }, userNotes: "" }),
+      body: JSON.stringify({ id: 11, type: "concept", label: "Docker", title: "Docker", summary: "Container platform", status: "suggested", semanticState: "failed", confidenceInterval: { score: 0.8, lower: 0.6, upper: 0.9, sampleSize: 2, method: "jeffreys-wilson-evidence-v2" }, userNotes: "" }),
     }));
     await page.route("**/api/v1/graph/nodes/11/semantic-analysis", (route) => route.fulfill({
       status: 200,
@@ -524,9 +571,15 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       contentType: "application/json",
       body: JSON.stringify({ jobId: 404, status: "queued" }),
     }));
+    let deleteCalls = 0;
+    await page.route("**/api/v1/graph/nodes/11", (route) => {
+      if (route.request().method() !== "DELETE") return route.fallback();
+      deleteCalls += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "deleted" }) });
+    });
 
     await page.goto("/brain?graph=open");
-    await page.getByRole("button", { name: "List view" }).click();
+    await page.getByRole("button", { name: "Graph list" }).click();
     const dockerNode = page.getByRole("listitem", { name: /Docker/ });
     await expect(dockerNode).toHaveAttribute("href", /\/graph\/nodes\/11$/);
     await dockerNode.click();
@@ -552,5 +605,11 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(page.getByText("Semantic analysis queued. Job 404")).toBeVisible();
     await page.getByRole("button", { name: /Back to graph/i }).click();
     await expect(page).toHaveURL(/\/brain\?graph=open$/, { timeout: 15_000 });
+
+    await page.goto("/graph/nodes/11");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Delete node" }).click();
+    await expect(page).toHaveURL(/\/brain\?graph=open&refresh=node-deleted$/, { timeout: 15_000 });
+    expect(deleteCalls).toBe(1);
   });
 });

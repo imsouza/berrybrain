@@ -433,7 +433,12 @@ Successful extraction becomes searchable chunks and traceable graph evidence.
 
 Follow each step in **Activity** (sidebar) and **Monitor / Jobs**. Use **Scan vault** after
 importing files externally. A rename-safe job reference follows the stable note ID and content
-hash, so queued work continues on the current path instead of failing with a false 404.`,
+hash, so queued work continues on the current path instead of failing with a false 404.
+
+The canonical note node is committed synchronously with the note record, so Graph can show the
+note immediately. Derived stages continue in the background. Processing status exposes the active
+stage, elapsed time, graph readiness, degraded failures, and an ETA calculated from medians of real
+completed stage durations. BerryBrain does not assign a fixed processing time.`,
   },
   {
     id: "cognitive-attachments",
@@ -491,7 +496,21 @@ language data makes the OCR job fail. This requirement applies to every Tesserac
 - **Language**: notes keep their original language when you switch the UI language.
 - **Scan vault**: re-read disk to import external Markdown.
 
-Notes are the source of truth — BerryBrain only adds structure around them.`,
+### Edit, move, and delete lifecycle
+
+Notes are the source of truth; derived knowledge must follow their current state.
+
+| Operation | What BerryBrain does |
+| --- | --- |
+| Meaningful content edit | Supersedes older pending work, removes that note's stale semantic provenance, preserves evidence shared by other notes, recalculates shared confidence, and queues only affected stages. |
+| Whitespace-only edit | Updates the file/version without discarding semantic nodes or edges. |
+| Rename or move | Preserves the stable note ID and canonical graph node, updates paths and internal links, then refreshes path-dependent graph data. |
+| Delete | Removes the file, note record, note connections, generated metadata, embeddings, canonical note node, and that note's provenance. Orphaned derived nodes/edges are removed; shared artifacts retain remaining sources and get recalculated confidence. |
+| External filesystem change | Vault scan applies the same rules. A unique moved file is recognized by content hash so it is not treated as delete plus create. |
+
+After deletion, BerryBrain queues graph expansion, insight reconciliation, cluster recalculation,
+graph statistics, and HippoRAG synchronization. These jobs repair global topology; they do not
+restore deleted content.`,
   },
   {
     id: "graph",
@@ -768,7 +787,9 @@ or logs.`,
 - **Health**: worker, active AI mode, Judge, HippoRAG, queue, enrichment, and graph status.
 - **Graph expand**: recompute connections from current notes.
 
-Use these to observe the pipeline and recover from failures without losing data.`,
+Use these to observe the pipeline and recover from failures without losing data. AI activity uses
+the resolved execution provider and model. Cloud mode never invokes or reports Ollama; Local mode
+never invokes a cloud generation endpoint.`,
   },
   {
     id: "reliability",
@@ -784,6 +805,8 @@ The Autopilot persists work before execution and treats each note version as imm
 - Enrichment jobs carry the current evidence fingerprint, skip stale or completed duplicates, and
   cool down for 15 minutes after a provider dead letter before automatic monitoring retries them.
 - Canonical graph writes prevent duplicate nodes and edges during retry or reprocessing.
+- Edit/delete provenance repair removes only evidence owned by the changed note, recalculates
+  shared confidence from remaining sources, and deletes derived artifacts only when orphaned.
 - Suggested graph artifacts can be confirmed, ignored, reprocessed, or reverted.
 
 Technical failures belong in **Monitor** and **Activity**. Knowledge insights remain limited to
@@ -874,6 +897,19 @@ Latest executed profile, generated 12 August 2026 at 19:13 UTC:
 | --- | ---: | ---: | ---: |
 | Serialized payload | 541,592 B | 16,777,216 B | 3.23% |
 | Peak traced memory | 3,181,953 B | 536,870,912 B | 0.59% |
+
+Release-candidate browser regression executed 13 August 2026 against the local production image:
+
+| Browser workload | Actual |
+| --- | ---: |
+| 10,000-node cold first visual | 2,566.49 ms |
+| 10,000-node warm first visual | 536.42 ms |
+| 10,000-node complete progressive load | 6,344.58 ms |
+| 10,000-node interaction p95 | 35.30 ms |
+| Used JavaScript heap | 23.10 MB |
+| Maximum public-route wall time, 12 routes | 1,544.13 ms |
+| Maximum authenticated-route wall time, 6 routes | 2,335.46 ms |
+| Lazy Settings / Graph open | 244.74 / 565.03 ms |
 
 S is a pull-request engineering profile, not a supported capacity claim. M, L, steady, ramp, spike,
 soak, stress, constrained mobile, and provider-sidecar profiles must run on pinned hardware before

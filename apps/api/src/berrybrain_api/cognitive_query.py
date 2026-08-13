@@ -534,28 +534,20 @@ def _fallback_answer(
 ) -> dict[str, Any]:
     evidence = orchestrated["evidence"]
     if "authentication failed" in reason.lower():
-        answer = "Evidence was found, but the cloud provider rejected the configured API key."
         suggestions = [
             "Replace the cloud API key in Settings and click Save.",
             "Retry the question after Settings shows Connected.",
         ]
     else:
-        answer = (
-            "Evidence found, but the configured model did not return a grounded answer."
-        )
         suggestions = [
             "Retry after the provider recovers.",
-            "Create an insight manually from the evidence.",
+            "Review the active provider and model in Settings.",
         ]
-    if evidence:
-        answer = f"{answer} Strongest evidence: {evidence[0]['title']}."
-    if reason:
-        answer = f"{answer} ({reason})"
     provider_config = config or {}
     return {
         "status": "waiting_provider",
         "question": question,
-        "answer": answer,
+        "answer": "",
         "routes": orchestrated["routes"],
         "evidence": evidence[:8],
         "relatedNodes": orchestrated["relatedNodes"],

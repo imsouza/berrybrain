@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Home } from "lucide-react";
 import { apiFetch, appPath, useWorkspace } from "@/contexts/workspace-context";
 import { humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
 
@@ -116,8 +117,10 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
     [node],
   );
 
-  function backToGraph() {
-    window.location.href = appPath("/brain?graph=open");
+  function backToGraph(refreshReason = "") {
+    const query = new URLSearchParams({ graph: "open" });
+    if (refreshReason) query.set("refresh", refreshReason);
+    window.location.replace(appPath(`/brain?${query.toString()}`));
   }
 
   function editCurrent() {
@@ -205,7 +208,7 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
       const response = await apiFetch(`${w.api}/api/v1/graph/nodes/${nodeId}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Node deletion failed.");
-      backToGraph();
+      backToGraph("node-deleted");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Node deletion failed.");
       setDeleting(false);
@@ -221,7 +224,8 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
       <header className="border-b border-border/60 px-5 py-5 sm:px-8">
         <div className="mx-auto max-w-7xl">
           <nav className="mb-5 flex items-center gap-2" aria-label="Node navigation">
-            <button className="bb-action h-9 px-3 text-xs" onClick={backToGraph}>Back to Graph</button>
+            <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => backToGraph()}><ArrowLeft className="size-4" />Back to Graph</button>
+            <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => { window.location.href = appPath("/brain"); }}><Home className="size-4" />Back to Home</button>
           </nav>
           <div className="flex flex-col items-start justify-between gap-5 sm:flex-row">
           <div className="min-w-0">

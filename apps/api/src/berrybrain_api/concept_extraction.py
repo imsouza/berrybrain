@@ -62,13 +62,9 @@ def _extract_note_concepts(
         content = _parse_json_object(record.content)
         values: list[Any] = []
         if record.generation_type == "concepts":
-            values = _extract_values(content, ["concepts", "items", "keywords"])
+            values = _extract_values(content, ["concepts", "items"])
         elif record.generation_type == "summary":
-            values = _extract_values(content, ["concepts", "keywords"])
-        elif record.generation_type == "classification":
             values = _extract_values(content, ["concepts"])
-        if not values and record.generation_type in {"concepts", "summary"}:
-            values = _extract_terms_from_metadata_text(content)
         for value in values:
             if isinstance(value, dict):
                 name = str(
@@ -78,16 +74,18 @@ def _extract_note_concepts(
                     or value.get("text")
                     or ""
                 )
+                evidence = str(value.get("evidence") or "").strip()
             else:
                 name = str(value)
+                evidence = _find_source_evidence(note.content or "", name) or (
+                    f'Generated concept metadata for "{note.title}": "{name}".'
+                )
             normalized = normalize_concept_name(name)
             if not normalized or normalized == note_title_key or normalized in seen:
                 continue
-            if _is_valid_concept_name(name):
+            if evidence and _is_valid_concept_name(name):
                 seen.add(normalized)
-                concepts.append(
-                    (name, f"{note.title}: {name}", record.model_used or "")
-                )
+                concepts.append((name, evidence, record.model_used or ""))
     for name in _extract_content_concepts(note):
         normalized = normalize_concept_name(name)
         if not normalized or normalized == note_title_key or normalized in seen:
@@ -96,6 +94,17 @@ def _extract_note_concepts(
             seen.add(normalized)
             concepts.append((name, f"{note.title}: {name}", "content-analysis"))
     return concepts
+
+
+def _find_source_evidence(content: str, label: str) -> str:
+    normalized_label = normalize_concept_name(label)
+    if not normalized_label:
+        return ""
+    for line in content.splitlines():
+        clean = re.sub(r"^#{1,6}\s+", "", line).strip()
+        if normalized_label in normalize_concept_name(clean):
+            return clean[:280]
+    return ""
 
 
 def _is_valid_concept_name(name: str) -> bool:
@@ -160,20 +169,19 @@ def _concepts_from_title(title: str) -> list[tuple[str, str, str]]:
 
 
 def _extract_content_concepts(note: NoteRecord) -> list[str]:
-    text = _clean_note_text_for_concepts(note.content or "")
-    if not text.strip():
-        return []
     candidates: list[str] = []
+    for match in re.finditer(r"(?m)^#{2,6}\s+(.+?)\s*$", note.content or ""):
+        name = re.sub(r"\s+#+\s*$", "", match.group(1)).strip()
+        if len(name.split()) >= 2 and _is_valid_concept_name(name):
+            candidates.append(name)
 
-    # Proper names are evidence-backed candidates; semantic enrichment classifies them.
+    text = _clean_note_text_for_concepts(note.content or "")
     for match in re.finditer(
         r"\b([A-ZÀ-Ý][\wÀ-ÿ]+(?:[ \t]+[A-ZÀ-Ý][\wÀ-ÿ]+){0,3})\b", text
     ):
         name = " ".join(match.group(1).split())
-        normalized = normalize_concept_name(name)
-        if _is_valid_concept_name(name) and normalized != "home":
+        if _is_valid_concept_name(name):
             candidates.append(name)
-
     return _unique_concept_names(candidates)[:18]
 
 

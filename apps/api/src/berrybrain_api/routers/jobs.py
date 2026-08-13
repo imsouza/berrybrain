@@ -29,7 +29,12 @@ from berrybrain_api.jobs import (
     serialize_job,
     utc_now,
 )
-from berrybrain_api.models import JobAttemptRecord, JobRecord
+from berrybrain_api.models import (
+    GraphNodeRecord,
+    JobAttemptRecord,
+    JobRecord,
+    NoteRecord,
+)
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
@@ -220,7 +225,26 @@ def pipeline_progress_endpoint() -> dict:
                 .limit(500)
             ).scalars()
         )
-    return {"notes": calculate_pipeline_progress(jobs)}
+        note_paths_by_id = {
+            note.id: note.path for note in session.execute(select(NoteRecord)).scalars()
+        }
+        graph_note_ids = {
+            int(node.source_id)
+            for node in session.execute(
+                select(GraphNodeRecord).where(
+                    GraphNodeRecord.type == "note",
+                    GraphNodeRecord.status != "ignored",
+                )
+            ).scalars()
+            if node.source_id is not None
+        }
+    return {
+        "notes": calculate_pipeline_progress(
+            jobs,
+            note_paths_by_id=note_paths_by_id,
+            graph_note_ids=graph_note_ids,
+        )
+    }
 
 
 @router.post("/{job_id}/complete")

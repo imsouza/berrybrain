@@ -1,6 +1,7 @@
 "use client";
 
 import { useVoicePrompt } from "@/hooks/use-voice-prompt";
+import { Mic } from "lucide-react";
 
 export function VoicePromptButton({
   value,
@@ -37,10 +38,7 @@ export function VoicePromptButton({
             ))}
           </span>
         ) : (
-          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 10v1a7 7 0 01-14 0v-1m7 8v3m-4 0h8" />
-          </svg>
+          <Mic className="size-4" aria-hidden="true" />
         )}
       </button>
       <span className="sr-only" aria-live="polite">
