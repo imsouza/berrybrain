@@ -46,6 +46,48 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.id, self.left.id)
         self.assertEqual(json.loads(duplicate.source_note_ids), [1, 3])
 
+    def test_identical_node_upsert_preserves_artifact_version(self) -> None:
+        original_updated_at = self.left.updated_at
+        duplicate = self.writer.upsert_node(
+            node_type="concept",
+            label="Distributed Systems",
+            source_note_ids=[1],
+        )
+
+        self.assertEqual(duplicate.id, self.left.id)
+        self.assertEqual(duplicate.updated_at, original_updated_at)
+
+    def test_semantic_nodes_from_one_metadata_record_remain_distinct(self) -> None:
+        first = self.writer.upsert_node(
+            node_type="entity",
+            label="Docker",
+            source="metadata",
+            source_id=42,
+            source_note_ids=[1],
+        )
+        second = self.writer.upsert_node(
+            node_type="entity",
+            label="Kubernetes",
+            source="metadata",
+            source_id=42,
+            source_note_ids=[1],
+        )
+
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(first.label, "Docker")
+        self.assertEqual(second.label, "Kubernetes")
+        original_source_id = first.source_id
+        repeated = self.writer.upsert_node(
+            node_type="entity",
+            label="Docker",
+            source="metadata",
+            source_id=84,
+            source_note_ids=[2],
+        )
+        self.assertEqual(repeated.id, first.id)
+        self.assertEqual(repeated.source_id, original_source_id)
+        self.assertEqual(json.loads(repeated.source_note_ids), [1, 2])
+
     def test_node_edit_invalidates_computed_confidence(self) -> None:
         self.assertGreater(self.left.confidence_sample_size, 0)
         updated = self.writer.update_node_fields(
@@ -80,9 +122,11 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(first.id, duplicate.id)
         self.assertEqual(len(edges), 1)
         self.assertEqual(duplicate.type, "related")
-        self.assertAlmostEqual(duplicate.confidence, 0.966667)
+        self.assertAlmostEqual(duplicate.confidence, 0.85)
         self.assertEqual(duplicate.confidence_sample_size, 3)
-        self.assertEqual(duplicate.confidence_method, "wilson-evidence-v1")
+        self.assertEqual(
+            duplicate.confidence_method, "jeffreys-wilson-evidence-v2"
+        )
         self.assertLess(duplicate.confidence_lower, duplicate.confidence)
 
     def test_ai_edge_requires_traceable_chunk_evidence(self) -> None:
@@ -233,6 +277,15 @@ class GraphWriteServiceTest(unittest.TestCase):
             },
         )
         self.assertEqual(enriched.ai_summary, "A grounded summary.")
+        enrichment_updated_at = enriched.updated_at
+        repeated = self.writer.update_node_enrichment(
+            node.id,
+            {
+                "ai_summary": "A grounded summary.",
+                "provider": "deterministic",
+            },
+        )
+        self.assertEqual(repeated.updated_at, enrichment_updated_at)
         self.assertEqual(
             self.writer.set_edge_user_notes(edge.id, "Reviewed evidence").user_notes,
             "Reviewed evidence",

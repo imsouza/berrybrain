@@ -11,6 +11,13 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from berrybrain_api.ai_configuration import (
+    AIConfiguration,
+    HippoRagSlot,
+    JudgeSlot,
+    ModelSlot,
+    save_configuration,
+)
 from berrybrain_api.ai_gateway import (
     UNTRUSTED_CONTENT_POLICY,
     GraphAIUnavailable,
@@ -66,6 +73,34 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(config["provider"], "cloud")
             self.assertEqual(config["cloud_model"], "graph-model")
             self.assertEqual(config["remote_content_consent"], "true")
+        finally:
+            session.close()
+            engine.dispose()
+
+    def test_config_exposes_the_embedding_provider_identity(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            save_configuration(
+                session,
+                AIConfiguration(
+                    mode="cloud",
+                    main=ModelSlot(provider_id="nvidia-nim", model_id="chat"),
+                    embedding=ModelSlot(
+                        provider_id="nvidia-nim", model_id="nvidia/embed"
+                    ),
+                    judge=JudgeSlot(provider_id="nvidia-nim", model_id="judge"),
+                    hipporag=HippoRagSlot(provider_id="nvidia-nim", model_id="rag"),
+                    endpoint_url="https://integrate.api.nvidia.com/v1",
+                ),
+                validated=True,
+            )
+            session.commit()
+
+            config = get_ai_config(session)
+
+            self.assertEqual(config["cloud_provider"], "nvidia-nim")
         finally:
             session.close()
             engine.dispose()
@@ -278,6 +313,33 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://provider.test/v1/embeddings")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+        self.assertEqual(
+            json.loads(request.data),
+            {"model": "embed-model", "input": "private evidence"},
+        )
+
+    def test_nvidia_query_embedding_uses_provider_contract(self) -> None:
+        payload = {"data": [{"embedding": [0.4, 0.5]}]}
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(json.dumps(payload).encode()),
+        ) as urlopen:
+            vector = generate_query_embedding(
+                {
+                    "embedding_provider": "cloud",
+                    "embedding_model": "nvidia/nv-embedqa-e5-v5",
+                    "cloud_provider": "nvidia-nim",
+                    "cloud_api_url": "https://integrate.api.nvidia.com/v1",
+                    "cloud_api_key": "secret",
+                    "remote_content_consent": "true",
+                },
+                "forecast evaluation",
+            )
+        self.assertEqual(vector, [0.4, 0.5])
+        body = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(body["input_type"], "query")
+        self.assertEqual(body["encoding_format"], "float")
+        self.assertEqual(body["truncate"], "END")
 
     def test_local_embedding_supports_current_and_legacy_payloads(self) -> None:
         health = FakeHTTPResponse(b"{}")

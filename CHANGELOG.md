@@ -2,6 +2,40 @@
 
 All notable BerryBrain changes are documented here.
 
+## 1.4.5 - 2026-08-13
+
+### Added
+
+- Immediate canonical note-node materialization and history-derived pipeline ETA/readiness fields.
+- Full Markdown command surface with controlled history, find/replace, document metrics, list
+  continuation, indentation, attachments, wrapping, and focus mode.
+- Grounded Ask question expansion from live node, evidence, context, and uncertainty dimensions.
+- Stable semantic-node reconciliation across repeated graph expansions.
+
+### Changed
+
+- Cloud and Local execution are strict alternatives; AI activity records the resolved provider and
+  model without an Ollama-only label.
+- Graph navigation groups view, layout, filters, knowledge operations, Research Gaps, and legend.
+- Node access uses only the dedicated detail page; the obsolete editable-confidence drawer is gone.
+- Home operations use stable equal-height tracks and the documented flat BerryBrain token system.
+- NVIDIA NIM embeddings send explicit asymmetric `query` or `passage` input types.
+- Confidence point estimates use Jeffreys smoothing with persisted 95% Wilson intervals.
+- Automatic insight generation runs after note changes and on the configured monitoring cadence.
+
+### Fixed
+
+- Saved notes appear in Graph immediately while semantic derivation continues in the background.
+- Invalid generated candidates are quarantined individually instead of aborting valid graph work.
+- Meaningful edits detach stale provenance and recalculate derived confidence; whitespace-only edits
+  preserve knowledge; moves keep identity; deletion cleans note-owned data and repairs shared graph
+  provenance before scheduling graph, insight, cluster, statistics, and HippoRAG maintenance.
+- Node detail return routes restore Graph state or open Home without duplicate navigation controls.
+- Missing or version-stale enrichment and Judge work becomes superseded instead of dead-lettered.
+- Semantic values from one metadata record remain distinct nodes instead of overwriting one ID.
+- Repeated no-op graph expansion and enrichment preserve artifact versions.
+- AI insight note paths and titles resolve to durable source-note IDs before graph materialization.
+
 ## 1.4.4 - 2026-08-12
 
 ### Added

@@ -6,10 +6,9 @@ from berrybrain_worker.main import process_enrich_graph_node
 
 
 class _Response:
-    status_code = 200
-
-    def __init__(self, payload: dict) -> None:
+    def __init__(self, payload: dict, status_code: int = 200) -> None:
         self.payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self) -> None:
         return None
@@ -54,6 +53,20 @@ class WorkerEnrichmentTest(unittest.IsolatedAsyncioTestCase):
 
         self.client.post.assert_awaited_once_with(
             "http://api/api/v1/jobs/72/complete", headers={}
+        )
+
+    async def test_missing_node_completes_obsolete_enrichment_job(self) -> None:
+        self.client.get.return_value = _Response({}, status_code=404)
+
+        await process_enrich_graph_node(
+            self.client,
+            self.settings,
+            {"id": 73},
+            {"node_id": 404, "source_fingerprint": "obsolete"},
+        )
+
+        self.client.post.assert_awaited_once_with(
+            "http://api/api/v1/jobs/73/complete", headers={}
         )
 
 

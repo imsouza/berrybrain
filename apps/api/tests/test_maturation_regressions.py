@@ -47,6 +47,92 @@ class MaturationRegressionTest(unittest.TestCase):
         self.assertIn("Temporal Coupling Fixture", concepts)
         self.assertNotIn("Temporal Coupling Fixture This", concepts)
 
+    def test_plain_capitalized_words_are_not_promoted_to_concepts(self) -> None:
+        note = NoteRecord(
+            title="Long Form Source",
+            slug="long-form-source",
+            path="sources/long-form-source.md",
+            content="Once August arrived, Edgar continued writing. December followed.",
+        )
+        self.session.add(note)
+        self.session.commit()
+
+        expand_knowledge_graph(self.session)
+
+        labels = {
+            node.label.casefold()
+            for node in self.session.query(GraphNodeRecord).filter_by(type="concept")
+        }
+        self.assertTrue({"once", "august", "edgar", "december"}.isdisjoint(labels))
+
+    def test_typed_metadata_nodes_keep_ids_until_the_source_changes(self) -> None:
+        note = NoteRecord(
+            title="Forecasting Study",
+            slug="forecasting-study",
+            path="studies/forecasting-study.md",
+            content="A study of forecasting methods.",
+            content_hash="forecasting-v1",
+        )
+        self.session.add(note)
+        self.session.commit()
+        upsert_generated_metadata(
+            self.session,
+            note.id,
+            "topics",
+            {
+                "topics": [
+                    {
+                        "name": "Time Series Analysis",
+                        "scope": "Methods for observations ordered over time.",
+                    }
+                ]
+            },
+            note.content_hash,
+            model_used="test-ai",
+        )
+        self.session.commit()
+
+        expand_knowledge_graph(self.session)
+        original = self.session.query(GraphNodeRecord).filter_by(
+            type="topic", label="Time Series Analysis"
+        ).one()
+        original_id = original.id
+        original_updated_at = original.updated_at
+
+        expand_knowledge_graph(self.session)
+        retained = self.session.query(GraphNodeRecord).filter_by(
+            type="topic", label="Time Series Analysis"
+        ).one()
+        self.assertEqual(retained.id, original_id)
+        self.assertEqual(retained.updated_at, original_updated_at)
+
+        note.content_hash = "forecasting-v2"
+        self.session.commit()
+        upsert_generated_metadata(
+            self.session,
+            note.id,
+            "topics",
+            {
+                "topics": [
+                    {
+                        "name": "Forecasting Methods",
+                        "scope": "Methods that estimate future observations.",
+                    }
+                ]
+            },
+            note.content_hash,
+            model_used="test-ai",
+        )
+        self.session.commit()
+        expand_knowledge_graph(self.session)
+
+        labels = {
+            node.label
+            for node in self.session.query(GraphNodeRecord).filter_by(type="topic")
+        }
+        self.assertNotIn("Time Series Analysis", labels)
+        self.assertIn("Forecasting Methods", labels)
+
     def test_realistic_vault_builds_explainable_graph_edges(self) -> None:
         notes = [
             (
@@ -110,7 +196,16 @@ class MaturationRegressionTest(unittest.TestCase):
                 self.session,
                 note.id,
                 "concepts",
-                {"concepts": concepts},
+                {
+                    "concepts": [
+                        {
+                            "name": concept,
+                            "evidence": f"Source text discusses {concept}.",
+                            "confidence": 0.9,
+                        }
+                        for concept in concepts
+                    ]
+                },
                 note.content_hash,
                 model_used="test-fixture",
             )

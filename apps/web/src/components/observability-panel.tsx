@@ -32,6 +32,13 @@ type JudgeStatus = {
   status: "deterministic" | "shadow" | "enforcing" | "committee" | "NOT_CALIBRATED";
 };
 
+type ActiveAIConfig = {
+  provider?: "cloud" | "local";
+  cloud_provider?: string;
+  cloud_model?: string;
+  ollama_model?: string;
+};
+
 export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("jobs");
   const [jobs, setJobs] = useState<any[]>([]);
@@ -41,6 +48,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
   const [jobHealth, setJobHealth] = useState<any>(null);
   const [maturity, setMaturity] = useState<any>(null);
   const [judgeStatus, setJudgeStatus] = useState<JudgeStatus | null>(null);
+  const [aiConfig, setAIConfig] = useState<ActiveAIConfig | null>(null);
   const [filter, setFilter] = useState("");
   const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
@@ -56,11 +64,12 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
       setJobHealth(null);
       setMaturity(null);
       setJudgeStatus(null);
+      setAIConfig(null);
       return;
     }
     async function load() {
       try {
-        const [jRes, lRes, wRes, sRes, hRes, mRes, jm] = await Promise.all([
+        const [jRes, lRes, wRes, sRes, hRes, mRes, jm, aiRes] = await Promise.all([
           fetch(`${apiUrl}/api/v1/jobs?limit=50`),
           fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
           fetch(`${apiUrl}/api/v1/worker/status`),
@@ -68,6 +77,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
           fetch(`${apiUrl}/api/v1/jobs/health`),
           fetch(`${apiUrl}/api/v1/cognitive/maturity`),
           fetch(`${apiUrl}/api/v1/judge/scorecard`),
+          fetch(`${apiUrl}/api/v1/settings/ai/config`),
         ]);
         const j = await jRes.json();
         const l = await lRes.json();
@@ -76,6 +86,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
         const h = await hRes.json().catch(() => null);
         const m = await mRes.json().catch(() => null);
         const jmData = await jm.json().catch(() => ({}));
+        const aiData = await aiRes.json().catch(() => null);
         setJobs(j.jobs || []);
         setLogs(l.logs || []);
         setWorker(w.worker);
@@ -86,6 +97,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
           mode: jmData.mode || "deterministic",
           status: jmData.calibrated ? jmData.mode : "NOT_CALIBRATED",
         });
+        setAIConfig(aiData);
       } catch {}
     }
     load();
@@ -379,12 +391,17 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                 )}
               </div>
 
-              <div className="rounded-xl bg-black/[0.02] p-5">
-                <div className="text-xs font-medium text-muted">Ollama</div>
+              <div className="rounded-md border border-border bg-surface p-5">
+                <div className="text-xs font-medium text-muted">Active AI provider</div>
                 <div className="mt-3 flex items-center gap-2">
-                  <span className={`inline-block size-2 rounded-full ${worker?.ollama_healthy ? "bg-emerald-400" : "bg-red-400"}`} />
-                  <span className="text-sm font-medium">{worker?.ollama_healthy ? "Online" : "Offline"}</span>
+                  <span className={`inline-block size-2 rounded-full ${aiConfig?.provider === "cloud" || worker?.ollama_healthy ? "bg-success" : "bg-danger"}`} />
+                  <span className="text-sm font-medium">
+                    {aiConfig?.provider === "cloud"
+                      ? `${aiConfig.cloud_provider || "Cloud"} · ${aiConfig.cloud_model || "No model"}`
+                      : `Ollama · ${aiConfig?.ollama_model || "No model"}`}
+                  </span>
                 </div>
+                <p className="mt-2 text-[10px] text-muted">Only the configured mode is eligible for model calls.</p>
               </div>
 
               {judgeStatus && (

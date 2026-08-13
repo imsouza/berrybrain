@@ -50,7 +50,7 @@ def estimate_confidence(
     *,
     level: float = 0.95,
 ) -> ConfidenceEstimate:
-    """Estimate a bounded mean and Wilson interval from independent observations."""
+    """Estimate a Jeffreys-smoothed mean and Wilson interval from independent signals."""
     observations: list[ConfidenceSignal] = []
     seen_sources: set[str] = set()
     for item in signals:
@@ -66,24 +66,27 @@ def estimate_confidence(
         return ConfidenceEstimate(None, None, None, 0, "unavailable", ())
 
     sample_size = len(observations)
-    score = sum(item.score for item in observations) / sample_size
+    observed_mean = sum(item.score for item in observations) / sample_size
     z = NormalDist().inv_cdf(0.5 + level / 2)
     denominator = 1 + (z * z / sample_size)
-    center = (score + (z * z / (2 * sample_size))) / denominator
+    center = (observed_mean + (z * z / (2 * sample_size))) / denominator
     margin = (
         z
         * math.sqrt(
-            (score * (1 - score) / sample_size)
+            (observed_mean * (1 - observed_mean) / sample_size)
             + (z * z / (4 * sample_size * sample_size))
         )
         / denominator
     )
+    posterior_mean = (
+        sum(item.score for item in observations) + 0.5
+    ) / (sample_size + 1)
     return ConfidenceEstimate(
-        round(score, 6),
+        round(posterior_mean, 6),
         round(max(0.0, center - margin), 6),
         round(min(1.0, center + margin), 6),
         sample_size,
-        "wilson-evidence-v1",
+        "jeffreys-wilson-evidence-v2",
         tuple(item.source for item in observations),
         level,
     )

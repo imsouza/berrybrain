@@ -6,6 +6,7 @@ import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
+import { CircleHelp, ExternalLink } from "lucide-react";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
@@ -70,27 +71,6 @@ type ConnectionItem = { id: number; type: string; confidence: number; confidence
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
 
-function homeJobLabel(type: string): string {
-  const labels: Record<string, string> = {
-    PARSE_NOTE: "Read note",
-    CLASSIFY_NOTE: "Classify note",
-    ASSIMILATE_NOTE: "Assimilate concepts",
-    EXTRACT_CONCEPTS: "Extract concepts",
-    EXTRACT_ENTITIES: "Extract entities",
-    DETECT_TOPICS: "Detect topics",
-    EXTRACT_CONTEXT: "Detect context",
-    GENERATE_EMBEDDING: "Generate embedding",
-    FIND_CONNECTIONS: "Find connections",
-    EXPAND_KNOWLEDGE_GRAPH: "Expand graph",
-    GENERATE_INFERRED_CONNECTIONS: "Infer connections",
-    EXPAND_CONCEPT_TO_NOTE: "Expand concepts",
-    GENERATE_GRAPH_INSIGHTS: "Generate graph insights",
-    UPDATE_GRAPH_STATS: "Update graph stats",
-    GENERATE_NOTE_TITLE: "Apply title",
-  };
-  return labels[type] || type;
-}
-
 export function HomeView() {
   const w = useWorkspace();
   const [summary, setSummary] = useState<HomeSummary | null>(null);
@@ -99,7 +79,7 @@ export function HomeView() {
   const [starterText, setStarterText] = useState("");
   const [askText, setAskText] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
-  const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]>([]);
+  const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string }[]>([]);
 
   const loadSummary = useCallback(() => {
     setLoading(true);
@@ -198,7 +178,7 @@ export function HomeView() {
           onOpenWorkspace={() => { window.location.href = appPath("/ask"); }}
         />
 
-        <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
+        <div className="mt-5 grid items-stretch gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
           <ComposeCard
             noNotes={noNotes}
             value={starterText}
@@ -222,27 +202,32 @@ export function HomeView() {
 
         <StatsGrid summary={summary} />
 
-        <div className="mt-8 grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-          <div className="space-y-6">
-            <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
-            <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
+        <section className="mt-8 border-y border-border py-6" aria-label="Operational workspace">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Knowledge operations</h2>
+              <p className="mt-1 text-xs text-muted">Live processing, new relationships, and recent system decisions.</p>
+            </div>
+            <button className="bb-action h-8 px-3 text-[11px]" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
           </div>
-          <aside className="space-y-6">
-            <GraphSummaryCard summary={summary} onOpenGraph={() => w.setGraphOpen(true)} apiUrl={w.api} onToast={w.toast} />
-            <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
-            {summary.needsAttention.length > 0 && (
-              <NeedsAttentionCard items={summary.needsAttention} onOpenMonitor={() => w.setMonitorOpen(true)} />
-            )}
-          </aside>
-        </div>
+          <div className="grid auto-rows-fr gap-0 overflow-hidden rounded-lg border border-border bg-panel md:grid-cols-3">
+            <div className="h-full border-b border-border p-5 md:border-b-0 md:border-r">
+              <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
+            </div>
+            <div className="h-full border-b border-border p-5 md:border-b-0 md:border-r">
+              <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
+            </div>
+            <div className="h-full p-5">
+              <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
+            </div>
+          </div>
+        </section>
 
-        <InfographicsGrid summary={summary} />
+        {summary.needsAttention.length > 0 && <div className="mt-8 border-b border-border pb-8">
+          <NeedsAttentionCard items={summary.needsAttention} onOpenMonitor={() => w.setMonitorOpen(true)} />
+        </div>}
 
-        <div className="bb-card mt-8 flex flex-wrap gap-2 p-4">
-          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setGraphOpen(true)}>{t("viewGraph")}</button>
-          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
-          <button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={w.scanVault}>{t("scanVault")}</button>
-        </div>
+        <div className="mt-8 flex justify-end"><button className="bb-action h-9 px-3 text-xs font-medium text-foreground" onClick={w.scanVault}>{t("scanVault")}</button></div>
       </div>
     </div>
   );
@@ -300,7 +285,7 @@ function FirstRunGuide({
             <span className="text-sm font-semibold text-foreground">{step.title}</span>
           </div>
           <p className="mt-2 min-h-10 text-xs leading-5 text-muted/65">{step.text}</p>
-          <span className="mt-3 inline-flex rounded-md border border-border/60 px-2 py-1 text-[11px] font-medium text-muted">{step.action}</span>
+          <span className="mt-3 inline-flex text-[11px] font-medium text-accent">{step.action}</span>
         </button>
       ))}
     </section>
@@ -368,7 +353,7 @@ function HomeAskBar({
     >
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-accent" aria-hidden="true">
-          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.5 9a3.5 3.5 0 117 0c0 2.5-3.5 2.5-3.5 5m0 3h.01M12 22a10 10 0 100-20 10 10 0 000 20z" /></svg>
+          <CircleHelp className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <label htmlFor="home-ask" className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">Ask BerryBrain</label>
@@ -382,7 +367,7 @@ function HomeAskBar({
         </div>
       </div>
       <VoicePromptButton value={value} onChange={onChange} />
-      <button type="button" className="bb-action grid h-10 w-10 shrink-0 place-items-center text-base" aria-label="Open Ask workspace" title="Open Ask workspace" onClick={onOpenWorkspace}>↗</button>
+      <button type="button" className="bb-action grid h-10 w-10 shrink-0 place-items-center" aria-label="Open Ask workspace" title="Open Ask workspace" onClick={onOpenWorkspace}><ExternalLink className="size-4" /></button>
       <button type="submit" disabled={!value.trim()} className="bb-action bb-action--primary h-10 shrink-0 px-5 text-sm font-semibold">
         Ask
       </button>
@@ -394,7 +379,7 @@ function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmp
   const canSubmit = Boolean(value.trim()) && !disabled;
 
   return (
-    <div className="bb-card bb-brain-compose p-5 transition focus-within:border-accent">
+    <div className="bb-card bb-brain-compose h-full p-5 transition focus-within:border-accent">
       <div className="mb-3 flex items-center gap-2">
         <span className="size-2 rounded-full bg-accent" />
         <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted/50">{t("startWriting")}</span>
@@ -418,7 +403,6 @@ function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmp
       <div className="mt-3 flex flex-col gap-3 border-t border-border/40 pt-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted/50">
           <span>{tf("noteCharacterCount", { count: value.length, max: QUICK_NOTE_MAX_LENGTH })}</span>
-          <span>{t("createNoteShortcut")}</span>
         </div>
         <div className="flex items-center justify-end gap-2">
           <button type="button" className="bb-action px-3 py-2 text-xs" disabled={disabled} onClick={onCreateEmpty}>
@@ -442,7 +426,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
   const running = status === "running";
   const waiting = status === "waiting_provider" || status === "queued";
   return (
-    <button className="bb-card bb-card--interactive w-full p-5 text-left" onClick={onOpenMonitor}>
+    <button className="bb-card bb-card--interactive h-full w-full p-5 text-left" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
@@ -469,7 +453,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
   );
 }
 
-function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: ActiveJob[]; pipelineProgress: { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null }[]; onOpenMonitor: () => void }) {
+function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: ActiveJob[]; pipelineProgress: { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string }[]; onOpenMonitor: () => void }) {
   const progressByPath = new Map(pipelineProgress.map((p) => [p.notePath, p]));
   return (
     <Section title={t("processingNow")}>
@@ -494,38 +478,13 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
                     <span className="text-[10px] text-muted/50">{tf("pipelineStep", { step: String(pp.completed), total: String(pp.total) })}</span>
                   </div>
                 )}
+                {pp && <p className="mt-1 text-[10px] text-muted/50">Graph {pp.graphState || "waiting"}{pp.estimatedRemainingSeconds != null ? ` · about ${formatEta(pp.estimatedRemainingSeconds)} remaining` : " · estimating"}</p>}
                 <p className="mt-1 text-[10px] text-muted/45">{providerLabel(job.provider || "")}{job.model ? ` · ${job.model}` : ""}</p>
               </button>
             );
           })}
         </div>
       )}
-    </Section>
-  );
-}
-
-function GraphSummaryCard({ summary, onOpenGraph, apiUrl, onToast }: { summary: HomeSummary; onOpenGraph: () => void; apiUrl: string; onToast: (msg: string, kind: "success" | "error") => void }) {
-  const graph = summary.graphSummary;
-  const recalcular = async () => {
-    try {
-      const r = await fetch(`${apiUrl}/api/v1/graph/expand`, { method: "POST" });
-      if (!r.ok) throw new Error("expand-fail");
-      onToast("Graph expansion started.", "success");
-    } catch {
-      onToast("Could not expand the graph.", "error");
-    }
-  };
-  return (
-    <Section title={t("knowledgeGraph")}>
-      <div className="bb-subcard p-4">
-        <div className="text-sm font-semibold">{graph.nodes} nodes · {graph.edges} connections</div>
-        <p className="mt-1 text-xs text-muted/60">{graph.orphans} {t("orphans")} · {graph.clusters} {t("clusters")}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={onOpenGraph}>{t("openGraph")}</button>
-          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={() => { if (typeof window !== "undefined") localStorage.setItem("bb_graph_filter_orphans", "1"); onOpenGraph(); }}>{t("viewOrphans")}</button>
-          <button className="bb-action px-2.5 py-1 text-[11px]" onClick={recalcular}>{t("recalcConnections")}</button>
-        </div>
-      </div>
     </Section>
   );
 }
@@ -556,7 +515,7 @@ function StatsGrid({ summary }: { summary: HomeSummary }) {
   const s = summary.stats;
   return (
     <Section title={t("stats")} className="mt-8">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label={t("notes")} value={s.notes.total} detail={`+${s.notes.createdToday} ${t("oneCreatedToday")} · ${s.notes.unassimilated} ${t("notAssimilated")}`} />
         <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")} · ${percent(s.connections.averageConfidence)} ${t("confidence")}`} />
         <StatCard label={t("concepts")} value={s.concepts.total} detail={`${s.concepts.newToday} ${t("newToday")} · ${s.concepts.withoutPermanentNote} ${t("withoutNote")}`} />
@@ -564,72 +523,6 @@ function StatsGrid({ summary }: { summary: HomeSummary }) {
         <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? t("online") : t("local")} detail={`${s.ai.embeddings} ${t("embeddings")} · ${s.ai.metadata} ${t("metadata")}`} />
       </div>
     </Section>
-  );
-}
-
-function InfographicsGrid({ summary }: { summary: HomeSummary }) {
-  const s = summary.stats;
-  const g = summary.graphSummary;
-  const assimilated = s.notes.total > 0 ? (s.notes.total - s.notes.unassimilated) / s.notes.total : 0;
-  const graphHealth = g.nodes > 0 ? (g.nodes - g.orphans) / g.nodes : 0;
-  const jobEntries = Object.entries(summary.jobsByType || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6);
-  return (
-    <Section title={t("overview")} className="mt-8">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Donut label={t("assimilation")} value={assimilated} caption={`${s.notes.total - s.notes.unassimilated}/${s.notes.total} ${t("notes")}`} />
-        <Donut label={t("avgConfidence")} value={s.connections.averageConfidence} caption={`${s.connections.total} ${t("connections")}`} />
-        <Donut label={t("graphHealth")} value={graphHealth} caption={`${g.orphans} ${t("orphans")} ${t("of")} ${g.nodes}`} />
-        <div className="bb-subcard px-4 py-3">
-          <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted/40">{t("jobsByType")}</div>
-          {jobEntries.length === 0 ? (
-            <p className="text-[11px] text-muted/50">{t("noJobsRecorded")}</p>
-          ) : (
-            <BarList entries={jobEntries} />
-          )}
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-function Donut({ label, value, caption }: { label: string; value: number; caption?: string }) {
-  const pct = Math.max(0, Math.min(1, value || 0));
-  const r = 26;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - pct);
-  return (
-    <div className="bb-subcard flex items-center gap-3 px-4 py-3">
-      <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0 -rotate-90">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-border)" strokeWidth="7" />
-        <circle cx="32" cy="32" r={r} fill="none" stroke="var(--color-accent)" strokeWidth="7" strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset} />
-      </svg>
-      <div className="min-w-0">
-        <div className="text-lg font-semibold tabular-nums">{Math.round(pct * 100)}%</div>
-        <div className="text-[10px] text-muted/50">{label}</div>
-        {caption && <div className="mt-0.5 truncate text-[10px] text-muted/45">{caption}</div>}
-      </div>
-    </div>
-  );
-}
-
-function BarList({ entries }: { entries: [string, number][] }) {
-  const max = Math.max(...entries.map(([, v]) => v), 1);
-  return (
-    <div className="space-y-1.5">
-      {entries.map(([type, count]) => (
-        <div key={type}>
-          <div className="flex items-center justify-between text-[10px] text-muted/60">
-            <span className="min-w-0 truncate">{homeJobLabel(type)}</span>
-            <span className="ml-2 rounded-full bg-panel px-1.5 py-0.5 tabular-nums text-muted/55">{count}</span>
-          </div>
-          <div className="mt-0.5 h-1.5 rounded-full bg-panel">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${(count / max) * 100}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -675,8 +568,8 @@ function RecentConnectionsList({
 
 function RecentActivityTimeline({ activity, completed }: { activity: ActivityItem[]; completed: CompletionItem[] }) {
   return (
-    <Section title={t("recentActivity")} className="mt-8">
-      <div className="grid gap-3 xl:grid-cols-2">
+    <Section title={t("recentActivity")}>
+      <div className="grid gap-3">
         <div className="bb-subcard p-4">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("doneRecently")}</div>
           {completed.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentResults")}</p> : completed.slice(0, 5).map((item) => (
@@ -696,7 +589,7 @@ function RecentActivityTimeline({ activity, completed }: { activity: ActivityIte
 
 function Section({ title, children, className = "", elevated = false }: { title: string; children: ReactNode; className?: string; elevated?: boolean }) {
   return (
-    <section className={`bb-card ${elevated ? "bb-card--elevated" : ""} p-4 sm:p-5 ${className}`}>
+    <section className={`${elevated ? "border-t-2 border-accent pt-4" : ""} ${className}`}>
       <h2 className="bb-section-title mb-4 text-[11px] font-semibold uppercase">{title}</h2>
       {children}
     </section>
@@ -705,7 +598,7 @@ function Section({ title, children, className = "", elevated = false }: { title:
 
 function StatCard({ label, value, detail }: { label: string; value: number | string; detail?: string }) {
   return (
-    <div className="bb-subcard px-4 py-3 text-left">
+    <div className="bb-subcard h-full px-4 py-3 text-left">
       <div className="text-xl font-semibold tabular-nums">{value}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted/70">{label}</div>
       {detail && <div className="mt-2 text-[10px] leading-4 text-muted/60">{detail}</div>}
@@ -786,4 +679,10 @@ function formatTime(value?: string | null) {
 function formatElapsed(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}min`;
+}
+
+function formatEta(seconds: number) {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`;
+  const minutes = Math.ceil(seconds / 60);
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
 }

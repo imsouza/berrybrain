@@ -29,6 +29,8 @@ from berrybrain_api.deduplication import (
     _prune_stale_graph_insights,
     _prune_title_duplicate_typed_nodes,
 )
+from berrybrain_api.graph_ontology import validate_node_name
+from berrybrain_api.graph_semantic_service import quarantine_generated_candidate
 from berrybrain_api.models import (
     ConceptRecord,
     ConnectionRecord,
@@ -146,26 +148,55 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         metadata_by_note[record.note_id].append(record)
 
     note_nodes = {_node_key("note", n.id): _upsert_note_node(session, n) for n in notes}
-    _prune_generated_typed_nodes(session)
     _prune_generated_graph_insights(session)
     _prune_orphan_insight_nodes(session)
     _prune_title_duplicate_typed_nodes(session, notes)
     concept_to_note_ids: dict[str, set[int]] = defaultdict(set)
     concept_sources: dict[str, list[str]] = defaultdict(list)
     concept_models: dict[str, str] = {}
+    rejected_candidates = 0
 
     for note in notes:
         for concept_name, evidence, model in _extract_note_concepts(
             note, metadata_by_note.get(note.id, [])
         ):
+            issues = validate_node_name("concept", concept_name)
+            if issues:
+                quarantine_generated_candidate(
+                    session,
+                    kind="node",
+                    proposed_type="concept",
+                    proposed_label=concept_name,
+                    issues=issues,
+                    payload={
+                        "noteId": note.id,
+                        "evidence": [evidence] if evidence else [],
+                    },
+                )
+                rejected_candidates += 1
+                continue
             normalized = normalize_concept_name(concept_name)
             if not normalized:
                 continue
             concept_to_note_ids[normalized].add(note.id)
             if evidence and evidence not in concept_sources[normalized]:
                 concept_sources[normalized].append(evidence)
-            if model:
+            if model and (
+                normalized not in concept_models
+                or concept_models[normalized] == "content-analysis"
+            ):
                 concept_models[normalized] = model
+
+    # Deterministic text candidates need independent corpus corroboration. AI
+    # concepts instead carry model evidence and are evaluated by the Judge.
+    for normalized in list(concept_to_note_ids):
+        if (
+            concept_models.get(normalized) == "content-analysis"
+            and len(concept_to_note_ids[normalized]) < 2
+        ):
+            del concept_to_note_ids[normalized]
+            concept_sources.pop(normalized, None)
+            concept_models.pop(normalized, None)
 
     _prune_stale_concepts(session, set(concept_to_note_ids))
     _prune_stale_graph_insights(session, set(concept_to_note_ids))
@@ -333,11 +364,29 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                 if edge:
                     edges_count += 1
 
+    session.info["graph_expansion_typed_node_ids"] = set()
     topics_count = _extract_topics_from_metadata(session, metadata_by_note)
     entities_count = _extract_entities_from_metadata(session, metadata_by_note)
     context_count = _extract_context_from_metadata(session, metadata_by_note)
     gaps_count = _extract_gaps_from_metadata(session, metadata_by_note)
     sources_count = _extract_sources_from_notes(session, notes)
+    retained_typed_node_ids = set(
+        session.info.pop("graph_expansion_typed_node_ids", set())
+    )
+    _prune_generated_typed_nodes(session, retained_typed_node_ids)
+    retained_type_counts: dict[str, int] = defaultdict(int)
+    if retained_typed_node_ids:
+        for node_type in session.execute(
+            select(GraphNodeRecord.type).where(
+                GraphNodeRecord.id.in_(retained_typed_node_ids)
+            )
+        ).scalars():
+            retained_type_counts[node_type] += 1
+    topics_count = retained_type_counts["topic"]
+    entities_count = retained_type_counts["entity"]
+    context_count = retained_type_counts["context"]
+    gaps_count = retained_type_counts["gap"]
+    sources_count = retained_type_counts["source"]
     _generate_deterministic_insights(session)
     insights_count = _generate_graph_insights(session)
 
@@ -383,7 +432,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
             related_note_id = note_id_by_graph_node_id.get(other_id)
             if related_note_id:
                 source_ids.add(related_note_id)
-        typed_node.source_note_ids = json.dumps(sorted(source_ids))
+        typed_node.source_note_ids = _dump_json(sorted(source_ids))
         for note_id in sorted(source_ids):
             note_node = note_nodes.get(_node_key("note", note_id))
             if not note_node:
@@ -415,6 +464,9 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
     contextualized_nodes = _ensure_graph_node_context(session)
     qualified_edges = _ensure_graph_edge_traceability(session)
     ai_evidence_migration = _migrate_active_ai_edge_evidence(session)
+    from berrybrain_api.jobs import supersede_missing_graph_artifact_jobs
+
+    stale_jobs_superseded = supersede_missing_graph_artifact_jobs(session)
     visible_nodes = [
         node
         for node in session.execute(select(GraphNodeRecord)).scalars()
@@ -444,6 +496,8 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         "qualifiedEdges": qualified_edges,
         "aiEdgesEvidenceRecovered": ai_evidence_migration["recovered"],
         "aiEdgesMarkedStale": ai_evidence_migration["stale"],
+        "rejectedCandidates": rejected_candidates,
+        "staleJobsSuperseded": stale_jobs_superseded,
     }
 
 
@@ -508,6 +562,11 @@ def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
     )
 
 
+def sync_note_graph_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
+    """Materialize the source note before derived graph processing starts."""
+    return _upsert_note_node(session, note)
+
+
 def _upsert_concept(
     session: Session,
     name: str,
@@ -527,13 +586,14 @@ def _upsert_concept(
     concept.description = concept.description or f'Detected concept: "{name}".'
     concept.frequency = len(note_ids)
     concept.related_note_ids = _dump_json(note_ids)
-    concept.extracted_by = "system"
+    generated_by_ai = bool(model and model not in {"content-analysis", "metadata-parser"})
+    concept.extracted_by = "ai" if generated_by_ai else "system"
     estimate = estimate_confidence(
         ConfidenceSignal(1.0, f"source-note:{note_id}") for note_id in note_ids
     )
     persist_confidence(concept, estimate)
     concept.status = "suggested"
-    concept.provider = "deterministic"
+    concept.provider = "configured-ai" if generated_by_ai else "deterministic"
     concept.model = model or "metadata-parser"
     concept.source_evidence = _dump_json(evidence[:8])
     concept.updated_at = datetime.now(UTC)

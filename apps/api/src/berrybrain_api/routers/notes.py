@@ -666,10 +666,22 @@ def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
         ).scalar_one_or_none()
         if record is not None:
             new_path = str(result["path"])
+            previous_content = record.content
             record.path = new_path
             record.title = payload.title
-            session.commit()
+            session.flush()
+            record = sync_note_record(session, settings.vault_path, new_path)
             _update_internal_links(session, note_path, new_path)
+            affected = affected_job_types_for_note_update(
+                previous_content, record.content, record.path
+            )
+            enqueue_note_changed_jobs(
+                session,
+                record.path,
+                "NOTE_RENAMED",
+                record.content_hash,
+                affected_job_types=affected,
+            )
         else:
             sync_note_record(session, settings.vault_path, str(result["path"]))
     return result
@@ -717,8 +729,21 @@ def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
         if record is not None:
             record.path = new_rel
             record.updated_at = datetime.now(UTC)
-            session.commit()
+            session.flush()
+            record = sync_note_record(session, settings.vault_path, new_rel)
             _update_internal_links(session, old_rel, new_rel)
+            enqueue_note_changed_jobs(
+                session,
+                record.path,
+                "NOTE_MOVED",
+                record.content_hash,
+                affected_job_types={
+                    "PARSE_NOTE",
+                    "FIND_CONNECTIONS",
+                    "EXPAND_KNOWLEDGE_GRAPH",
+                    "UPDATE_GRAPH_STATS",
+                },
+            )
         else:
             sync_note_record(session, settings.vault_path, new_rel)
     return read_note(settings.vault_path, new_rel)
@@ -773,8 +798,8 @@ def delete_note_endpoint(note_path: str) -> dict:
     settings = get_settings()
     result = delete_note(settings.vault_path, note_path)
     with SessionLocal() as session:
-        remove_note_record(session, note_path)
-    return result
+        jobs_created = remove_note_record(session, note_path)
+    return {**result, "graphMaintenanceJobsCreated": jobs_created}
 
 
 def _update_internal_links(session, old_path: str, new_path: str) -> None:
