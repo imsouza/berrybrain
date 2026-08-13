@@ -181,7 +181,8 @@ def calculate_pipeline_progress(
             if oldest_created
             else 0.0
         )
-        note_id = int(note_state.get("noteId") or 0)
+        raw_note_id = note_state.get("noteId")
+        note_id = int(raw_note_id) if isinstance(raw_note_id, int | str) else 0
         graph_visible = note_id in graph_note_ids
         graph_job_status = statuses.get(EXPAND_KNOWLEDGE_GRAPH)
         graph_state = (
