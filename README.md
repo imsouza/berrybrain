@@ -179,6 +179,8 @@ The system is designed around one rule:
 - **Ask and insights**: voice prompts work on Home and Graph Ask; Flow answers can become insights;
   every note-change pipeline generates insights after graph inference, while continuous monitoring
   adds a configurable periodic pass (24 hours by default).
+- **Provider-safe Ask**: provider failures never render or persist as BerryBrain answers. Ask keeps
+  the question available and presents explicit Retry and Open Settings actions.
 - **Vault workflow**: New note always opens the editor. Notes and folders support sidebar
   drag-and-drop ordering plus inline management.
 - **Ontology-aware RAG**: graph retrieval uses type, direction, canonical property, aliases,

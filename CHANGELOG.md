@@ -35,6 +35,8 @@ All notable BerryBrain changes are documented here.
 - Semantic values from one metadata record remain distinct nodes instead of overwriting one ID.
 - Repeated no-op graph expansion and enrichment preserve artifact versions.
 - AI insight note paths and titles resolve to durable source-note IDs before graph materialization.
+- Ask provider failures render as retryable operational states instead of BerryBrain answers;
+  failed requests offer Retry and Settings actions and do not persist assistant knowledge.
 
 ## 1.4.4 - 2026-08-12
 

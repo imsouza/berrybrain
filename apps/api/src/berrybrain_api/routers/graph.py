@@ -457,6 +457,14 @@ async def infer_graph(
             status_code=502,
             detail="Ask could not complete with the configured AI provider.",
         ) from exc
+    if result.get("status") == "waiting_provider":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_unavailable",
+                "message": "The configured AI provider did not return an answer.",
+            },
+        )
     inference = persist_graph_inference(session, question, result)
     return serialize_graph_inference(inference)
 

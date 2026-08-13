@@ -10,6 +10,7 @@ import { apiFetch, appPath } from "@/contexts/workspace-context";
 import { diagnosticMessages, isFilterHidden, type PipelineDiagnostic } from "@/lib/diagnostics";
 import { VoicePromptButton } from "./voice-prompt-button";
 import {
+  AlertTriangle,
   ArrowLeft,
   BookOpen,
   BrainCircuit,
@@ -23,6 +24,7 @@ import {
   Maximize2,
   Network,
   RefreshCw,
+  Settings,
   Sparkles,
 } from "lucide-react";
 
@@ -342,6 +344,7 @@ export function GraphScreen({
   onNavigate,
   onOpenGraph,
   onOpenHome,
+  onOpenSettings,
 }: {
   apiUrl: string;
   autoFocusAsk?: boolean;
@@ -353,6 +356,7 @@ export function GraphScreen({
   onNavigate: (path: string) => void;
   onOpenGraph?: () => void;
   onOpenHome?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const { data, error, reload } = useGraphData(apiUrl);
   const [zoom, setZoom] = useState(1);
@@ -740,7 +744,16 @@ export function GraphScreen({
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(typeof payload.detail === "string" ? payload.detail : `Flow failed (HTTP ${response.status}).`);
+          const detail = payload.detail;
+          if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
+            setInference({
+              status: "provider_unavailable",
+              question: text,
+              answer: detail.message || "The configured AI provider did not return an answer.",
+            });
+            return;
+          }
+          throw new Error(typeof detail === "string" ? detail : `Flow failed (HTTP ${response.status}).`);
         }
         const userTurn = payload.userTurn as FlowTurn;
         const assistantTurn = payload.assistantTurn as FlowTurn;
@@ -763,8 +776,17 @@ export function GraphScreen({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const message = typeof payload.detail === "string"
-          ? payload.detail
+        const detail = payload.detail;
+        if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
+          setInference({
+            status: "provider_unavailable",
+            question: text,
+            answer: detail.message || "The configured AI provider did not return an answer.",
+          });
+          return;
+        }
+        const message = typeof detail === "string"
+          ? detail
           : `Graph inference failed (HTTP ${response.status}).`;
         throw new Error(message);
       }
@@ -1024,16 +1046,18 @@ export function GraphScreen({
         <div className="border-b border-border/40 bg-panel/80 px-4 py-3">
           <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-surface/70 p-3">
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">{t("graphInference")}</span>
+              <span className={`text-[10px] font-semibold uppercase tracking-wide ${inference.status === "provider_unavailable" ? "text-danger" : "text-accent"}`}>
+                {inference.status === "provider_unavailable" ? "Provider unavailable" : t("graphInference")}
+              </span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
-            <p className={`text-sm leading-relaxed ${inference.status === "error" ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
-            {inference.status === "error" && (
+            <p className={`text-sm leading-relaxed ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+            {["error", "provider_unavailable"].includes(inference.status) && (
               <p className="mt-2 rounded-lg bg-panel px-2 py-1 text-[11px] text-muted">
-                Check Settings, AI / Provider and try again. Local Ollama needs a reachable URL and installed model; cloud mode needs a verified key, model, and consent.
+                No BerryBrain answer was created. Retry the request or review the active provider and model in Settings.
               </p>
             )}
-            {!!inference.relatedNodes?.length && (
+            {inference.status !== "provider_unavailable" && !!inference.relatedNodes?.length && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {relatedInferenceNodes.map((node) => (
                   <button
@@ -1048,7 +1072,7 @@ export function GraphScreen({
                 ))}
               </div>
             )}
-            {!!inference.evidence?.length && (
+            {inference.status !== "provider_unavailable" && !!inference.evidence?.length && (
               <div className="mt-2 space-y-1 text-[11px] text-muted">
                 <div className="text-[10px] font-medium uppercase tracking-wide text-muted/70">{t("evidence")}</div>
                 {inference.evidence.slice(0, 4).map((item, index) => (
@@ -1064,9 +1088,19 @@ export function GraphScreen({
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
-              {!flowActive && inference.status !== "error" && (
+              {!flowActive && !["error", "provider_unavailable"].includes(inference.status) && (
                 <button className="bb-action px-3 py-1 text-[10px] font-semibold text-violet-600" onClick={startFlow}>
                   Continue in Flow
+                </button>
+              )}
+              {inference.status === "provider_unavailable" && (
+                <button className="bb-action px-3 py-1 text-[10px] font-semibold" onClick={() => void runInference(inference.question)}>
+                  <RefreshCw className="mr-1 inline size-3" />Retry
+                </button>
+              )}
+              {inference.status === "provider_unavailable" && onOpenSettings && (
+                <button className="bb-action px-3 py-1 text-[10px] font-semibold" onClick={onOpenSettings}>
+                  <Settings className="mr-1 inline size-3" />Open Settings
                 </button>
               )}
               <button
@@ -1149,13 +1183,19 @@ export function GraphScreen({
             )}
 
             {inference && !inferLoading && (
-              <section className="mx-auto max-w-4xl border-y border-border py-6 text-left" aria-label="Graph answer" aria-live="polite">
+              <section className="mx-auto max-w-4xl border-y border-border py-6 text-left" aria-label={inference.status === "provider_unavailable" ? "Ask unavailable" : "Graph answer"} aria-live="polite">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase text-accent">BerryBrain answer</span>
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase ${inference.status === "provider_unavailable" ? "text-danger" : "text-accent"}`}>
+                    {inference.status === "provider_unavailable" && <AlertTriangle className="size-3.5" />}
+                    {inference.status === "provider_unavailable" ? "Provider unavailable" : "BerryBrain answer"}
+                  </span>
                   <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
                 </div>
-                <p className={`whitespace-pre-wrap text-base leading-7 ${inference.status === "error" ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
-                {!!inference.evidence?.length && (
+                <p className={`whitespace-pre-wrap text-base leading-7 ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+                {inference.status === "provider_unavailable" && (
+                  <p className="mt-2 text-sm leading-6 text-muted">No answer was created or added to the conversation. Retry the request or review the active provider and model.</p>
+                )}
+                {inference.status !== "provider_unavailable" && !!inference.evidence?.length && (
                   <div className="mt-5 space-y-2">
                     <h2 className="text-[11px] font-semibold uppercase text-muted">Evidence</h2>
                     {inference.evidence.slice(0, 6).map((item, index) => (
@@ -1163,7 +1203,7 @@ export function GraphScreen({
                     ))}
                   </div>
                 )}
-                {!!relatedInferenceNodes.length && (
+                {inference.status !== "provider_unavailable" && !!relatedInferenceNodes.length && (
                   <div className="mt-5 flex flex-wrap gap-2">
                     {relatedInferenceNodes.map((node) => {
                       const recordId = graphNodeRecordId(graphData?.nodes.find((item) => item.id === node.id));
@@ -1174,13 +1214,15 @@ export function GraphScreen({
                   </div>
                 )}
                 <div className="mt-5 flex flex-wrap items-center gap-2">
-                  {!flowActive && inference.status !== "error" && <button className="bb-action px-3 py-1.5 text-xs font-semibold" onClick={startFlow}>Continue in Flow</button>}
-                  <button
+                  {!flowActive && !["error", "provider_unavailable"].includes(inference.status) && <button className="bb-action px-3 py-1.5 text-xs font-semibold" onClick={startFlow}>Continue in Flow</button>}
+                  {inference.status === "provider_unavailable" && <button className="bb-action inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold" onClick={() => void runInference(inference.question)}><RefreshCw className="size-3.5" />Retry</button>}
+                  {inference.status === "provider_unavailable" && onOpenSettings && <button className="bb-action bb-action--primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold" onClick={onOpenSettings}><Settings className="size-3.5" />Open Settings</button>}
+                  {inference.status !== "provider_unavailable" && <button
                     className="bb-action px-3 py-1.5 text-xs"
-                    disabled={inferenceSaving || inference.status === "saved_as_insight" || (!inference.inferenceId && !flowSessionId)}
+                    disabled={inferenceSaving || inference.status === "saved_as_insight" || (!inference.inferenceId && !flowSessionId) || !["answered", "success", "sufficient_evidence", "insufficient_evidence"].includes(inference.status)}
                     onClick={saveInferenceAsInsight}
-                  >{inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}</button>
-                  <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>Clear answer</button>
+                  >{inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}</button>}
+                  <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>{inference.status === "provider_unavailable" ? "Dismiss" : "Clear answer"}</button>
                   {(inference.provider || inference.model) && <span className="ml-auto text-[10px] text-muted">{inference.provider || "provider"}{inference.model ? ` · ${inference.model}` : ""}</span>}
                 </div>
                 {inferenceSaveStatus && <p className="mt-3 text-xs text-muted">{inferenceSaveStatus}</p>}

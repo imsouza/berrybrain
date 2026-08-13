@@ -101,6 +101,53 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(page.getByText("Docker is a containerization platform")).toBeVisible({ timeout: 10_000 });
   });
 
+  test("provider failure offers retry and settings without rendering an answer", async ({ page }) => {
+    await mockPagedGraph(page, []);
+    let attempts = 0;
+    await page.route("**/api/v1/graph/infer", (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            detail: {
+              code: "provider_unavailable",
+              message: "The configured AI provider did not return an answer.",
+            },
+          }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "answered",
+          question: "What connects these notes?",
+          answer: "The notes share container orchestration evidence.",
+          evidence: [{ title: "Container notes", text: "Shared orchestration evidence." }],
+          relatedNodes: [],
+        }),
+      });
+    });
+
+    await page.goto("/ask");
+    await page.getByPlaceholder(/ask your graph/i).fill("What connects these notes?");
+    await page.getByRole("button", { name: "Ask", exact: true }).click();
+
+    await expect(page.getByRole("region", { name: "Ask unavailable" })).toBeVisible();
+    await expect(page.getByText("BerryBrain answer")).toHaveCount(0);
+    await expect(page.getByText(/Strongest evidence/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    await page.getByRole("button", { name: "Open Settings" }).click();
+    await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+    await page.getByRole("button", { name: "Close settings" }).click();
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByText("The notes share container orchestration evidence.")).toBeVisible();
+    expect(attempts).toBe(2);
+  });
+
   test("voice prompt shows a live waveform and writes recognized speech", async ({ page }) => {
     await page.addInitScript(() => {
       class MockRecognition {

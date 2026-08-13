@@ -117,6 +117,16 @@ async def append_ask_turn(
     session.refresh(user_turn)
     if user_turn.status == "cancelled":
         raise HTTPException(status_code=409, detail="Flow turn was cancelled")
+    if result.get("status") == "waiting_provider":
+        user_turn.status = "failed"
+        session.commit()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_unavailable",
+                "message": "The configured AI provider did not return an answer.",
+            },
+        )
     user_turn.status = "completed"
     answer = str(result.get("answer") or "").strip()
     if not answer:
