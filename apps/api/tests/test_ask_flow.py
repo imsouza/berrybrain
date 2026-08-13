@@ -130,9 +130,7 @@ class AskFlowTest(unittest.IsolatedAsyncioTestCase):
             .one()
         )
         self.assertGreater(inference.confidence_sample_size, 0)
-        self.assertEqual(
-            inference.confidence_method, "jeffreys-wilson-evidence-v2"
-        )
+        self.assertEqual(inference.confidence_method, "jeffreys-wilson-evidence-v2")
 
     async def test_cancelled_turn_does_not_persist_provider_answer(self) -> None:
         flow = create_ask_session(self.session)

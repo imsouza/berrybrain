@@ -124,9 +124,7 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.type, "related")
         self.assertAlmostEqual(duplicate.confidence, 0.85)
         self.assertEqual(duplicate.confidence_sample_size, 3)
-        self.assertEqual(
-            duplicate.confidence_method, "jeffreys-wilson-evidence-v2"
-        )
+        self.assertEqual(duplicate.confidence_method, "jeffreys-wilson-evidence-v2")
         self.assertLess(duplicate.confidence_lower, duplicate.confidence)
 
     def test_ai_edge_requires_traceable_chunk_evidence(self) -> None:

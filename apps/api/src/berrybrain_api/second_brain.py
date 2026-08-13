@@ -1493,9 +1493,7 @@ def _extract_topics_from_metadata(
                         continue
                     name = str(topic_name.get("name") or "")
                     evidence = str(
-                        topic_name.get("scope")
-                        or topic_name.get("description")
-                        or ""
+                        topic_name.get("scope") or topic_name.get("description") or ""
                     ).strip()
                     normalized_name = normalize_concept_name(name)
                     if not _is_valid_topic_name(name, note_titles.get(note_id, "")):
