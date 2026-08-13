@@ -151,3 +151,25 @@ class AskFlowTest(unittest.IsolatedAsyncioTestCase):
         payload = get_ask_session_payload(self.session, flow.id)
         self.assertEqual(len(payload["turns"]), 1)
         self.assertEqual(payload["turns"][0]["status"], "cancelled")
+
+    async def test_provider_failure_does_not_persist_assistant_answer(self) -> None:
+        flow = create_ask_session(self.session)
+        answer = AsyncMock(
+            return_value={
+                "status": "waiting_provider",
+                "answer": "",
+                "evidence": [{"nodeId": 7}],
+            }
+        )
+
+        with (
+            patch("berrybrain_api.ask_flow.answer_cognitive_query", answer),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await append_ask_turn(self.session, flow.id, "Retry this question")
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.detail["code"], "provider_unavailable")
+        payload = get_ask_session_payload(self.session, flow.id)
+        self.assertEqual(len(payload["turns"]), 1)
+        self.assertEqual(payload["turns"][0]["status"], "failed")

@@ -85,7 +85,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <section className="min-w-0 flex-1 flex flex-col">
         <MobileWorkspaceBar onMenu={() => setMobileNavOpen(true)} />
         {w.graphOpen ? (
-          <GraphScreen apiUrl={w.api} onClose={() => w.setGraphOpen(false)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
+          <GraphScreen apiUrl={w.api} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : (
           <>
             {!pathname.includes("/graph/nodes/") && <div className="border-b border-border/50 px-4 py-2 flex items-center gap-2">
