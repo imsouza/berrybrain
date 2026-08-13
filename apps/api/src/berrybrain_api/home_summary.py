@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,6 +24,7 @@ from berrybrain_api.jobs import (
     utc_now,
 )
 from berrybrain_api.models import (
+    ArtifactEvaluationRecord,
     AutomationLogRecord,
     ConceptRecord,
     ConnectionRecord,
@@ -94,11 +96,14 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     running_jobs = [job for job in jobs if job.status == RUNNING]
     completed_jobs = [job for job in jobs if job.status == COMPLETED]
     failed_jobs = [job for job in jobs if job.status == FAILED]
-    total_jobs = (
-        len(pending_jobs) + len(running_jobs) + len(completed_jobs) + len(failed_jobs)
+    maintenance_backlog = _maintenance_backlog_counts(
+        session, running_jobs, pending_jobs
     )
-    progress_percent = (
-        round((len(completed_jobs) / total_jobs) * 100) if total_jobs else 100
+    remaining_tasks = sum(maintenance_backlog.values())
+    maintenance_active = bool(remaining_tasks)
+    progress_percent = 0 if maintenance_active else 100
+    estimated_remaining_seconds = _maintenance_eta_seconds(
+        jobs, running_jobs, now, maintenance_backlog
     )
 
     ai_config = _ai_config(session)
@@ -162,6 +167,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     )
 
     progress_state = _progress_state(worker, running_jobs, pending_jobs, failed_jobs)
+    if remaining_tasks and progress_state == "completed":
+        progress_state = "queued"
     current_step = _current_step(running_jobs, pending_jobs, completed_jobs)
 
     summary = {
@@ -182,7 +189,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             "lastProcessingAt": serialize_datetime(_last_processing_at(jobs, notes)),
         },
         "progress": {
-            "mode": "determinate",
+            "mode": "indeterminate" if maintenance_active else "determinate",
             "percent": progress_percent,
             "active": len(running_jobs),
             "pending": len(pending_jobs),
@@ -193,6 +200,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 recently_completed, recent_connections, insights
             ),
             "status": progress_state,
+            "estimatedRemainingSeconds": estimated_remaining_seconds,
+            "remainingTasks": remaining_tasks,
         },
         "stats": {
             "notes": {
@@ -778,6 +787,85 @@ def _last_processing_at(
     values = [job.completed_at for job in jobs if job.completed_at]
     values.extend(note.last_processed_at for note in notes if note.last_processed_at)
     return max(values) if values else None
+
+
+def _maintenance_backlog_counts(
+    session: Session,
+    running_jobs: list[JobRecord],
+    pending_jobs: list[JobRecord],
+) -> Counter[str]:
+    evaluated_node_ids = select(ArtifactEvaluationRecord.artifact_id).where(
+        ArtifactEvaluationRecord.artifact_type == "node"
+    )
+    judge_remaining = int(
+        session.scalar(
+            select(func.count())
+            .select_from(GraphNodeRecord)
+            .where(
+                GraphNodeRecord.created_by == "ai",
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+                GraphNodeRecord.id.not_in(evaluated_node_ids),
+            )
+        )
+        or 0
+    )
+    enrichment_remaining = int(
+        session.scalar(
+            select(func.count())
+            .select_from(GraphNodeRecord)
+            .where(
+                GraphNodeRecord.type != "note",
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+                (
+                    GraphNodeRecord.semantic_state.in_(["pending", "stale"])
+                    | (GraphNodeRecord.ai_summary == "")
+                ),
+            )
+        )
+        or 0
+    )
+    active_counts = Counter(job.type for job in [*running_jobs, *pending_jobs])
+    backlog = Counter(active_counts)
+    backlog["JUDGE_ARTIFACT"] = max(judge_remaining, active_counts["JUDGE_ARTIFACT"])
+    backlog["ENRICH_GRAPH_NODE"] = max(
+        enrichment_remaining, active_counts["ENRICH_GRAPH_NODE"]
+    )
+    return +backlog
+
+
+def _maintenance_eta_seconds(
+    jobs: list[JobRecord],
+    running_jobs: list[JobRecord],
+    now: datetime,
+    backlog: Counter[str],
+) -> int | None:
+    """Estimate the finite maintenance backlog from observed job durations."""
+    duration_samples: dict[str, list[float]] = {}
+    for job in jobs:
+        started = _as_aware(job.started_at)
+        completed = _as_aware(job.completed_at)
+        if job.status != COMPLETED or started is None or completed is None:
+            continue
+        duration = (completed - started).total_seconds()
+        if duration > 0:
+            duration_samples.setdefault(job.type, []).append(duration)
+
+    remaining = 0.0
+    for job_type, count in backlog.items():
+        samples = duration_samples.get(job_type)
+        if not samples:
+            return None
+        remaining += statistics.median(samples) * count
+    for job in running_jobs:
+        samples = duration_samples.get(job.type)
+        if not samples:
+            return None
+        started = _as_aware(job.started_at)
+        elapsed = max(0.0, (now - started).total_seconds()) if started else 0.0
+        remaining -= min(statistics.median(samples), elapsed)
+    return max(1, round(remaining)) if backlog else 0
 
 
 def _last_result(

@@ -2,6 +2,22 @@
 
 All notable BerryBrain changes are documented here.
 
+## 1.4.6 - 2026-08-13
+
+### Changed
+
+- Autopilot uses an indeterminate state while continuous cognitive maintenance is active and
+  reports an ETA derived from observed per-job durations.
+- The ETA includes Judge and enrichment work that continuous monitoring has identified but has not
+  yet materialized into the bounded active queue.
+
+### Fixed
+
+- Removed the misleading historical completion ratio that could leave Autopilot at 98% even after
+  every note pipeline had completed.
+- Autopilot now reaches 100% only when the finite maintenance backlog is empty.
+- Recovered an orphaned Judge lease after API connectivity was interrupted during a service restart.
+
 ## 1.4.5 - 2026-08-13
 
 ### Added

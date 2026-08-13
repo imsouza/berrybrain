@@ -61,6 +61,18 @@ class HomeSummaryTest(unittest.TestCase):
                 JobRecord(type="PARSE_NOTE", status="completed", completed_at=now),
                 JobRecord(
                     type="GENERATE_EMBEDDING",
+                    status="completed",
+                    started_at=now - timedelta(seconds=80),
+                    completed_at=now - timedelta(seconds=40),
+                ),
+                JobRecord(
+                    type="FIND_CONNECTIONS",
+                    status="completed",
+                    started_at=now - timedelta(seconds=30),
+                    completed_at=now - timedelta(seconds=10),
+                ),
+                JobRecord(
+                    type="GENERATE_EMBEDDING",
                     status="running",
                     payload='{"note_path":"study/observability.md"}',
                     started_at=now - timedelta(seconds=34),
@@ -129,8 +141,11 @@ class HomeSummaryTest(unittest.TestCase):
         self.assertEqual(summary["status"]["worker"], "running")
         self.assertEqual(summary["status"]["cloudProvider"], "nvidia-nim")
         self.assertEqual(summary["status"]["cloudModel"], "nvidia/nemotron")
-        self.assertEqual(summary["progress"]["mode"], "determinate")
-        self.assertEqual(summary["progress"]["percent"], 25)
+        self.assertEqual(summary["progress"]["mode"], "indeterminate")
+        self.assertEqual(summary["progress"]["percent"], 0)
+        self.assertGreaterEqual(summary["progress"]["estimatedRemainingSeconds"], 20)
+        self.assertLessEqual(summary["progress"]["estimatedRemainingSeconds"], 30)
+        self.assertEqual(summary["progress"]["remainingTasks"], 2)
         self.assertEqual(summary["stats"]["notes"]["total"], 2)
         self.assertEqual(summary["stats"]["notes"]["unassimilated"], 1)
         self.assertEqual(summary["stats"]["connections"]["total"], 1)
@@ -147,6 +162,26 @@ class HomeSummaryTest(unittest.TestCase):
         self.assertEqual(len(summary["recentConnections"]), 1)
         self.assertTrue(summary["recentlyCompleted"])
         self.assertTrue(summary["needsAttention"])
+
+    def test_idle_autopilot_reports_complete_without_historical_ratio(self) -> None:
+        now = utc_now()
+        self.session.add(
+            JobRecord(
+                type="PARSE_NOTE",
+                status="completed",
+                started_at=now - timedelta(seconds=3),
+                completed_at=now,
+            )
+        )
+        self.session.commit()
+
+        from berrybrain_api.home_summary import build_home_summary
+
+        progress = build_home_summary(self.session)["progress"]
+        self.assertEqual(progress["mode"], "determinate")
+        self.assertEqual(progress["percent"], 100)
+        self.assertEqual(progress["estimatedRemainingSeconds"], 0)
+        self.assertEqual(progress["remainingTasks"], 0)
 
 
 if __name__ == "__main__":

@@ -529,6 +529,36 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
   });
 
+  test("shows a current-queue ETA instead of historical Autopilot percent", async ({
+    page,
+    context,
+  }) => {
+    await page.route("**/api/v1/home/summary", async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      payload.progress = {
+        ...payload.progress,
+        mode: "indeterminate",
+        percent: 0,
+        active: 1,
+        pending: 6,
+        currentStep: "Enrich Graph Node",
+        status: "running",
+        estimatedRemainingSeconds: 848,
+        remainingTasks: 26,
+      };
+      await route.fulfill({ response, json: payload });
+    });
+    await openWorkspace(page, context);
+
+    const card = page.getByRole("button").filter({ hasText: "Autopilot processing" });
+    await expect(card).toContainText("1 active job");
+    await expect(card).toContainText("6 queued");
+    await expect(card).toContainText("26 maintenance tasks remaining");
+    await expect(card).toContainText("About 15 min until knowledge is up to date");
+    await expect(card).not.toContainText("98% done");
+  });
+
   test("shows evidence-based cognitive maturity in Monitor", async ({
     page,
     context,
