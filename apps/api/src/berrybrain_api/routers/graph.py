@@ -33,6 +33,7 @@ from berrybrain_api.job_contracts import judge_artifact_payload
 from berrybrain_api.jobs import (
     ENRICH_GRAPH_NODE,
     EXPAND_KNOWLEDGE_GRAPH,
+    GENERATE_GRAPH_INSIGHTS,
     PENDING,
     RUNNING,
     SYNC_HIPPORAG_GRAPH,
@@ -113,6 +114,7 @@ class EnrichNodeRequest(BaseModel):
 class ReclusterRequest(BaseModel):
     preview: bool = True
     preview_token: str = ""
+    scope_node_ids: list[int] | None = None
 
 
 class OntologyAuditRequest(BaseModel):
@@ -321,7 +323,11 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
         nodes = list(
             session.execute(
                 select(GraphNodeRecord)
-                .where(GraphNodeRecord.updated_at > since)
+                .where(
+                    GraphNodeRecord.updated_at > since,
+                    GraphNodeRecord.status != "ignored",
+                    GraphNodeRecord.semantic_status == "active",
+                )
                 .order_by(GraphNodeRecord.id)
                 .limit(1001)
             ).scalars()
@@ -329,7 +335,11 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
         edges = list(
             session.execute(
                 select(GraphEdgeRecord.id)
-                .where(GraphEdgeRecord.updated_at > since)
+                .where(
+                    GraphEdgeRecord.updated_at > since,
+                    GraphEdgeRecord.status != "ignored",
+                    GraphEdgeRecord.semantic_status == "active",
+                )
                 .order_by(GraphEdgeRecord.id)
                 .limit(2001)
             ).scalars()
@@ -341,8 +351,20 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
             "edgeIds": edges[:2000],
             "requiresEdgeRefresh": bool(edges),
             "requiresFullRefresh": truncated,
-            "nodeCount": session.scalar(select(func.count(GraphNodeRecord.id))) or 0,
-            "edgeCount": session.scalar(select(func.count(GraphEdgeRecord.id))) or 0,
+            "nodeCount": session.scalar(
+                select(func.count(GraphNodeRecord.id)).where(
+                    GraphNodeRecord.status != "ignored",
+                    GraphNodeRecord.semantic_status == "active",
+                )
+            )
+            or 0,
+            "edgeCount": session.scalar(
+                select(func.count(GraphEdgeRecord.id)).where(
+                    GraphEdgeRecord.status != "ignored",
+                    GraphEdgeRecord.semantic_status == "active",
+                )
+            )
+            or 0,
         }
 
 
@@ -373,7 +395,15 @@ def recluster_graph(payload: ReclusterRequest) -> dict:
     )
 
     with SessionLocal() as session:
-        preview = build_cluster_preview(session)
+        scope_node_ids = (
+            {int(node_id) for node_id in payload.scope_node_ids if int(node_id) > 0}
+            if payload.scope_node_ids is not None
+            else None
+        )
+        preview = build_cluster_preview(
+            session,
+            node_ids=scope_node_ids,
+        )
         preview_token = hashlib.sha256(
             json.dumps(preview, sort_keys=True).encode("utf-8")
         ).hexdigest()
@@ -531,7 +561,9 @@ def graph_node_summary(node_id: int) -> dict:
 @router.post("/nodes/{node_id}/confirm")
 def confirm_graph_node(node_id: int) -> dict:
     with SessionLocal() as session:
-        node = GraphWriteService(session).set_node_status(node_id, "confirmed")
+        node = GraphWriteService(session).set_node_status(
+            node_id, "confirmed", user_decision=True
+        )
         return {
             "id": node.id,
             "status": node.status,
@@ -542,7 +574,9 @@ def confirm_graph_node(node_id: int) -> dict:
 @router.post("/nodes/{node_id}/ignore")
 def ignore_graph_node(node_id: int) -> dict:
     with SessionLocal() as session:
-        node = GraphWriteService(session).set_node_status(node_id, "ignored")
+        node = GraphWriteService(session).set_node_status(
+            node_id, "ignored", user_decision=True
+        )
         return {
             "id": node.id,
             "status": node.status,
@@ -553,7 +587,24 @@ def ignore_graph_node(node_id: int) -> dict:
 @router.delete("/nodes/{node_id}")
 def delete_graph_node_endpoint(node_id: int) -> dict:
     with SessionLocal() as session:
-        GraphWriteService(session).delete_node(node_id)
+        node = session.get(GraphNodeRecord, node_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Graph node not found")
+        from berrybrain_api.graph_invalidation import (
+            collect_node_deletion_impact,
+            invalidate_dependent_insights,
+        )
+
+        impact = collect_node_deletion_impact(session, node)
+        invalidated_insights = invalidate_dependent_insights(
+            session,
+            impact,
+            primary_node_id=node_id,
+        )
+        GraphWriteService(session, autocommit=False).delete_node(
+            node_id, user_decision=True
+        )
+        session.commit()
         from berrybrain_api.jobs import supersede_missing_graph_artifact_jobs
 
         supersede_missing_graph_artifact_jobs(session)
@@ -572,7 +623,19 @@ def delete_graph_node_endpoint(node_id: int) -> dict:
             UPDATE_GRAPH_CLUSTERS,
             {
                 "trigger": "node_deleted",
+                "scope_node_ids": list(impact.cluster_scope_node_ids),
                 "idempotency_key": f"delete-node-clusters:{node_id}:{version}",
+            },
+            max_attempts=2,
+        )
+        insight_job = create_job(
+            session,
+            GENERATE_GRAPH_INSIGHTS,
+            {
+                "trigger": "node_deleted",
+                "source_note_ids": list(impact.source_note_ids),
+                "affected_node_ids": list(impact.cluster_scope_node_ids),
+                "idempotency_key": f"delete-node-insights:{node_id}:{version}",
             },
             max_attempts=2,
         )
@@ -591,8 +654,18 @@ def delete_graph_node_endpoint(node_id: int) -> dict:
             "jobs": {
                 "stats": stats_job.id,
                 "clusters": cluster_job.id,
+                "insights": insight_job.id,
                 "retrieval": retrieval_job.id,
             },
+            "impact": {
+                **impact.to_dict(),
+                "invalidatedInsights": invalidated_insights,
+                "scope": "incident_subgraph",
+            },
+            "message": (
+                "Node deleted. Dependent insights were invalidated and the affected "
+                "subgraph is being recalculated."
+            ),
         }
 
 
@@ -646,6 +719,7 @@ def update_graph_node(node_id: int, payload: UpdateGraphNodeRequest) -> dict:
             summary=payload.summary,
             source=payload.source,
             status=payload.status,
+            user_decision=True,
         )
         version = _graph_version(session)
         reprocess_job = create_job(
@@ -740,7 +814,9 @@ def update_graph_node_notes(node_id: int, payload: ManualNotesRequest) -> dict:
 @router.post("/connections/{edge_id}/confirm")
 def confirm_graph_edge(edge_id: int) -> dict:
     with SessionLocal() as session:
-        edge = GraphWriteService(session).set_edge_status(edge_id, "confirmed")
+        edge = GraphWriteService(session).set_edge_status(
+            edge_id, "confirmed", user_decision=True
+        )
         return {
             "id": edge.id,
             "status": edge.status,
@@ -758,7 +834,9 @@ def update_graph_edge_notes(edge_id: int, payload: ManualNotesRequest) -> dict:
 @router.post("/connections/{edge_id}/ignore")
 def ignore_graph_edge(edge_id: int) -> dict:
     with SessionLocal() as session:
-        edge = GraphWriteService(session).set_edge_status(edge_id, "ignored")
+        edge = GraphWriteService(session).set_edge_status(
+            edge_id, "ignored", user_decision=True
+        )
         return {
             "id": edge.id,
             "status": edge.status,
@@ -769,7 +847,9 @@ def ignore_graph_edge(edge_id: int) -> dict:
 @router.post("/connections/{edge_id}/restore")
 def restore_graph_edge(edge_id: int) -> dict:
     with SessionLocal() as session:
-        edge = GraphWriteService(session).set_edge_status(edge_id, "suggested")
+        edge = GraphWriteService(session).set_edge_status(
+            edge_id, "suggested", user_decision=True
+        )
         return {
             "id": edge.id,
             "status": edge.status,

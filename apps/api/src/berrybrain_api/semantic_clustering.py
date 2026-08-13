@@ -52,18 +52,18 @@ STOP_WORDS = {
 }
 
 
-def build_cluster_preview(session: Session) -> dict[str, Any]:
-    nodes = list(
-        session.execute(
-            select(GraphNodeRecord)
-            .where(
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
-                GraphNodeRecord.type != "vault",
-            )
-            .order_by(GraphNodeRecord.id)
-        ).scalars()
+def build_cluster_preview(
+    session: Session, node_ids: set[int] | None = None
+) -> dict[str, Any]:
+    node_query = select(GraphNodeRecord).where(
+        GraphNodeRecord.status != "ignored",
+        GraphNodeRecord.semantic_status == "active",
+        GraphNodeRecord.type != "vault",
     )
+    if node_ids is not None:
+        node_query = node_query.where(GraphNodeRecord.id.in_(node_ids))
+    nodes = list(session.execute(node_query.order_by(GraphNodeRecord.id)).scalars())
+    selected_node_ids = {node.id for node in nodes}
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
@@ -82,6 +82,11 @@ def build_cluster_preview(session: Session) -> dict[str, Any]:
     neighbors: dict[int, set[int]] = defaultdict(set)
     edge_confidence: dict[tuple[int, int], float] = {}
     for edge in edges:
+        if (
+            edge.source_node_id not in selected_node_ids
+            or edge.target_node_id not in selected_node_ids
+        ):
+            continue
         neighbors[edge.source_node_id].add(edge.target_node_id)
         neighbors[edge.target_node_id].add(edge.source_node_id)
         key = tuple(sorted((edge.source_node_id, edge.target_node_id)))
@@ -148,12 +153,28 @@ def build_cluster_preview(session: Session) -> dict[str, Any]:
         "unresolvedNodeIds": [],
         "provisionalNodeIds": provisional_ids,
         "clusters": clusters,
+        "scoped": node_ids is not None,
+        "scopeNodeIds": sorted(node_ids or []),
     }
 
 
 def apply_cluster_preview(session: Session, preview: dict[str, Any]) -> dict[str, Any]:
     now = datetime.now(UTC)
     _ensure_pending_palette(session)
+    scoped = bool(preview.get("scoped"))
+    scope_node_ids = {
+        int(value) for value in preview.get("scopeNodeIds", []) if str(value).isdigit()
+    }
+    previous_cluster_ids = {
+        int(value)
+        for value in session.execute(
+            select(GraphNodeRecord.cluster_id).where(
+                GraphNodeRecord.id.in_(scope_node_ids),
+                GraphNodeRecord.cluster_id.is_not(None),
+            )
+        ).scalars()
+        if value is not None
+    }
     active_ids: set[int] = set()
     assignments_updated = 0
     for position, item in enumerate(preview["clusters"]):
@@ -217,8 +238,28 @@ def apply_cluster_preview(session: Session, preview: dict[str, Any]) -> dict[str
             node.color_reason = "Semantic classification pending or unresolved."
             node.color_updated_at = now
 
-    for cluster in session.execute(select(SemanticClusterRecord)).scalars():
-        if cluster.id not in active_ids:
+    clusters_to_check = (
+        session.execute(select(SemanticClusterRecord)).scalars()
+        if not scoped
+        else session.execute(
+            select(SemanticClusterRecord).where(
+                SemanticClusterRecord.id.in_(previous_cluster_ids | active_ids)
+            )
+        ).scalars()
+    )
+    for cluster in clusters_to_check:
+        if cluster.id in active_ids:
+            continue
+        has_members = session.execute(
+            select(GraphNodeRecord.id)
+            .where(
+                GraphNodeRecord.cluster_id == cluster.id,
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if not scoped or has_members is None:
             cluster.status = "inactive"
             cluster.updated_at = now
     _ensure_vault_identities(session, now)

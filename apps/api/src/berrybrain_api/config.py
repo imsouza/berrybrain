@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     smtp_password: str = Field(default="", validation_alias="SMTP_PASSWORD")
     smtp_from: str = Field(default="", validation_alias="SMTP_FROM")
     support_email: str = ""
+    hipporag_url: str = "http://localhost:8000"
+    hipporag_service_token: str = ""
 
     model_config = SettingsConfigDict(
         env_prefix="BERRYBRAIN_",

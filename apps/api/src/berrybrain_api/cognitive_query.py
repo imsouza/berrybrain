@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import sys
 import time
@@ -284,11 +283,14 @@ def retrieve_hipporag(
     so we log and swallow network errors. Set `hipporag_enabled=true` in
     cognitive settings to activate the route.
     """
-    url = os.getenv("HIPPORAG_URL", "http://localhost:8000")
+    from berrybrain_api.config import get_settings
+
+    settings = get_settings()
+    url = settings.hipporag_url.rstrip("/")
     try:
         import httpx
 
-        service_token = os.getenv("HIPPORAG_SERVICE_TOKEN", "")
+        service_token = settings.hipporag_service_token
         r = httpx.post(
             f"{url}/retrieve",
             headers=(
@@ -311,7 +313,7 @@ def retrieve_hipporag(
             if item.get("score", 0.0) > 0
         ]
     except Exception:
-        # ponytail: sidecar offline -> no evidence from this route, RRF degrades.
+        # Sidecar offline: omit this route and let RRF continue with available evidence.
         return []
 
 

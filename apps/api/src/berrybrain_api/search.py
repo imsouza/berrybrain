@@ -188,7 +188,11 @@ def hybrid_search(
                     )
                 ),
             )
-            .filter(ConnectionRecord.status != "ignored")
+            .filter(
+                ConnectionRecord.status.not_in(
+                    ("ignored", "archived", "stale", "dismissed")
+                )
+            )
             .limit(50)
             .all()
         )
@@ -262,6 +266,11 @@ def hybrid_search(
             )
             .join(NoteRecord, ConnectionRecord.source_note_id == NoteRecord.id)
             .filter(ConnectionRecord.target_note_id.in_(note_ids))
+            .filter(
+                ConnectionRecord.status.not_in(
+                    ("ignored", "archived", "stale", "dismissed")
+                )
+            )
             .all()
         )
         for row in rows:

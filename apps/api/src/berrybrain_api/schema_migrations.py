@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 
 
@@ -82,6 +82,14 @@ MIGRATIONS = (
         description=(
             "Adds auditable 95 percent confidence intervals to note connections, "
             "concepts, and persisted graph inferences."
+        ),
+    ),
+    SchemaMigration(
+        version=11,
+        name="contextual-graph-feedback",
+        description=(
+            "Adds durable contextual user decisions used to suppress rejected graph "
+            "artifacts and retain corrections across graph rebuilds."
         ),
     ),
 )
@@ -209,6 +217,11 @@ def _apply_migration_ddl(connection: Connection, version: int) -> None:
         }
         for table in ("connections", "concepts", "graph_inferences"):
             _add_columns(connection, table, confidence_columns)
+        return
+    if version == 11:
+        from berrybrain_api.models import GraphFeedbackRecord
+
+        GraphFeedbackRecord.__table__.create(bind=connection, checkfirst=True)
         return
     if version == 8:
         _add_columns(

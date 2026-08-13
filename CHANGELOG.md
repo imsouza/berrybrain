@@ -2,6 +2,39 @@
 
 All notable BerryBrain changes are documented here.
 
+## 1.4.7 - 2026-08-13
+
+### Added
+
+- Durable context-scoped graph feedback for confirmation, rejection, correction, restoration, and
+  deletion decisions.
+- Provider-aware Judge defaults with three independent roles, editable committee size from two to
+  five, editable model, role, and focus assignments in Settings, and exact structured-response
+  compatibility probes before a model can join the committee.
+- Incident-subgraph deletion impact analysis, dependent-insight invalidation, scoped reclustering,
+  scoped insight regeneration, retrieval synchronization, and visible browser progress.
+
+### Changed
+
+- Automatic high-impact Judge jobs use committee mode when at least two valid, distinct,
+  non-generator models are configured.
+- Failed committee calls remain in the audit ledger but are excluded from consensus and score.
+- Graph delta, search, and retrieval paths exclude ignored or quarantined artifacts.
+- Insight projection updates only newly synchronized records instead of expanding the whole graph.
+- HippoRAG API and cognitive-query clients resolve the prefixed Compose URL and service token from
+  the validated runtime settings contract.
+
+### Fixed
+
+- Deleted generated nodes no longer return after refresh or graph expansion in the same or an
+  overlapping source context.
+- Deleting a node now expires incident and same-context insights instead of leaving stale claims.
+- An explicit empty cluster-recalculation scope no longer falls back to a full-graph recluster.
+- Navigation boilerplate such as `Skip to content` no longer becomes a cross-domain concept.
+- Light semantic-cluster fills no longer render unreadable white node labels.
+- Provider catalog entries that return `404`, time out, or violate the Judge JSON contract can no
+  longer be assigned as working default judges.
+
 ## 1.4.6 - 2026-08-13
 
 ### Changed

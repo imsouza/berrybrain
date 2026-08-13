@@ -236,6 +236,28 @@ class SemanticClusteringTest(unittest.TestCase):
             max_cluster_size,
         )
 
+    def test_scoped_recalculation_preserves_unaffected_cluster(self) -> None:
+        first_a = self._node("Docker", "Container runtime and deployment images.")
+        first_b = self._node("Containers", "Container runtime and deployment images.")
+        second_a = self._node("Poetry", "Verse, meter, literary form, and rhyme.")
+        second_b = self._node("Rhyme", "Verse, meter, literary form, and rhyme.")
+        self.session.commit()
+        apply_cluster_preview(self.session, build_cluster_preview(self.session))
+        unaffected_cluster_id = second_a.cluster_id
+
+        first_a.summary = "Container runtime, images, registries, and deployment."
+        self.session.commit()
+        scope = {first_a.id, first_b.id}
+        preview = build_cluster_preview(self.session, node_ids=scope)
+        applied = apply_cluster_preview(self.session, preview)
+        self.session.refresh(second_a)
+        self.session.refresh(second_b)
+
+        self.assertTrue(applied["scoped"])
+        self.assertEqual(set(applied["scopeNodeIds"]), scope)
+        self.assertEqual(second_a.cluster_id, unaffected_cluster_id)
+        self.assertEqual(second_b.cluster_id, unaffected_cluster_id)
+
 
 if __name__ == "__main__":
     unittest.main()

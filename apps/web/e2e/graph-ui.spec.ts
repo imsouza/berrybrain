@@ -218,8 +218,9 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await mockPagedGraph(page, [node]);
     await page.goto("/brain?graph=open");
     const canvas = page.getByRole("img", { name: /Knowledge graph with 1 nodes/i });
-    await expect(canvas).toHaveAttribute("data-node-label-max-lines", "3");
+    await expect(canvas).toHaveAttribute("data-node-label-max-lines", "3", { timeout: 30_000 });
     await expect(canvas).toHaveAttribute("data-node-label-max-characters", "58");
+    await expect(canvas).toHaveAttribute("data-node-label-contrast", "fill-aware-wcag");
     await page.waitForTimeout(900);
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
@@ -375,30 +376,20 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
   });
 
   test("graph list view mirrors API nodes and connections", async ({ page }) => {
-    await page.route("**/api/v1/graph", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          nodes: [
-            { id: "note_1", type: "note", label: "Docker and Linux Shell", connectionsCount: 1 },
-            { id: "concept_2", type: "concept", label: "Linux namespaces", connectionsCount: 1 },
-          ],
-          edges: [
-            {
-              id: 10,
-              source: "note_1",
-              target: "concept_2",
-              type: "mentions",
-              confidence: 0.92,
-              reason: "The note explicitly mentions Linux namespaces.",
-              evidence: ["Docker containers depend on Linux namespaces."],
-            },
-          ],
-          stats: { node_count: 2, edge_count: 1, orphan_count: 0 },
-        }),
-      }),
-    );
+    await mockPagedGraph(page, [
+      { id: "note_1", type: "note", label: "Docker and Linux Shell", connectionsCount: 1 },
+      { id: "concept_2", type: "concept", label: "Linux namespaces", connectionsCount: 1 },
+    ], [
+      {
+        id: 10,
+        source: "note_1",
+        target: "concept_2",
+        type: "mentions",
+        confidence: 0.92,
+        reason: "The note explicitly mentions Linux namespaces.",
+        evidence: ["Docker containers depend on Linux namespaces."],
+      },
+    ]);
     await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
@@ -412,7 +403,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     await page.goto("/brain?graph=open");
     await expect(page.getByText(/2 Nodes · 1 Connections/i)).toBeVisible({
-      timeout: 10_000,
+      timeout: 30_000,
     });
     await page.getByRole("button", { name: "Graph list" }).click();
 
@@ -530,11 +521,12 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
   });
 
   test("opens the node page and queues a failed semantic analysis retry", async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
+    let deleted = false;
     await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ node_count: 1, edge_count: 0, orphan_count: 1, graphVersion: 5 }),
+      body: JSON.stringify({ node_count: deleted ? 0 : 1, edge_count: 0, orphan_count: deleted ? 0 : 1, graphVersion: deleted ? 6 : 5 }),
     }));
     await page.route("**/api/v1/graph/palette", (route) => route.fulfill({
       status: 200,
@@ -544,7 +536,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ nodes: [{ id: "concept_11", recordId: 11, type: "concept", label: "Docker", status: "suggested", semanticState: "failed" }], nextCursor: null, graphVersion: 5 }),
+      body: JSON.stringify({ nodes: deleted ? [] : [{ id: "concept_11", recordId: 11, type: "concept", label: "Docker", status: "suggested", semanticState: "failed" }], nextCursor: null, graphVersion: deleted ? 6 : 5 }),
     }));
     await page.route("**/api/v1/graph/edges?*", (route) => route.fulfill({
       status: 200,
@@ -554,7 +546,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/delta?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ graphVersion: 5, nodes: [], nodeCount: 1, edgeCount: 0, requiresEdgeRefresh: false, requiresFullRefresh: false }),
+      body: JSON.stringify({ graphVersion: deleted ? 6 : 5, nodes: [], nodeCount: deleted ? 0 : 1, edgeCount: 0, requiresEdgeRefresh: false, requiresFullRefresh: deleted }),
     }));
     await page.route("**/api/v1/graph/nodes/11/summary", (route) => route.fulfill({
       status: 200,
@@ -575,8 +567,25 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes/11", (route) => {
       if (route.request().method() !== "DELETE") return route.fallback();
       deleteCalls += 1;
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "deleted" }) });
+      deleted = true;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "deleted",
+          jobs: { stats: 501, clusters: 502, insights: 503, retrieval: 504 },
+          impact: { scope: "incident_subgraph", invalidatedInsights: 1 },
+          message: "Node deleted. Dependent insights were invalidated and the affected subgraph is being recalculated.",
+        }),
+      });
     });
+    await page.route("**/api/v1/jobs*", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        jobs: [501, 502, 503, 504].map((id) => ({ id, status: "completed" })),
+      }),
+    }));
 
     await page.goto("/brain?graph=open");
     await page.getByRole("button", { name: "Graph list" }).click();
@@ -610,6 +619,10 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete node" }).click();
     await expect(page).toHaveURL(/\/brain\?graph=open&refresh=node-deleted$/, { timeout: 15_000 });
+    await expect(page.getByText("Node deletion and affected-subgraph recalculation completed.")).toBeVisible({ timeout: 45_000 });
+    await page.reload();
+    await page.getByRole("button", { name: "Graph list" }).click({ timeout: 45_000 });
+    await expect(page.getByRole("listitem", { name: /Docker/ })).toHaveCount(0);
     expect(deleteCalls).toBe(1);
   });
 });

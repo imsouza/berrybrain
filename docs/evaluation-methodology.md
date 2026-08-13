@@ -43,6 +43,38 @@ precision and recall, edge precision and recall, ontology violations, duplicate 
 provenance coverage, and path-answer success. Systems evaluation uses request rate, error rate,
 queue wait, drain rate, CPU, RSS, database growth, payload bytes, LCP, CLS, long tasks, and heap.
 
+## Judge Evaluation Design
+
+Judge quality is measured against human review rather than treated as ground truth. BerryBrain
+retains each model verdict and reports comparable count, exact agreement, quadratic weighted
+kappa, false-acceptance rate, and false-rejection rate. Enforcement remains blocked until the
+declared calibration thresholds are met.
+
+The committee uses role separation because RAG quality is multidimensional:
+
+| Role | Primary failure targeted |
+| --- | --- |
+| Faithfulness | Claims not entailed by cited source evidence |
+| Relevance | Artifacts that are semantically true but not useful in the current context |
+| Contradiction | Conflicts, unsupported inference, and incidental cross-domain shared words |
+| Source quality | Weak provenance, insufficient coverage, or confidence unsupported by evidence |
+| Ontology consistency | Invalid class, property, direction, naming, or neighborhood semantics |
+
+The default committee uses three distinct compatibility-tested, non-generator models from the
+active provider. Discovery and compatibility are separate measurements: a catalog entry must also
+complete the Judge's structured JSON request on the active endpoint. This operationalizes panel
+diversity without embedding provider catalogs in source. Provider/model, prompt version, role,
+rubric, reasoning, latency, and availability are retained per call. Failed members are reported but
+excluded from consensus and score; fewer than two valid members means no committee decision.
+
+### Research basis
+
+- Es et al., [Ragas: Automated Evaluation of Retrieval Augmented Generation](https://arxiv.org/abs/2309.15217), separates retrieval relevance, faithfulness, and generation quality.
+- Ru et al., [RAGChecker](https://arxiv.org/abs/2408.08067), motivates fine-grained retrieval and generation diagnostics plus human-correlated meta-evaluation.
+- Liu et al., [G-Eval](https://arxiv.org/abs/2303.16634), supports structured evaluation criteria while documenting model bias risk.
+- Kim et al., [Prometheus 2](https://arxiv.org/abs/2405.01535), supports custom criteria and evaluator specialization aligned with human judgments.
+- Verga et al., [Replacing Judges with Juries](https://arxiv.org/abs/2404.18796), motivates multiple disjoint model families to reduce single-judge and intramodel bias.
+
 ## Statistical Method
 
 Query-level comparisons are paired. The default uncertainty estimator is a deterministic paired

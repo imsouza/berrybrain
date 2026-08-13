@@ -125,7 +125,7 @@ def _detach_note_graph_provenance(
             node_ids_to_delete.add(node.id)
             continue
         node.source_note_ids = compact_json(remaining)
-        recalculate_node_confidence(node)
+        recalculate_node_confidence(node, session)
 
     for edge in list(session.execute(select(GraphEdgeRecord)).scalars()):
         if (
@@ -142,7 +142,7 @@ def _detach_note_graph_provenance(
             session.delete(edge)
             continue
         edge.source_note_ids = compact_json(remaining)
-        recalculate_edge_confidence(edge)
+        recalculate_edge_confidence(edge, session)
 
     for node in nodes:
         if node.id in node_ids_to_delete:

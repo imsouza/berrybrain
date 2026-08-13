@@ -37,6 +37,9 @@ class SecondBrainPhase1Test(unittest.TestCase):
             slug="observability",
             path="study/observability.md",
             content_hash="hash-a",
+            content=(
+                "Observability combines logs metrics traces in distributed systems."
+            ),
             links=json.dumps(["Edge Computing"]),
         )
         target = NoteRecord(
@@ -44,6 +47,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             slug="edge-computing",
             path="study/edge-computing.md",
             content_hash="hash-b",
+            content="Edge computing is an application of distributed systems.",
         )
         self.session.add_all([source, target])
         self.session.flush()
@@ -95,6 +99,7 @@ class SecondBrainPhase1Test(unittest.TestCase):
             slug="time-series",
             path="study/time-series.md",
             content_hash="valid-hash",
+            content="Time series methods support forecasting over ordered observations.",
         )
         self.session.add(note)
         self.session.flush()

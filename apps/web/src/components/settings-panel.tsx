@@ -50,6 +50,7 @@ const SECTION_AREAS: Record<string, SettingsArea[]> = {
     "Embeddings & KB",
     "Knowledge Graph",
   ],
+  "Judge committee": ["Judge"],
   Local: ["Main provider"],
   Saving: ["General"],
   Maintenance: ["Maintenance"],
@@ -155,6 +156,28 @@ type JobDiagnostics = {
   staleRunning: StaleRunningJob[];
   failedByType: Record<string, number>;
   status: string;
+};
+
+type JudgeMode = "deterministic" | "single_model" | "committee";
+type JudgeCommitteeSlot = {
+  slot: string;
+  provider: string;
+  model: string;
+  role: string;
+  focus: string;
+};
+type JudgeConfiguration = {
+  mode: JudgeMode;
+  committee: JudgeCommitteeSlot[];
+  committee_size: number;
+  consent_at: string | null;
+};
+
+const DEFAULT_JUDGE_CONFIGURATION: JudgeConfiguration = {
+  mode: "single_model",
+  committee: [],
+  committee_size: 3,
+  consent_at: null,
 };
 
 function defaults(): Settings {
@@ -356,6 +379,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [saveStatus, setSaveStatus] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [providerStatus, setProviderStatus] = useState<AiProviderStatus | null>(null);
+  const [judgeConfiguration, setJudgeConfiguration] = useState<JudgeConfiguration>(DEFAULT_JUDGE_CONFIGURATION);
+  const [judgeModels, setJudgeModels] = useState<string[]>([]);
+  const [judgeProvider, setJudgeProvider] = useState("");
+  const [generatorModel, setGeneratorModel] = useState("");
+  const [primaryJudgeModel, setPrimaryJudgeModel] = useState("");
+  const [judgeStatus, setJudgeStatus] = useState("");
+  const [judgeDirty, setJudgeDirty] = useState(false);
   const [maintenanceStatus, setMaintenanceStatus] = useState("");
   const [diagnostics, setDiagnostics] = useState<JobDiagnostics | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
@@ -419,7 +449,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
         return Promise.all([
           fetch(`${apiUrl}/api/v1/settings`, { credentials: "include" }),
           fetch(`${apiUrl}/api/v1/settings/ai/status`, { credentials: "include" }),
-        ]).then(async ([settingsResponse, statusResponse]) => {
+          fetch(`${apiUrl}/api/v1/judge/mode`, { credentials: "include" }),
+          fetch(`${apiUrl}/api/v1/ai/configuration`, { credentials: "include" }),
+        ]).then(async ([settingsResponse, statusResponse, judgeResponse, aiResponse]) => {
             if (!settingsResponse.ok) throw new Error("Settings could not be loaded.");
             const d = await settingsResponse.json();
             const loaded: Partial<Settings> = {};
@@ -431,6 +463,29 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             if (statusResponse.ok && !cancelled) {
               const status = await statusResponse.json();
               setProviderStatus(status);
+            }
+            if (judgeResponse.ok && !cancelled) {
+              const judge = await judgeResponse.json();
+              setJudgeConfiguration({ ...DEFAULT_JUDGE_CONFIGURATION, ...judge });
+              setJudgeDirty(false);
+            }
+            if (aiResponse.ok && !cancelled) {
+              const ai = await aiResponse.json();
+              const configuration = ai.configuration;
+              const provider = String(configuration?.judge?.provider_id || "");
+              setJudgeProvider(provider);
+              setGeneratorModel(String(configuration?.main?.model_id || ""));
+              setPrimaryJudgeModel(String(configuration?.judge?.model_id || ""));
+              if (provider) {
+                const modelResponse = await fetch(
+                  `${apiUrl}/api/v1/ai/providers/${encodeURIComponent(provider)}/models`,
+                  { credentials: "include" },
+                );
+                if (modelResponse.ok && !cancelled) {
+                  const payload = await modelResponse.json();
+                  setJudgeModels((payload.models || []).map((item: { id?: unknown }) => String(item.id || "")).filter(Boolean));
+                }
+              }
             }
           });
       })
@@ -470,6 +525,77 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     });
   }
 
+  function updateJudge(next: JudgeConfiguration) {
+    setJudgeConfiguration(next);
+    setJudgeDirty(true);
+    setDirtyAreas((current) => new Set(current).add("Judge"));
+    setJudgeStatus("");
+  }
+
+  function updateJudgeSlot(index: number, values: Partial<JudgeCommitteeSlot>) {
+    const committee = Array.from({ length: judgeConfiguration.committee_size }, (_, position) =>
+      judgeConfiguration.committee[position] || {
+        slot: `judge-${position + 1}`,
+        provider: judgeProvider,
+        model: "",
+        role: "general",
+        focus: "Evaluate the complete artifact rubric.",
+      },
+    );
+    committee[index] = { ...committee[index], ...values, provider: judgeProvider };
+    updateJudge({ ...judgeConfiguration, committee });
+  }
+
+  async function applyJudgeDefaults() {
+    setJudgeStatus("Assigning available provider models...");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/judge/defaults`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
+        body: JSON.stringify({
+          provider: judgeProvider,
+          models: judgeModels,
+          generator_model: generatorModel,
+          primary_judge_model: primaryJudgeModel,
+          committee_size: judgeConfiguration.committee_size,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || "Judge defaults could not be assigned.");
+      updateJudge({
+        ...judgeConfiguration,
+        mode: payload.mode,
+        committee: payload.committee || [],
+        committee_size: payload.committee_size,
+      });
+      setJudgeStatus(payload.message || "Judge defaults assigned.");
+    } catch (error) {
+      setJudgeStatus(error instanceof Error ? error.message : "Judge defaults could not be assigned.");
+    }
+  }
+
+  async function persistJudgeConfiguration() {
+    if (!judgeDirty || !isAdmin || apiUrl === "__demo__") return;
+    const response = await fetch(`${apiUrl}/api/v1/judge/mode`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": readCsrf() },
+      body: JSON.stringify({
+        ...judgeConfiguration,
+        consent_at: judgeConfiguration.mode === "committee"
+          ? judgeConfiguration.consent_at || new Date().toISOString()
+          : judgeConfiguration.consent_at,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.status === "error") {
+      throw new Error(payload.message || payload.detail || "Judge configuration could not be saved.");
+    }
+    setJudgeConfiguration({ ...DEFAULT_JUDGE_CONFIGURATION, ...payload });
+    setJudgeDirty(false);
+  }
+
   async function refreshProviderStatus() {
     if (apiUrl === "__demo__" || !isAdmin) return;
     const response = await fetch(`${apiUrl}/api/v1/settings/ai/status`, { credentials: "include" });
@@ -497,6 +623,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setSaveStatus("");
     try {
       await persist(s);
+      await persistJudgeConfiguration();
       applyTheme(s);
       editedRef.current = false;
       setDirtyAreas(new Set());
@@ -902,6 +1029,108 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 </Select>
               </Field>
             </div>
+          </Section>
+
+          <Section title="Judge committee" description="Evidence-grounded quality control for generated nodes, edges, and insights.">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Execution mode" description="Committee mode runs independent model verdicts for high-impact artifacts.">
+                <Select
+                  value={judgeConfiguration.mode}
+                  onChange={(value) => updateJudge({ ...judgeConfiguration, mode: value as JudgeMode })}
+                >
+                  <option value="deterministic">Deterministic</option>
+                  <option value="single_model">Single model</option>
+                  <option value="committee">Committee</option>
+                </Select>
+              </Field>
+              <Field label="Default Judge count" description="Three roles balance coverage and provider cost. Valid range: 2 to 5.">
+                <Select
+                  value={String(judgeConfiguration.committee_size)}
+                  onChange={(value) => {
+                    const committeeSize = Number(value);
+                    updateJudge({
+                      ...judgeConfiguration,
+                      committee_size: committeeSize,
+                      committee: judgeConfiguration.committee.slice(0, committeeSize),
+                    });
+                  }}
+                >
+                  {[2, 3, 4, 5].map((count) => <option key={count} value={count}>{count} models</option>)}
+                </Select>
+              </Field>
+              <Field label="Provider" description="Inherited from the active validated AI configuration.">
+                <ReadOnlyValue value={judgeProvider || "No provider configured"} />
+              </Field>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 border-y border-border py-3">
+              <button
+                type="button"
+                className="bb-action h-9 px-4 text-xs font-semibold"
+                onClick={applyJudgeDefaults}
+                disabled={!judgeProvider || judgeModels.length < 2}
+              >
+                Apply provider defaults
+              </button>
+              <span className="text-[11px] text-muted">
+                {judgeModels.length} available models · generator excluded: {generatorModel || "not configured"}
+              </span>
+            </div>
+
+            {judgeConfiguration.mode === "single_model" && (
+              <ReadOnlyValue value={`Single Judge: ${primaryJudgeModel || "not configured"}`} />
+            )}
+
+            {judgeConfiguration.mode === "committee" && (
+              <div className="divide-y divide-border border-y border-border">
+                {Array.from({ length: judgeConfiguration.committee_size }, (_, index) => {
+                  const slot = judgeConfiguration.committee[index] || {
+                    slot: `judge-${index + 1}`,
+                    provider: judgeProvider,
+                    model: "",
+                    role: "general",
+                    focus: "Evaluate the complete artifact rubric.",
+                  };
+                  return (
+                    <div key={slot.slot || index} className="grid gap-3 py-4 lg:grid-cols-[minmax(9rem,0.7fr)_minmax(12rem,1fr)_minmax(16rem,1.6fr)]">
+                      <Field label={`Judge ${index + 1} role`}>
+                        <TextInput
+                          value={slot.role}
+                          onChange={(value) => updateJudgeSlot(index, { role: value })}
+                          placeholder="faithfulness"
+                        />
+                      </Field>
+                      <Field label="Model">
+                        <input
+                          list="judge-provider-models"
+                          value={slot.model}
+                          onChange={(event) => updateJudgeSlot(index, { model: event.target.value })}
+                          placeholder="Select an available model"
+                          className="h-9 w-full rounded-md border border-border bg-background px-3 text-xs text-foreground outline-none focus:border-accent"
+                        />
+                      </Field>
+                      <Field label="Evaluation focus">
+                        <textarea
+                          rows={3}
+                          value={slot.focus}
+                          onChange={(event) => updateJudgeSlot(index, { focus: event.target.value })}
+                          className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs leading-5 text-foreground outline-none focus:border-accent"
+                        />
+                      </Field>
+                    </div>
+                  );
+                })}
+                <datalist id="judge-provider-models">
+                  {judgeModels.map((model) => <option key={model} value={model} />)}
+                </datalist>
+              </div>
+            )}
+
+            <ReadOnlyValue value={judgeStatus || (
+              judgeConfiguration.mode === "committee"
+                ? `${judgeConfiguration.committee.filter((slot) => slot.model && slot.model !== generatorModel).length} eligible independent models configured.`
+                : "Committee assignments are retained when another mode is selected."
+            )} />
           </Section>
 
           <Section title="Local" description="Local Ollama settings for offline processing.">

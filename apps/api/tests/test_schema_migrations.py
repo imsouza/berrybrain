@@ -130,6 +130,43 @@ class SchemaMigrationTest(unittest.TestCase):
         self.assertIn("confidence_lower", inference_columns)
         self.assertIn("confidence_method", inference_columns)
 
+    def test_v11_upgrade_adds_contextual_graph_feedback(self) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE schema_migrations ("
+                    "version INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+                    "description TEXT NOT NULL, applied_at TEXT NOT NULL)"
+                )
+            )
+            for version in range(1, 11):
+                connection.execute(
+                    text(
+                        "INSERT INTO schema_migrations "
+                        "(version, name, description, applied_at) "
+                        "VALUES (:version, :name, '', 'now')"
+                    ),
+                    {"version": version, "name": f"migration-{version}"},
+                )
+
+        result = apply_schema_migrations(self.engine)
+        inspector = inspect(self.engine)
+
+        self.assertEqual(result["fromVersion"], 10)
+        self.assertEqual(result["toVersion"], CURRENT_SCHEMA_VERSION)
+        self.assertIn("graph_feedback", inspector.get_table_names())
+        self.assertTrue(
+            {
+                "artifact_kind",
+                "artifact_key",
+                "context_key",
+                "action",
+                "active",
+            }.issubset(
+                {column["name"] for column in inspector.get_columns("graph_feedback")}
+            )
+        )
+
     def test_newer_database_is_blocked_before_startup(self) -> None:
         apply_schema_migrations(self.engine)
         with self.engine.begin() as connection:
