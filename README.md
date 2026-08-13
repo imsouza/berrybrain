@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.5-blue)
+![Version](https://img.shields.io/badge/version-1.4.6-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.5](#whats-new-in-145)
+- [What's New in 1.4.6](#whats-new-in-146)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,17 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.5
+## What's New in 1.4.6
+
+- **Truthful Autopilot progress**: continuous cognitive maintenance no longer reports a historical
+  completion percentage. Active maintenance shows an indeterminate state, remaining task count,
+  and an ETA calculated from observed Judge, enrichment, and queue durations.
+- **Complete backlog accounting**: ETA includes eligible Judge and enrichment work identified by
+  the agent monitor even before bounded batches enter the durable queue.
+- **Clear completion semantics**: Autopilot reports 100% only when no finite maintenance work
+  remains; per-note pipelines retain their own determinate progress and readiness states.
+
+### Included from 1.4.5
 
 - **Immediate graph visibility**: saving or importing a note materializes its canonical note node
   in the same database transaction. Concepts, entities, topics, edges, insights, clusters, and
@@ -191,7 +201,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain v1.4.5 is locally validated for ontology-aware graph/RAG behavior, calculated
+BerryBrain v1.4.6 is locally validated for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
 

@@ -37,6 +37,8 @@ type HomeSummary = {
     currentStep: string;
     lastResult: string;
     status: StatusKind | string;
+    estimatedRemainingSeconds?: number | null;
+    remainingTasks?: number;
   };
   stats: {
     notes: { total: number; createdToday: number; unassimilated: number };
@@ -425,13 +427,20 @@ function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmp
 function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: HomeSummary; status: StatusKind; onOpenMonitor: () => void }) {
   const running = status === "running";
   const waiting = status === "waiting_provider" || status === "queued";
+  const eta = summary.progress.estimatedRemainingSeconds;
+  const progressDescription = summary.progress.mode === "indeterminate"
+    ? eta != null
+      ? `About ${formatEta(eta)} until knowledge is up to date`
+      : "Estimating the current queue"
+    : "Knowledge maintenance is up to date";
   return (
     <button className="bb-card bb-card--interactive h-full w-full p-5 text-left" onClick={onOpenMonitor}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold">{status === "completed" ? t("autopilotUpToDate") : t("autopilotProcessing")}</div>
           <p className="mt-1 text-xs text-muted/60">
-            {tf("activeJobsCount", { count: summary.progress.active })} · {tf("queuedCount", { count: summary.progress.pending })} · {tf("percentDone", { percent: summary.progress.percent })}
+            {tf("activeJobsCount", { count: summary.progress.active })} · {tf("queuedCount", { count: summary.progress.pending })}
+            {(summary.progress.remainingTasks || 0) > summary.progress.active + summary.progress.pending && ` · ${summary.progress.remainingTasks} maintenance tasks remaining`}
           </p>
         </div>
         <span className="rounded-full bg-panel px-2.5 py-1 text-[11px] text-muted/60">{summary.progress.currentStep}</span>
@@ -441,7 +450,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
           value={summary.progress.percent}
           indeterminate={summary.progress.mode === "indeterminate" || waiting}
           status={status}
-          description={`${summary.progress.percent}%`}
+          description={progressDescription}
         />
       </div>
       <div className="mt-4 grid gap-3 text-xs text-muted/65 sm:grid-cols-2">
