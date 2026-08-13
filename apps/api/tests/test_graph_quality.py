@@ -162,8 +162,10 @@ class GraphQualityReportTest(unittest.TestCase):
         edge = self.session.query(GraphEdgeRecord).one()
         self.assertEqual(edge.type, "supports")
         self.assertEqual(edge.status, "confirmed")
-        self.assertGreaterEqual(edge.confidence, 0.8)
-        self.assertEqual(edge.confidence_method, "wilson-evidence-v1")
+        self.assertGreaterEqual(edge.confidence, 0.75)
+        self.assertEqual(
+            edge.confidence_method, "jeffreys-wilson-evidence-v2"
+        )
         self.assertIn("source excerpt", edge.evidence)
 
 

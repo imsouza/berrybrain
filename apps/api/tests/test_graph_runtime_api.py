@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import patch
 
@@ -101,20 +102,46 @@ class GraphRuntimeApiTest(unittest.TestCase):
                 semantic_status="active",
             )
             session.add(target)
-            session.commit()
+            session.flush()
             target_id = target.id
+            session.add_all(
+                [
+                    JobRecord(
+                        type="ENRICH_GRAPH_NODE",
+                        status="dead_letter",
+                        payload=json.dumps({"node_id": target_id}),
+                        max_attempts=2,
+                    ),
+                    JobRecord(
+                        type="JUDGE_ARTIFACT",
+                        status="dead_letter",
+                        payload=json.dumps(
+                            {"artifact_type": "node", "artifact_id": target_id}
+                        ),
+                        max_attempts=2,
+                    ),
+                ]
+            )
+            session.commit()
 
         with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
             result = delete_graph_node_endpoint(target_id)
 
         with self.factory() as session:
             job_types = set(session.query(JobRecord.type).all())
+            obsolete_statuses = {
+                job.status
+                for job in session.query(JobRecord)
+                .filter(JobRecord.type.in_(("ENRICH_GRAPH_NODE", "JUDGE_ARTIFACT")))
+                .all()
+            }
             self.assertIsNone(session.get(GraphNodeRecord, target_id))
 
         self.assertEqual(result["status"], "deleted")
         self.assertIn(("UPDATE_GRAPH_STATS",), job_types)
         self.assertIn(("UPDATE_GRAPH_CLUSTERS",), job_types)
         self.assertIn(("SYNC_HIPPORAG_GRAPH",), job_types)
+        self.assertEqual(obsolete_statuses, {"superseded"})
 
 
 if __name__ == "__main__":

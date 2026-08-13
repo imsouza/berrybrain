@@ -73,6 +73,11 @@ def get_ai_config(session: Session) -> dict[str, str]:
             "cloud_model": (
                 configuration.main.model_id if configuration.mode == "cloud" else ""
             ),
+            "cloud_provider": (
+                configuration.embedding.provider_id
+                if configuration.mode == "cloud"
+                else ""
+            ),
             "embedding_provider": configuration.mode,
             "embedding_model": configuration.embedding.model_id,
             "judge_provider": configuration.mode,
@@ -100,6 +105,9 @@ def get_ai_config(session: Session) -> dict[str, str]:
         or "",
         "cloud_api_key": values.get("graph_ai_api_key") or values.get("ai_api_key", ""),
         "cloud_model": values.get("graph_ai_model") or values.get("ai_model", ""),
+        "cloud_provider": values.get("cloud_provider")
+        or values.get("ai_cloud_provider")
+        or "",
         "embedding_provider": values.get("kb_embedding_provider")
         or values.get("ai_provider", ""),
         "embedding_model": values.get("kb_embedding_model")
@@ -559,9 +567,18 @@ def _cloud_embedding(
     api_key = config.get("cloud_api_key", "")
     if not api_url or not api_key or not model:
         raise GraphAIUnavailable("Cloud embedding provider is not configured")
+    body: dict[str, Any] = {"model": model, "input": text}
+    if config.get("cloud_provider", "").strip().lower().startswith("nvidia"):
+        body.update(
+            {
+                "input_type": "query",
+                "encoding_format": "float",
+                "truncate": "END",
+            }
+        )
     request = urllib.request.Request(
         f"{api_url}/embeddings",
-        data=json.dumps({"model": model, "input": text}).encode("utf-8"),
+        data=json.dumps(body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

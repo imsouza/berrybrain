@@ -546,6 +546,9 @@ def ignore_graph_node(node_id: int) -> dict:
 def delete_graph_node_endpoint(node_id: int) -> dict:
     with SessionLocal() as session:
         GraphWriteService(session).delete_node(node_id)
+        from berrybrain_api.jobs import supersede_missing_graph_artifact_jobs
+
+        supersede_missing_graph_artifact_jobs(session)
         version = _graph_version(session)
         stats_job = create_job(
             session,

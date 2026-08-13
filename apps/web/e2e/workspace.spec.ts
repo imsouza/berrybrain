@@ -475,6 +475,30 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByRole("textbox", { name: "Editor" })).toBeVisible();
   });
 
+  test("supports controlled Markdown history and find replacement", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    await mockCreatedNote(page, "Alpha beta Alpha", "editor-tools");
+    await page.getByRole("button", { name: "New note", exact: true }).first().click();
+    const editor = page.getByRole("textbox", { name: "Editor" });
+    await expect(editor).toHaveValue("Alpha beta Alpha");
+
+    await editor.fill("Alpha beta Alpha gamma");
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(editor).toHaveValue("Alpha beta Alpha");
+    await page.getByRole("button", { name: "Redo" }).click();
+    await expect(editor).toHaveValue("Alpha beta Alpha gamma");
+
+    await page.getByRole("button", { name: "Find and replace" }).click();
+    await page.getByPlaceholder("Find in note").fill("Alpha");
+    await page.getByPlaceholder("Replace with").fill("Omega");
+    await page.getByRole("button", { name: "Replace all" }).click();
+    await expect(editor).toHaveValue("Omega beta Omega gamma");
+    await expect(page.getByLabel("Document statistics")).toContainText("4 words");
+
+    await editor.press("Control+z");
+    await expect(editor).toHaveValue("Alpha beta Alpha gamma");
+  });
+
   test("keeps the workspace usable without horizontal overflow on mobile", async ({
     page,
     context,

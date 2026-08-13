@@ -106,8 +106,10 @@ def repair_legacy_jobs(
             job.status = "superseded"
             job.error_message = "Superseded by canonical active job."
         elif job.id in irrecoverable:
-            job.status = "dead_letter"
-            job.error_message = irrecoverable[job.id]
+            job.status = "superseded"
+            job.error_message = (
+                "Superseded because the source artifact is no longer current"
+            )
         elif job.id in reprocessable_ids:
             job.status = "pending"
             job.attempts = 0

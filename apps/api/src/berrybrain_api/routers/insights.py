@@ -14,7 +14,7 @@ from berrybrain_api.graph_inference_service import (
     persist_graph_inference,
 )
 from berrybrain_api.jobs import GENERATE_GRAPH_INSIGHTS, create_job
-from berrybrain_api.models import InsightRecord, JobRecord
+from berrybrain_api.models import InsightRecord, JobRecord, NoteRecord
 from berrybrain_api.second_brain import expand_knowledge_graph
 from berrybrain_api.services import (
     create_insight,
@@ -143,6 +143,49 @@ def _as_int(value: object, default: int = 5) -> int:
 
 def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _resolve_related_note_ids(
+    session: Session, values: list, evidence: list
+) -> list[int]:
+    notes = list(session.query(NoteRecord).all())
+    note_by_reference: dict[str, int] = {}
+    for note in notes:
+        for reference in (note.path, note.title, note.slug):
+            normalized = _normalize_text(reference or "")
+            if normalized:
+                note_by_reference[normalized] = note.id
+
+    resolved: set[int] = set()
+    for value in values:
+        candidates = (
+            (
+                value.get("id"),
+                value.get("note_id"),
+                value.get("path"),
+                value.get("title"),
+            )
+            if isinstance(value, dict)
+            else (value,)
+        )
+        for candidate in candidates:
+            if str(candidate or "").isdigit():
+                resolved.add(int(candidate))
+                continue
+            note_id = note_by_reference.get(_normalize_text(str(candidate or "")))
+            if note_id is not None:
+                resolved.add(note_id)
+
+    evidence_text = _normalize_text(" ".join(_evidence_text(item) for item in evidence))
+    if evidence_text:
+        for note in notes:
+            references = (
+                _normalize_text(note.path or ""),
+                _normalize_text(note.title or ""),
+            )
+            if any(reference and reference in evidence_text for reference in references):
+                resolved.add(note.id)
+    return sorted(resolved)
 
 
 def _evidence_text(item: object) -> str:
@@ -306,7 +349,8 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             if itype not in VALID_INSIGHT_TYPES:
                 itype = "knowledge_gap"
             priority = _as_int(item.get("priority", 5), 5)
-            related = item.get("related_notes", []) or []
+            related = _as_list(item.get("related_notes", []) or [])
+            related_note_ids = _resolve_related_note_ids(session, related, evidence)
             evidence_count = len(evidence)
             confidence_raw = item.get("confidence")
             try:
@@ -352,16 +396,12 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                         "connect",
                         "relation",
                         "bridge",
-                        "conex",
-                        "liga",
-                        "relacion",
-                        "ponte",
                     ]
                 ):
                     itype = "new_connection"
                 elif any(
                     w in title_lower
-                    for w in ["foundation", "base", "premise", "fundamento", "premissa"]
+                    for w in ["foundation", "base", "premise"]
                 ):
                     itype = "premise"
                 elif any(
@@ -371,7 +411,6 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                         "ecosystem",
                         "cluster",
                         "core",
-                        "panorama",
                     ]
                 ):
                     itype = "context"
@@ -387,13 +426,18 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             if not is_valid:
                 skipped.append({"title": title[:120], "reason": reason})
                 continue
+            if not related_note_ids:
+                skipped.append(
+                    {"title": title[:120], "reason": "missing_related_notes"}
+                )
+                continue
 
             create_insight(
                 session,
                 itype,
                 title,
                 desc,
-                related if isinstance(related, list) else [],
+                related_note_ids,
                 priority,
                 why_it_matters=why_it_matters,
                 evidence=evidence,

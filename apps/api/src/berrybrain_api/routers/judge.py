@@ -263,6 +263,7 @@ def get_calibration_stats():
 class EvaluateInternalRequest(BaseModel):
     artifact_type: str
     artifact_id: int
+    artifact_version: str | None = None
 
 
 @router.post("/evaluate-artifact-internal")
@@ -294,7 +295,26 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
             session.query(model_class).filter(model_class.id == req.artifact_id).first()
         )
         if not artifact:
-            return {"status": "error", "message": "Artifact not found"}
+            return {"status": "superseded", "message": "Artifact no longer exists"}
+
+        if req.artifact_version and hasattr(artifact, "updated_at"):
+            updated_at = getattr(artifact, "updated_at", None)
+            if updated_at and updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=UTC)
+            current_version = updated_at.timestamp() if updated_at else None
+            try:
+                queued_version = float(req.artifact_version)
+            except (TypeError, ValueError):
+                queued_version = None
+            if (
+                current_version is None
+                or queued_version is None
+                or abs(current_version - queued_version) > 0.000001
+            ):
+                return {
+                    "status": "superseded",
+                    "message": "Artifact changed after this evaluation was queued",
+                }
 
         if hasattr(artifact, "evidence"):
             evidence = artifact.evidence
@@ -345,6 +365,10 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
 
             artifact.quality_gate_status = verdict
             artifact.quality_score = score
+            if hasattr(artifact, "semantic_status"):
+                artifact.semantic_status = (
+                    "quarantined" if verdict == "rejected" else "active"
+                )
             if hasattr(artifact, "updated_at"):
                 artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
 

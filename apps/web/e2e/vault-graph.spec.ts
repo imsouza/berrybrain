@@ -56,7 +56,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
       });
     });
 
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) => {
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -93,7 +93,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
       await fetch("/api/v1/vault/scan-and-rebuild", { method: "POST" });
     });
     await page.reload();
-    await page.getByRole("button", { name: "List view" }).click();
+    await page.getByRole("button", { name: "Graph list" }).click();
 
     const nodes = page.locator('[aria-label="Knowledge graph list view"]').getByRole("list").first();
     await expect(nodes.getByText("Docker and Linux Shell", { exact: true })).toBeVisible({ timeout: 10_000 });
@@ -102,7 +102,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
   });
 
   test("pipeline diagnostics show correct state before scan", async ({ page }) => {
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) =>
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

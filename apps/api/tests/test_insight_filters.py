@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from berrybrain_api.routers.insights import (
@@ -9,11 +10,31 @@ from berrybrain_api.routers.insights import (
     _has_knowledge_evidence,
     _is_system_diagnostic_item,
     _is_valid_generated_insight,
+    _resolve_related_note_ids,
     sync_insights_from_ai,
 )
 
 
 class InsightFilterTest(unittest.TestCase):
+    def test_related_note_paths_are_resolved_to_persisted_ids(self) -> None:
+        session = MagicMock()
+        session.query.return_value.all.return_value = [
+            SimpleNamespace(
+                id=7,
+                path="notes/docker.md",
+                title="Docker Operations",
+                slug="docker-operations",
+            )
+        ]
+
+        resolved = _resolve_related_note_ids(
+            session,
+            ["notes/docker.md"],
+            ["Docker Operations describes repeatable containers."],
+        )
+
+        self.assertEqual(resolved, [7])
+
     def test_payload_helpers_fail_closed_and_clamp_confidence(self) -> None:
         self.assertEqual(_as_list("not-a-list"), [])
         self.assertEqual(_as_list(["note.md"]), ["note.md"])
@@ -211,6 +232,7 @@ class InsightFilterTest(unittest.TestCase):
                         {"path": "notes/docker-compose.md", "text": "single host"},
                         {"path": "notes/kubernetes.md", "text": "cluster scheduling"},
                     ],
+                    "related_notes": [1, 2],
                     "confidence": "invalid",
                     "priority": "invalid",
                 }

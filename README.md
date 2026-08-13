@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.4-blue)
+![Version](https://img.shields.io/badge/version-1.4.5-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.4](#whats-new-in-144)
+- [What's New in 1.4.5](#whats-new-in-145)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,28 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.4
+## What's New in 1.4.5
+
+- **Immediate graph visibility**: saving or importing a note materializes its canonical note node
+  in the same database transaction. Concepts, entities, topics, edges, insights, clusters, and
+  embeddings continue asynchronously with a history-derived ETA and explicit degraded state.
+- **Complete note lifecycle**: meaningful edits detach stale note provenance before recalculation;
+  whitespace-only edits preserve semantic artifacts; renames and moves retain stable note and graph
+  identity; deletion removes note-owned records, recalculates shared confidence, removes orphans,
+  and queues graph, insight, cluster, statistics, and HippoRAG maintenance.
+- **Strict provider execution**: Cloud and Local are mutually exclusive execution branches. Activity
+  records the resolved provider and model as a generic AI call instead of labelling cloud work as
+  Ollama. NVIDIA NIM query/passage embeddings use the required asymmetric input contract.
+- **Graph workspace**: navigation groups view, layout, filters, knowledge actions, Research Gaps,
+  and legend. The obsolete node drawer is removed; node clicks zoom into the dedicated detail page.
+- **Markdown editor**: controlled undo/redo, find/replace, headings, lists, tasks, indentation,
+  tables, links, attachments, keyboard commands, wrapping/focus controls, and live document metrics.
+- **Home operations**: equal-height capture/autopilot surfaces and a denser processing, connection,
+  activity, graph-health, and attention hierarchy using the documented BerryBrain design tokens.
+- **Grounded Ask suggestions**: a populated question queue and topic cloud are derived from live
+  graph nodes when evidence exists; empty graphs still produce no fabricated suggestions.
+
+### Included from 1.4.4
 
 - Executed five-path retrieval ablations with query-level observations, qrels, paired bootstrap
   intervals, and immutable checksummed evidence bundles.
@@ -135,8 +156,9 @@ The system is designed around one rule:
 - **Correct return routes**: **Back to Home** opens Brain home while **Back to graph** restores the
   complete graph view with the workspace shell intact.
 - **Complete confidence contract**: concepts, note connections, nodes, edges, insights, cluster
-  assignments, and graph inferences expose calculated 95% intervals. Missing evidence is
-  unavailable, and migrated records are recalculated idempotently.
+  assignments, and graph inferences expose Jeffreys-smoothed point estimates with calculated
+  95% Wilson intervals. Missing evidence is unavailable, and migrated records are recalculated
+  idempotently.
 - **No fabricated production knowledge**: deterministic fallbacks derive their score from source
   occurrences, AI edges always reach Judge, and production self-check payloads are removed.
 
@@ -145,8 +167,8 @@ The system is designed around one rule:
 - **Semantic quality gate**: generic metadata labels, sentences posing as concepts, invalid
   endpoint combinations, and ambiguous generated artifacts enter quarantine outside graph/RAG.
 - **Calculated confidence**: graph nodes, edges, insights, and cluster assignments persist a
-  95% Wilson interval, sample size, factors, method, and timestamp. No evidence means unavailable,
-  not an invented default. Users cannot edit confidence.
+  Jeffreys-smoothed point estimate, 95% Wilson interval, sample size, factors, method, and
+  timestamp. No evidence means unavailable, not an invented default. Users cannot edit confidence.
 - **Context clustering**: deterministic medoids and silhouette selection replace transitive
   threshold merging. Pending semantic nodes receive provisional cluster colors.
 - **Readable graph**: one full label per node, exclusive geometry by ontology type, Berry-red
@@ -155,7 +177,8 @@ The system is designed around one rule:
   shell with evidence, provenance, typed relationships, read-only confidence, editing, validation,
   semantic retry, and graph-state restoration.
 - **Ask and insights**: voice prompts work on Home and Graph Ask; Flow answers can become insights;
-  automatic insight generation uses a configurable interval (24 hours by default).
+  every note-change pipeline generates insights after graph inference, while continuous monitoring
+  adds a configurable periodic pass (24 hours by default).
 - **Vault workflow**: New note always opens the editor. Notes and folders support sidebar
   drag-and-drop ordering plus inline management.
 - **Ontology-aware RAG**: graph retrieval uses type, direction, canonical property, aliases,
@@ -166,7 +189,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain v1.4.4 is locally validated for ontology-aware graph/RAG behavior, calculated
+BerryBrain v1.4.5 is locally validated for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
 
@@ -225,6 +248,19 @@ Latest executed exploratory S profile, generated 12 August 2026 at 19:13 UTC:
 The composed gate passed with zero failed gates. These numbers are real local executions from the
 machine-readable artifacts, classified as exploratory because the revision was dirty and external
 datasets, independent replication, and approved participant/field evidence remain unavailable.
+
+Release-candidate browser regression, executed 13 August 2026 against the local production image:
+
+| Browser workload | Measured result |
+| --- | ---: |
+| 10,000-node progressive graph | cold first visual 2,566.49 ms; warm 536.42 ms; complete 6,344.58 ms |
+| 10,000-node graph interaction | p95 35.30 ms; 23.10 MB used JS heap |
+| Public route navigation | 12 routes; maximum wall time 1,544.13 ms (`/docs`) |
+| Authenticated route navigation | 6 routes; maximum wall time 2,335.46 ms (`/notifications`) |
+| Lazy workspace panels | Settings 244.74 ms; Graph 565.03 ms |
+
+This smoke run is regression evidence from one machine and dirty worktree, not a capacity or
+cross-system superiority claim.
 
 ```bash
 cd apps/api
@@ -486,6 +522,11 @@ Large graphs use bounded API pages, version deltas, canvas level-of-detail, and 
 preservation. At 8,000 nodes and above, a deterministic progressive layout avoids force-simulation
 CPU contention; active camera gestures transform the current bitmap before a crisp idle redraw.
 The release browser gate covers 10,000 nodes and 40,000 edges.
+
+Graph expansion is idempotent: unchanged semantic nodes preserve their IDs and artifact versions.
+Metadata rows containing multiple topics or entities produce distinct canonical nodes. Enrichment
+and Judge work for deleted or version-stale artifacts becomes `superseded` instead of consuming
+retries or entering the dead-letter queue.
 
 ---
 

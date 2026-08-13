@@ -1,6 +1,6 @@
 """Vault->Graph pipeline diagnostics.
 
-Used by /api/v1/debug/vault-graph-pipeline and the Monitor block in §5
+Used by the vault pipeline diagnostic endpoint and the Monitor block in section 5
 of fix-new-version.md. Read-only inspection across API state, worker state
 and DB state. No mutation. Safe to expose behind the auth middleware.
 """

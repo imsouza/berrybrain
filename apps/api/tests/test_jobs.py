@@ -486,6 +486,41 @@ class JobServiceTest(unittest.TestCase):
         self.assertEqual(progress[0]["completed"], progress[0]["total"])
         self.assertEqual(progress[0]["percent"], 100)
 
+    def test_pipeline_eta_uses_completed_stage_history(self) -> None:
+        historical = enqueue_note_changed_jobs(
+            self.session,
+            note_path="inbox/history.md",
+            event_type="NOTE_UPDATED",
+            content_hash="history-hash",
+        )
+        now = datetime.now(UTC)
+        for job in historical:
+            job.status = COMPLETED
+            job.started_at = now - timedelta(seconds=10)
+            job.completed_at = now
+        current = enqueue_note_changed_jobs(
+            self.session,
+            note_path="inbox/current.md",
+            event_type="NOTE_UPDATED",
+            content_hash="current-hash",
+        )
+        self.session.commit()
+
+        progress = calculate_pipeline_progress(
+            list(reversed(historical + current)),
+            note_paths_by_id={},
+            graph_note_ids=set(),
+        )
+        current_progress = next(
+            item for item in progress if item["notePath"] == "inbox/current.md"
+        )
+
+        self.assertEqual(
+            current_progress["estimatedRemainingSeconds"], len(current) * 10
+        )
+        self.assertEqual(current_progress["estimateSampleCount"], len(current))
+        self.assertEqual(current_progress["graphState"], "waiting")
+
     def test_pipeline_progress_does_not_mix_old_completed_run_with_current_failure(
         self,
     ) -> None:

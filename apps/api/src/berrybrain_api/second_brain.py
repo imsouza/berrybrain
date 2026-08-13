@@ -1460,16 +1460,8 @@ def _upsert_typed_node(
         learning_value=node_type[:20],
         graph_metadata={"evidence": merged_evidence},
     )
-    signals = [ConfidenceSignal(1.0, "ontology:name-validator-v1")]
-    signals.extend(
-        ConfidenceSignal(1.0, f"source-note:{note_id}") for note_id in source_note_ids
-    )
-    signals.extend(
-        ConfidenceSignal(1.0, f"source-evidence:{index}:{item}")
-        for index, item in enumerate(merged_evidence)
-    )
-    persist_confidence(node, estimate_confidence(signals))
-    return None if existing is not None else node
+    session.info.setdefault("graph_expansion_typed_node_ids", set()).add(node.id)
+    return node
 
 
 def _extract_topics_from_metadata(
@@ -1483,10 +1475,12 @@ def _extract_topics_from_metadata(
     }
     for note_id, records in metadata_by_note.items():
         for record in records:
+            if record.generation_type != "topics":
+                continue
             content = _parse_json_object(record.content)
             if not isinstance(content, dict):
                 continue
-            for key in ("topics", "tags", "categories", "note_type"):
+            for key in ("topics",):
                 values = content.get(key)
                 if not values:
                     continue
@@ -1495,16 +1489,19 @@ def _extract_topics_from_metadata(
                 if not isinstance(values, list):
                     continue
                 for topic_name in values:
-                    name = (
-                        str(topic_name.get("name", topic_name))
-                        if isinstance(topic_name, dict)
-                        else str(topic_name)
-                    )
+                    if not isinstance(topic_name, dict):
+                        continue
+                    name = str(topic_name.get("name") or "")
+                    evidence = str(
+                        topic_name.get("scope")
+                        or topic_name.get("description")
+                        or ""
+                    ).strip()
                     normalized_name = normalize_concept_name(name)
                     if not _is_valid_topic_name(name, note_titles.get(note_id, "")):
                         continue
                     seen_key = (note_id, normalized_name)
-                    if not name or seen_key in seen:
+                    if not name or not evidence or seen_key in seen:
                         continue
                     seen.add(seen_key)
                     node = _upsert_typed_node(
@@ -1516,39 +1513,10 @@ def _extract_topics_from_metadata(
                         "metadata",
                         record.id,
                         [note_id],
-                        [name],
-                        "system",
+                        [evidence],
+                        "ai",
                         status="suggested",
                         model=record.model_used or "",
-                    )
-                    if node:
-                        count += 1
-            headings = content.get("headings")
-            if isinstance(headings, list):
-                for h in headings:
-                    if not isinstance(h, dict):
-                        continue
-                    name = str(h.get("text", "")).strip()
-                    normalized_name = normalize_concept_name(name)
-                    if not _is_valid_topic_name(name, note_titles.get(note_id, "")):
-                        continue
-                    seen_key = (note_id, normalized_name)
-                    if not name or seen_key in seen or len(name) < 3:
-                        continue
-                    seen.add(seen_key)
-                    node = _upsert_typed_node(
-                        session,
-                        "topic",
-                        name,
-                        name,
-                        "Topic extracted from note headings",
-                        "metadata",
-                        record.id,
-                        [note_id],
-                        [name],
-                        "system",
-                        status="suggested",
-                        model="content-based",
                     )
                     if node:
                         count += 1
@@ -1566,10 +1534,12 @@ def _extract_entities_from_metadata(
     }
     for note_id, records in metadata_by_note.items():
         for record in records:
+            if record.generation_type != "entities":
+                continue
             content = _parse_json_object(record.content)
             if not isinstance(content, dict):
                 continue
-            for key in ("technical_terms", "entities", "tools", "technologies"):
+            for key in ("entities",):
                 values = content.get(key)
                 if not values:
                     continue
@@ -1578,14 +1548,17 @@ def _extract_entities_from_metadata(
                 if not isinstance(values, list):
                     continue
                 for ent in values:
-                    name = (
-                        str(ent.get("name", ent)) if isinstance(ent, dict) else str(ent)
-                    )
+                    if not isinstance(ent, dict):
+                        continue
+                    name = str(ent.get("name") or "")
+                    evidence = str(
+                        ent.get("description") or ent.get("evidence") or ""
+                    ).strip()
                     normalized_name = normalize_concept_name(name)
                     if normalized_name == note_titles.get(note_id):
                         continue
                     seen_key = (note_id, normalized_name)
-                    if not name or seen_key in seen:
+                    if not name or not evidence or seen_key in seen:
                         continue
                     seen.add(seen_key)
                     node = _upsert_typed_node(
@@ -1597,39 +1570,10 @@ def _extract_entities_from_metadata(
                         "metadata",
                         record.id,
                         [note_id],
-                        [name],
-                        "system",
+                        [evidence],
+                        "ai",
                         status="suggested",
                         model=record.model_used or "",
-                    )
-                    if node:
-                        count += 1
-            headings = content.get("headings")
-            if isinstance(headings, list):
-                for h in headings:
-                    if not isinstance(h, dict):
-                        continue
-                    name = str(h.get("text", "")).strip()
-                    normalized_name = normalize_concept_name(name)
-                    if normalized_name == note_titles.get(note_id):
-                        continue
-                    seen_key = (note_id, normalized_name)
-                    if not name or seen_key in seen or len(name) < 4:
-                        continue
-                    seen.add(seen_key)
-                    node = _upsert_typed_node(
-                        session,
-                        "entity",
-                        name,
-                        name,
-                        "Entity extracted from note headings",
-                        "metadata",
-                        record.id,
-                        [note_id],
-                        [name],
-                        "system",
-                        status="suggested",
-                        model="content-based",
                     )
                     if node:
                         count += 1
@@ -1643,10 +1587,12 @@ def _extract_context_from_metadata(
     seen: set[tuple[int, str]] = set()
     for note_id, records in metadata_by_note.items():
         for record in records:
+            if record.generation_type != "context":
+                continue
             content = _parse_json_object(record.content)
             if not isinstance(content, dict):
                 continue
-            for key in ("context", "domain", "language", "scope"):
+            for key in ("context",):
                 val = content.get(key)
                 if not val:
                     continue
@@ -1669,34 +1615,12 @@ def _extract_context_from_metadata(
                     record.id,
                     [note_id],
                     [ctx_name],
-                    "system",
+                    "ai",
                     status="suggested",
                     model=record.model_used or "",
                 )
                 if node:
                     count += 1
-            note_type = content.get("note_type")
-            if isinstance(note_type, str) and note_type.strip():
-                nt = note_type.strip()
-                seen_key = (note_id, normalize_concept_name(nt))
-                if seen_key not in seen and _is_valid_context_name(nt):
-                    seen.add(seen_key)
-                    node = _upsert_typed_node(
-                        session,
-                        "context",
-                        nt,
-                        nt,
-                        f"Note type: {nt}",
-                        "metadata",
-                        record.id,
-                        [note_id],
-                        [nt],
-                        "system",
-                        status="suggested",
-                        model="deterministic",
-                    )
-                    if node:
-                        count += 1
     return count
 
 
@@ -1709,7 +1633,6 @@ def _is_valid_context_name(name: str) -> bool:
         "studies",
         "unknown",
         "general",
-        "outro",
         "not specified",
         "unspecified",
     }

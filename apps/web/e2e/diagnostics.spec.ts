@@ -18,7 +18,7 @@ test.describe("Graph empty-state diagnostics (mocked API)", () => {
   });
 
   test("renders NO_NOTES_SCANNED badge when pipeline reports it", async ({ page }) => {
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) =>
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -39,7 +39,7 @@ test.describe("Graph empty-state diagnostics (mocked API)", () => {
   });
 
   test("renders GRAPH_HIDDEN_BY_FILTERS badge when pipeline reports it", async ({ page }) => {
-    await page.route("**/api/v1/debug/vault-graph-pipeline", (route) =>
+    await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

@@ -356,6 +356,8 @@ async def ollama_call(
     start = time.time()
     cfg = _ai_config
     provider_key = ""
+    resolved_provider = ""
+    resolved_model = ""
     job_id = _active_job_id.get()
     try:
         provider = cfg.get("provider")
@@ -383,6 +385,8 @@ async def ollama_call(
             cloud_model = cfg.get("cloud_model") or model
             if not cloud_model:
                 raise CloudError("Cloud mode is active but no model is configured")
+            resolved_provider = str(cfg.get("cloud_provider") or "cloud")
+            resolved_model = str(cloud_model)
             if job_id is not None:
                 await update_job_attempt(
                     client,
@@ -417,6 +421,8 @@ async def ollama_call(
             assert_provider_available(provider_key)
             if not model:
                 raise OllamaError("Local mode is active but no model is configured")
+            resolved_provider = "ollama"
+            resolved_model = model
             if job_id is not None:
                 await update_job_attempt(
                     client,
@@ -457,7 +463,8 @@ async def ollama_call(
     await log_ai_call(
         client,
         api_url,
-        model,
+        resolved_provider,
+        resolved_model,
         prompt,
         response_text,
         duration_ms,
@@ -749,6 +756,8 @@ async def process_generate_embedding(
                 cloud_embedding_model,
                 text,
                 settings.ollama_timeout,
+                provider=str(cfg.get("cloud_provider") or ""),
+                input_type="passage",
             )
         else:
             vec = await generate_embedding(
@@ -1061,6 +1070,9 @@ async def process_enrich_graph_node(
     node_resp = await client.get(
         f"{settings.api_url}/api/v1/graph/nodes/{node_id}/summary"
     )
+    if node_resp.status_code == 404:
+        await complete_job(client, settings.api_url, int(job["id"]))
+        return
     node_resp.raise_for_status()
     node_data = node_resp.json()
     requested_source_fingerprint = str(payload.get("source_fingerprint") or "").strip()
@@ -1189,6 +1201,9 @@ async def process_enrich_graph_node(
         f"{settings.api_url}/api/v1/graph/nodes/{node_id}/enrich",
         json={"analysis": analysis},
     )
+    if enrich_resp.status_code == 404:
+        await complete_job(client, settings.api_url, int(job["id"]))
+        return
     enrich_resp.raise_for_status()
 
     await complete_job(client, settings.api_url, int(job["id"]))
@@ -1445,12 +1460,19 @@ async def process_judge_artifact(
 
     response = await client.post(
         f"{settings.api_url}/api/v1/judge/evaluate-artifact-internal",
-        json={"artifact_type": artifact_type, "artifact_id": int(artifact_id)},
+        json={
+            "artifact_type": artifact_type,
+            "artifact_id": int(artifact_id),
+            "artifact_version": payload.get("artifact_version"),
+        },
         timeout=max(30, settings.ollama_timeout + 30),
     )
     response.raise_for_status()
 
     res = response.json()
+    if res.get("status") == "superseded":
+        await complete_job(client, settings.api_url, int(job["id"]))
+        return
     if res.get("status") == "error":
         raise ValueError(f"Judge validation failed: {res.get('message')}")
 
