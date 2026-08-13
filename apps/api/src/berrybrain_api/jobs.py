@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import statistics
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -87,12 +88,32 @@ NOTE_PIPELINE_RANK = {
 }
 
 
-def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]]:
+def calculate_pipeline_progress(
+    jobs: list[JobRecord],
+    *,
+    note_paths_by_id: dict[int, str] | None = None,
+    graph_note_ids: set[int] | None = None,
+) -> list[dict[str, object]]:
     """Calculate progress from the stages actually queued for each note."""
+    note_paths_by_id = note_paths_by_id or {}
+    graph_note_ids = graph_note_ids or set()
+    duration_samples: dict[str, list[float]] = {}
+    for job in jobs:
+        duration = _completed_duration_seconds(job)
+        if duration is not None:
+            duration_samples.setdefault(job.type, []).append(duration)
+    duration_medians = {
+        job_type: statistics.median(samples)
+        for job_type, samples in duration_samples.items()
+        if samples
+    }
     by_note: dict[str, dict[str, object]] = {}
     for job in jobs:
         payload = parse_json(job.payload)
-        note_path = payload.get("note_path", "")
+        note_id = int(job.note_id or payload.get("note_id") or 0)
+        note_path = note_paths_by_id.get(note_id) or str(
+            job.note_path or payload.get("note_path", "")
+        )
         if not note_path or job.type not in NOTE_PIPELINE_RANK:
             continue
         run_key = (
@@ -102,7 +123,9 @@ def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]
             or payload.get("content_hash")
             or f"legacy:{note_path}"
         )
-        note_state = by_note.setdefault(note_path, {"runKey": run_key, "jobs": {}})
+        note_state = by_note.setdefault(
+            note_path, {"runKey": run_key, "jobs": {}, "noteId": note_id}
+        )
         if note_state["runKey"] != run_key:
             continue
         latest_jobs = note_state["jobs"]
@@ -146,6 +169,31 @@ def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]
         else:
             state = "degraded"
         current_step = running_type or pending_type
+        estimated_remaining = _estimated_remaining_seconds(
+            latest_jobs, duration_medians
+        )
+        oldest_created = min(
+            (job.created_at for job in latest_jobs.values() if job.created_at),
+            default=None,
+        )
+        elapsed_seconds = (
+            max(0.0, (utc_now() - normalize_utc(oldest_created)).total_seconds())
+            if oldest_created
+            else 0.0
+        )
+        raw_note_id = note_state.get("noteId")
+        note_id = int(raw_note_id) if isinstance(raw_note_id, int | str) else 0
+        graph_visible = note_id in graph_note_ids
+        graph_job_status = statuses.get(EXPAND_KNOWLEDGE_GRAPH)
+        graph_state = (
+            "degraded"
+            if graph_job_status in {FAILED, DEAD_LETTER}
+            else "ready"
+            if graph_job_status == COMPLETED
+            else "enriching"
+            if graph_visible
+            else "waiting"
+        )
         result.append(
             {
                 "notePath": note_path,
@@ -157,6 +205,19 @@ def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]
                 "currentStep": current_step.replace("_", " ").title()
                 if current_step
                 else None,
+                "elapsedSeconds": round(elapsed_seconds),
+                "estimatedRemainingSeconds": (
+                    round(estimated_remaining)
+                    if estimated_remaining is not None
+                    else None
+                ),
+                "estimateSampleCount": sum(
+                    len(duration_samples.get(job_type, []))
+                    for job_type, status in statuses.items()
+                    if status in {PENDING, RUNNING}
+                ),
+                "graphVisible": graph_visible,
+                "graphState": graph_state,
                 "errors": [_pipeline_error(job) for job in failed_jobs[:3]],
             }
         )
@@ -168,6 +229,34 @@ def calculate_pipeline_progress(jobs: list[JobRecord]) -> list[dict[str, object]
         reverse=True,
     )
     return result
+
+
+def _completed_duration_seconds(job: JobRecord) -> float | None:
+    if job.status != COMPLETED or not job.started_at or not job.completed_at:
+        return None
+    duration = (
+        normalize_utc(job.completed_at) - normalize_utc(job.started_at)
+    ).total_seconds()
+    return duration if duration >= 0 else None
+
+
+def _estimated_remaining_seconds(
+    jobs: dict[str, JobRecord], duration_medians: dict[str, float]
+) -> float | None:
+    estimates: list[float] = []
+    now = utc_now()
+    for job_type, job in jobs.items():
+        if job.status not in {PENDING, RUNNING}:
+            continue
+        expected = duration_medians.get(job_type)
+        if expected is None:
+            continue
+        if job.status == RUNNING and job.started_at:
+            elapsed = max(0.0, (now - normalize_utc(job.started_at)).total_seconds())
+            estimates.append(max(0.0, expected - elapsed))
+        else:
+            estimates.append(expected)
+    return sum(estimates) if estimates else None
 
 
 def _pipeline_error(job: JobRecord) -> dict[str, object]:
@@ -295,6 +384,104 @@ def create_job(
     return job
 
 
+def supersede_missing_graph_artifact_jobs(session: Session) -> int:
+    """Retire graph AI work whose target was pruned or deleted."""
+    from berrybrain_api.models import (
+        ConnectionRecord,
+        GraphEdgeRecord,
+        GraphNodeRecord,
+        InsightRecord,
+    )
+
+    model_by_type = {
+        "node": GraphNodeRecord,
+        "edge": GraphEdgeRecord,
+        "connection": ConnectionRecord,
+        "insight": InsightRecord,
+    }
+    candidates = list(
+        session.execute(
+            select(JobRecord).where(
+                JobRecord.type.in_((ENRICH_GRAPH_NODE, "JUDGE_ARTIFACT")),
+                JobRecord.status.in_((PENDING, RUNNING, FAILED, DEAD_LETTER)),
+            )
+        ).scalars()
+    )
+    superseded = 0
+    for job in candidates:
+        try:
+            payload = json.loads(job.payload or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        artifact_type = (
+            "node" if job.type == ENRICH_GRAPH_NODE else payload.get("artifact_type")
+        )
+        artifact_id = payload.get("node_id") or payload.get("artifact_id")
+        model = model_by_type.get(str(artifact_type or ""))
+        if model is None or not str(artifact_id or "").isdigit():
+            continue
+        if session.get(model, int(artifact_id)) is not None:
+            continue
+        job.status = SUPERSEDED
+        job.error_message = "Superseded because the graph artifact no longer exists"
+        job.claimed_by = ""
+        job.claim_token = ""
+        job.lease_expires_at = None
+        superseded += 1
+    from berrybrain_api.semantic_enrichment import source_fingerprint
+
+    enrichment_jobs = [job for job in candidates if job.type == ENRICH_GRAPH_NODE]
+    for job in enrichment_jobs:
+        try:
+            payload = json.loads(job.payload or "{}")
+            node = session.get(GraphNodeRecord, int(payload.get("node_id") or 0))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if node is None or job.status == SUPERSEDED:
+            continue
+        if str(payload.get("source_fingerprint") or "") == source_fingerprint(
+            session, node
+        ):
+            continue
+        job.status = SUPERSEDED
+        job.error_message = "Superseded because the graph artifact changed"
+        job.claimed_by = ""
+        job.claim_token = ""
+        job.lease_expires_at = None
+        superseded += 1
+    judge_jobs = [job for job in candidates if job.type == "JUDGE_ARTIFACT"]
+    for job in judge_jobs:
+        try:
+            payload = json.loads(job.payload or "{}")
+            artifact_type = str(payload.get("artifact_type") or "")
+            model = model_by_type.get(artifact_type)
+            artifact = (
+                session.get(model, int(payload.get("artifact_id") or 0))
+                if model is not None
+                else None
+            )
+            queued_version = float(payload.get("artifact_version") or 0)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if artifact is None or job.status == SUPERSEDED:
+            continue
+        updated_at = getattr(artifact, "updated_at", None)
+        if updated_at and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+        current_version = updated_at.timestamp() if updated_at else 0
+        if queued_version and abs(current_version - queued_version) <= 0.000001:
+            continue
+        job.status = SUPERSEDED
+        job.error_message = "Superseded because the graph artifact changed"
+        job.claimed_by = ""
+        job.claim_token = ""
+        job.lease_expires_at = None
+        superseded += 1
+    if superseded:
+        session.flush()
+    return superseded
+
+
 def enqueue_job(
     session: Session,
     job_type: str,
@@ -324,7 +511,7 @@ def enqueue_note_changed_jobs(
     affected_job_types: set[str] | None = None,
 ) -> list[JobRecord]:
     if event_type == "NOTE_DELETED":
-        return []
+        return enqueue_note_deleted_jobs(session, note_path, 0)
 
     pipeline_types = list(NOTE_CHANGED_PIPELINE_ORDER)
     if not _needs_generated_title(note_path):
@@ -399,6 +586,35 @@ def enqueue_note_changed_jobs(
             reversible=False,
         )
 
+    return jobs
+
+
+def enqueue_note_deleted_jobs(
+    session: Session, note_path: str, note_id: int
+) -> list[JobRecord]:
+    pipeline = (
+        EXPAND_KNOWLEDGE_GRAPH,
+        GENERATE_GRAPH_INSIGHTS,
+        UPDATE_GRAPH_CLUSTERS,
+        UPDATE_GRAPH_STATS,
+        SYNC_HIPPORAG_GRAPH,
+    )
+    jobs: list[JobRecord] = []
+    for job_type in pipeline:
+        payload = {
+            "deleted_note_id": note_id,
+            "deleted_note_path": note_path,
+            "event_type": "NOTE_DELETED",
+            "idempotency_key": f"note-deleted:{note_id}:{note_path}:{job_type}",
+        }
+        jobs.append(
+            create_job(
+                session,
+                job_type,
+                payload,
+                max_attempts=NOTE_PIPELINE_ATTEMPTS.get(job_type, 2),
+            )
+        )
     return jobs
 
 

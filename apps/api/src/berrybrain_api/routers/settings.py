@@ -338,6 +338,13 @@ def get_ai_config(request: Request) -> dict:
                 if configuration is None and legacy_mode == "cloud"
                 else ""
             ),
+            "cloud_provider": (
+                configuration.main.provider_id
+                if configuration and configuration.mode == "cloud"
+                else "cloud"
+                if configuration is None and legacy_mode == "cloud"
+                else ""
+            ),
             "ollama_base_url": (
                 endpoint
                 if (configuration and configuration.mode == "local")

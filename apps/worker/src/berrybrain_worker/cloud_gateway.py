@@ -131,19 +131,51 @@ async def cloud_generate_embedding(
     model: str,
     text: str,
     timeout: int = 120,
+    *,
+    provider: str = "",
+    input_type: str = "passage",
 ) -> list[float]:
+    body: dict[str, object] = {"model": model, "input": text}
+    if provider.strip().lower().startswith("nvidia"):
+        body.update(
+            {
+                "input_type": input_type,
+                "encoding_format": "float",
+                "truncate": "END",
+            }
+        )
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 f"{api_url}/embeddings",
-                json={"model": model, "input": text},
+                json=body,
                 headers={"Authorization": f"Bearer {api_key}"},
             )
             response.raise_for_status()
             return response.json()["data"][0]["embedding"]
     except httpx.TimeoutException:
         raise CloudError(f"Cloud embedding timeout after {timeout}s")
+    except httpx.HTTPStatusError as exc:
+        detail = _safe_http_error_detail(exc.response)
+        raise CloudError(
+            f"Cloud embedding HTTP {exc.response.status_code}: {detail}"
+        ) from exc
     except httpx.HTTPError as e:
-        raise CloudError(f"Cloud embedding HTTP error: {e}")
+        raise CloudError(f"Cloud embedding transport error: {e}") from e
     except Exception as e:
-        raise CloudError(f"Cloud embedding error: {e}")
+        raise CloudError(f"Cloud embedding error: {e}") from e
+
+
+def _safe_http_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except (json.JSONDecodeError, ValueError):
+        return response.reason_phrase or "Request rejected"
+    if not isinstance(payload, dict):
+        return response.reason_phrase or "Request rejected"
+    error = payload.get("error")
+    if isinstance(error, dict):
+        detail = error.get("message") or error.get("code")
+    else:
+        detail = error or payload.get("message") or payload.get("detail")
+    return str(detail or response.reason_phrase or "Request rejected")[:300]

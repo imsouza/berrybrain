@@ -1,14 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Route } from "next";
 import Link from "next/link";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
-import { formatEvidenceLabel, humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
+import { formatEvidenceLabel } from "./graph-formatters";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
 import { diagnosticMessages, isFilterHidden, type PipelineDiagnostic } from "@/lib/diagnostics";
 import { VoicePromptButton } from "./voice-prompt-button";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookOpen,
+  BrainCircuit,
+  ChevronDown,
+  Filter,
+  Focus,
+  Home,
+  LayoutDashboard,
+  Lightbulb,
+  List,
+  Maximize2,
+  Network,
+  RefreshCw,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 
 const EDGE_COLORS: Record<string, string> = {
   references: "#3C8F5A",
@@ -78,6 +96,26 @@ function edgeColor(type: string): string {
   return `hsl(${Math.abs(hash) % 360} 48% 46%)`;
 }
 
+function GraphFilter({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<readonly [string, string]> }) {
+  return (
+    <label className="grid gap-1 text-[11px] font-medium text-muted">
+      {label}
+      <select className="bb-field h-9 text-xs" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function ToolbarAction({ icon, title, description, onClick, disabled = false }: { icon: ReactNode; title: string; description: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" role="menuitem" className="flex w-full gap-3 rounded-md px-3 py-2 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-45" onClick={onClick} disabled={disabled}>
+      <span className="mt-0.5 text-accent">{icon}</span>
+      <span><span className="block text-xs font-semibold text-foreground">{title}</span><span className="mt-0.5 block text-[11px] leading-4 text-muted">{description}</span></span>
+    </button>
+  );
+}
+
 type GraphNode = {
   id: string;
   recordId?: number;
@@ -136,38 +174,6 @@ type InferenceResult = {
   model?: string;
 };
 
-type SemanticAnalysis = {
-  meaning_in_context: string;
-  why_it_matters_here: string;
-  supported_findings: string[];
-  inferences: string[];
-  uncertainties: string[];
-  evidence: Array<{ source?: string; reference?: string; claim?: string } | string>;
-  connection_assessments: Array<{
-    target_node_id?: number;
-    relation?: string;
-    assessment?: string;
-    confidence?: number;
-  }>;
-  confidence: {
-    concept_detection: number;
-    semantic_interpretation: number;
-    evidence_coverage: number;
-  };
-  provider: string;
-  model: string;
-  prompt_version: string;
-};
-
-type SemanticAnalysisPayload = {
-  nodeId: number;
-  state: string;
-  analysis: SemanticAnalysis | null;
-  historyCount: number;
-  profileVersion: number;
-  sourceFingerprint: string;
-};
-
 type FlowTurn = {
   id: number;
   role: "user" | "assistant";
@@ -201,111 +207,6 @@ type ResearchRun = {
   completedQueries: number;
   error?: string;
 };
-
-type NodeSummary = {
-  id: number;
-  type: string;
-  label: string;
-  title: string;
-  summary: string;
-  source: string;
-  sourceNoteIds: number[];
-  confidence: number;
-  createdBy: string;
-  createdByModel: string;
-  status: string;
-  aiNotes?: string;
-  userNotes?: string;
-  aiContext?: string;
-  aiSummary?: string;
-  sourceEvidence?: string;
-  learningValue?: string;
-  sourceQuality?: string;
-  validationStatus?: string;
-  provider?: string;
-  model?: string;
-  promptVersion?: string;
-  generatedAt?: string | null;
-  semanticState?: string;
-  semanticProfileVersion?: number;
-  clusterId?: string;
-  colorId?: string;
-  colorConfidence?: number;
-  colorReason?: string;
-  notes: { id: number; title: string; path: string }[];
-  connections: {
-    id: number;
-    type: string;
-    label?: string;
-    reason: string;
-    evidence: string[];
-    confidence: number;
-    status: string;
-    provider?: string;
-    model?: string;
-    aiNotes?: string;
-    userNotes?: string;
-  }[];
-  whyThisExists: string;
-};
-
-type GraphActionId =
-  | "confirm-node"
-  | "ignore-node"
-  | "retry-semantic-analysis"
-  | "regenerate-semantic-analysis";
-
-type GraphAction = {
-  id: GraphActionId;
-  label: string;
-  variant: "primary" | "secondary" | "danger";
-  visible: boolean;
-  disabled: boolean;
-  requiresConfirmation: boolean;
-  reasonDisabled?: string;
-};
-
-function getAvailableGraphActions(
-  item: GraphNode | null,
-  semanticState?: string,
-): GraphAction[] {
-  if (!item) return [];
-  const status = item.status || "suggested";
-  return [
-    {
-      id: "confirm-node",
-      label: item.type === "insight" ? "Apply insight" : "Confirm",
-      variant: "primary",
-      visible: status === "suggested",
-      disabled: false,
-      requiresConfirmation: false,
-    },
-    {
-      id: "ignore-node",
-      label: item.type === "insight" ? "Ignore insight" : "Ignore",
-      variant: "secondary",
-      visible: status === "suggested",
-      disabled: false,
-      requiresConfirmation: false,
-    },
-    {
-      id: "retry-semantic-analysis",
-      label: "Retry analysis",
-      variant: "secondary",
-      visible: ["failed", "stale", "not_configured", "needs_review"].includes(semanticState || ""),
-      disabled: false,
-      requiresConfirmation: false,
-    },
-    {
-      id: "regenerate-semantic-analysis",
-      label: "Regenerate analysis",
-      variant: "secondary",
-      visible: semanticState === "completed",
-      disabled: false,
-      requiresConfirmation: true,
-    },
-  ];
-}
 
 function relatedNodeLabel(item: NonNullable<InferenceResult["relatedNodes"]>[number]): string {
   if (typeof item === "string") return item;
@@ -443,6 +344,7 @@ export function GraphScreen({
   onNavigate,
   onOpenGraph,
   onOpenHome,
+  onOpenSettings,
 }: {
   apiUrl: string;
   autoFocusAsk?: boolean;
@@ -454,17 +356,19 @@ export function GraphScreen({
   onNavigate: (path: string) => void;
   onOpenGraph?: () => void;
   onOpenHome?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const { data, error, reload } = useGraphData(apiUrl);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showGraphActions, setShowGraphActions] = useState(false);
   const [viewMode, setViewMode] = useState<"visual" | "list">(() => {
     if (typeof window === "undefined") return "visual";
     return localStorage.getItem("bb_graph_view_mode") === "list" ? "list" : "visual";
   });
-  const [showDetail, setShowDetail] = useState(false);
   const [query, setQuery] = useState("");
   const askInputRef = useRef<HTMLInputElement>(null);
   const suggestionTrackRef = useRef<HTMLDivElement>(null);
@@ -474,6 +378,7 @@ export function GraphScreen({
   const [filterProvider, setFilterProvider] = useState("all");
   const [filterConfidence, setFilterConfidence] = useState(0);
   const [pipelineDiag, setPipelineDiag] = useState<{ code: string; text: string }[]>([]);
+  const [graphPipeline, setGraphPipeline] = useState<{ active: number; degraded: number; estimatedRemainingSeconds: number | null }>({ active: 0, degraded: 0, estimatedRemainingSeconds: null });
   useEffect(() => {
     if (!autoFocusAsk) return;
     const initialQuery = initialAskQuery.trim();
@@ -494,7 +399,7 @@ export function GraphScreen({
     const d = data as { nodes: GraphNode[] } | null | undefined;
     if (apiUrl === "__demo__" || !d || d.nodes.length > 0) return;
     let cancelled = false;
-    apiFetch("/api/v1/debug/vault-graph-pipeline")
+    apiFetch("/api/v1/vault/debug/vault-graph-pipeline")
       .then((r) => (r.ok ? r.json() : null))
       .then((p) => {
         if (cancelled || !p) return;
@@ -506,6 +411,26 @@ export function GraphScreen({
       cancelled = true;
     };
   }, [apiUrl, data]);
+  useEffect(() => {
+    if (askOnly || apiUrl === "__demo__") return;
+    let cancelled = false;
+    const loadProgress = () => {
+      apiFetch(`${apiUrl}/api/v1/jobs/pipeline-progress`)
+        .then((response) => response.ok ? response.json() : null)
+        .then((payload) => {
+          if (cancelled || !payload) return;
+          const notes = Array.isArray(payload.notes) ? payload.notes : [];
+          const active = notes.filter((item: { state?: string }) => ["waiting", "processing"].includes(item.state || "")).length;
+          const degraded = notes.filter((item: { graphState?: string }) => item.graphState === "degraded").length;
+          const estimates = notes.map((item: { estimatedRemainingSeconds?: number | null }) => item.estimatedRemainingSeconds).filter((value: unknown): value is number => typeof value === "number");
+          setGraphPipeline({ active, degraded, estimatedRemainingSeconds: estimates.length ? Math.max(...estimates) : null });
+        })
+        .catch(() => {});
+    };
+    loadProgress();
+    const interval = window.setInterval(loadProgress, 5000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [apiUrl, askOnly]);
   const [showInsightNodes, setShowInsightNodes] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("bb_graph_show_insight_nodes") !== "0";
@@ -555,12 +480,6 @@ export function GraphScreen({
   const [inferLoading, setInferLoading] = useState(false);
   const [inferenceSaveStatus, setInferenceSaveStatus] = useState("");
   const [inferenceSaving, setInferenceSaving] = useState(false);
-  const [nodeSummary, setNodeSummary] = useState<NodeSummary | null>(null);
-  const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysisPayload | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [manualNotes, setManualNotes] = useState("");
-  const [nodeActionStatus, setNodeActionStatus] = useState("");
-  const [actionLoading, setActionLoading] = useState("");
   const [researchModeEnabled, setResearchModeEnabled] = useState(false);
   const [researchRun, setResearchRun] = useState<ResearchRun | null>(null);
   const [researchStatus, setResearchStatus] = useState("");
@@ -569,16 +488,6 @@ export function GraphScreen({
   const [flowActive, setFlowActive] = useState(false);
   const [askSuggestions, setAskSuggestions] = useState<AskSuggestionPayload | null>(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [nodeEdit, setNodeEdit] = useState({
-    type: "note",
-    label: "",
-    title: "",
-    summary: "",
-    source: "",
-    status: "suggested",
-  });
-  const [nodeEditSaving, setNodeEditSaving] = useState(false);
-  const [nodeEditStatus, setNodeEditStatus] = useState("");
 
   const graphData = data as {
     nodes: GraphNode[];
@@ -662,44 +571,6 @@ export function GraphScreen({
   const selectedNode = selectedId
     ? graphData?.nodes.find((n) => n.id === selectedId) ?? null
     : null;
-  const selectedEdges = selectedId
-    ? graphData?.edges.filter((e) => e.source === selectedId || e.target === selectedId) ?? []
-      : [];
-  const actionNode = selectedNode
-    ? { ...selectedNode, status: nodeSummary?.status || selectedNode.status }
-    : null;
-  const nodeActions = getAvailableGraphActions(
-    actionNode,
-    semanticAnalysis?.state || nodeSummary?.semanticState || selectedNode?.semanticState,
-  );
-
-  useEffect(() => {
-    if (!selectedNode) {
-      setNodeEdit({ type: "note", label: "", title: "", summary: "", source: "", status: "suggested" });
-      setNodeEditStatus("");
-      return;
-    }
-    setNodeEdit({
-      type: nodeSummary?.type || selectedNode.type || "note",
-      label: nodeSummary?.label || selectedNode.label || "",
-      title: nodeSummary?.title || selectedNode.title || selectedNode.label || "",
-      summary: nodeSummary?.summary || selectedNode.summary || "",
-      source: nodeSummary?.source || selectedNode.source || "",
-      status: nodeSummary?.status || selectedNode.status || "suggested",
-    });
-    setNodeEditStatus("");
-  }, [
-    nodeSummary?.confidence,
-    nodeSummary?.id,
-    nodeSummary?.label,
-    nodeSummary?.source,
-    nodeSummary?.status,
-    nodeSummary?.summary,
-    nodeSummary?.title,
-    nodeSummary?.type,
-    selectedNode,
-  ]);
-
   function changeLayout(mode: GraphLayoutMode) {
     setLayoutMode(mode);
     if (typeof window !== "undefined") localStorage.setItem("bb_graph_layout", mode);
@@ -710,7 +581,6 @@ export function GraphScreen({
   function toggleInsightNodes() {
     if (showInsightNodes && selectedNode?.type === "insight") {
       setSelectedId(null);
-      setShowDetail(false);
     }
     setShowInsightNodes((value) => {
       const next = !value;
@@ -763,41 +633,6 @@ export function GraphScreen({
       if (refreshTimer) clearTimeout(refreshTimer);
     };
   }, [apiUrl, askOnly]);
-
-  useEffect(() => {
-    if (apiUrl === "__demo__" || !selectedNode?.recordId || !showDetail) {
-      setNodeSummary(null);
-      setSemanticAnalysis(null);
-      return;
-    }
-    let cancelled = false;
-    setSummaryLoading(true);
-    Promise.all([
-      apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/summary`)
-        .then((response) => (response.ok ? response.json() : Promise.reject())),
-      apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/semantic-analysis`)
-        .then((response) => (response.ok ? response.json() : null)),
-    ])
-      .then(([payload, semanticPayload]) => {
-        if (!cancelled) {
-          setNodeSummary(payload);
-          setSemanticAnalysis(semanticPayload as SemanticAnalysisPayload | null);
-          setManualNotes(payload.userNotes || "");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setNodeSummary(null);
-          setSemanticAnalysis(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSummaryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [apiUrl, selectedNode?.recordId, showDetail]);
 
   useEffect(() => {
     if (apiUrl === "__demo__" || typeof window === "undefined") return;
@@ -884,7 +719,6 @@ export function GraphScreen({
     const node = graphData?.nodes.find((item) => item.id === id);
     if (!graphNodeRecordId(node)) return;
     setSelectedId(id);
-    setShowDetail(false);
     rememberGraphState();
   }
 
@@ -910,7 +744,16 @@ export function GraphScreen({
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(typeof payload.detail === "string" ? payload.detail : `Flow failed (HTTP ${response.status}).`);
+          const detail = payload.detail;
+          if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
+            setInference({
+              status: "provider_unavailable",
+              question: text,
+              answer: detail.message || "The configured AI provider did not return an answer.",
+            });
+            return;
+          }
+          throw new Error(typeof detail === "string" ? detail : `Flow failed (HTTP ${response.status}).`);
         }
         const userTurn = payload.userTurn as FlowTurn;
         const assistantTurn = payload.assistantTurn as FlowTurn;
@@ -933,8 +776,17 @@ export function GraphScreen({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const message = typeof payload.detail === "string"
-          ? payload.detail
+        const detail = payload.detail;
+        if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
+          setInference({
+            status: "provider_unavailable",
+            question: text,
+            answer: detail.message || "The configured AI provider did not return an answer.",
+          });
+          return;
+        }
+        const message = typeof detail === "string"
+          ? detail
           : `Graph inference failed (HTTP ${response.status}).`;
         throw new Error(message);
       }
@@ -1044,209 +896,41 @@ export function GraphScreen({
     }
   }
 
-  async function createPermanentConceptNote() {
-    if (!selectedNode?.sourceId || selectedNode.type !== "concept") return;
-    if (apiUrl === "__demo__") return;
-    const response = await apiFetch(`${apiUrl}/api/v1/concepts/${selectedNode.sourceId}/create-note`, { method: "POST" });
-    const payload = await response.json();
-    if (payload.note?.path) {
-      onNavigate(payload.note.path);
-    }
-  }
-
-  async function saveManualNodeNotes() {
-    if (!selectedNode?.recordId) return;
-    if (apiUrl === "__demo__") return;
-    const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/notes`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notes: manualNotes }),
-    });
-    if (!response.ok) return;
-    setNodeSummary((current) => current ? { ...current, userNotes: manualNotes } : current);
-  }
-
-  async function saveGraphNodeEdits() {
-    if (!selectedNode?.recordId || apiUrl === "__demo__") return;
-    setNodeEditSaving(true);
-    setNodeEditStatus("Saving node...");
-    try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: nodeEdit.label,
-          type: nodeEdit.type,
-          title: nodeEdit.title,
-          summary: nodeEdit.summary,
-          source: nodeEdit.source,
-          status: nodeEdit.status,
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setNodeEditStatus(payload.detail || "Node edit failed.");
-        return;
-      }
-      setNodeSummary((current) => current ? { ...current, ...payload } : current);
-      setNodeEditStatus("Node saved. Judge validation and graph recalculation queued.");
-      reload();
-    } finally {
-      setNodeEditSaving(false);
-    }
-  }
-
-  async function processSemanticAnalysis(action: "retry" | "regenerate") {
-    if (!selectedNode?.recordId) return;
-    if (apiUrl === "__demo__") return;
-    if (action === "regenerate" && !window.confirm("Generate a new semantic analysis version for this node?")) return;
-    const actionId = action === "retry" ? "retry-semantic-analysis" : "regenerate-semantic-analysis";
-    setActionLoading(actionId);
-    setNodeActionStatus(action === "retry" ? "Retrying semantic analysis..." : "New semantic analysis queued...");
-    try {
-      const response = await apiFetch(
-        `${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/semantic-analysis/${action}`,
-        { method: "POST" },
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setNodeActionStatus(payload.detail || "Semantic analysis could not be queued.");
-        return;
-      }
-      setSemanticAnalysis((current) => current ? { ...current, state: "pending" } : current);
-      setNodeActionStatus(`Semantic analysis queued. Job ${payload.jobId || ""}`.trim());
-      reload();
-    } finally {
-      setActionLoading("");
-    }
-  }
-
-  async function updateNodeStatus(status: "confirmed" | "ignored") {
-    if (!selectedNode?.recordId) return;
-    if (apiUrl === "__demo__") return;
-    if (selectedNode.type === "insight" && selectedNode.sourceId) {
-      await updateInsightStatus(status);
-      return;
-    }
-    setActionLoading(status === "confirmed" ? "confirm-node" : "ignore-node");
-    const action = status === "confirmed" ? "confirm" : "ignore";
-    try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${action}`, { method: "POST" });
-      if (!response.ok) {
-        setNodeActionStatus(`${status === "confirmed" ? "Confirm Node" : "Ignore Node"} failed.`);
-        return;
-      }
-      setNodeSummary((current) => current ? { ...current, status } : current);
-      setNodeActionStatus(status === "confirmed" ? "Node confirmed." : "Node ignored.");
-      if (status === "ignored") {
-        setSelectedId(null);
-        setShowDetail(false);
-      }
-      reload();
-    } finally {
-      setActionLoading("");
-    }
-  }
-
-  async function updateInsightStatus(status: "confirmed" | "ignored") {
-    if (!selectedNode?.recordId || !selectedNode.sourceId) return;
-    if (apiUrl === "__demo__") return;
-    const isApply = status === "confirmed";
-    setActionLoading(isApply ? "confirm-node" : "ignore-node");
-    try {
-      const insightAction = isApply ? "apply" : "ignore";
-      const insightResponse = await apiFetch(`${apiUrl}/api/v1/insights/${selectedNode.sourceId}/${insightAction}`, { method: "POST" });
-      if (!insightResponse.ok) {
-        setNodeActionStatus(isApply ? "Apply Insight failed." : "Ignore Insight failed.");
-        return;
-      }
-      const nodeAction = isApply ? "confirm" : "ignore";
-      await apiFetch(`${apiUrl}/api/v1/graph/nodes/${selectedNode.recordId}/${nodeAction}`, { method: "POST" });
-      setNodeSummary((current) => current ? { ...current, status } : current);
-      setNodeActionStatus(isApply ? "Insight applied." : "Insight ignored.");
-      if (!isApply) {
-        setSelectedId(null);
-        setShowDetail(false);
-      }
-      reload();
-    } finally {
-      setActionLoading("");
-    }
-  }
-
-  async function updateEdgeStatus(edgeId: number, status: "confirmed" | "ignored") {
-    if (apiUrl === "__demo__") return;
-    const action = status === "confirmed" ? "confirm" : "ignore";
-    setActionLoading(`${action}-connection-${edgeId}`);
-    try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/${action}`, { method: "POST" });
-      if (!response.ok) {
-        setNodeActionStatus(`${status === "confirmed" ? "Confirm Connection" : "Ignore Connection"} failed.`);
-        return;
-      }
-      setNodeSummary((current) => current ? {
-        ...current,
-        connections: status === "ignored"
-          ? current.connections.filter((connection) => connection.id !== edgeId)
-          : current.connections.map((connection) => connection.id === edgeId ? { ...connection, status } : connection),
-      } : current);
-      setNodeActionStatus(status === "confirmed" ? "Connection confirmed." : "Connection ignored.");
-      reload();
-    } finally {
-      setActionLoading("");
-    }
-  }
-
-  async function generateConnectionInsight(edgeId: number) {
-    if (apiUrl === "__demo__") return;
-    setActionLoading(`save-insight-${edgeId}`);
-    setNodeActionStatus("Generating connection insight with configured AI...");
-    try {
-      const response = await apiFetch(`${apiUrl}/api/v1/graph/connections/${edgeId}/generate-insight`, { method: "POST" });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setNodeActionStatus(payload.detail || "Connection insight generation failed.");
-        return;
-      }
-      const insight = payload.insight;
-      setNodeActionStatus(
-        insight?.title
-          ? `Insight ${payload.status === "exists" ? "already exists" : "created"}: ${insight.title}`
-          : "Connection insight created.",
-      );
-      reload();
-    } finally {
-      setActionLoading("");
-    }
-  }
-
   function scrollSuggestions(direction: -1 | 1) {
     const track = suggestionTrackRef.current;
     if (!track) return;
     track.scrollBy({ left: direction * track.clientWidth * 0.82, behavior: "smooth" });
   }
 
+  const activeFilterCount = [
+    filterType !== "brain_view",
+    filterStatus !== "all",
+    filterProvider !== "all",
+    filterConfidence > 0,
+  ].filter(Boolean).length;
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="relative z-40 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-border/50 bg-panel shrink-0 text-xs">
-        <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={askOnly ? (onOpenHome || onClose) : onClose} aria-label={askOnly ? "Back to Home" : "Back"}>
-          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-        </button>
-        {!askOnly && <div className="min-w-0">
-          <h2 className="text-sm font-medium text-foreground">{t("graphTitle")}</h2>
-          {graphData && (
-            <div className="text-[10px] text-muted/60">
-              {graphData.nodes.length} {t("nodes")} · {graphData.edges.length} {t("edges")} · {graphData.stats?.orphan_count ?? 0} {t("orphans")}
-            </div>
-          )}
-        </div>}
-        {askOnly && <div className="flex items-center gap-1">
-          <button className="bb-action h-8 px-2.5 text-[11px]" onClick={onOpenHome || onClose}>Home</button>
-          <button className="bb-action h-8 px-2.5 text-[11px]" onClick={onOpenGraph || (() => { window.location.href = appPath("/brain?graph=open"); })}>Graph</button>
-        </div>}
-        <div className="flex-1" />
+      <div className={`bb-graph-toolbar relative z-40 shrink-0 border-b border-border bg-panel px-3 py-2 text-xs lg:px-4 ${askOnly ? "is-ask-only" : ""}`}>
+        <div className="bb-graph-toolbar__left">
+          <button className="bb-icon-button" onClick={askOnly ? (onOpenHome || onClose) : onClose} aria-label={askOnly ? "Back to Home" : "Back"} title={askOnly ? "Back to Home" : "Back"}>
+            <ArrowLeft className="size-4" />
+          </button>
+          {!askOnly && <div className="mr-2 min-w-0">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Network className="size-4 text-accent" />{t("graphTitle")}</h2>
+            {graphData && (
+              <div className="text-[10px] text-muted/60">
+                {graphData.nodes.length} {t("nodes")} · {graphData.edges.length} {t("edges")} · {graphData.stats?.orphan_count ?? 0} {t("orphans")}
+              </div>
+            )}
+          </div>}
+          {askOnly && <div className="flex items-center gap-1">
+            <button className="bb-action h-8 gap-1.5 px-2.5 text-[11px]" onClick={onOpenHome || onClose}><Home className="size-3.5" />Home</button>
+            <button className="bb-action h-8 gap-1.5 px-2.5 text-[11px]" onClick={onOpenGraph || (() => { window.location.href = appPath("/brain?graph=open"); })}><Network className="size-3.5" />Graph</button>
+          </div>}
+        </div>
         {!askOnly && <form
-          className={`relative z-50 order-last flex min-w-[260px] flex-1 basis-full items-center gap-2 rounded-lg border p-1.5 sm:basis-[360px] lg:order-none lg:max-w-[560px] ${
+          className={`bb-graph-toolbar__ask relative z-50 flex min-w-0 items-center gap-2 rounded-lg border p-1.5 ${
             flowActive ? "border-violet-500/60 bg-violet-500/10" : "border-accent/30 bg-surface/80"
           }`}
           onSubmit={(e) => {
@@ -1272,7 +956,7 @@ export function GraphScreen({
             aria-label="Open Ask workspace"
             title="Open Ask workspace"
             onClick={() => { window.location.href = appPath(`/ask${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`); }}
-          >↗</button>}
+          ><Maximize2 className="size-4" /></button>}
           <button
             type="submit"
             className="bb-action h-9 min-w-16 shrink-0 px-3 text-xs font-semibold"
@@ -1286,84 +970,71 @@ export function GraphScreen({
             </button>
           )}
         </form>}
-        {flowActive && !askOnly && (
-          <button className="bb-action h-8 px-2.5 text-[11px] text-violet-600" onClick={exitFlow}>
-            Exit Flow · {Math.floor(flowTurns.length / 2)} turns
-          </button>
+        {!askOnly && (
+          <div className="bb-graph-toolbar__right">
+            <div className="bb-segmented" aria-label="Graph view">
+              <button className={viewMode === "visual" ? "is-active" : ""} onClick={() => { setViewMode("visual"); localStorage.setItem("bb_graph_view_mode", "visual"); }} aria-label="Visual graph" title="Visual graph"><Network className="size-3.5" /></button>
+              <button className={viewMode === "list" ? "is-active" : ""} onClick={() => { setViewMode("list"); localStorage.setItem("bb_graph_view_mode", "list"); }} aria-label="Graph list" title="Graph list"><List className="size-3.5" /></button>
+            </div>
+            <label className="bb-compact-select" title="Graph layout">
+              <LayoutDashboard className="size-3.5" />
+              <select value={layoutMode} onChange={(e) => changeLayout(e.target.value as GraphLayoutMode)} aria-label="Graph layout">
+                <option value="brain">{t("layoutBrain")}</option>
+                <option value="radial">{t("layoutRadial")}</option>
+                <option value="type">{t("layoutType")}</option>
+                <option value="connections">{t("layoutConnections")}</option>
+              </select>
+            </label>
+            <button className="bb-icon-button" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }} aria-label={t("center")} title={t("center")}><Focus className="size-4" /></button>
+            <div className="relative">
+              <button className={`bb-toolbar-menu ${activeFilterCount ? "bb-action--active" : ""}`} onClick={() => { setShowFilters((value) => !value); setShowGraphActions(false); }} aria-expanded={showFilters}><Filter className="size-3.5" /><span>Filters</span>{activeFilterCount > 0 && <span className="bb-count">{activeFilterCount}</span>}<ChevronDown className="size-3" /></button>
+              {showFilters && (
+                <div className="bb-toolbar-popover right-0 w-[min(92vw,420px)]" role="dialog" aria-label="Graph filters">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <GraphFilter label="Node type" value={filterType} onChange={setFilterType} options={[["brain_view", t("filterBrainView")], ["topics", t("filterTopics")], ["note", t("filterNote")], ["concept", t("filterConcept")], ["entity", t("filterEntity")], ["context", t("filterContext")], ["insight", t("filterInsight")], ["gap", t("filterGap")], ["attachment", t("filterAttachment")], ["study_path", t("filterStudyPath")], ["cluster", t("filterCluster")], ["source", t("filterSource")]]} />
+                    <GraphFilter label="Status" value={filterStatus} onChange={setFilterStatus} options={[["all", "All statuses"], ["suggested", t("suggested")], ["confirmed", t("confirmed")], ["ignored", t("ignored")]]} />
+                    <GraphFilter label="Origin" value={filterProvider} onChange={setFilterProvider} options={[["all", "All origins"], ["ai", t("ai")], ["deterministic", t("system")], ["backlink", t("backlink")]]} />
+                    <GraphFilter label="Minimum confidence" value={String(filterConfidence)} onChange={(value) => setFilterConfidence(Number(value))} options={[["0", "Any confidence"], ["90", "90%+"], ["70", "70%+"], ["50", "50%+"]]} />
+                  </div>
+                  <button className="bb-action mt-3 h-8 px-3 text-[11px]" onClick={() => { setFilterType("brain_view"); setFilterStatus("all"); setFilterProvider("all"); setFilterConfidence(0); }}>Clear filters</button>
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button className="bb-toolbar-menu" onClick={() => { setShowGraphActions((value) => !value); setShowFilters(false); }} aria-expanded={showGraphActions}><Sparkles className="size-3.5" /><span>Knowledge</span><ChevronDown className="size-3" /></button>
+              {showGraphActions && (
+                <div className="bb-toolbar-popover right-0 w-[min(92vw,360px)]" role="menu" aria-label="Knowledge actions">
+                  <ToolbarAction icon={<RefreshCw className="size-4" />} title="Refresh graph" description="Recalculate the graph from current vault evidence." onClick={() => { setShowGraphActions(false); void expandGraph(); }} />
+                  <ToolbarAction icon={<Lightbulb className="size-4" />} title={showInsightNodes ? "Hide insight proposals" : "Show insight proposals"} description="Review AI-proposed knowledge before accepting it." onClick={() => { setShowGraphActions(false); toggleInsightNodes(); }} />
+                  <ToolbarAction icon={<BrainCircuit className="size-4" />} title="Research Gaps" description={researchModeEnabled ? "Investigate unresolved or low-confidence graph areas using external sources." : "External research is off. Enable Research Mode in Settings first."} disabled={!researchModeEnabled || ["pending", "running"].includes(researchRun?.status || "")} onClick={() => { setShowGraphActions(false); void startOnlineResearch(); }} />
+                  <ToolbarAction icon={<BookOpen className="size-4" />} title="Legend" description="Open node geometry and ontology edge meanings." onClick={() => { setShowGraphActions(false); setShowLegend(true); }} />
+                </div>
+              )}
+            </div>
+            {flowActive && <button className="bb-action h-8 px-2.5 text-[11px] text-accent" onClick={exitFlow}>Exit Flow · {Math.floor(flowTurns.length / 2)}</button>}
+          </div>
         )}
-        {!askOnly && <>
-        <button
-          className="bb-action h-8 px-2.5 text-[11px]"
-          disabled={!researchModeEnabled || ["pending", "running"].includes(researchRun?.status || "")}
-          title={researchModeEnabled ? "Research low-confidence and unresolved graph nodes with external sources" : "Enable Research Mode in Settings"}
-          onClick={startOnlineResearch}
-        >
-          {["pending", "running"].includes(researchRun?.status || "")
-            ? `Researching gaps ${researchRun?.progress || 0}%`
-            : "Research gaps"}
-        </button>
-        {["pending", "running"].includes(researchRun?.status || "") && (
-          <button className="bb-action h-8 px-2 text-[10px]" onClick={cancelOnlineResearch}>Cancel research</button>
-        )}
-        </>}
-        {!askOnly && <>
-        <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-          <option value="brain_view">{t("filterBrainView")}</option>
-          <option value="topics">{t("filterTopics")}</option>
-          <option value="note">{t("filterNote")}</option>
-          <option value="concept">{t("filterConcept")}</option>
-          <option value="entity">{t("filterEntity")}</option>
-          <option value="context">{t("filterContext")}</option>
-          <option value="insight">{t("filterInsight")}</option>
-          <option value="gap">{t("filterGap")}</option>
-          <option value="attachment">{t("filterAttachment")}</option>
-          <option value="study_path">{t("filterStudyPath")}</option>
-          <option value="cluster">{t("filterCluster")}</option>
-          <option value="source">{t("filterSource")}</option>
-        </select>
-        <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="all">{t("status")}</option>
-          <option value="suggested">{t("suggested")}</option>
-          <option value="confirmed">{t("confirmed")}</option>
-          <option value="ignored">{t("ignored")}</option>
-        </select>
-        <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterProvider} onChange={(e) => setFilterProvider(e.target.value)}>
-          <option value="all">{t("origin")}</option>
-          <option value="ai">{t("ai")}</option>
-          <option value="deterministic">{t("system")}</option>
-          <option value="backlink">{t("backlink")}</option>
-        </select>
-        <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={filterConfidence.toString()} onChange={(e) => setFilterConfidence(Number(e.target.value))}>
-          <option value="0">{t("confidence")}</option>
-          <option value="90">90%+</option>
-          <option value="70">70%+</option>
-          <option value="50">50%+</option>
-        </select>
-        <select className="h-8 rounded-lg border border-border/50 bg-surface px-2 text-[11px] text-muted outline-none" value={layoutMode} onChange={(e) => changeLayout(e.target.value as GraphLayoutMode)}>
-          <option value="brain">{t("layoutBrain")}</option>
-          <option value="radial">{t("layoutRadial")}</option>
-          <option value="type">{t("layoutType")}</option>
-          <option value="connections">{t("layoutConnections")}</option>
-        </select>
-        <button
-          className={`bb-action h-8 px-2.5 text-[11px] ${viewMode === "list" ? "bb-action--active" : ""}`}
-          aria-pressed={viewMode === "list"}
-          onClick={() => {
-            const next = viewMode === "visual" ? "list" : "visual";
-            setViewMode(next);
-            localStorage.setItem("bb_graph_view_mode", next);
-          }}
-        >
-          {viewMode === "visual" ? "List view" : "Visual view"}
-        </button>
-        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1); setSelectedId(null); }}>{t("center")}</button>
-        <button className="bb-action h-8 px-2.5 text-[11px]" onClick={expandGraph}>{t("expand")}</button>
-        <button className={`bb-action h-8 px-2.5 text-[11px] ${showInsightNodes ? "bb-action--active" : ""}`} onClick={toggleInsightNodes}>
-          {showInsightNodes ? t("hideInsightNodes") : t("showInsightNodes")}
-        </button>
-        <button className={`bb-action h-8 px-2.5 text-[11px] ${showLegend ? "bb-action--active" : ""}`} onClick={() => setShowLegend(!showLegend)}>{t("legend")}</button>
-        </>}
       </div>
+
+      {!askOnly && (graphPipeline.active > 0 || graphPipeline.degraded > 0) && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2 text-[11px]" role="status">
+          <RefreshCw className={`size-3.5 text-accent ${graphPipeline.active ? "animate-spin" : ""}`} />
+          <span className="font-medium text-foreground">
+            {graphPipeline.active > 0 ? `${graphPipeline.active} note${graphPipeline.active === 1 ? "" : "s"} enriching` : "Graph enrichment needs attention"}
+          </span>
+          {graphPipeline.estimatedRemainingSeconds != null && <span className="text-muted">about {formatGraphEta(graphPipeline.estimatedRemainingSeconds)} remaining</span>}
+          {graphPipeline.degraded > 0 && <button className="bb-action bb-action--danger ml-auto h-7 px-2.5 text-[10px]" onClick={() => { window.location.href = appPath("/activity"); }}>{graphPipeline.degraded} failed pipeline{graphPipeline.degraded === 1 ? "" : "s"}</button>}
+        </div>
+      )}
+
+      {["pending", "running"].includes(researchRun?.status || "") && !askOnly && (
+        <div className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2 text-[11px]" role="status">
+          <BrainCircuit className="size-4 text-accent" />
+          <span className="font-medium text-foreground">Researching knowledge gaps</span>
+          <span className="text-muted">{researchRun?.progress || 0}% · external sources enabled</span>
+          <button className="bb-action ml-auto h-7 px-2.5 text-[10px]" onClick={cancelOnlineResearch}>Cancel</button>
+        </div>
+      )}
 
       {researchStatus && !askOnly && (
         <div className="border-b border-border/40 bg-surface px-4 py-1.5 text-center text-[11px] text-muted" role="status">
@@ -1375,16 +1046,18 @@ export function GraphScreen({
         <div className="border-b border-border/40 bg-panel/80 px-4 py-3">
           <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-surface/70 p-3">
             <div className="mb-1 flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">{t("graphInference")}</span>
+              <span className={`text-[10px] font-semibold uppercase tracking-wide ${inference.status === "provider_unavailable" ? "text-danger" : "text-accent"}`}>
+                {inference.status === "provider_unavailable" ? "Provider unavailable" : t("graphInference")}
+              </span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
-            <p className={`text-sm leading-relaxed ${inference.status === "error" ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
-            {inference.status === "error" && (
+            <p className={`text-sm leading-relaxed ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+            {["error", "provider_unavailable"].includes(inference.status) && (
               <p className="mt-2 rounded-lg bg-panel px-2 py-1 text-[11px] text-muted">
-                Check Settings, AI / Provider and try again. Local Ollama needs a reachable URL and installed model; cloud mode needs a verified key, model, and consent.
+                No BerryBrain answer was created. Retry the request or review the active provider and model in Settings.
               </p>
             )}
-            {!!inference.relatedNodes?.length && (
+            {inference.status !== "provider_unavailable" && !!inference.relatedNodes?.length && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {relatedInferenceNodes.map((node) => (
                   <button
@@ -1399,7 +1072,7 @@ export function GraphScreen({
                 ))}
               </div>
             )}
-            {!!inference.evidence?.length && (
+            {inference.status !== "provider_unavailable" && !!inference.evidence?.length && (
               <div className="mt-2 space-y-1 text-[11px] text-muted">
                 <div className="text-[10px] font-medium uppercase tracking-wide text-muted/70">{t("evidence")}</div>
                 {inference.evidence.slice(0, 4).map((item, index) => (
@@ -1415,9 +1088,19 @@ export function GraphScreen({
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
-              {!flowActive && inference.status !== "error" && (
+              {!flowActive && !["error", "provider_unavailable"].includes(inference.status) && (
                 <button className="bb-action px-3 py-1 text-[10px] font-semibold text-violet-600" onClick={startFlow}>
                   Continue in Flow
+                </button>
+              )}
+              {inference.status === "provider_unavailable" && (
+                <button className="bb-action px-3 py-1 text-[10px] font-semibold" onClick={() => void runInference(inference.question)}>
+                  <RefreshCw className="mr-1 inline size-3" />Retry
+                </button>
+              )}
+              {inference.status === "provider_unavailable" && onOpenSettings && (
+                <button className="bb-action px-3 py-1 text-[10px] font-semibold" onClick={onOpenSettings}>
+                  <Settings className="mr-1 inline size-3" />Open Settings
                 </button>
               )}
               <button
@@ -1500,13 +1183,19 @@ export function GraphScreen({
             )}
 
             {inference && !inferLoading && (
-              <section className="mx-auto max-w-4xl border-y border-border py-6 text-left" aria-label="Graph answer" aria-live="polite">
+              <section className="mx-auto max-w-4xl border-y border-border py-6 text-left" aria-label={inference.status === "provider_unavailable" ? "Ask unavailable" : "Graph answer"} aria-live="polite">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase text-accent">BerryBrain answer</span>
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase ${inference.status === "provider_unavailable" ? "text-danger" : "text-accent"}`}>
+                    {inference.status === "provider_unavailable" && <AlertTriangle className="size-3.5" />}
+                    {inference.status === "provider_unavailable" ? "Provider unavailable" : "BerryBrain answer"}
+                  </span>
                   <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
                 </div>
-                <p className={`whitespace-pre-wrap text-base leading-7 ${inference.status === "error" ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
-                {!!inference.evidence?.length && (
+                <p className={`whitespace-pre-wrap text-base leading-7 ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+                {inference.status === "provider_unavailable" && (
+                  <p className="mt-2 text-sm leading-6 text-muted">No answer was created or added to the conversation. Retry the request or review the active provider and model.</p>
+                )}
+                {inference.status !== "provider_unavailable" && !!inference.evidence?.length && (
                   <div className="mt-5 space-y-2">
                     <h2 className="text-[11px] font-semibold uppercase text-muted">Evidence</h2>
                     {inference.evidence.slice(0, 6).map((item, index) => (
@@ -1514,7 +1203,7 @@ export function GraphScreen({
                     ))}
                   </div>
                 )}
-                {!!relatedInferenceNodes.length && (
+                {inference.status !== "provider_unavailable" && !!relatedInferenceNodes.length && (
                   <div className="mt-5 flex flex-wrap gap-2">
                     {relatedInferenceNodes.map((node) => {
                       const recordId = graphNodeRecordId(graphData?.nodes.find((item) => item.id === node.id));
@@ -1525,13 +1214,15 @@ export function GraphScreen({
                   </div>
                 )}
                 <div className="mt-5 flex flex-wrap items-center gap-2">
-                  {!flowActive && inference.status !== "error" && <button className="bb-action px-3 py-1.5 text-xs font-semibold" onClick={startFlow}>Continue in Flow</button>}
-                  <button
+                  {!flowActive && !["error", "provider_unavailable"].includes(inference.status) && <button className="bb-action px-3 py-1.5 text-xs font-semibold" onClick={startFlow}>Continue in Flow</button>}
+                  {inference.status === "provider_unavailable" && <button className="bb-action inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold" onClick={() => void runInference(inference.question)}><RefreshCw className="size-3.5" />Retry</button>}
+                  {inference.status === "provider_unavailable" && onOpenSettings && <button className="bb-action bb-action--primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold" onClick={onOpenSettings}><Settings className="size-3.5" />Open Settings</button>}
+                  {inference.status !== "provider_unavailable" && <button
                     className="bb-action px-3 py-1.5 text-xs"
-                    disabled={inferenceSaving || inference.status === "saved_as_insight" || (!inference.inferenceId && !flowSessionId)}
+                    disabled={inferenceSaving || inference.status === "saved_as_insight" || (!inference.inferenceId && !flowSessionId) || !["answered", "success", "sufficient_evidence", "insufficient_evidence"].includes(inference.status)}
                     onClick={saveInferenceAsInsight}
-                  >{inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}</button>
-                  <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>Clear answer</button>
+                  >{inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}</button>}
+                  <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>{inference.status === "provider_unavailable" ? "Dismiss" : "Clear answer"}</button>
                   {(inference.provider || inference.model) && <span className="ml-auto text-[10px] text-muted">{inference.provider || "provider"}{inference.model ? ` · ${inference.model}` : ""}</span>}
                 </div>
                 {inferenceSaveStatus && <p className="mt-3 text-xs text-muted">{inferenceSaveStatus}</p>}
@@ -1684,358 +1375,15 @@ export function GraphScreen({
       </div>
       )}
 
-      {selectedNode && showDetail && (
-        <div className="absolute inset-x-0 bottom-0 top-[49px] z-30 flex flex-col border-l border-border/50 bg-panel/98 shadow-xl backdrop-blur sm:left-auto sm:w-[min(720px,58vw)]">
-          <div className="flex flex-shrink-0 items-start justify-between gap-3 border-b border-border/50 bg-surface/50 p-5">
-            <div className="min-w-0">
-              <div className="mb-1 text-[11px] font-bold uppercase tracking-widest text-accent">{humanNodeType(selectedNode.type)}</div>
-              <h3 className="break-words text-base font-semibold leading-snug text-foreground">{nodeSummary?.title || selectedNode.label}</h3>
-              <div className="mt-2 flex flex-wrap gap-1">
-                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{humanStatus(nodeSummary?.status || selectedNode.status)}</span>
-                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)}</span>
-                <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{humanOrigin(nodeSummary?.createdBy || selectedNode.createdBy)}</span>
-              </div>
-            </div>
-            <button className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-border/50 text-[10px] text-muted hover:bg-border hover:text-foreground" onClick={() => setShowDetail(false)}>✕</button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-5">
-            {summaryLoading ? (
-              <div className="text-xs text-muted">{t("loadingNodeSummary")}</div>
-            ) : (
-              <div className="space-y-4 text-[12px] text-muted/80">
-                <section>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What this is</div>
-                    <button
-                      className="bb-action px-3 py-1.5 text-[10px] font-medium text-accent"
-                      onClick={() => runInference(`Explain "${nodeSummary?.title || selectedNode.label}" and show the evidence behind it.`)}
-                    >
-                      Ask about this
-                    </button>
-                  </div>
-                  <div className="rounded-xl border border-border/40 bg-surface/40 p-4 text-[13px] leading-relaxed text-foreground/90 shadow-sm">
-                    {nodeSummary?.aiSummary || nodeSummary?.summary || selectedNode.aiSummary || selectedNode.summary || t("summaryNotGenerated")}
-                  </div>
-                </section>
-                {nodeSummary?.whyThisExists && (
-                  <div className="text-[11px] italic text-muted/60">{nodeSummary.whyThisExists}</div>
-                )}
-                <section className="border-t border-border/30 pt-4">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">Edit node</div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                      Type
-                      <select
-                        className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                        value={nodeEdit.type}
-                        onChange={(event) => setNodeEdit((current) => ({ ...current, type: event.target.value }))}
-                      >
-                        <option value="note">Note</option>
-                        <option value="concept">Concept</option>
-                        <option value="entity">Entity</option>
-                        <option value="topic">Topic</option>
-                        <option value="source">Source</option>
-                        <option value="attachment">Attachment</option>
-                        <option value="insight">Insight</option>
-                        <option value="context">Context</option>
-                        <option value="gap">Gap</option>
-                        <option value="study_path">Study path</option>
-                        <option value="cluster">Cluster</option>
-                      </select>
-                    </label>
-                    <label className="text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                      Label
-                      <input
-                        className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                        value={nodeEdit.label}
-                        onChange={(event) => setNodeEdit((current) => ({ ...current, label: event.target.value }))}
-                      />
-                    </label>
-                    <label className="text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                      Title
-                      <input
-                        className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                        value={nodeEdit.title}
-                        onChange={(event) => setNodeEdit((current) => ({ ...current, title: event.target.value }))}
-                      />
-                    </label>
-                    <label className="text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                      Status
-                      <select
-                        className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                        value={nodeEdit.status}
-                        onChange={(event) => setNodeEdit((current) => ({ ...current, status: event.target.value }))}
-                      >
-                        <option value="suggested">Suggested</option>
-                        <option value="confirmed">Confirmed</option>
-                        <option value="ignored">Ignored</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label className="mt-2 block text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                    Source
-                    <input
-                      className="mt-1 h-9 w-full rounded-lg border border-border bg-surface px-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                      value={nodeEdit.source}
-                      onChange={(event) => setNodeEdit((current) => ({ ...current, source: event.target.value }))}
-                    />
-                  </label>
-                  <label className="mt-2 block text-[10px] font-medium uppercase tracking-wide text-muted/70">
-                    Summary
-                    <textarea
-                      className="mt-1 min-h-24 w-full resize-y rounded-lg border border-border bg-surface p-2 text-xs normal-case tracking-normal text-foreground outline-none focus:border-accent"
-                      value={nodeEdit.summary}
-                      onChange={(event) => setNodeEdit((current) => ({ ...current, summary: event.target.value }))}
-                    />
-                  </label>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button className="bb-action px-3 py-1.5 text-[10px]" disabled={nodeEditSaving} onClick={saveGraphNodeEdits}>
-                      {nodeEditSaving ? "Saving..." : "Save node"}
-                    </button>
-                    {nodeEditStatus && <span className="text-[10px] text-muted">{nodeEditStatus}</span>}
-                  </div>
-                </section>
-                <div className="grid grid-cols-2 gap-2">
-                  <Meta label={t("status")} value={humanStatus(nodeSummary?.status || selectedNode.status)} />
-                  <Meta label={t("confidence")} value={formatConfidence(nodeSummary?.confidence ?? selectedNode.confidence)} />
-                  <Meta label={t("origin")} value={humanOrigin(nodeSummary?.createdBy || selectedNode.createdBy)} />
-                  <Meta label={t("model")} value={nodeSummary?.createdByModel || selectedNode.createdByModel || "-"} />
-                  <Meta label="Review" value={humanStatus(nodeSummary?.validationStatus || selectedNode.validationStatus || "unvalidated")} />
-                  <Meta label="Evidence" value={formatEvidenceLabel(nodeSummary?.sourceQuality || selectedNode.sourceQuality || "note_only")} />
-                </div>
-
-                <section className="border-t border-border/30 pt-4">
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80">What BerryBrain understands</div>
-                    <span className="rounded-full bg-surface px-2 py-0.5 text-[9px] uppercase text-muted">
-                      {humanSemanticState(semanticAnalysis?.state)}
-                    </span>
-                  </div>
-                  {semanticAnalysis?.analysis ? (
-                    <div className="space-y-3 border-l-2 border-accent/40 pl-3">
-                      <SemanticText label="Meaning here" value={semanticAnalysis.analysis.meaning_in_context} />
-                      <SemanticText label="Why it matters" value={semanticAnalysis.analysis.why_it_matters_here} />
-                      <SemanticList label="Supported findings" values={semanticAnalysis.analysis.supported_findings} />
-                      <SemanticList label="Inferences" values={semanticAnalysis.analysis.inferences} />
-                      <SemanticList label="Uncertainties" values={semanticAnalysis.analysis.uncertainties} />
-                      <SemanticList
-                        label="Evidence"
-                        values={semanticAnalysis.analysis.evidence.map((item) => (
-                          typeof item === "string"
-                            ? item
-                            : [item.claim, item.source, item.reference].filter(Boolean).join(" · ")
-                        ))}
-                      />
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted/60">
-                        <span>Version {semanticAnalysis.profileVersion || 1}</span>
-                        <span>{semanticAnalysis.historyCount} saved versions</span>
-                        <span>{semanticAnalysis.analysis.provider} · {semanticAnalysis.analysis.model}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="border-l-2 border-border pl-3 text-[11px] leading-relaxed text-muted">
-                      {semanticStateMessage(semanticAnalysis?.state)}
-                    </p>
-                  )}
-                </section>
-
-                <section className="border-t border-border/30 pt-3">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">Your notes about this item</div>
-                  {nodeSummary?.aiNotes && (
-                    <p className="mb-2 rounded-lg bg-surface p-2 text-[10px] text-muted/70">{t("aiSubagent")} {nodeSummary.aiNotes}</p>
-                  )}
-                  <textarea
-                    className="min-h-20 w-full resize-none rounded-lg border border-border bg-surface p-2 text-[11px] text-foreground outline-none focus:border-accent"
-                    placeholder={t("manualNotePlaceholder")}
-                    value={manualNotes}
-                    onChange={(event) => setManualNotes(event.target.value)}
-                  />
-                  <button className="bb-action mt-2 px-3 py-1.5 text-[10px]" onClick={saveManualNodeNotes}>{t("saveManualNote")}</button>
-                </section>
-
-                {!!nodeSummary?.notes?.length && (
-                  <section className="border-t border-border/30 pt-3">
-                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/70">{t("sourceNotes")}</div>
-                    <div className="space-y-1">
-                      {nodeSummary.notes.slice(0, 5).map((note) => (
-                        <button key={note.id} className="block w-full truncate rounded-lg bg-surface px-2 py-1.5 text-left text-[11px] text-muted hover:text-foreground" onClick={() => onNavigate(note.path)}>
-                          {note.title}
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                )}
-
-                <section className="border-t border-border/30 pt-4">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
-                    Connections
-                  </div>
-                <div className="space-y-3">
-                  {(nodeSummary?.connections?.length ? nodeSummary.connections : selectedEdges).slice(0, 6).map((edge, index) => {
-                    const simpleEdge = edge as GraphEdge;
-                    const detailedEdge = edge as NodeSummary["connections"][number];
-                    const other = simpleEdge.source === selectedId ? simpleEdge.target : simpleEdge.source;
-                    const otherNode = graphData?.nodes.find((n) => n.id === other);
-                    const isInsightEdge = (detailedEdge.type || simpleEdge.type) === "insight_suggested";
-                    return (
-                      <div key={`${detailedEdge.id || simpleEdge.id || index}`} className="rounded-lg bg-surface p-2">
-                        <div className="mb-1 flex items-center gap-2">
-                          <span className="inline-block h-0.5 w-4 rounded" style={{ background: edgeColor(detailedEdge.type || simpleEdge.type) }} />
-                          <span className="truncate text-[11px] font-medium text-foreground">{otherNode?.label || detailedEdge.label || simpleEdge.type}</span>
-                        </div>
-                        {(detailedEdge.reason || simpleEdge.reason) && (
-                          <div>
-                            <div className="mb-0.5 text-[9px] font-medium uppercase tracking-wide text-accent">{isInsightEdge ? "Evidence citation" : "Connection reason"}</div>
-                            <p>{detailedEdge.reason || simpleEdge.reason}</p>
-                          </div>
-                        )}
-                        {!!(detailedEdge.evidence || simpleEdge.evidence)?.length && (
-                          <div className="mt-1 text-[10px] text-muted/60">{t("evidence")}: {(detailedEdge.evidence || simpleEdge.evidence || []).slice(0, 2).map(formatEvidenceLabel).join(" · ")}</div>
-                        )}
-                        {(detailedEdge.provider || simpleEdge.provider || detailedEdge.model || simpleEdge.model) && (
-                          <div className="mt-1 text-[9px] text-muted/50">
-                            {detailedEdge.provider || simpleEdge.provider || "system"} {detailedEdge.model || simpleEdge.model ? `· ${detailedEdge.model || simpleEdge.model}` : ""}
-                          </div>
-                        )}
-                        <div className="mt-2 flex flex-wrap items-center gap-1">
-                          <span className="rounded-full bg-panel px-2 py-0.5 text-[9px] text-muted/60">{isInsightEdge ? "citation" : detailedEdge.status || simpleEdge.status || "suggested"}</span>
-                          {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
-                            <button disabled={actionLoading === `confirm-connection-${detailedEdge.id}`} className="rounded-md bg-accent px-2 py-0.5 text-[9px] text-white disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "confirmed")}>Confirm</button>
-                          )}
-                          {!isInsightEdge && !!detailedEdge.id && (detailedEdge.status || simpleEdge.status || "suggested") === "suggested" && (
-                            <button disabled={actionLoading === `ignore-connection-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => updateEdgeStatus(detailedEdge.id, "ignored")}>Ignore</button>
-                          )}
-                          {!!detailedEdge.id && (detailedEdge.type || simpleEdge.type) !== "insight_suggested" && (
-                            <button disabled={actionLoading === `save-insight-${detailedEdge.id}`} className="rounded-md bg-panel px-2 py-0.5 text-[9px] text-muted hover:text-foreground disabled:opacity-50" onClick={() => generateConnectionInsight(detailedEdge.id)}>Save as insight</button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <div className="flex flex-wrap gap-1 pt-1">
-                {selectedNode.path && (
-                  <button className="bb-action px-3 py-1.5 text-[10px]" onClick={() => onNavigate(selectedNode.path!)}>{t("openNote")}</button>
-                )}
-                {nodeActions.filter((action) => action.visible && action.variant !== "danger").map((action) => (
-                  <GraphActionButton
-                    key={action.id}
-                    action={action}
-                    loading={actionLoading === action.id}
-                    onClick={() => {
-                      if (action.id === "confirm-node") updateNodeStatus("confirmed");
-                      if (action.id === "ignore-node") updateNodeStatus("ignored");
-                      if (action.id === "retry-semantic-analysis") processSemanticAnalysis("retry");
-                      if (action.id === "regenerate-semantic-analysis") processSemanticAnalysis("regenerate");
-                    }}
-                  />
-                ))}
-                {selectedNode.type === "concept" && selectedNode.sourceId && (
-                  <button className="bb-action px-3 py-1.5 text-[10px] font-medium text-amber-600" onClick={createPermanentConceptNote}>{t("createPermanentNote")}</button>
-                )}
-              </div>
-              {nodeActionStatus && <div className="rounded-lg bg-surface p-2 text-[10px] text-muted/70">{nodeActionStatus}</div>}
-            </div>
-          )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-surface px-2 py-1.5">
-      <div className="text-[9px] uppercase tracking-wide text-muted/60">{label}</div>
-      <div className="truncate text-[11px] text-foreground/80">{value}</div>
-    </div>
-  );
-}
-
-function SemanticText({ label, value }: { label: string; value: string }) {
-  if (!value) return null;
-  return (
-    <div>
-      <div className="mb-1 text-[9px] font-semibold uppercase text-foreground/60">{label}</div>
-      <p className="text-[11px] leading-relaxed text-foreground/80">{value}</p>
-    </div>
-  );
-}
-
-function SemanticList({ label, values }: { label: string; values: string[] }) {
-  const visible = values.filter(Boolean);
-  if (!visible.length) return null;
-  return (
-    <div>
-      <div className="mb-1 text-[9px] font-semibold uppercase text-foreground/60">{label}</div>
-      <ul className="space-y-1 text-[11px] leading-relaxed text-foreground/75">
-        {visible.map((value, index) => <li key={`${label}-${index}`}>• {value}</li>)}
-      </ul>
-    </div>
-  );
-}
-
-function humanSemanticState(state?: string) {
-  const states: Record<string, string> = {
-    completed: "Ready",
-    pending: "Queued",
-    running: "Analyzing",
-    failed: "Needs retry",
-    stale: "Update available",
-    needs_review: "Needs review",
-    not_configured: "AI setup required",
-  };
-  return states[state || ""] || "Waiting";
-}
-
-function semanticStateMessage(state?: string) {
-  const messages: Record<string, string> = {
-    pending: "Semantic analysis is queued and will appear here automatically.",
-    running: "BerryBrain is analyzing this item and its connections.",
-    failed: "The last analysis failed. Use Retry analysis below after checking AI settings.",
-    stale: "The source changed. A refreshed analysis can be generated.",
-    needs_review: "The analysis needs review before BerryBrain can treat it as reliable.",
-    not_configured: "Complete the required AI setup to generate semantic understanding.",
-  };
-  return messages[state || ""] || "Semantic understanding has not been generated yet.";
-}
-
-function GraphActionButton({ action, loading, onClick }: { action: GraphAction; loading: boolean; onClick: () => void }) {
-  const className = graphActionClass(action);
-  return (
-    <button
-      className={className}
-      disabled={action.disabled || loading}
-      title={action.disabled ? action.reasonDisabled : undefined}
-      onClick={onClick}
-    >
-      {loading ? "Working..." : action.label}
-    </button>
-  );
-}
-
-function graphActionClass(action: GraphAction) {
-  const base = "bb-action px-3 py-1.5 text-[10px] font-medium";
-  if (action.id === "confirm-node") {
-    return `${base} text-emerald-600`;
-  }
-  if (action.id === "ignore-node") {
-    return `${base} bb-action--danger`;
-  }
-  if (action.id === "retry-semantic-analysis" || action.id === "regenerate-semantic-analysis") {
-    return base;
-  }
-  if (action.variant === "danger") {
-    return `${base} bb-action--danger`;
-  }
-  return base;
-}
-
-function formatConfidence(value?: number) {
-  if (value === undefined || value === null) return "-";
-  return `${Math.round(value <= 1 ? value * 100 : value)}%`;
+function formatGraphEta(seconds: number) {
+  if (seconds < 60) return "under a minute";
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours} hr ${remainingMinutes} min` : `${hours} hr`;
 }

@@ -104,6 +104,7 @@ async def generate_embedding(
 async def log_ai_call(
     api_client: httpx.AsyncClient,
     api_url: str,
+    provider: str,
     model: str,
     prompt: str,
     response_text: str,
@@ -115,15 +116,18 @@ async def log_ai_call(
         await api_client.post(
             f"{api_url}/api/v1/automation-logs",
             json={
-                "action_type": "OLLAMA_GENERATE",
+                "action_type": "AI_GENERATE",
                 "target_type": target_type,
                 "target_id": target_id,
-                "description": f"Ollama call: {model}",
+                "description": f"AI call: {model} ({provider})",
                 "before_state": {
+                    "provider": provider,
                     "model": model,
                     "prompt_length": len(prompt),
                 },
                 "after_state": {
+                    "provider": provider,
+                    "model": model,
                     "response_length": len(response_text),
                     "duration_ms": duration_ms,
                 },

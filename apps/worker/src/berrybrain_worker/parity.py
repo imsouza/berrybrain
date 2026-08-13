@@ -14,7 +14,7 @@ import httpx
 
 
 async def check_api_parity(client: httpx.AsyncClient, api_url: str) -> dict[str, Any]:
-    """Hit /api/v1/status and /api/v1/debug/vault-graph-pipeline, return
+    """Hit /api/v1/status and the vault pipeline diagnostic, return
     a dict the worker can log. Returns `{"ok": False, ...}` on any error;
     the worker logs and continues — parity is informative, not blocking,
     by design (we cannot let a missing debug endpoint crash the worker
@@ -31,13 +31,15 @@ async def check_api_parity(client: httpx.AsyncClient, api_url: str) -> dict[str,
         return out
 
     try:
-        r = await client.get(f"{api_url}/api/v1/debug/vault-graph-pipeline", timeout=5)
+        r = await client.get(
+            f"{api_url}/api/v1/vault/debug/vault-graph-pipeline", timeout=5
+        )
         r.raise_for_status()
         out["pipeline"] = r.json()
     except httpx.HTTPError as exc:
         out["warnings"].append(
-            f"debug/pipeline endpoint missing: {exc}. "
-            "Upgrade berrybrain_api to expose /api/v1/debug/vault-graph-pipeline."
+            f"vault pipeline diagnostic unavailable: {exc}. "
+            "Upgrade berrybrain_api to expose the vault diagnostic endpoint."
         )
 
     diag_codes = {d["code"] for d in out.get("pipeline", {}).get("diagnostics", [])}

@@ -108,7 +108,9 @@ def _prune_title_duplicate_typed_nodes(
     return removed
 
 
-def _prune_generated_typed_nodes(session: Session) -> int:
+def _prune_generated_typed_nodes(
+    session: Session, keep_node_ids: set[int] | None = None
+) -> int:
     nodes = list(
         session.execute(
             select(GraphNodeRecord).where(
@@ -116,9 +118,12 @@ def _prune_generated_typed_nodes(session: Session) -> int:
                     ("topic", "entity", "context", "gap", "source")
                 ),
                 GraphNodeRecord.status == "suggested",
+                GraphNodeRecord.source.in_(("metadata", "frontmatter")),
             )
         ).scalars()
     )
+    if keep_node_ids is not None:
+        nodes = [node for node in nodes if node.id not in keep_node_ids]
     for node in nodes:
         _delete_graph_node_with_edges(session, node)
     if nodes:

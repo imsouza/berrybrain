@@ -592,11 +592,10 @@ class IntegrationTest(unittest.TestCase):
                 "/api/v1/graph/infer", json={"question": canonical["question"]}
             )
 
-        resp = self.client.post(
-            "/api/v1/insights/from-inference",
-            json={"inferenceId": inference_response.json()["inferenceId"]},
-        )
-        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(inference_response.status_code, 503)
+        detail = inference_response.json()["detail"]
+        self.assertEqual(detail["code"], "provider_unavailable")
+        self.assertNotIn("inferenceId", inference_response.json())
 
     def test_10e_legacy_client_inference_is_not_trusted(self):
         canonical = {

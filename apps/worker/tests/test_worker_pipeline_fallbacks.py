@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+import berrybrain_worker.cloud_gateway as cloud_gateway
 import berrybrain_worker.main as worker_main
 from berrybrain_worker.cloud_gateway import CloudError
 from berrybrain_worker.config import WorkerSettings
@@ -14,16 +16,59 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             "upsert_metadata": worker_main.upsert_metadata,
             "complete_job": worker_main.complete_job,
             "cloud_generate_embedding": worker_main.cloud_generate_embedding,
+            "cloud_generate": worker_main.cloud_generate,
             "cloud_generate_json": worker_main.cloud_generate_json,
+            "generate": worker_main.generate,
             "generate_embedding": worker_main.generate_embedding,
             "generate_json": worker_main.generate_json,
             "check_health": worker_main.check_health,
+            "log_ai_call": worker_main.log_ai_call,
             "_ai_config": dict(worker_main._ai_config),
         }
 
     async def asyncTearDown(self) -> None:
         for name, value in self._originals.items():
             setattr(worker_main, name, value)
+
+    async def test_nvidia_nim_embedding_uses_asymmetric_contract(self) -> None:
+        requests = []
+
+        class FakeResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"embedding": [0.25, 0.75]}]}
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def post(self, url, **kwargs):
+                requests.append((url, kwargs["json"]))
+                return FakeResponse()
+
+        with patch.object(
+            cloud_gateway.httpx, "AsyncClient", return_value=FakeClient()
+        ):
+            vector = await cloud_gateway.cloud_generate_embedding(
+                "https://integrate.api.nvidia.com/v1",
+                "secret",
+                "nvidia/nv-embedqa-e5-v5",
+                "Knowledge graph provenance",
+                provider="nvidia-nim",
+                input_type="passage",
+            )
+
+        self.assertEqual(vector, [0.25, 0.75])
+        self.assertEqual(requests[0][1]["input_type"], "passage")
+        self.assertEqual(requests[0][1]["encoding_format"], "float")
+        self.assertEqual(requests[0][1]["truncate"], "END")
 
     async def test_extract_concepts_fails_when_ai_returns_error(self) -> None:
         calls = []
@@ -125,6 +170,80 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertFalse(called)
 
+    async def test_cloud_mode_never_calls_ollama_and_logs_resolved_route(self) -> None:
+        calls = []
+
+        async def fake_cloud_generate_json(*args, **kwargs):
+            calls.append(("cloud", args[2]))
+            return {"ok": True}
+
+        async def unexpected_local_call(*args, **kwargs):
+            self.fail("Cloud mode must not call Ollama")
+
+        async def fake_log(*args, **kwargs):
+            calls.append(("log", args[2], args[3]))
+
+        worker_main.cloud_generate_json = fake_cloud_generate_json
+        worker_main.generate_json = unexpected_local_call
+        worker_main.check_health = unexpected_local_call
+        worker_main.log_ai_call = fake_log
+        worker_main._ai_config = {
+            "provider": "cloud",
+            "cloud_provider": "nvidia-nim",
+            "cloud_api_url": "https://exclusive-cloud.example/v1",
+            "cloud_api_key": "secret",
+            "cloud_model": "z-ai/glm-5.2",
+            "remote_content_consent": "true",
+        }
+
+        result = await worker_main.ollama_call(
+            None,
+            "http://api",
+            WorkerSettings(),
+            "private.md",
+            "qwen3:14b",
+            "private note content",
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls[0], ("cloud", "z-ai/glm-5.2"))
+        self.assertEqual(calls[-1], ("log", "nvidia-nim", "z-ai/glm-5.2"))
+
+    async def test_local_mode_never_calls_cloud_and_logs_ollama(self) -> None:
+        calls = []
+
+        async def unexpected_cloud_call(*args, **kwargs):
+            self.fail("Local mode must not call a cloud provider")
+
+        async def fake_health(*args, **kwargs):
+            return True
+
+        async def fake_generate_json(*args, **kwargs):
+            calls.append(("local", args[1]))
+            return {"ok": True}
+
+        async def fake_log(*args, **kwargs):
+            calls.append(("log", args[2], args[3]))
+
+        worker_main.cloud_generate_json = unexpected_cloud_call
+        worker_main.check_health = fake_health
+        worker_main.generate_json = fake_generate_json
+        worker_main.log_ai_call = fake_log
+        worker_main._ai_config = {"provider": "local"}
+
+        result = await worker_main.ollama_call(
+            None,
+            "http://api",
+            WorkerSettings(),
+            "local.md",
+            "qwen3:14b",
+            "local note content",
+        )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls[0], ("local", "qwen3:14b"))
+        self.assertEqual(calls[-1], ("log", "ollama", "qwen3:14b"))
+
     async def test_unreachable_local_provider_fails_fast_before_generation(
         self,
     ) -> None:
@@ -175,6 +294,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             }
 
         async def fake_cloud_embedding(*args, **kwargs):
+            calls.append(("cloud_embedding", kwargs))
             raise CloudError("cloud down")
 
         async def fake_ollama_embedding(*args, **kwargs):
@@ -213,6 +333,7 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
             "remote_content_consent": "true",
             "cloud_api_url": "https://example.test/v1",
             "cloud_api_key": "secret",
+            "cloud_provider": "nvidia-nim",
             "cloud_model": "test-model",
             "kb_embedding_provider": "cloud",
             "embedding_model": "embed-model",
@@ -226,7 +347,15 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
                 {"note_path": "inbox/b.md", "content_hash": "def"},
             )
 
-        self.assertEqual(calls, [])
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "cloud_embedding",
+                    {"provider": "nvidia-nim", "input_type": "passage"},
+                )
+            ],
+        )
 
     async def test_generate_embedding_posts_one_embedding_per_chunk(self) -> None:
         calls = []

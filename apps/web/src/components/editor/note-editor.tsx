@@ -2,9 +2,40 @@
 
 import { useWorkspace } from "@/contexts/workspace-context";
 import { MarkdownPreview } from "./markdown-preview";
-import { useState, useEffect, useRef, type KeyboardEvent } from "react";
+import { useState, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "@/i18n";
+import {
+  ArrowLeft,
+  Bold,
+  CheckSquare,
+  Code,
+  Download,
+  FileCode2,
+  Focus,
+  Heading2,
+  Image as ImageIcon,
+  IndentDecrease,
+  IndentIncrease,
+  Italic,
+  Link,
+  List,
+  ListOrdered,
+  MoreVertical,
+  Paperclip,
+  PanelRight,
+  Pencil,
+  Pilcrow,
+  Quote,
+  Redo2,
+  Replace,
+  Search,
+  Strikethrough,
+  Table,
+  Trash2,
+  Undo2,
+  WrapText,
+} from "lucide-react";
 
 type AttachmentItem = {
   id: number;
@@ -24,6 +55,11 @@ type NotePipelineProgress = {
   percent: number;
   state: "waiting" | "processing" | "completed" | "degraded" | "failed";
   currentStep?: string | null;
+  elapsedSeconds?: number;
+  estimatedRemainingSeconds?: number | null;
+  estimateSampleCount?: number;
+  graphVisible?: boolean;
+  graphState?: "waiting" | "enriching" | "ready" | "degraded";
   errors?: { jobId: number; message: string; impact: string; action: string }[];
 };
 
@@ -67,9 +103,15 @@ export function NoteEditor() {
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [attachmentStatus, setAttachmentStatus] = useState("");
   const [pipelineProgress, setPipelineProgress] = useState<NotePipelineProgress | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [lineWrap, setLineWrap] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
 
   useEffect(() => {
     const activePath = w.active?.path;
@@ -86,6 +128,7 @@ export function NoteEditor() {
 
   useEffect(() => {
     setMenuOpen(false);
+    historyRef.current = { past: [], future: [] };
   }, [w.active?.path]);
 
   useEffect(() => {
@@ -132,6 +175,16 @@ export function NoteEditor() {
     };
   }, [w.active?.path, w.api, w.demo]);
 
+  const editorMetrics = useMemo(() => {
+    const trimmed = w.draft.trim();
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    return {
+      words,
+      characters: w.draft.length,
+      lines: w.draft ? w.draft.split("\n").length : 1,
+      readingMinutes: words ? Math.max(1, Math.ceil(words / 225)) : 0,
+    };
+  }, [w.draft]);
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;
 
@@ -151,7 +204,7 @@ export function NoteEditor() {
   }
 
   function replaceSelection(nextText: string, selectStart?: number, selectEnd?: number) {
-    w.setDraft(nextText);
+    commitDraft(nextText);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
@@ -159,6 +212,40 @@ export function NoteEditor() {
       if (selectStart !== undefined && selectEnd !== undefined) {
         el.setSelectionRange(selectStart, selectEnd);
       }
+    });
+  }
+
+  function commitDraft(nextText: string) {
+    if (nextText === w.draft) return;
+    const history = historyRef.current;
+    history.past = [...history.past.slice(-99), w.draft];
+    history.future = [];
+    w.setDraft(nextText);
+  }
+
+  function undoDraft() {
+    const history = historyRef.current;
+    const previous = history.past.pop();
+    if (previous === undefined) return;
+    history.future = [w.draft, ...history.future].slice(0, 100);
+    w.setDraft(previous);
+    requestAnimationFrame(() => {
+      const editor = textareaRef.current;
+      editor?.focus();
+      editor?.setSelectionRange(previous.length, previous.length);
+    });
+  }
+
+  function redoDraft() {
+    const history = historyRef.current;
+    const next = history.future.shift();
+    if (next === undefined) return;
+    history.past = [...history.past.slice(-99), w.draft];
+    w.setDraft(next);
+    requestAnimationFrame(() => {
+      const editor = textareaRef.current;
+      editor?.focus();
+      editor?.setSelectionRange(next.length, next.length);
     });
   }
 
@@ -311,11 +398,86 @@ export function NoteEditor() {
     replaceSelection(`${w.draft.slice(0, lineStart)}${insert}${w.draft.slice(end)}`, lineStart, lineStart + insert.length);
   }
 
+  function indentSelection(outdent = false) {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? w.draft.length;
+    const end = el?.selectionEnd ?? w.draft.length;
+    const lineStart = w.draft.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const selected = w.draft.slice(lineStart, end);
+    const lines = selected.split("\n");
+    const transformed = lines.map((line) => outdent ? line.replace(/^( {1,2}|\t)/, "") : `  ${line}`).join("\n");
+    replaceSelection(`${w.draft.slice(0, lineStart)}${transformed}${w.draft.slice(end)}`, lineStart, lineStart + transformed.length);
+  }
+
+  function selectFindMatch(direction: 1 | -1 = 1) {
+    const query = findText;
+    const el = textareaRef.current;
+    if (!query || !el) return;
+    const draft = w.draft.toLocaleLowerCase();
+    const needle = query.toLocaleLowerCase();
+    const anchor = direction === 1 ? el.selectionEnd : el.selectionStart;
+    let index = direction === 1 ? draft.indexOf(needle, anchor) : draft.lastIndexOf(needle, Math.max(0, anchor - 1));
+    if (index < 0) index = direction === 1 ? draft.indexOf(needle) : draft.lastIndexOf(needle);
+    if (index >= 0) {
+      el.focus();
+      el.setSelectionRange(index, index + query.length);
+    }
+  }
+
+  function replaceCurrentMatch() {
+    const el = textareaRef.current;
+    if (!findText || !el) return;
+    const selected = w.draft.slice(el.selectionStart, el.selectionEnd);
+    if (selected.toLocaleLowerCase() !== findText.toLocaleLowerCase()) {
+      selectFindMatch(1);
+      return;
+    }
+    const start = el.selectionStart;
+    replaceSelection(`${w.draft.slice(0, start)}${replaceText}${w.draft.slice(el.selectionEnd)}`, start, start + replaceText.length);
+  }
+
+  function replaceAllMatches() {
+    if (!findText) return;
+    const escaped = findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    commitDraft(w.draft.replace(new RegExp(escaped, "giu"), replaceText));
+  }
+
+  function handleListContinuation(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter") return false;
+    const el = textareaRef.current;
+    if (!el || el.selectionStart !== el.selectionEnd) return false;
+    const lineStart = w.draft.lastIndexOf("\n", Math.max(0, el.selectionStart - 1)) + 1;
+    const line = w.draft.slice(lineStart, el.selectionStart);
+    const match = line.match(/^(\s*)([-*+] |\d+\. |[-*+] \[[ xX]\] )(.*)$/);
+    if (!match) return false;
+    event.preventDefault();
+    if (!match[3]) {
+      replaceSelection(`${w.draft.slice(0, lineStart)}${w.draft.slice(el.selectionStart)}`, lineStart, lineStart);
+      return true;
+    }
+    const marker = /^\d+\. $/.test(match[2]) ? `${Number(match[2].match(/\d+/)?.[0] || 0) + 1}. ` : match[2].replace(/\[[xX]\]/, "[ ]");
+    insertBlock(`${match[1]}${marker}`);
+    return true;
+  }
+
   function onEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (handleListContinuation(event)) return;
+    if (event.key === "Tab") {
+      event.preventDefault();
+      indentSelection(event.shiftKey);
+      return;
+    }
     const mod = event.ctrlKey || event.metaKey;
     if (!mod) return;
     const key = event.key.toLowerCase();
-    if (key === "b") {
+    if (key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redoDraft();
+      else undoDraft();
+    } else if (key === "y") {
+      event.preventDefault();
+      redoDraft();
+    } else if (key === "b") {
       event.preventDefault();
       toggleMarker("**");
     } else if (key === "i") {
@@ -330,6 +492,9 @@ export function NoteEditor() {
     } else if (event.shiftKey && key === "l") {
       event.preventDefault();
       prefixLines("- ");
+    } else if (key === "f") {
+      event.preventDefault();
+      setFindOpen(true);
     }
   }
 
@@ -337,11 +502,11 @@ export function NoteEditor() {
     <>
       <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border/50 bg-panel px-3 py-2 lg:h-12 lg:flex-nowrap lg:px-5 lg:py-0">
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <button className="rounded-lg p-1.5 text-muted hover:bg-surface shrink-0" onClick={w.closeNote} aria-label={t("goBack")}>
-            <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <button className="bb-icon-button shrink-0" onClick={w.closeNote} aria-label={t("goBack")}>
+            <ArrowLeft className="size-4" />
           </button>
           <h1 className="truncate text-sm font-medium min-w-0">{w.active.title}</h1>
-          <span className={`shrink-0 text-[10px] ${w.autosave === "saving" ? "text-amber-500 animate-pulse-soft" : w.autosave === "conflict" ? "text-red-500" : w.autosave === "unsaved" ? "text-muted/40" : "text-emerald-500"}`}>
+          <span className={`shrink-0 text-[10px] ${w.autosave === "saving" ? "text-accent animate-pulse-soft" : w.autosave === "conflict" ? "text-danger" : w.autosave === "unsaved" ? "text-muted/40" : "text-success"}`}>
             {w.autosave === "saving" ? t("saving") : w.autosave === "conflict" ? "Conflict" : w.autosave === "unsaved" ? t("notSaved") : t("saved")}
           </span>
         </div>
@@ -351,7 +516,7 @@ export function NoteEditor() {
             {(["edit", "preview", "split"] as const).map(m => (
               <button
                 key={m}
-                className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition ${w.viewMode === m ? "bg-panel text-foreground shadow-sm" : "text-muted hover:text-foreground"}`}
+                className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition ${w.viewMode === m ? "bg-panel text-foreground" : "text-muted hover:text-foreground"}`}
                 onClick={() => w.setViewMode(m)}
               >
                 {m === "edit" ? t("edit") : m === "preview" ? t("preview") : t("split")}
@@ -360,14 +525,14 @@ export function NoteEditor() {
           </div>
 
           <div>
-            <button ref={menuButtonRef} className="rounded-lg p-1.5 text-muted hover:bg-surface" onClick={toggleNoteMenu} aria-label={t("moreActions")} aria-haspopup="menu" aria-expanded={menuOpen}>
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01" /></svg>
+            <button ref={menuButtonRef} className="bb-icon-button" onClick={toggleNoteMenu} aria-label={t("moreActions")} aria-haspopup="menu" aria-expanded={menuOpen}>
+              <MoreVertical className="size-4" />
             </button>
           </div>
 
           <div className="ml-1 pl-1 border-l border-border/50">
-            <button className="rounded-lg p-1.5 text-muted hover:bg-surface" onClick={() => w.setRightOpen(!w.rightOpen)} aria-label={t("panel")}>
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <button className="bb-icon-button" onClick={() => w.setRightOpen(!w.rightOpen)} aria-label={t("panel")}>
+              <PanelRight className="size-4" />
             </button>
           </div>
 
@@ -381,21 +546,21 @@ export function NoteEditor() {
         <>
           <button className="fixed inset-0 z-[80] cursor-default" onClick={() => setMenuOpen(false)} aria-label="Close note actions" />
           <div
-            className="fixed z-[81] w-44 rounded-xl border border-border bg-panel py-1 shadow-lg"
+            className="fixed z-[81] w-44 rounded-md border border-border bg-panel py-1"
             style={{ top: menuPosition.top, left: menuPosition.left }}
             role="menu"
             aria-label="Note actions"
           >
             <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); void w.download(); }}>
-              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              <Download className="size-3.5" />
               Export Markdown
             </button>
             <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted hover:bg-surface hover:text-foreground" onClick={() => { setMenuOpen(false); void w.renameNote(); }}>
-              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              <Pencil className="size-3.5" />
               Rename note
             </button>
             <button role="menuitem" className="flex w-full items-center gap-2 px-3 py-2 text-xs text-danger hover:bg-danger/10" onClick={() => { setMenuOpen(false); void w.deleteActive(); }}>
-              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <Trash2 className="size-3.5" />
               Remove note
             </button>
           </div>
@@ -432,20 +597,39 @@ export function NoteEditor() {
       )}
 
       {(w.viewMode === "edit" || w.viewMode === "split") && (
-        <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-panel/70 px-3 py-2 lg:px-5">
-          <ToolbarButton label="B" title="Bold" onClick={() => toggleMarker("**")} />
-          <ToolbarButton label="I" title="Italic" onClick={() => toggleMarker("*")} />
-          <ToolbarButton label="H2" title="Heading" onClick={() => insertBlock("## Heading\n")} />
-          <ToolbarButton label=">" title="Quote" onClick={() => prefixLines("> ")} />
-          <ToolbarButton label="*" title="Bullet list" onClick={() => prefixLines("- ")} />
-          <ToolbarButton label="1." title="Ordered list" onClick={() => prefixLines("", true)} />
-          <ToolbarButton label="Link" title="Link" onClick={() => wrapSelection("[", "](https://)", "link text")} />
-          <ToolbarButton label="Img" title="Image" onClick={() => insertBlock("![alt text](image-url)\n")} />
-          <ToolbarButton label="Attach" title="Attach file" onClick={() => fileInputRef.current?.click()} />
-          <ToolbarButton label="`" title="Inline code" onClick={() => wrapSelection("`", "`", "code")} />
-          <ToolbarButton label="Code" title="Code block" onClick={() => insertBlock("```\ncode\n```\n")} />
-          <ToolbarButton label="Table" title="Table" onClick={() => insertBlock("| Column | Value |\n| --- | --- |\n| Example | Text |\n")} />
-          <ToolbarButton label="HR" title="Horizontal rule" onClick={() => insertBlock("---\n")} />
+        <div className="flex flex-wrap items-center gap-1 border-b border-border bg-panel px-3 py-2 lg:px-5">
+          <ToolbarGroup>
+            <ToolbarButton icon={<Undo2 />} title="Undo" onClick={undoDraft} />
+            <ToolbarButton icon={<Redo2 />} title="Redo" onClick={redoDraft} />
+            <ToolbarButton icon={<Search />} title="Find and replace" active={findOpen} onClick={() => setFindOpen((value) => !value)} />
+          </ToolbarGroup>
+          <ToolbarGroup>
+            <ToolbarButton icon={<Bold />} title="Bold" onClick={() => toggleMarker("**")} />
+            <ToolbarButton icon={<Italic />} title="Italic" onClick={() => toggleMarker("*")} />
+            <ToolbarButton icon={<Strikethrough />} title="Strikethrough" onClick={() => toggleMarker("~~")} />
+            <ToolbarButton icon={<Heading2 />} title="Heading" onClick={() => insertBlock("## Heading\n")} />
+            <ToolbarButton icon={<Quote />} title="Quote" onClick={() => prefixLines("> ")} />
+          </ToolbarGroup>
+          <ToolbarGroup>
+            <ToolbarButton icon={<List />} title="Bullet list" onClick={() => prefixLines("- ")} />
+            <ToolbarButton icon={<ListOrdered />} title="Ordered list" onClick={() => prefixLines("", true)} />
+            <ToolbarButton icon={<CheckSquare />} title="Task list" onClick={() => prefixLines("- [ ] ")} />
+            <ToolbarButton icon={<IndentIncrease />} title="Indent" onClick={() => indentSelection()} />
+            <ToolbarButton icon={<IndentDecrease />} title="Outdent" onClick={() => indentSelection(true)} />
+          </ToolbarGroup>
+          <ToolbarGroup>
+            <ToolbarButton icon={<Link />} title="Link" onClick={() => wrapSelection("[", "](https://)", "link text")} />
+            <ToolbarButton icon={<ImageIcon />} title="Image" onClick={() => insertBlock("![alt text](image-url)\n")} />
+            <ToolbarButton icon={<Paperclip />} title="Attach file" onClick={() => fileInputRef.current?.click()} />
+            <ToolbarButton icon={<Code />} title="Inline code" onClick={() => wrapSelection("`", "`", "code")} />
+            <ToolbarButton icon={<FileCode2 />} title="Code block" onClick={() => insertBlock("```\ncode\n```\n")} />
+            <ToolbarButton icon={<Table />} title="Table" onClick={() => insertBlock("| Column | Value |\n| --- | --- |\n| Example | Text |\n")} />
+            <ToolbarButton icon={<Pilcrow />} title="Horizontal rule" onClick={() => insertBlock("---\n")} />
+          </ToolbarGroup>
+          <div className="ml-auto flex gap-1">
+            <ToolbarButton icon={<WrapText />} title={lineWrap ? "Disable line wrapping" : "Enable line wrapping"} active={lineWrap} onClick={() => setLineWrap((value) => !value)} />
+            <ToolbarButton icon={<Focus />} title={focusMode ? "Exit focus mode" : "Focus mode"} active={focusMode} onClick={() => setFocusMode((value) => !value)} />
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -456,14 +640,39 @@ export function NoteEditor() {
         </div>
       )}
 
+      {findOpen && (w.viewMode === "edit" || w.viewMode === "split") && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2 lg:px-5" role="search">
+          <Search className="size-4 text-muted" />
+          <input className="bb-field h-8 min-w-40 flex-1 text-xs sm:max-w-64" value={findText} onChange={(event) => setFindText(event.target.value)} placeholder="Find in note" autoFocus />
+          <input className="bb-field h-8 min-w-40 flex-1 text-xs sm:max-w-64" value={replaceText} onChange={(event) => setReplaceText(event.target.value)} placeholder="Replace with" />
+          <button className="bb-action h-8 px-2.5 text-[11px]" onClick={() => selectFindMatch(-1)}>Previous</button>
+          <button className="bb-action h-8 px-2.5 text-[11px]" onClick={() => selectFindMatch(1)}>Next</button>
+          <button className="bb-action h-8 gap-1.5 px-2.5 text-[11px]" onClick={replaceCurrentMatch}><Replace className="size-3.5" />Replace</button>
+          <button className="bb-action h-8 px-2.5 text-[11px]" onClick={replaceAllMatches}>Replace all</button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {(w.viewMode === "edit" || w.viewMode === "split") && (
           <textarea
             ref={textareaRef}
-            className={`min-h-0 resize-none bg-transparent px-4 py-5 leading-[1.85] outline-none placeholder:text-muted/20 lg:px-10 ${w.viewMode === "split" ? "flex-1 border-b border-border/50 lg:border-b-0 lg:border-r" : "flex-1"}`}
+            className={`min-h-0 resize-none bg-transparent px-4 py-5 leading-[1.85] outline-none placeholder:text-muted/20 lg:px-10 ${lineWrap ? "whitespace-pre-wrap" : "whitespace-pre overflow-x-auto"} ${focusMode ? "mx-auto w-full max-w-3xl" : ""} ${w.viewMode === "split" ? "flex-1 border-b border-border/50 lg:border-b-0 lg:border-r" : "flex-1"}`}
             value={w.draft}
-            onChange={e => w.setDraft(e.target.value)}
+            onChange={e => commitDraft(e.target.value)}
             onKeyDown={onEditorKeyDown}
+            onPaste={(event) => {
+              const files = event.clipboardData.files;
+              if (files.length) {
+                event.preventDefault();
+                void uploadFiles(files);
+              }
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              if (!event.dataTransfer.files.length) return;
+              event.preventDefault();
+              void uploadFiles(event.dataTransfer.files);
+            }}
             placeholder={t("placeholderWrite")}
             spellCheck={false}
             autoFocus
@@ -476,6 +685,14 @@ export function NoteEditor() {
             <MarkdownPreview content={w.draft} />
           </div>
         )}
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-panel px-4 py-1.5 font-mono text-[10px] text-muted lg:px-10" aria-label="Document statistics">
+        <span>{editorMetrics.words} words</span>
+        <span>{editorMetrics.characters} characters</span>
+        <span>{editorMetrics.lines} lines</span>
+        <span>{editorMetrics.readingMinutes ? `${editorMetrics.readingMinutes} min read` : "No reading time yet"}</span>
+        <span className="ml-auto">Markdown</span>
       </div>
 
       <NotePipelineStatus
@@ -516,7 +733,13 @@ function NotePipelineStatus({
       <div className="flex items-center justify-between gap-4 text-[11px]">
         <div>
           <p className="font-medium text-foreground">{label}</p>
-          <p className="text-muted">{progress.completed}/{progress.total} stages · {progress.percent}%</p>
+          <p className="text-muted">
+            {progress.completed}/{progress.total} stages · {progress.percent}%
+            {progress.estimatedRemainingSeconds != null ? ` · about ${formatDuration(progress.estimatedRemainingSeconds)} remaining` : " · estimating from completed runs"}
+          </p>
+          <p className="mt-0.5 text-muted">
+            Graph: {progress.graphState === "ready" ? "ready" : progress.graphState === "enriching" ? "note visible, knowledge enrichment running" : progress.graphState === "degraded" ? "note visible, enrichment needs attention" : "waiting for source node"}
+          </p>
         </div>
         {error && (
           <button className="bb-action bb-action--danger px-2.5 py-1 font-medium" onClick={onOpenMonitor}>
@@ -603,15 +826,30 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function ToolbarButton({ label, title, onClick }: { label: string; title: string; onClick: () => void }) {
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} hr ${remainder} min` : `${hours} hr`;
+}
+
+function ToolbarGroup({ children }: { children: ReactNode }) {
+  return <div className="flex gap-0.5 border-r border-border pr-1 last:border-r-0">{children}</div>;
+}
+
+function ToolbarButton({ icon, title, onClick, active = false }: { icon: ReactNode; title: string; onClick: () => void; active?: boolean }) {
   return (
     <button
-      className="rounded-md border border-border/40 bg-surface px-2 py-1 text-[11px] font-medium text-muted transition hover:border-accent/40 hover:text-foreground"
+      className={`bb-icon-button ${active ? "border-border bg-accent-soft text-accent" : ""}`}
       type="button"
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
     >
-      {label}
+      <span className="[&>svg]:size-3.5">{icon}</span>
     </button>
   );
 }
