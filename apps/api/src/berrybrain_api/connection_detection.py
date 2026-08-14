@@ -16,6 +16,7 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.artifact_state import accepted_node_clause
 from berrybrain_api.confidence import (
     estimate_connection_confidence,
     persist_percentage_confidence,
@@ -79,7 +80,9 @@ async def generate_inferred_graph_connections(
     config_fn = getattr(facade, "get_ai_config", get_ai_config)
     generate_fn = getattr(facade, "generate_graph_answer", generate_graph_answer)
     config = config_fn(session)
-    nodes = list(session.execute(select(GraphNodeRecord)).scalars())
+    nodes = list(
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
+    )
     candidate_types = {"concept", "topic", "entity", "context", "note"}
     candidates = [n for n in nodes if n.type in candidate_types and n.label]
     if len(candidates) < 2:

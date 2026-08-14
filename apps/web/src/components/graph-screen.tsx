@@ -26,6 +26,8 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 
 const EDGE_COLORS: Record<string, string> = {
@@ -386,7 +388,7 @@ export function GraphScreen({
   const [filterProvider, setFilterProvider] = useState("all");
   const [filterConfidence, setFilterConfidence] = useState(0);
   const [pipelineDiag, setPipelineDiag] = useState<{ code: string; text: string }[]>([]);
-  const [graphPipeline, setGraphPipeline] = useState<{ active: number; degraded: number; estimatedRemainingSeconds: number | null }>({ active: 0, degraded: 0, estimatedRemainingSeconds: null });
+  const [graphPipeline, setGraphPipeline] = useState<{ active: number; degraded: number; estimatedRemainingSeconds: number | null; estimatedRemainingSecondsP95: number | null }>({ active: 0, degraded: 0, estimatedRemainingSeconds: null, estimatedRemainingSecondsP95: null });
   const [graphMutationStatus, setGraphMutationStatus] = useState<GraphMutationStatus | null>(null);
   useEffect(() => {
     if (askOnly || apiUrl === "__demo__" || typeof window === "undefined") return;
@@ -476,7 +478,8 @@ export function GraphScreen({
           const active = notes.filter((item: { state?: string }) => ["waiting", "processing"].includes(item.state || "")).length;
           const degraded = notes.filter((item: { graphState?: string }) => item.graphState === "degraded").length;
           const estimates = notes.map((item: { estimatedRemainingSeconds?: number | null }) => item.estimatedRemainingSeconds).filter((value: unknown): value is number => typeof value === "number");
-          setGraphPipeline({ active, degraded, estimatedRemainingSeconds: estimates.length ? Math.max(...estimates) : null });
+          const upperEstimates = notes.map((item: { estimatedRemainingSecondsP95?: number | null }) => item.estimatedRemainingSecondsP95).filter((value: unknown): value is number => typeof value === "number");
+          setGraphPipeline({ active, degraded, estimatedRemainingSeconds: estimates.length ? Math.max(...estimates) : null, estimatedRemainingSecondsP95: upperEstimates.length ? Math.max(...upperEstimates) : null });
         })
         .catch(() => {});
     };
@@ -541,6 +544,7 @@ export function GraphScreen({
   const [flowActive, setFlowActive] = useState(false);
   const [askSuggestions, setAskSuggestions] = useState<AskSuggestionPayload | null>(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [askFeedback, setAskFeedback] = useState<"" | "upvoted" | "downvoted" | "error">("");
 
   const graphData = data as {
     nodes: GraphNode[];
@@ -788,6 +792,7 @@ export function GraphScreen({
     if (questionOverride) setQuery(text);
     setInferLoading(true);
     setInferenceSaveStatus("");
+    setAskFeedback("");
     try {
       if (flowActive && flowSessionId) {
         const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/turns`, {
@@ -852,6 +857,28 @@ export function GraphScreen({
       });
     } finally {
       setInferLoading(false);
+    }
+  }
+
+  async function recordAskFeedback(action: "upvoted" | "downvoted") {
+    if (apiUrl === "__demo__" || askFeedback === action) return;
+    const assistantTurn = [...flowTurns].reverse().find((turn) => turn.role === "assistant");
+    const endpoint = flowActive && flowSessionId && assistantTurn
+      ? `${apiUrl}/api/v1/ask/sessions/${flowSessionId}/turns/${assistantTurn.id}/feedback`
+      : inference?.inferenceId
+        ? `${apiUrl}/api/v1/graph/inferences/${inference.inferenceId}/feedback`
+        : "";
+    if (!endpoint) return;
+    try {
+      const response = await apiFetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) throw new Error("Answer feedback could not be recorded.");
+      setAskFeedback(action);
+    } catch {
+      setAskFeedback("error");
     }
   }
 
@@ -1084,7 +1111,7 @@ export function GraphScreen({
           <span className="font-medium text-foreground">
             {graphPipeline.active > 0 ? `${graphPipeline.active} note${graphPipeline.active === 1 ? "" : "s"} enriching` : "Graph enrichment needs attention"}
           </span>
-          {graphPipeline.estimatedRemainingSeconds != null && <span className="text-muted">about {formatGraphEta(graphPipeline.estimatedRemainingSeconds)} remaining</span>}
+          {graphPipeline.estimatedRemainingSeconds != null && <span className="text-muted">{formatGraphEtaRange(graphPipeline.estimatedRemainingSeconds, graphPipeline.estimatedRemainingSecondsP95)}</span>}
           {graphPipeline.degraded > 0 && <button className="bb-action bb-action--danger ml-auto h-7 px-2.5 text-[10px]" onClick={() => { window.location.href = appPath("/activity"); }}>{graphPipeline.degraded} failed pipeline{graphPipeline.degraded === 1 ? "" : "s"}</button>}
         </div>
       )}
@@ -1207,11 +1234,11 @@ export function GraphScreen({
                   void runInference();
                 }}
               >
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
                   <input
                     ref={askInputRef}
                     type="text"
-                    className="h-14 min-w-0 flex-1 rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none placeholder:text-muted/60 focus:border-accent focus:outline focus:outline-3 focus:outline-accent/20"
+                    className="h-14 min-w-0 basis-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none placeholder:text-muted/60 focus:border-accent focus:outline focus:outline-3 focus:outline-accent/20 sm:basis-0 sm:flex-1"
                     placeholder="Ask your graph about its content or structure..."
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
@@ -1219,7 +1246,7 @@ export function GraphScreen({
                   <VoicePromptButton value={query} onChange={setQuery} className="h-12 w-12" />
                   <button
                     type="submit"
-                    className="bb-action bb-action--primary h-12 shrink-0 px-4 text-sm font-semibold sm:px-6"
+                    className="bb-action bb-action--primary h-12 min-w-0 flex-1 px-4 text-sm font-semibold sm:flex-none sm:px-6"
                     disabled={inferLoading || !query.trim()}
                   >
                     {inferLoading ? "Thinking" : "Ask"}
@@ -1284,10 +1311,16 @@ export function GraphScreen({
                     disabled={inferenceSaving || inference.status === "saved_as_insight" || (!inference.inferenceId && !flowSessionId) || !["answered", "success", "sufficient_evidence", "insufficient_evidence"].includes(inference.status)}
                     onClick={saveInferenceAsInsight}
                   >{inferenceSaving ? "Creating..." : inference.status === "saved_as_insight" ? "Insight created" : "Create insight"}</button>}
+                  {!['error', 'provider_unavailable'].includes(inference.status) && (inference.inferenceId || (flowActive && flowSessionId)) && <>
+                    <button className={`bb-action grid size-8 place-items-center p-0 ${askFeedback === "upvoted" ? "text-success" : ""}`} aria-label="Mark answer as useful" title="Mark answer as useful" onClick={() => void recordAskFeedback("upvoted")}><ThumbsUp className="size-3.5" /></button>
+                    <button className={`bb-action grid size-8 place-items-center p-0 ${askFeedback === "downvoted" ? "text-danger" : ""}`} aria-label="Mark answer as not useful" title="Mark answer as not useful" onClick={() => void recordAskFeedback("downvoted")}><ThumbsDown className="size-3.5" /></button>
+                  </>}
                   <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>{inference.status === "provider_unavailable" ? "Dismiss" : "Clear answer"}</button>
                   {(inference.provider || inference.model) && <span className="ml-auto text-[10px] text-muted">{inference.provider || "provider"}{inference.model ? ` · ${inference.model}` : ""}</span>}
                 </div>
                 {inferenceSaveStatus && <p className="mt-3 text-xs text-muted">{inferenceSaveStatus}</p>}
+                {askFeedback === "error" && <p className="mt-3 text-xs text-danger">Answer feedback could not be recorded.</p>}
+                {["upvoted", "downvoted"].includes(askFeedback) && <p className="mt-3 text-xs text-muted">Feedback recorded for future context-aware validation.</p>}
               </section>
             )}
 
@@ -1448,4 +1481,11 @@ function formatGraphEta(seconds: number) {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours} hr ${remainingMinutes} min` : `${hours} hr`;
+}
+
+function formatGraphEtaRange(p50: number, p95?: number | null) {
+  const lower = Math.max(0, p50);
+  const upper = Math.max(lower, p95 ?? lower);
+  if (upper <= lower) return `About ${formatGraphEta(lower)}`;
+  return `${formatGraphEta(lower)}-${formatGraphEta(upper)} estimated`;
 }

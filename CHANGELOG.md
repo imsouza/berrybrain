@@ -2,6 +2,63 @@
 
 All notable BerryBrain changes are documented here.
 
+## Unreleased
+
+## 1.4.8 - 2026-08-14
+
+### Added
+
+- Formal BerryBrain ontology application profile with stable UUID/IRI identity, Turtle vocabulary,
+  SHACL shapes, JSON-LD/Turtle export, class/predicate validation, and round-trip contract tests.
+- Canonical artifact state policy for accepted, provisional, rejected, quarantined, archived,
+  stale, and deleted knowledge across graph, Ask, retrieval, clusters, insights, and agents.
+- Append-only learning-event ledger and context-scoped feedback policy consumed by Ask, every
+  Worker AI job, graph inference, subagents, and Judges.
+- Typed Settings registry, active-provider capability health, stale model-invocation recovery, and
+  explicit feedback-learning telemetry in Monitor.
+- Verified BEIR SciFact BM25 baseline context with upstream checksum, 5,183 documents, 300 queries,
+  339 qrels, and machine-readable evidence.
+- Ontology, feedback-learning, benchmark, thesis, limitation, dataset, and reproducibility
+  documentation for the v1.4.8 evidence boundary.
+
+### Changed
+
+- User note, graph, insight, and Ask decisions now produce bounded provenance-aware signals. The
+  newest applicable actor/target signal wins only in global or overlapping source-note context.
+- Agents and Judges receive feedback as untrusted policy data; positive feedback cannot bypass
+  source evidence, ontology constraints, or quality gates, and model weights are not silently
+  updated.
+- Confidence uses bounded evidence signals and empirical-Bernstein intervals; user-editable
+  confidence remains prohibited.
+- Default graph responses expose accepted knowledge only, while the Graph workbench can explicitly
+  request provisional artifacts.
+- Provider health now represents the active local or cloud provider instead of treating cloud mode
+  as automatically healthy or exposing an Ollama-specific status.
+- Home and Graph processing ETAs use observed p50/p95 history and reject inconsistent legacy ranges.
+- Public benchmark claims now distinguish controlled regression, public baseline context, human
+  calibration, and field evidence.
+
+### Fixed
+
+- Global cluster jobs no longer serialize a missing scope as an explicit empty scope.
+- Semantic enrichment preserves the last valid context color until reclustering completes.
+- Scoped reclustering expands to all current members of affected clusters and keeps cluster status,
+  color, and current membership counts synchronized.
+- Validated graph edges now contribute to cluster similarity, while weakly connected nodes are no
+  longer forced into the same color context.
+- Deleting a concept immediately quarantines indirect note relationships that cite it, and durable
+  feedback prevents the concept and relation from being regenerated in the same source context.
+- Shared-concept recalculation replaces obsolete evidence instead of accumulating removed concepts.
+- Graph and Ask feedback now carry source-note provenance, so decisions do not leak into unrelated
+  contexts and later corrections supersede earlier signals deterministically.
+- Note creation, material edit, rename, move, and deletion now preserve stable identity while
+  emitting lifecycle learning events and repairing affected graph provenance.
+- The Judge regression report no longer misclassifies 30 synthetic reference labels as human
+  reviews or claims statistical calibration.
+- Graph E2E fixtures now match explicit provisional-query semantics, and onboarding completion is
+  available through the typed Settings registry.
+- Active-provider health and learning-loop telemetry render truthfully in observability views.
+
 ## 1.4.7 - 2026-08-13
 
 ### Added

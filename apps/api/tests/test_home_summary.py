@@ -145,6 +145,10 @@ class HomeSummaryTest(unittest.TestCase):
         self.assertEqual(summary["progress"]["percent"], 0)
         self.assertGreaterEqual(summary["progress"]["estimatedRemainingSeconds"], 20)
         self.assertLessEqual(summary["progress"]["estimatedRemainingSeconds"], 30)
+        self.assertGreaterEqual(
+            summary["progress"]["estimatedRemainingSecondsP95"],
+            summary["progress"]["estimatedRemainingSecondsP50"],
+        )
         self.assertEqual(summary["progress"]["remainingTasks"], 2)
         self.assertEqual(summary["stats"]["notes"]["total"], 2)
         self.assertEqual(summary["stats"]["notes"]["unassimilated"], 1)

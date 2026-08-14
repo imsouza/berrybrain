@@ -69,6 +69,7 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                 status="confirmed",
                 semantic_status="active",
                 cluster_id=cluster.id,
+                quality_gate_status="passed",
             )
             concept = GraphNodeRecord(
                 type="concept",
@@ -76,6 +77,7 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                 status="confirmed",
                 semantic_status="active",
                 cluster_id=cluster.id,
+                quality_gate_status="passed",
             )
             gap = GraphNodeRecord(
                 type="gap",
@@ -83,6 +85,7 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                 status="suggested",
                 semantic_status="active",
                 created_by="ai",
+                quality_gate_status="passed",
             )
             session.add_all([note, concept, gap])
             session.flush()
@@ -92,6 +95,7 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                     target_node_id=concept.id,
                     type="about",
                     status="confirmed",
+                    quality_gate_status="passed",
                 )
             )
             session.commit()
@@ -153,12 +157,14 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                 label="Event sourcing",
                 status="confirmed",
                 semantic_status="active",
+                quality_gate_status="passed",
             )
             second = GraphNodeRecord(
                 type="entity",
                 label="Order service",
                 status="confirmed",
                 semantic_status="active",
+                quality_gate_status="passed",
             )
             session.add_all([first, second])
             session.flush()
@@ -168,6 +174,7 @@ class AskSuggestionsTest(unittest.IsolatedAsyncioTestCase):
                     target_node_id=second.id,
                     type="implemented_by",
                     status="confirmed",
+                    quality_gate_status="passed",
                 )
             )
             session.commit()

@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphInferenceRecord,
@@ -40,14 +41,10 @@ def cognitive_maturity_report(
 ) -> dict[str, Any]:
     reference = now or datetime.now(UTC)
     nodes = list(
-        session.execute(
-            select(GraphNodeRecord).where(GraphNodeRecord.status.in_(ACTIVE_STATUSES))
-        ).scalars()
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
     )
     edges = list(
-        session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status.in_(ACTIVE_STATUSES))
-        ).scalars()
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
     )
     insights = list(
         session.execute(

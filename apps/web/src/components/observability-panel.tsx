@@ -13,10 +13,13 @@ type LogEntry = {
 
 type WorkerInfo = {
   status: string;
-  last_heartbeat: string;
+  last_heartbeat_at: string;
   jobs_processed: number;
   errors: number;
-  ollama_healthy: boolean;
+  active_provider_mode: string;
+  active_provider_id: string;
+  active_provider_healthy: boolean;
+  capability_health: Record<string, string>;
 } | null;
 
 type Props = {
@@ -382,7 +385,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                       <div>Processed: <span className="tabular-nums text-foreground">{worker.jobs_processed}</span></div>
                       <div>Errors: <span className="tabular-nums text-foreground">{worker.errors}</span></div>
                       <div className="col-span-2">
-                        Heartbeat: <span className="text-foreground">{new Date(worker.last_heartbeat).toLocaleTimeString()}</span>
+                        Heartbeat: <span className="text-foreground">{new Date(worker.last_heartbeat_at).toLocaleTimeString()}</span>
                       </div>
                     </div>
                   </div>
@@ -394,7 +397,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               <div className="rounded-md border border-border bg-surface p-5">
                 <div className="text-xs font-medium text-muted">Active AI provider</div>
                 <div className="mt-3 flex items-center gap-2">
-                  <span className={`inline-block size-2 rounded-full ${aiConfig?.provider === "cloud" || worker?.ollama_healthy ? "bg-success" : "bg-danger"}`} />
+                  <span className={`inline-block size-2 rounded-full ${worker?.active_provider_healthy ? "bg-success" : "bg-danger"}`} />
                   <span className="text-sm font-medium">
                     {aiConfig?.provider === "cloud"
                       ? `${aiConfig.cloud_provider || "Cloud"} · ${aiConfig.cloud_model || "No model"}`
@@ -547,6 +550,34 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+              <div className="rounded-xl bg-black/[0.02] p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-medium text-muted">Learning loop</div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted/60">
+                      User feedback adapts future context, generation policy, and Judge validation. Model weights are not silently fine-tuned.
+                    </p>
+                  </div>
+                  <span className="rounded-lg bg-black/[0.04] px-2 py-1 text-[10px] text-muted">
+                    {stats.learning?.policy_version || "feedback-policy.v1"}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <StatBlock label="Signals" value={stats.learning?.total_events ?? 0} />
+                  <StatBlock label="Last 24 hours" value={stats.learning?.events_last_24h ?? 0} />
+                  <StatBlock label="Positive" value={stats.learning?.positive_events ?? 0} />
+                  <StatBlock label="Negative" value={stats.learning?.negative_events ?? 0} />
+                  <StatBlock label="Annotations" value={stats.learning?.neutral_events ?? 0} />
+                  <StatBlock label="Active graph feedback" value={stats.learning?.active_graph_feedback ?? 0} />
+                </div>
+                {stats.learning?.by_target && Object.keys(stats.learning.by_target).length > 0 && (
+                  <p className="mt-3 text-[10px] text-muted/55">
+                    Targets: {Object.entries(stats.learning.by_target as Record<string, number>)
+                      .map(([target, count]) => `${target.replace(/_/g, " ")} ${count}`)
+                      .join(" · ")}
+                  </p>
                 )}
               </div>
             </div>

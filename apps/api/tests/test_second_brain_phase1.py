@@ -89,9 +89,54 @@ class SecondBrainPhase1Test(unittest.TestCase):
         self.assertTrue(any(c.name == "observability" for c in concepts))
         self.assertTrue(any(n.type == "concept" for n in nodes))
         self.assertTrue(any(e.type in {"mentions", "related"} for e in edges))
-        self.assertTrue(any(c.connection_type == "shared_concept" for c in connections))
+        self.assertFalse(
+            any(
+                c.connection_type == "shared_concept"
+                and c.evidence == '["distributed systems"]'
+                for c in connections
+            )
+        )
         self.assertEqual(backlink.status, "confirmed")
         self.assertIn("Edge Computing", backlink.evidence)
+
+    def test_single_shared_word_does_not_create_cross_note_relationship(self) -> None:
+        from berrybrain_api.second_brain import expand_knowledge_graph
+
+        poem = NoteRecord(
+            title="The Raven",
+            slug="the-raven",
+            path="literature/the-raven.md",
+            content_hash="poem-v1",
+            content="A literary analysis of Edgar Allan Poe's poem.",
+        )
+        game = NoteRecord(
+            title="Crimson Desert Patch",
+            slug="crimson-desert-patch",
+            path="games/crimson-desert-patch.md",
+            content_hash="game-v1",
+            content="Release notes for a modern action game patch.",
+        )
+        self.session.add_all((poem, game))
+        self.session.flush()
+        for note in (poem, game):
+            upsert_generated_metadata(
+                self.session,
+                note.id,
+                "concepts",
+                {"concepts": [{"name": "skip", "evidence": "skip"}]},
+                note.content_hash,
+                "fixture-model",
+            )
+        self.session.commit()
+
+        expand_knowledge_graph(self.session)
+
+        connection = (
+            self.session.query(ConnectionRecord)
+            .filter(ConnectionRecord.connection_type == "shared_concept")
+            .one_or_none()
+        )
+        self.assertIsNone(connection)
 
     def test_invalid_concept_is_quarantined_without_blocking_graph(self) -> None:
         note = NoteRecord(

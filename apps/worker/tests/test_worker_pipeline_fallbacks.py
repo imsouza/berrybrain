@@ -30,6 +30,63 @@ class WorkerPipelineFallbackTest(unittest.IsolatedAsyncioTestCase):
         for name, value in self._originals.items():
             setattr(worker_main, name, value)
 
+    async def test_global_cluster_job_does_not_send_an_empty_scope(self) -> None:
+        payloads = []
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"previewToken": "token"}
+
+        class FakeClient:
+            async def post(self, _url, **kwargs):
+                payloads.append(kwargs["json"])
+                return FakeResponse()
+
+        async def fake_complete_job(*_args):
+            return None
+
+        worker_main.complete_job = fake_complete_job
+
+        await worker_main.process_update_graph_clusters(
+            FakeClient(), WorkerSettings(), {"id": 42}, {}
+        )
+
+        self.assertEqual(payloads[0], {"preview": True})
+        self.assertEqual(payloads[1], {"preview": False, "preview_token": "token"})
+
+    async def test_scoped_cluster_job_preserves_an_explicit_scope(self) -> None:
+        payloads = []
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"previewToken": "token"}
+
+        class FakeClient:
+            async def post(self, _url, **kwargs):
+                payloads.append(kwargs["json"])
+                return FakeResponse()
+
+        async def fake_complete_job(*_args):
+            return None
+
+        worker_main.complete_job = fake_complete_job
+
+        await worker_main.process_update_graph_clusters(
+            FakeClient(),
+            WorkerSettings(),
+            {"id": 43},
+            {"scope_node_ids": [7, "8", "invalid"]},
+        )
+
+        self.assertEqual(payloads[0]["scope_node_ids"], [7, 8])
+        self.assertEqual(payloads[1]["scope_node_ids"], [7, 8])
+
     async def test_nvidia_nim_embedding_uses_asymmetric_contract(self) -> None:
         requests = []
 

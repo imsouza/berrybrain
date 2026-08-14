@@ -65,6 +65,15 @@ class SemanticEnrichmentTest(unittest.TestCase):
         self.assertEqual(self.node.semantic_state, "pending")
         self.assertEqual(self.node.color_id, "pending")
 
+    def test_reprocessing_preserves_last_valid_context_color(self) -> None:
+        self.node.color_id = "semantic-existing-context"
+        self.session.commit()
+
+        queue_node_enrichment(self.session, self.node, force=True)
+
+        self.assertEqual(self.node.semantic_state, "pending")
+        self.assertEqual(self.node.color_id, "semantic-existing-context")
+
     def test_analysis_is_versioned_and_exposes_specific_contract(self) -> None:
         fingerprint = source_fingerprint(self.session, self.node)
         analysis = SemanticAnalysis(

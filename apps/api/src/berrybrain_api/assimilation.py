@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.jobs import COMPLETED
 from berrybrain_api.models import (
     EmbeddingRecord,
@@ -85,7 +86,7 @@ def note_assimilation_map(
         select(GraphNodeRecord).where(
             GraphNodeRecord.type == "note",
             GraphNodeRecord.source_id.in_(note_ids),
-            GraphNodeRecord.status != "ignored",
+            accepted_node_clause(),
         )
     ).scalars():
         note_node_ids[node.id] = node.source_id
@@ -93,7 +94,7 @@ def note_assimilation_map(
     connected_note_ids: set[int] = set()
     if note_node_ids:
         for edge in session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+            select(GraphEdgeRecord).where(accepted_edge_clause())
         ).scalars():
             source_note_id = note_node_ids.get(edge.source_node_id)
             target_note_id = note_node_ids.get(edge.target_node_id)

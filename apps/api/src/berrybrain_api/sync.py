@@ -20,6 +20,18 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     record = session.execute(
         select(NoteRecord).where(NoteRecord.path == relative_path)
     ).scalar_one_or_none()
+    previous_state = (
+        {
+            "path": record.path,
+            "title": record.title,
+            "contentHash": record.content_hash,
+            "sourceVersion": record.source_version,
+        }
+        if record is not None
+        else {}
+    )
+    previous_hash = record.content_hash if record is not None else ""
+    created = record is None
     if record is None:
         record = NoteRecord(path=relative_path, slug=path.stem, title=title)
         session.add(record)
@@ -44,6 +56,27 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     record.language = string_frontmatter(metadata.frontmatter, "language", "und")
     record.note_type = string_frontmatter(metadata.frontmatter, "note_type", "note")
     record.status = "synced"
+    session.flush()
+    if created or previous_hash != record.content_hash:
+        from berrybrain_api.learning import record_learning_event
+
+        record_learning_event(
+            session,
+            event_type="note.created" if created else "note.content_edited",
+            target_type="note",
+            target_key=record.stable_id,
+            action="created" if created else "corrected",
+            source_note_ids=[record.id],
+            before_state=previous_state,
+            after_state={
+                "path": record.path,
+                "title": record.title,
+                "contentHash": record.content_hash,
+                "sourceVersion": record.source_version,
+            },
+            actor_type="user",
+            origin="vault_sync",
+        )
 
     session.flush()
     from berrybrain_api.graph_expansion import sync_note_graph_node
@@ -68,6 +101,24 @@ def remove_note_record(session: Session, note_path: str) -> int:
         return 0
 
     note_id = record.id
+    from berrybrain_api.learning import record_learning_event
+
+    record_learning_event(
+        session,
+        event_type="note.deleted",
+        target_type="note",
+        target_key=record.stable_id,
+        action="deleted",
+        source_note_ids=[record.id],
+        before_state={
+            "path": record.path,
+            "title": record.title,
+            "contentHash": record.content_hash,
+            "sourceVersion": record.source_version,
+        },
+        actor_type="user",
+        origin="vault_sync",
+    )
 
     for conn in session.execute(
         select(ConnectionRecord).where(

@@ -1,0 +1,78 @@
+{
+  "benchmark": "full-evaluation",
+  "classification": "exploratory",
+  "configuration": {
+    "ablations": [
+      {
+        "continuous_agents": false,
+        "description": "lexical retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A0",
+        "judge": false,
+        "retrieval": "lexical"
+      },
+      {
+        "continuous_agents": false,
+        "description": "dense retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A1",
+        "judge": false,
+        "retrieval": "dense"
+      },
+      {
+        "continuous_agents": false,
+        "description": "hybrid retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A2",
+        "judge": false,
+        "retrieval": "hybrid"
+      },
+      {
+        "continuous_agents": false,
+        "description": "graph retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": true,
+        "identifier": "A3",
+        "judge": false,
+        "retrieval": "hybrid"
+      }
+    ],
+    "scale": {
+      "graph_edges": 1000,
+      "graph_nodes": 500,
+      "intended_use": "pull-request regression",
+      "name": "S",
+      "notes": 100,
+      "query_repetitions": 7
+    },
+    "schemaVersion": "berrybrain-experiment.v1",
+    "sharedControls": {
+      "cacheMode": "cold",
+      "chunkSize": 1000,
+      "contextLimit": 8192,
+      "corpusParityRequired": true,
+      "modelParityRequired": true,
+      "queryParityRequired": true,
+      "seed": 20260812
+    }
+  },
+  "cpu_count": 4,
+  "dataset_checksum": "30fb12805bddb2586bfd1fce78ee80bcd226b4f2a980de7550804b084a00ef61",
+  "git_commit": "c297558ef51b69247e1a3a7abf784bfb58b18afc",
+  "git_dirty": true,
+  "machine": "aarch64",
+  "platform": "Linux-6.12.62+rpt-rpi-v8-aarch64-with-glibc2.36",
+  "processor": "unknown",
+  "python_version": "3.13.13",
+  "random_seed": 20260812,
+  "run_id": "20260814T044850Z-3849f7b004e5086f",
+  "schema_version": "berrybrain-benchmark.v1",
+  "started_at": "2026-08-14T04:48:50.142535+00:00"
+}

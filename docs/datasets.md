@@ -36,6 +36,8 @@ graded relevance. Annotation files follow `benchmarks/schemas/annotation.schema.
 
 ## Current Installation State
 
-The repository includes manifests for BEIR, HotpotQA, and MuSiQue. Their payloads are intentionally
-not vendored and remain `not-installed` until upstream terms are checked and checksums recorded.
-No external benchmark result may be claimed before verification succeeds.
+The repository includes manifests for BEIR, HotpotQA, and MuSiQue. The official BEIR SciFact test
+split was downloaded to temporary storage, checksum-verified, normalized, and executed with BM25:
+5,183 documents, 300 queries, and 339 qrels. Its archive is not vendored; upstream terms continue to
+apply. HotpotQA and MuSiQue remain not installed. No BerryBrain-versus-baseline claim is valid until
+both systems run on the same verified corpus, qrels, and parity controls.

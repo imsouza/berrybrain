@@ -21,6 +21,8 @@ study measuring reliability, accepted insights, corrections, and task reuse over
 - H3: full BerryBrain improves task success and evidence coverage relative to search-only.
 - H4: graph and continuous-agent benefits have measurable latency/cost overhead.
 - H5: confidence lower bounds are positively calibrated with human correctness labels.
+- H6: feedback-guided adaptation reduces recurrence of previously rejected artifacts within the
+  same source context without increasing false suppression in unrelated contexts.
 
 ## Participant Study
 
@@ -29,6 +31,8 @@ variance. Define inclusion/exclusion before recruitment. Counterbalance conditio
 square. Tasks cover factual retrieval, multi-hop synthesis, graph-structure questions, contradiction
 detection, update/delete correction, and insight review. Measure completion, time, source coverage,
 corrections, NASA-TLX, trust calibration, and qualitative rationale.
+The longitudinal study additionally measures rejected-pattern recurrence, correction effort,
+policy reversals, unrelated-context spillover, accepted insight precision, and Judge disagreement.
 
 Do not collect participant or private-vault data before ethics/LGPD review, consent, retention and
 deletion policy, incident procedure, and supervisor approval. Pseudonymize identifiers; separate the

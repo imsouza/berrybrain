@@ -129,7 +129,6 @@ def queue_node_enrichment(
     configuration = configuration or load_configuration(session)
     if configuration is None or not configuration.validated_at:
         node.semantic_state = "not_configured"
-        node.color_id = "pending"
         session.commit()
         raise HTTPException(status_code=409, detail="AI configuration is not valid")
     fingerprint = source_fingerprint(session, node)
@@ -145,7 +144,6 @@ def queue_node_enrichment(
     if existing is not None and not force:
         return existing, False
     node.semantic_state = "pending"
-    node.color_id = "pending"
     idempotency_key = (
         f"node-enrichment:{node.id}:{fingerprint}:{SEMANTIC_PROMPT_VERSION}:"
         f"{configuration.configuration_fingerprint}"
@@ -321,7 +319,6 @@ def mark_stale_legacy_profiles(session: Session, limit: int = 100) -> int:
         )
         if profile is None or profile.prompt_version != SEMANTIC_PROMPT_VERSION:
             node.semantic_state = "stale"
-            node.color_id = "pending"
             changed += 1
     session.commit()
     return changed

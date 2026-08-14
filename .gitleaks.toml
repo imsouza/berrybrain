@@ -11,7 +11,14 @@ id = "generic-api-key"
   condition = "AND"
   regexTarget = "secret"
   regexes = ['''^StrongPass123$''']
-  paths = ['''^apps/api/tests/test_security_auth\.py$''']
+  paths = ['''^apps/api/tests/test_(security_auth|integration)\.py$''']
+
+  [[rules.allowlists]]
+  description = "Known browser owner-password fixture"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^(BerryBrain123!|E2eOwnerPass123)$''']
+  paths = ['''^apps/web/e2e/workspace\.spec\.ts$''']
 
   [[rules.allowlists]]
   description = "Public distro signing keys embedded in generated Trivy reports"

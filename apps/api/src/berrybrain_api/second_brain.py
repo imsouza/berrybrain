@@ -17,6 +17,7 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.concept_extraction import (  # noqa: F401
     _clean_note_text_for_concepts,
     _concepts_from_title,
@@ -363,8 +364,7 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
     for edge in session.execute(
         select(GraphEdgeRecord).where(
             GraphEdgeRecord.created_by == "ai",
-            GraphEdgeRecord.status.not_in(("ignored", "archived", "stale")),
-            GraphEdgeRecord.semantic_status == "active",
+            accepted_edge_clause(include_provisional=True),
         )
     ).scalars():
         if has_traceable_ai_evidence(edge):
@@ -470,16 +470,13 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
         session.execute(
             select(GraphEdgeRecord)
             .where(
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(),
             )
             .order_by(GraphEdgeRecord.confidence.desc())
         ).scalars()
     )
     graph_nodes = list(
-        session.execute(
-            select(GraphNodeRecord).where(GraphNodeRecord.semantic_status == "active")
-        ).scalars()
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
     )
     node_by_id = {node.id: node for node in graph_nodes}
     edge_matches: list[
@@ -585,8 +582,7 @@ def _generate_deterministic_insights(session: Session) -> int:
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type == "concept",
                 GraphNodeRecord.source_id == concept.id,
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                accepted_node_clause(include_provisional=True),
             )
         ).scalar_one_or_none()
         if visible_concept_node is None:
@@ -632,17 +628,30 @@ def _generate_deterministic_insights(session: Session) -> int:
         session.execute(
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type == "note",
-                GraphNodeRecord.status != "ignored",
+                accepted_node_clause(),
             )
         ).scalars()
     )
     graph_edges = list(
         session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+            select(GraphEdgeRecord).where(
+                accepted_edge_clause(include_provisional=True)
+            )
         ).scalars()
     )
-    connected_ids = {edge.source_node_id for edge in graph_edges} | {
-        edge.target_node_id for edge in graph_edges
+    insight_node_ids = set(
+        session.execute(
+            select(GraphNodeRecord.id).where(GraphNodeRecord.type == "insight")
+        ).scalars()
+    )
+    structural_edges = [
+        edge
+        for edge in graph_edges
+        if edge.source_node_id not in insight_node_ids
+        and edge.target_node_id not in insight_node_ids
+    ]
+    connected_ids = {edge.source_node_id for edge in structural_edges} | {
+        edge.target_node_id for edge in structural_edges
     }
     isolated = [node for node in graph_nodes if node.id not in connected_ids]
     for node in isolated[:3]:
@@ -942,8 +951,7 @@ def _resolve_insight_source_nodes(
         nodes = list(
             session.execute(
                 select(GraphNodeRecord).where(
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    accepted_node_clause(),
                 )
             ).scalars()
         )
@@ -1042,16 +1050,14 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
     nodes = list(
         session.execute(
             select(GraphNodeRecord).where(
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                accepted_node_clause(),
             )
         ).scalars()
     )
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(),
             )
         ).scalars()
     )
@@ -1194,12 +1200,13 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
     }
 
 
-def summarize_graph(session: Session) -> dict[str, Any]:
+def summarize_graph(
+    session: Session, *, include_provisional: bool = False
+) -> dict[str, Any]:
     nodes = list(
         session.execute(
             select(GraphNodeRecord).where(
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                accepted_node_clause(include_provisional=include_provisional),
             )
         ).scalars()
     )
@@ -1207,8 +1214,7 @@ def summarize_graph(session: Session) -> dict[str, Any]:
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(include_provisional=include_provisional),
             )
         ).scalars()
     )
@@ -1258,8 +1264,7 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
             select(GraphEdgeRecord).where(
                 (GraphEdgeRecord.source_node_id == node.id)
                 | (GraphEdgeRecord.target_node_id == node.id),
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(),
             )
         ).scalars()
     )
@@ -1278,6 +1283,9 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
 
     return {
         "id": node.id,
+        "stableId": node.stable_id,
+        "iri": node.iri,
+        "artifactVersion": node.artifact_version,
         "type": node.type,
         "label": node.label,
         "title": node.title or node.label,
@@ -1317,7 +1325,13 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         else None,
         "metadata": _parse_json_object(node.graph_metadata),
         "notes": [
-            {"id": note.id, "title": note.title, "path": note.path}
+            {
+                "id": note.id,
+                "stableId": note.stable_id,
+                "sourceVersion": note.source_version,
+                "title": note.title,
+                "path": note.path,
+            }
             for note in note_records
         ],
         "connections": [_serialize_edge(edge) for edge in edges],
@@ -1338,6 +1352,9 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
 def _serialize_edge(edge: GraphEdgeRecord) -> dict[str, Any]:
     return {
         "id": edge.id,
+        "stableId": edge.stable_id,
+        "iri": edge.iri,
+        "artifactVersion": edge.artifact_version,
         "sourceNodeId": edge.source_node_id,
         "targetNodeId": edge.target_node_id,
         "type": edge.type,

@@ -24,8 +24,8 @@ class GraphOntologyConfidenceTest(unittest.TestCase):
             ]
         )
         self.assertEqual(estimate.sample_size, 2)
-        self.assertAlmostEqual(estimate.score or 0, 0.766667)
-        self.assertEqual(estimate.method, "jeffreys-wilson-evidence-v2")
+        self.assertAlmostEqual(estimate.score or 0, 0.5)
+        self.assertEqual(estimate.method, "empirical-bernstein-bounded-signals-v1")
         self.assertLess(estimate.lower or 0, estimate.score or 0)
         self.assertGreater(estimate.upper or 0, estimate.score or 0)
 
@@ -38,7 +38,7 @@ class GraphOntologyConfidenceTest(unittest.TestCase):
             ]
         )
 
-        self.assertAlmostEqual(estimate.score or 0, 0.875)
+        self.assertAlmostEqual(estimate.score or 0, 0.5)
         self.assertLess(estimate.lower or 0, estimate.score or 0)
         self.assertEqual(estimate.upper, 1.0)
 

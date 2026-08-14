@@ -4,125 +4,139 @@
 
 | Field | Value |
 | --- | --- |
-| Generated | 12 August 2026, 19:13:05 UTC |
-| Version | 1.4.4 |
+| Generated | 14 August 2026, 04:48:50 UTC |
+| Target version | 1.4.8 |
 | Classification | Exploratory engineering evidence |
-| Scale profile | S, pull-request regression |
+| Internal profile | S, pull-request regression |
 | Shared seed | 20260812 |
 | Cache policy | Cold |
-| Composed gate | Passed, zero failed gates |
+| Composed engineering gate | Passed, zero failed gates |
 | Maturity V3 | `incomplete-evidence`, minimum Level 0, median Level 2 |
 | Authoritative result | `reports/evaluation/full-evaluation.json` |
 
-The worktree was dirty when measured. These results are real executions on the recorded host, but
-they are not a clean-revision release certificate or an external-validity claim. Controlled fixtures
-are deterministic regression evidence; they are not substituted for public datasets, independent
-baselines, participant studies, or field observations.
+The run used real local execution against controlled fixtures. The worktree was dirty, so the
+result is not a clean-revision release certificate. Synthetic fixtures measure regression, not
+field effectiveness. Human calibration, independent replication, and longitudinal use remain open.
 
-## Retrieval Comparison
+## Internal Retrieval Ablation
 
-The controlled retrieval corpus contains 44 queries: 20 factual, 20 multi-hop, and 4 negative.
-Every configuration processed the same queries, producing 220 query-level observations.
+The controlled corpus contains 44 queries: 20 factual, 20 multi-hop, and 4 negative. All five
+configurations used the same query and relevance sets, producing 220 query-level observations.
 
-| Executed configuration | Recall@10 | MRR | NDCG@10 | p50 (ms) | p95 (ms) | p99 (ms) | Negative rejection |
+| Configuration | Recall@10 | MRR | NDCG@10 | p50 (ms) | p95 (ms) | p99 (ms) | Negative rejection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| A0 lexical only | 0.050 | 0.017 | 0.025 | 8.54 | 11.01 | 14.21 | 1.000 |
-| A1 dense only | 0.500 | 0.500 | 0.500 | 7.98 | 9.70 | 12.25 | 1.000 |
-| A2 standard hybrid | 0.500 | 0.500 | 0.500 | 15.27 | 18.27 | 19.95 | 1.000 |
-| A3 graph lexical | 0.500 | 0.250 | 0.315 | 15.36 | 21.99 | 24.49 | 1.000 |
-| A3 graph hybrid | 1.000 | 0.750 | 0.815 | 22.47 | 30.84 | 32.57 | 1.000 |
+| Lexical only | 0.050 | 0.017 | 0.025 | 7.72 | 10.22 | 12.59 | 1.000 |
+| Dense only | 0.500 | 0.500 | 0.500 | 8.34 | 10.85 | 14.57 | 1.000 |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 19.44 | 23.38 | 24.82 | 1.000 |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 15.97 | 19.56 | 24.73 | 1.000 |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 22.69 | 31.47 | 34.95 | 1.000 |
 
-| Paired graph result | Standard hybrid | Graph hybrid | Difference |
+| Paired result | Standard hybrid | Graph hybrid | Difference |
 | --- | ---: | ---: | ---: |
 | Multi-hop Recall@10 | 0.000 | 1.000 | +1.000 |
 | Factual Recall@10 | 1.000 | 1.000 | 0.000 |
 | Multi-hop gain 95% bootstrap CI | - | - | [1.000, 1.000] |
 | Citation precision | - | 1.000 | - |
 | Evidence faithfulness | - | 1.000 | - |
-| Stale/deleted evidence rejected | - | Yes | - |
-| Ignored edge rejected | - | Yes | - |
+| Stale/deleted and ignored evidence rejected | - | Yes | - |
 
-The result supports a causal regression claim for this fixture: graph expansion recovered the
-designed multi-hop paths without reducing factual recall. It does not establish superiority over an
-external RAG system. A4-A6 and G0-G3 remain protocol definitions until model-backed and
-generation-backed runs are executed under parity controls.
+This supports a causal regression claim only for the designed fixture: graph expansion recovers the
+fixture's multi-hop paths without reducing its factual recall. It does not establish general or
+competitive superiority.
+
+## Public Baseline Context
+
+The official BEIR SciFact test split was downloaded from its upstream registry and normalized for
+an independent BM25 run. The corpus is not vendored. Its archive SHA-256 is
+`536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165`.
+
+| Dataset/method | Documents | Queries | Recall@10 | MRR | NDCG@10 | Build | p50 | p95 | p99 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| BEIR SciFact / BM25 | 5,183 | 300 | 0.7816 | 0.6386 | 0.6644 | 1,393.12 ms | 309.78 ms | 386.21 ms | 406.30 ms |
+
+This is an external baseline implementation check, not a head-to-head BerryBrain comparison. The
+internal fixture and SciFact use different corpora, qrels, tasks, and runtime paths. A comparative
+claim requires BerryBrain and every baseline to run on the same public corpus with parity controls.
 
 ## Runtime Performance
 
-| Subsystem | Workload | Throughput | p50 | p95 | p99 | Errors |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| HTTP health | 100 requests, concurrency 10 | 67.98 req/s | 138.02 ms | 248.62 ms | 293.22 ms | 0.0% |
-| Worker queue | 100 jobs | 52.39 enqueue/s; 12.48 drain/s | 5,036.14 ms end-to-end | 7,693.75 ms end-to-end | 7,954.86 ms end-to-end | 0 duplicate claims |
-| On-disk graph | 500 nodes, 1,000 edges, 7 samples | - | 175.46 ms | 306.76 ms | - | Gate passed |
-| Release-gate graph | 5,000 nodes, 20,000 edges, 7 samples | - | 2,381.13 ms | 2,464.51 ms | - | Gate passed |
-| Semantic retrieval | 100 notes, 45 queries | - | 31.50 ms | 69.20 ms | - | 0 unexpected zero results |
+| Subsystem | Workload | Throughput | p50 | p95 | p99 | Integrity |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| HTTP health | 100 requests, concurrency 10 | 76.12 req/s | 119.26 ms | 224.55 ms | 257.96 ms | 0 errors |
+| Worker queue | 100 jobs | 49.15 enqueue/s; 11.92 drain/s | 5,452.56 ms | 8,060.36 ms | 8,326.85 ms | 0 duplicate claims |
+| On-disk graph | 500 nodes, 1,000 edges, 7 samples | - | 188.62 ms | 222.63 ms | - | Gate passed |
+| Release-gate graph | 5,000 nodes, 20,000 edges, 7 samples | - | 2,733.77 ms | 2,824.20 ms | - | Gate passed |
+| Semantic retrieval | 100 notes, 45 queries | - | 32.56 ms | 64.33 ms | - | 0 stale evidence |
 
 | Resource measurement | Actual | Budget | Utilization |
 | --- | ---: | ---: | ---: |
-| S graph serialized payload | 541,592 B | 16,777,216 B | 3.23% |
-| S graph peak traced memory | 3,181,953 B | 536,870,912 B | 0.59% |
-| Release-gate graph payload | 8,778,919 B | 16,777,216 B | 52.33% |
-| Release-gate graph peak traced memory | 51,925,644 B | 536,870,912 B | 9.67% |
-| Metrics recorder absolute overhead | 0.00355 ms/op | Report-only | - |
+| S graph serialized payload | 864,092 B | 16,777,216 B | 5.15% |
+| S graph peak traced memory | 3,933,306 B | 536,870,912 B | 0.73% |
+| Release-gate graph payload | 14,153,919 B | 16,777,216 B | 84.36% |
+| Release-gate graph peak traced memory | 63,961,535 B | 536,870,912 B | 11.91% |
+| Metrics recorder absolute overhead | 0.003884 ms/op | Report-only | - |
+| Metrics overhead 95% bootstrap CI | [0.003526, 0.004281] ms/op | Report-only | - |
 
-These are host-specific observations, not supported production capacity. Worker end-to-end latency
-includes serial queue drain. Browser measurements remain exploratory because five repetitions showed
-host-load variance; at least 30 post-warm-up observations on pinned CPU and network profiles are
-required for a confirmatory browser claim.
+The metrics-overhead relative ratio is 1.077 because the disabled operation is only 0.003605 ms;
+the absolute difference is the meaningful quantity. Runtime values are host-specific observations,
+not supported production capacity.
 
 ## Quality And Reliability
 
-| Evaluation | Samples | Result | Gate |
+| Evaluation | Samples | Result | Interpretation |
 | --- | ---: | ---: | --- |
-| Judge calibration | 100 evaluations; 30 human reviews | Weighted kappa 0.9801 | Passed, minimum 0.70 |
-| Judge false acceptance | 30 comparable reviews | 0.000 | Passed, maximum 0.05 |
-| Judge false rejection | 30 comparable reviews | 0.000 | Passed, maximum 0.10 |
-| Cognitive extraction | 6 controlled notes | Precision 1.000; recall 1.000 | Passed |
-| Graph connections | 6 controlled notes | Precision 1.000; recall 1.000 | Passed |
-| Grounded insights | 12 fixtures | Precision 1.000; recall 1.000 | Passed |
-| Provenance coverage | Controlled cognition fixture | 1.000 | Passed |
-| Unsupported claim rate | Controlled cognition fixture | 0.000 | Passed |
+| Judge reference regression | 100 evaluations; 30 synthetic reference labels | Weighted kappa 0.9801; 29/30 match | Regression passed; not human-calibrated |
+| Judge false acceptance/rejection | 30 comparable synthetic labels | 0.000 / 0.000 | Fixture result only |
+| Cognitive extraction | 6 controlled notes | Precision 1.000; recall 1.000 | Regression passed |
+| Graph connections | 6 controlled notes | Precision 1.000; recall 1.000 | Regression passed |
+| Grounded insights | 12 fixtures | Precision 1.000; recall 1.000 | Regression passed |
+| Fault injection | 3 isolated faults | 3/3 contained; 3/3 prior state preserved | Maximum synchronous containment 9.59 ms |
 
-| Injected fault | Contained | Integrity preserved | Recovery observation | User-visible state |
-| --- | --- | --- | ---: | --- |
-| Provider or sidecar unavailable | Yes | Yes | 9.26 ms | Degraded |
-| Malformed model output | Yes | Yes | 0.07 ms | Failed operation |
-| Disk write unavailable | Yes | Yes | 1.33 ms | Failed operation |
+The Judge report has `classification=synthetic-regression`, `total_human_reviews=0`,
+`calibrated=false`, and `status=regression_only`. Strict human-calibration claims require at least
+100 evaluations, 30 independent human reviews, weighted kappa at least 0.70, false acceptance at
+most 5%, and false rejection at most 10%.
 
-Recovery values measure synchronous fault containment in isolated probes. They do not represent
-service restoration after process, host, network, or region failure.
+## Learning Evaluation
+
+Feedback-guided adaptation is covered by automated behavioral tests rather than a fabricated
+learning percentage. Tests verify source-context overlap, unrelated-context exclusion,
+latest-decision precedence, correction and annotation propagation, graph suppression after delete,
+Ask/inference provenance, note lifecycle events, Worker policy consumption, and Monitor telemetry.
+
+No longitudinal user dataset exists yet. Therefore v1.4.8 makes no claim that the policy improves
+quality over time in real use. The required future comparison is a repeated pre/post or crossover
+study using accepted-artifact precision, recurrence of rejected patterns, correction effort,
+retrieval relevance, and time-to-resolution.
 
 ## Maturity Interpretation
 
-| Capability group | Level | Current evidence |
+| Capability group | Level | Evidence |
 | --- | ---: | --- |
 | Capture and extraction | 0 | No current representative evidence registered |
-| Durable semantic memory | 2 | Current deterministic CI/regression evidence |
-| Retrieval and grounded inference | 2 | Current deterministic CI/regression evidence |
-| Knowledge graph and ontology | 2 | Current deterministic CI/regression evidence |
-| Insights and continuous agents | 2 | Current deterministic CI/regression evidence |
-| Transparency, confidence, and control | 2 | Current deterministic CI/regression evidence |
-| Performance, efficiency, and scalability | 2 | Current deterministic CI/regression evidence |
-| Reliability and recoverability | 2 | Current deterministic CI/regression evidence |
+| Durable semantic memory | 2 | Current automated regression evidence |
+| Retrieval and grounded inference | 2 | Current automated regression evidence |
+| Knowledge graph and ontology | 2 | Current automated regression evidence |
+| Insights and continuous agents | 2 | Current automated regression evidence |
+| Transparency, confidence, and control | 2 | Current automated regression evidence |
+| Performance, efficiency, and scalability | 2 | Current automated regression evidence |
+| Reliability and recoverability | 2 | Current automated regression evidence |
 | Security, privacy, and safety | 0 | No current evidence registered in the maturity bundle |
-| Interaction quality and accessibility | 2 | Current deterministic CI/regression evidence |
-| Maintainability and governance | 2 | Current deterministic CI/regression evidence |
+| Interaction quality and accessibility | 2 | Current automated regression evidence |
+| Maintainability and governance | 2 | Current automated regression evidence |
 
-Level 2 means implementation plus current automated regression evidence. It is not a percentage.
-Levels 4-5 require independent comparison, approved human evidence, or longitudinal field evidence;
-synthetic fixtures cannot award them.
+Level 2 means implementation plus current automated evidence. Levels 4-5 require independent
+comparison, approved human evidence, or longitudinal field evidence; fixtures cannot award them.
 
 ## Reproducible Artifacts
 
-- `reports/evaluation/full-evaluation.json`: composed machine-readable result.
+- `reports/evaluation/full-evaluation.json`: composed result and gate status.
+- `reports/retrieval-benchmark.json`: internal retrieval observations and ablations.
+- `reports/evaluation/external-beir-scifact-bm25.json`: public SciFact BM25 context run.
+- `reports/judge-calibration-report.json`: synthetic Judge regression with explicit limitation.
+- `reports/evaluation/instrumentation-overhead.json`: paired instrumentation overhead.
+- `reports/evaluation/evidence/`: manifests, summaries, raw observations, and checksums.
+- `benchmarks/datasets/manifests/beir.json`: upstream acquisition, checksums, and corpus counts.
 - `reports/evaluation/thesis-table.md`: generated publication table.
 - `reports/evaluation/retrieval-chart.vl.json`: generated Vega-Lite chart specification.
 - `reports/evaluation/maturity-v3.json`: evidence-based capability assessment.
-- `reports/evaluation/browser-performance*.json`: exploratory authenticated browser observations.
-- `reports/evaluation/instrumentation-overhead.json`: paired recorder microbenchmark.
-- `reports/evaluation/fault-injection.json`: isolated resilience observations.
-- `reports/evaluation/evidence/`: manifests, raw observations, summaries, and SHA-256 checksums.
-
-Interpret these values with the methodology, protocol, reproducibility, dataset, and limitations
-documents. Re-run on a clean revision before using them as thesis-confirmatory or release-certified
-claims.
