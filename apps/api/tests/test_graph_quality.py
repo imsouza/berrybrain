@@ -38,6 +38,8 @@ class GraphQualityReportTest(unittest.TestCase):
         leaves = [
             GraphNodeRecord(type="concept", label=f"Leaf {index}") for index in range(9)
         ]
+        for node in [hub, duplicate_a, duplicate_b, generic, cluster, *leaves]:
+            node.quality_gate_status = "passed"
         self.session.add_all([hub, duplicate_a, duplicate_b, generic, cluster, *leaves])
         self.session.flush()
         for leaf in leaves:
@@ -48,6 +50,7 @@ class GraphQualityReportTest(unittest.TestCase):
                     type="semantic_relation",
                     reason="Fixture relation",
                     evidence='["fixture"]',
+                    quality_gate_status="passed",
                 )
             )
         self.session.add_all(
@@ -58,6 +61,7 @@ class GraphQualityReportTest(unittest.TestCase):
                     type="shared_concept",
                     reason="",
                     evidence="[]",
+                    quality_gate_status="passed",
                 ),
                 GraphEdgeRecord(
                     source_node_id=duplicate_b.id,
@@ -65,6 +69,7 @@ class GraphQualityReportTest(unittest.TestCase):
                     type="semantic_similarity",
                     reason="Duplicate direction",
                     evidence='["fixture"]',
+                    quality_gate_status="passed",
                 ),
             ]
         )
@@ -84,8 +89,12 @@ class GraphQualityReportTest(unittest.TestCase):
     def test_graph_projection_is_read_only(self) -> None:
         self.session.add_all(
             [
-                GraphNodeRecord(type="concept", label="Duplicate"),
-                GraphNodeRecord(type="concept", label=" duplicate "),
+                GraphNodeRecord(
+                    type="concept", label="Duplicate", quality_gate_status="passed"
+                ),
+                GraphNodeRecord(
+                    type="concept", label=" duplicate ", quality_gate_status="passed"
+                ),
             ]
         )
         self.session.commit()
@@ -162,8 +171,10 @@ class GraphQualityReportTest(unittest.TestCase):
         edge = self.session.query(GraphEdgeRecord).one()
         self.assertEqual(edge.type, "supports")
         self.assertEqual(edge.status, "confirmed")
-        self.assertGreaterEqual(edge.confidence, 0.75)
-        self.assertEqual(edge.confidence_method, "jeffreys-wilson-evidence-v2")
+        self.assertEqual(edge.confidence, 0.5)
+        self.assertEqual(
+            edge.confidence_method, "empirical-bernstein-bounded-signals-v1"
+        )
         self.assertIn("source excerpt", edge.evidence)
 
 

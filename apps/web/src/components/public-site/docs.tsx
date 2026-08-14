@@ -378,8 +378,10 @@ Strict enforcement requires calibration evidence:
 - false acceptance <= 5%;
 - false rejection <= 10%.
 
-The current release-candidate validation includes a calibration fixture and report showing
-\`weighted_kappa=0.9801\`.`,
+The current release-candidate validation includes 100 evaluations and 30 authored synthetic
+reference labels. It reports \`weighted_kappa=0.9801\`, but explicitly remains
+\`classification=synthetic-regression\`, \`total_human_reviews=0\`, and \`calibrated=false\`.
+This verifies regression behavior; it does not satisfy the human-calibration gate.`,
   },
   {
     id: "hipporag",
@@ -827,6 +829,28 @@ Technical failures belong in **Monitor** and **Activity**. Knowledge insights re
 claims supported by notes, concepts, connections, or processed attachments.`,
   },
   {
+    id: "feedback-learning",
+    title: "Feedback-driven learning",
+    md: `## Feedback-driven learning
+
+BerryBrain adapts its future policies from auditable, source-scoped user decisions. It does not
+silently fine-tune model weights.
+
+1. Note creation, material edits, rename, move, and deletion create durable learning events.
+2. Node and edge confirmation, rejection, correction, restoration, merge, split, annotation, and
+   deletion update contextual graph feedback.
+3. Insight acceptance/rejection and Ask upvote/downvote/correction are recorded with provenance.
+4. Before every AI job, the Worker loads applicable global or overlapping-note feedback.
+5. Agents and Judges receive negative patterns, positive patterns, corrections, and annotations as
+   bounded untrusted data.
+6. The newest applicable signal wins for the same actor and target, but no signal bypasses evidence,
+   ontology, or quality validation.
+
+Navigation clicks and scrolling are operational interaction data, not semantic labels. Monitor
+shows the policy version, event totals and direction, active graph feedback, latest event, and
+\`model_weights_updated=false\`. This makes adaptation inspectable, reversible, and backup-safe.`,
+  },
+  {
     id: "settings",
     title: "Settings",
     md: `## Settings
@@ -901,32 +925,32 @@ queue latency, completion, and duplicate claims. On-disk graph evidence records 
 projection latency, payload, and traced memory. Browser evidence records authenticated desktop and
 mobile navigation, LCP, CLS, long tasks, transfer bytes, heap, and application errors.
 
-Latest executed profile, generated 12 August 2026 at 19:13 UTC:
+Latest executed profile, generated 14 August 2026 at 04:48 UTC:
 
 | Workload | Throughput | p50 | p95 | p99 | Failures |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| HTTP, 100 requests, concurrency 10 | 67.98 req/s | 138.02 ms | 248.62 ms | 293.22 ms | 0 |
-| Worker queue, 100 jobs | 12.48 jobs/s drain | 5,036.14 ms | 7,693.75 ms | 7,954.86 ms | 0 duplicate claims |
-| On-disk graph, 500 nodes and 1,000 edges | - | 175.46 ms | 306.76 ms | - | Gate passed |
-| Semantic retrieval, 45 queries | - | 31.50 ms | 69.20 ms | - | 0 unexpected zero results |
+| HTTP, 100 requests, concurrency 10 | 76.12 req/s | 119.26 ms | 224.55 ms | 257.96 ms | 0 |
+| Worker queue, 100 jobs | 11.92 jobs/s drain | 5,452.56 ms | 8,060.36 ms | 8,326.85 ms | 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | - | 188.62 ms | 222.63 ms | - | Gate passed |
+| Semantic retrieval, 45 queries | - | 32.56 ms | 64.33 ms | - | 0 unexpected zero results |
 
 | Graph resource | Actual | Budget | Utilization |
 | --- | ---: | ---: | ---: |
-| Serialized payload | 541,592 B | 16,777,216 B | 3.23% |
-| Peak traced memory | 3,181,953 B | 536,870,912 B | 0.59% |
+| Serialized payload | 864,092 B | 16,777,216 B | 5.15% |
+| Peak traced memory | 3,933,306 B | 536,870,912 B | 0.73% |
 
-Release-candidate browser regression executed 13 August 2026 against the local production image:
+Release-candidate browser regression executed 14 August 2026 against the local production image:
 
 | Browser workload | Actual |
 | --- | ---: |
-| 10,000-node cold first visual | 2,566.49 ms |
-| 10,000-node warm first visual | 536.42 ms |
-| 10,000-node complete progressive load | 6,344.58 ms |
-| 10,000-node interaction p95 | 35.30 ms |
+| 10,000-node cold first visual | 1,745.35 ms |
+| 10,000-node warm first visual | 593.25 ms |
+| 10,000-node complete progressive load | 4,443.49 ms |
+| 10,000-node interaction p95 | 33.60 ms |
 | Used JavaScript heap | 23.10 MB |
-| Maximum public-route wall time, 12 routes | 1,544.13 ms |
-| Maximum authenticated-route wall time, 6 routes | 2,335.46 ms |
-| Lazy Settings / Graph open | 244.74 / 565.03 ms |
+| Maximum public-route wall time, 12 routes | 981.67 ms |
+| Maximum authenticated-route wall time, 6 routes | 1,305.13 ms |
+| Lazy Settings / Graph open | 145.85 / 674.66 ms |
 
 S is a pull-request engineering profile, not a supported capacity claim. M, L, steady, ramp, spike,
 soak, stress, constrained mobile, and provider-sidecar profiles must run on pinned hardware before
@@ -947,11 +971,11 @@ The current controlled corpus executed 44 queries per configuration, or 220 quer
 
 | Executed configuration | Recall@10 | MRR | NDCG@10 | p95 |
 | --- | ---: | ---: | ---: | ---: |
-| A0 lexical only | 0.050 | 0.017 | 0.025 | 11.01 ms |
-| A1 dense only | 0.500 | 0.500 | 0.500 | 9.70 ms |
-| A2 standard hybrid | 0.500 | 0.500 | 0.500 | 18.27 ms |
-| A3 graph lexical | 0.500 | 0.250 | 0.315 | 21.99 ms |
-| A3 graph hybrid | 1.000 | 0.750 | 0.815 | 30.84 ms |
+| A0 lexical only | 0.050 | 0.017 | 0.025 | 10.22 ms |
+| A1 dense only | 0.500 | 0.500 | 0.500 | 10.85 ms |
+| A2 standard hybrid | 0.500 | 0.500 | 0.500 | 23.38 ms |
+| A3 graph lexical | 0.500 | 0.250 | 0.315 | 19.56 ms |
+| A3 graph hybrid | 1.000 | 0.750 | 0.815 | 31.47 ms |
 
 Graph hybrid improved multi-hop Recall@10 from 0.000 to 1.000, with paired bootstrap 95% CI
 \`[1.000, 1.000]\`, while factual Recall@10 remained 1.000. Citation precision and evidence
@@ -1033,27 +1057,32 @@ systems. Public QA differs from evolving private vaults. LLM judges can share mo
 density is not usefulness. Acceptance rate can reflect fatigue. Cloud latency varies by provider,
 region, and time, and one local hardware profile does not define universal capacity.
 
-BEIR, HotpotQA, and MuSiQue payloads are not vendored and remain unexecuted until licenses and
-checksums are verified. Independent replication, human annotation, participant studies, and field
-evidence remain open external requirements and are reported as missing rather than replaced.`,
+The official BEIR SciFact test split was executed with an independent BM25 baseline after checksum
+verification; its payload is not vendored. HotpotQA and MuSiQue remain unexecuted. The SciFact run
+uses a different corpus from BerryBrain's internal fixture and is context, not a direct comparative
+claim. Independent replication, human annotation, participant studies, and field evidence remain
+open external requirements and are reported as missing rather than replaced.`,
   },
   {
     id: "verification",
     title: "Verification & release status",
     md: `## Verification & release status
 
-Latest exploratory S-profile evidence from 12 August 2026:
+Latest exploratory S-profile evidence from 14 August 2026:
 
 | Evidence | Executed sample | Result |
 | --- | ---: | --- |
 | Composed engineering gate | Retrieval, cognition, insight, Judge, graph, HTTP, worker, and faults | Passed, zero failed gates |
 | Controlled retrieval | 44 queries x 5 configurations | 220 observations; graph-hybrid Recall@10 1.000 |
-| Judge calibration | 100 evaluations; 30 human reviews | Weighted kappa 0.9801; calibrated |
-| Fault injection | 3 isolated faults | 3/3 contained; prior state preserved; maximum 9.26 ms |
-| HTTP | 100 requests | 100/100 successful; 67.98 req/s; p95 248.62 ms |
-| Worker queue | 100 jobs | 100/100 completed; 12.48 jobs/s drain; no duplicate claims |
-| On-disk graph | 500 nodes; 1,000 edges | p95 306.76 ms; 541,592 B payload |
+| Judge reference regression | 100 evaluations; 30 synthetic labels; 0 human reviews | Weighted kappa 0.9801; not calibrated |
+| Fault injection | 3 isolated faults | 3/3 contained; prior state preserved; maximum 9.59 ms |
+| HTTP | 100 requests | 100/100 successful; 76.12 req/s; p95 224.55 ms |
+| Worker queue | 100 jobs | 100/100 completed; 11.92 jobs/s drain; no duplicate claims |
+| On-disk graph | 500 nodes; 1,000 edges | p95 222.63 ms; 864,092 B payload |
+| Public baseline context | BEIR SciFact BM25, 5,183 documents and 300 queries | Recall@10 0.7816; not a direct comparison |
 | Maturity V3 | 11 capability groups | \`incomplete-evidence\`; minimum 0; median 2 |
+| Browser release gate | 50 Chromium tests, retries disabled | 50/50 passed; automated WCAG A/AA checks passed |
+| 10,000-node graph | Progressive canvas workload | 1,745.35 ms cold first visual; 4,443.49 ms complete; 33.60 ms interaction p95 |
 
 Authenticated desktop/mobile browser exploration recorded zero application errors. Five repetitions
 showed host-load variance and are not a confirmatory browser performance claim. Public external

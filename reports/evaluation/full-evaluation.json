@@ -66,14 +66,14 @@
     "contained_count": 3,
     "fault_count": 3,
     "integrity_preserved_count": 3,
-    "maximum_recovery_ms": 9.257270954549313,
+    "maximum_recovery_ms": 9.588458109647036,
     "observations": [
       {
         "contained": true,
         "detail": "URLError",
         "fault": "provider-or-sidecar-unavailable",
         "integrity_preserved": true,
-        "recovery_ms": 9.257270954549313,
+        "recovery_ms": 9.588458109647036,
         "user_visible_state": "degraded"
       },
       {
@@ -81,7 +81,7 @@
         "detail": "invalid-model-output",
         "fault": "malformed-model-output",
         "integrity_preserved": true,
-        "recovery_ms": 0.07251696661114693,
+        "recovery_ms": 0.0639620702713728,
         "user_visible_state": "failed"
       },
       {
@@ -89,52 +89,52 @@
         "detail": "write-blocked-before-mutation",
         "fault": "disk-write-unavailable",
         "integrity_preserved": true,
-        "recovery_ms": 1.325014978647232,
+        "recovery_ms": 1.2449619825929403,
         "user_visible_state": "failed"
       }
     ],
     "passed": true
   },
-  "generatedAt": "2026-08-12T19:13:05.786163+00:00",
+  "generatedAt": "2026-08-14T04:48:50.140763+00:00",
   "graphOnDisk": {
     "edge_count": 1000,
-    "latency_p50_ms": 175.46167294494808,
-    "latency_p95_ms": 306.75867781974375,
+    "latency_p50_ms": 188.61941783688962,
+    "latency_p95_ms": 222.63294993899763,
     "latency_samples_ms": [
-      156.3972879666835,
-      155.51535901613533,
-      172.68812679685652,
-      175.46167294494808,
-      175.83833285607398,
-      244.7210499085486,
-      306.75867781974375
+      214.96398001909256,
+      222.63294993899763,
+      195.5430309753865,
+      188.61941783688962,
+      180.7195630390197,
+      179.8064480535686,
+      186.4573978818953
     ],
     "meets_targets": true,
     "memory_budget_bytes": 536870912,
     "node_count": 500,
     "p95_budget_ms": 5000,
     "payload_budget_bytes": 16777216,
-    "payload_bytes": 541592,
-    "peak_memory_bytes": 3181953,
+    "payload_bytes": 864092,
+    "peak_memory_bytes": 3933306,
     "sample_count": 7
   },
   "httpLoad": {
     "concurrency": 10,
-    "duration_seconds": 1.4711236429866403,
+    "duration_seconds": 1.3137527948711067,
     "error_rate": 0.0,
     "failures": 0,
-    "latency_p50_ms": 138.016133,
-    "latency_p95_ms": 248.62343614999997,
-    "latency_p99_ms": 293.2176869900001,
+    "latency_p50_ms": 119.26133899999999,
+    "latency_p95_ms": 224.54771324999996,
+    "latency_p99_ms": 257.9573005700001,
     "requests": 100,
     "status_codes": {
       "200": 100
     },
     "successes": 100,
-    "throughput_rps": 67.97525175856896
+    "throughput_rps": 76.11782094043886
   },
   "maturity": {
-    "assessed_at": "2026-08-12T19:13:05.810413+00:00",
+    "assessed_at": "2026-08-14T04:48:50.175524+00:00",
     "capabilities": [
       {
         "capability": "capture-and-extraction",
@@ -242,24 +242,24 @@
     "failed_gates": [],
     "graph_performance": {
       "edge_count": 20000,
-      "latency_p50_ms": 2381.1325691640377,
-      "latency_p95_ms": 2464.5149130374193,
+      "latency_p50_ms": 2733.7707311380655,
+      "latency_p95_ms": 2824.202881194651,
       "latency_samples_ms": [
-        2386.2240749876946,
-        2356.496999040246,
-        2338.0677150562406,
-        2432.199972914532,
-        2381.1325691640377,
-        2366.116986842826,
-        2464.5149130374193
+        2669.212298002094,
+        2765.218247892335,
+        2737.9668860230595,
+        2705.344886984676,
+        2733.7707311380655,
+        2719.933505868539,
+        2824.202881194651
       ],
       "meets_targets": true,
       "memory_budget_bytes": 536870912,
       "node_count": 5000,
       "p95_budget_ms": 5000,
       "payload_budget_bytes": 16777216,
-      "payload_bytes": 8778919,
-      "peak_memory_bytes": 51925644,
+      "payload_bytes": 14153919,
+      "peak_memory_bytes": 63961535,
       "sample_count": 7
     },
     "insights": {
@@ -271,7 +271,9 @@
       "recall": 1.0
     },
     "judge_calibration": {
-      "calibrated": true,
+      "annotation_source": "authored-reference-fixture",
+      "calibrated": false,
+      "classification": "synthetic-regression",
       "comparable": 30,
       "disagreed": 1,
       "false_acceptance_rate": 0.0,
@@ -292,10 +294,13 @@
         "score",
         "notes"
       ],
+      "limitation": "Reference labels are synthetic regression fixtures and do not count as independent human calibration.",
       "matched": 29,
-      "status": "calibrated",
+      "regression_gate_passed": true,
+      "status": "regression_only",
       "total_evaluations": 100,
-      "total_human_reviews": 30,
+      "total_human_reviews": 0,
+      "total_reference_reviews": 30,
       "weighted_kappa": 0.9801
     },
     "passed": true,
@@ -304,9 +309,9 @@
         {
           "configuration": "lexical_only",
           "failures": 0,
-          "latency_p50_ms": 8.537236,
-          "latency_p95_ms": 11.013995,
-          "latency_p99_ms": 14.212204,
+          "latency_p50_ms": 6.60995,
+          "latency_p95_ms": 7.995839,
+          "latency_p99_ms": 9.782448,
           "mean_reciprocal_rank": 0.016667,
           "ndcg_at_10": 0.024678,
           "negative_rejection_rate": 1.0,
@@ -316,9 +321,9 @@
         {
           "configuration": "dense_only",
           "failures": 0,
-          "latency_p50_ms": 7.976718,
-          "latency_p95_ms": 9.698286,
-          "latency_p99_ms": 12.246293,
+          "latency_p50_ms": 7.316856,
+          "latency_p95_ms": 8.798478,
+          "latency_p99_ms": 10.769115,
           "mean_reciprocal_rank": 0.5,
           "ndcg_at_10": 0.5,
           "negative_rejection_rate": 1.0,
@@ -328,9 +333,9 @@
         {
           "configuration": "standard_hybrid",
           "failures": 0,
-          "latency_p50_ms": 15.273494,
-          "latency_p95_ms": 18.266231,
-          "latency_p99_ms": 19.950956,
+          "latency_p50_ms": 14.711191,
+          "latency_p95_ms": 16.650846,
+          "latency_p99_ms": 17.403506,
           "mean_reciprocal_rank": 0.5,
           "ndcg_at_10": 0.5,
           "negative_rejection_rate": 1.0,
@@ -340,9 +345,9 @@
         {
           "configuration": "graph_lexical",
           "failures": 0,
-          "latency_p50_ms": 15.360197,
-          "latency_p95_ms": 21.988873,
-          "latency_p99_ms": 24.491289,
+          "latency_p50_ms": 17.664765,
+          "latency_p95_ms": 24.86388,
+          "latency_p99_ms": 26.028622,
           "mean_reciprocal_rank": 0.25,
           "ndcg_at_10": 0.315465,
           "negative_rejection_rate": 1.0,
@@ -352,9 +357,9 @@
         {
           "configuration": "graph_hybrid",
           "failures": 0,
-          "latency_p50_ms": 22.468105,
-          "latency_p95_ms": 30.842898,
-          "latency_p99_ms": 32.568999,
+          "latency_p50_ms": 28.860623,
+          "latency_p95_ms": 38.122468,
+          "latency_p99_ms": 38.749185,
           "mean_reciprocal_rank": 0.75,
           "ndcg_at_10": 0.815465,
           "negative_rejection_rate": 1.0,
@@ -389,8 +394,8 @@
     },
     "semantic": {
       "indexing_coverage": 1.0,
-      "latency_p50_ms": 31.503843143582344,
-      "latency_p95_ms": 69.19798906892538,
+      "latency_p50_ms": 32.56248100660741,
+      "latency_p95_ms": 64.32727095670998,
       "mean_reciprocal_rank": 1.0,
       "meets_initial_targets": true,
       "ndcg_at_10": 1.0,
@@ -409,14 +414,14 @@
   },
   "schemaVersion": "berrybrain-evaluation.v1",
   "workerQueue": {
-    "claim_p95_ms": 51.28135149999999,
+    "claim_p95_ms": 60.36653405,
     "completed_jobs": 100,
-    "drain_rate_jobs_per_second": 12.48005163767818,
+    "drain_rate_jobs_per_second": 11.918320092247177,
     "duplicate_claims": 0,
-    "end_to_end_p50_ms": 5036.135177,
-    "end_to_end_p95_ms": 7693.7467639999995,
-    "end_to_end_p99_ms": 7954.86403961,
-    "enqueue_rate_jobs_per_second": 52.388526844385254,
+    "end_to_end_p50_ms": 5452.5610665,
+    "end_to_end_p95_ms": 8060.363820199999,
+    "end_to_end_p99_ms": 8326.84583084,
+    "enqueue_rate_jobs_per_second": 49.15012054186885,
     "jobs": 100,
     "remaining_jobs": 0
   }

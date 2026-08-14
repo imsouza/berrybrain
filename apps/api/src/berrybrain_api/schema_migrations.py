@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import UUID, uuid5
 
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 MIN_SUPPORTED_SCHEMA_VERSION = 0
+IDENTITY_NAMESPACE = UUID("a5f2308d-83a5-4cba-a14a-12942a074af7")
 
 
 class IncompatibleSchemaError(RuntimeError):
@@ -92,6 +95,14 @@ MIGRATIONS = (
             "artifacts and retain corrections across graph rebuilds."
         ),
     ),
+    SchemaMigration(
+        version=12,
+        name="stable-artifact-identity-and-integrity",
+        description=(
+            "Adds stable note and graph identities, graph artifact versions, "
+            "semantic child cleanup, endpoint guards, and scoped delete cascades."
+        ),
+    ),
 )
 
 
@@ -150,6 +161,12 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
 
 
 def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 12:
+        from berrybrain_api.models import LearningEventRecord
+
+        LearningEventRecord.__table__.create(bind=connection, checkfirst=True)
+        _apply_integrity_migration(connection)
+        return
     if version == 9:
         from berrybrain_api.models import GraphSemanticCandidateRecord
 
@@ -244,6 +261,425 @@ def _apply_migration_ddl(connection: Connection, version: int) -> None:
                 )
             )
         return
+    if version <= 7:
+        _apply_legacy_migration_ddl(connection, version)
+        return
+
+
+def _apply_integrity_migration(connection: Connection) -> None:
+    _add_columns(
+        connection,
+        "notes",
+        {
+            "stable_id": "VARCHAR(36) NOT NULL DEFAULT ''",
+            "source_version": "INTEGER NOT NULL DEFAULT 1",
+        },
+    )
+    for table in ("graph_nodes", "graph_edges"):
+        _add_columns(
+            connection,
+            table,
+            {
+                "stable_id": "VARCHAR(36) NOT NULL DEFAULT ''",
+                "iri": "VARCHAR(255) NOT NULL DEFAULT ''",
+                "artifact_version": "INTEGER NOT NULL DEFAULT 1",
+            },
+        )
+
+    existing_tables = set(inspect(connection).get_table_names())
+    for table, iri_kind in (
+        ("notes", None),
+        ("graph_nodes", "graph-node"),
+        ("graph_edges", "graph-edge"),
+    ):
+        if table not in existing_tables:
+            continue
+        rows = connection.execute(
+            text(f"SELECT id, stable_id FROM {table} ORDER BY id")
+        ).mappings()
+        for row in rows:
+            stable_id = str(row["stable_id"] or "").strip() or str(
+                uuid5(IDENTITY_NAMESPACE, f"{table}:{row['id']}")
+            )
+            values: dict[str, object] = {"id": row["id"], "stable_id": stable_id}
+            assignments = "stable_id = :stable_id"
+            if iri_kind:
+                values["iri"] = f"urn:berrybrain:{iri_kind}:{stable_id}"
+                assignments += ", iri = :iri"
+            connection.execute(
+                text(f"UPDATE {table} SET {assignments} WHERE id = :id"), values
+            )
+        connection.execute(
+            text(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_stable_id ON {table} (stable_id)"
+            )
+        )
+        if iri_kind:
+            connection.execute(
+                text(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_iri ON {table} (iri)"
+                )
+            )
+
+    connection.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS schema_migration_archive ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, migration_version INTEGER NOT NULL, "
+            "table_name VARCHAR(120) NOT NULL, row_id INTEGER NOT NULL, "
+            "payload TEXT NOT NULL, archived_at DATETIME NOT NULL)"
+        )
+    )
+    orphan_queries = {
+        "note_attachments": (
+            "SELECT child.* FROM note_attachments child LEFT JOIN notes parent "
+            "ON parent.id = child.note_id WHERE parent.id IS NULL"
+        ),
+        "attachment_extractions": (
+            "SELECT child.* FROM attachment_extractions child "
+            "LEFT JOIN note_attachments parent ON parent.id = child.attachment_id "
+            "WHERE parent.id IS NULL"
+        ),
+        "job_attempts": (
+            "SELECT child.* FROM job_attempts child LEFT JOIN jobs parent "
+            "ON parent.id = child.job_id WHERE parent.id IS NULL"
+        ),
+        "worker_inbox": (
+            "SELECT child.* FROM worker_inbox child LEFT JOIN jobs parent "
+            "ON parent.id = child.job_id WHERE parent.id IS NULL"
+        ),
+        "user_sessions": (
+            "SELECT child.* FROM user_sessions child LEFT JOIN users parent "
+            "ON parent.id = child.user_id WHERE parent.id IS NULL"
+        ),
+        "generated_metadata": (
+            "SELECT child.* FROM generated_metadata child LEFT JOIN notes parent "
+            "ON parent.id = child.note_id WHERE parent.id IS NULL"
+        ),
+        "embeddings": (
+            "SELECT child.* FROM embeddings child LEFT JOIN notes parent "
+            "ON parent.id = child.note_id WHERE parent.id IS NULL"
+        ),
+        "chunks": (
+            "SELECT child.* FROM chunks child LEFT JOIN notes parent "
+            "ON parent.id = child.note_id WHERE parent.id IS NULL"
+        ),
+        "connections": (
+            "SELECT child.* FROM connections child "
+            "LEFT JOIN notes source ON source.id = child.source_note_id "
+            "LEFT JOIN notes target ON target.id = child.target_note_id "
+            "WHERE source.id IS NULL OR target.id IS NULL"
+        ),
+        "graph_research_results": (
+            "SELECT child.* FROM graph_research_results child "
+            "LEFT JOIN graph_research_runs parent ON parent.id = child.run_id "
+            "WHERE parent.id IS NULL"
+        ),
+        "ask_turns": (
+            "SELECT child.* FROM ask_turns child LEFT JOIN ask_sessions parent "
+            "ON parent.id = child.session_id WHERE parent.id IS NULL"
+        ),
+        "semantic_profiles": (
+            "SELECT child.* FROM semantic_profiles child LEFT JOIN graph_nodes parent "
+            "ON parent.id = child.node_id WHERE parent.id IS NULL"
+        ),
+        "semantic_cluster_assignments": (
+            "SELECT child.* FROM semantic_cluster_assignments child "
+            "LEFT JOIN graph_nodes node ON node.id = child.node_id "
+            "LEFT JOIN semantic_clusters cluster ON cluster.id = child.cluster_id "
+            "WHERE node.id IS NULL OR cluster.id IS NULL"
+        ),
+        "node_enrichment_versions": (
+            "SELECT child.* FROM node_enrichment_versions child "
+            "LEFT JOIN graph_nodes parent ON parent.id = child.node_id "
+            "WHERE parent.id IS NULL"
+        ),
+    }
+    orphan_dependencies = {
+        "note_attachments": {"note_attachments", "notes"},
+        "attachment_extractions": {"attachment_extractions", "note_attachments"},
+        "job_attempts": {"job_attempts", "jobs"},
+        "worker_inbox": {"worker_inbox", "jobs"},
+        "user_sessions": {"user_sessions", "users"},
+        "generated_metadata": {"generated_metadata", "notes"},
+        "embeddings": {"embeddings", "notes"},
+        "chunks": {"chunks", "notes"},
+        "connections": {"connections", "notes"},
+        "graph_research_results": {
+            "graph_research_results",
+            "graph_research_runs",
+        },
+        "ask_turns": {"ask_turns", "ask_sessions"},
+        "semantic_profiles": {"semantic_profiles", "graph_nodes"},
+        "semantic_cluster_assignments": {
+            "semantic_cluster_assignments",
+            "graph_nodes",
+            "semantic_clusters",
+        },
+        "node_enrichment_versions": {"node_enrichment_versions", "graph_nodes"},
+    }
+    archived_at = datetime.now(UTC).isoformat()
+    for table, query in orphan_queries.items():
+        if not orphan_dependencies[table].issubset(existing_tables):
+            continue
+        rows = list(connection.execute(text(query)).mappings())
+        for row in rows:
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migration_archive "
+                    "(migration_version, table_name, row_id, payload, archived_at) "
+                    "VALUES (12, :table_name, :row_id, :payload, :archived_at)"
+                ),
+                {
+                    "table_name": table,
+                    "row_id": row["id"],
+                    "payload": json.dumps(dict(row), default=str, sort_keys=True),
+                    "archived_at": archived_at,
+                },
+            )
+            connection.execute(
+                text(f"DELETE FROM {table} WHERE id = :id"), {"id": row["id"]}
+            )
+
+    if {"auth_otps", "users"}.issubset(existing_tables):
+        connection.execute(
+            text(
+                "UPDATE auth_otps SET user_id = NULL WHERE user_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM users WHERE users.id = auth_otps.user_id)"
+            )
+        )
+    if {"graph_research_results", "graph_nodes"}.issubset(existing_tables):
+        connection.execute(
+            text(
+                "UPDATE graph_research_results SET node_id = NULL "
+                "WHERE node_id IS NOT NULL AND NOT EXISTS "
+                "(SELECT 1 FROM graph_nodes WHERE graph_nodes.id = graph_research_results.node_id)"
+            )
+        )
+    if {"graph_inferences", "insights"}.issubset(existing_tables):
+        connection.execute(
+            text(
+                "UPDATE graph_inferences SET insight_id = NULL "
+                "WHERE insight_id IS NOT NULL AND NOT EXISTS "
+                "(SELECT 1 FROM insights WHERE insights.id = graph_inferences.insight_id)"
+            )
+        )
+
+    for table in (
+        "graph_nodes",
+        "graph_edges",
+        "insights",
+        "connections",
+        "concepts",
+        "graph_inferences",
+    ):
+        if table not in existing_tables:
+            continue
+        columns = {
+            str(column[1])
+            for column in connection.execute(text(f"PRAGMA table_info({table})"))
+        }
+        required = {
+            "confidence",
+            "confidence_lower",
+            "confidence_upper",
+            "confidence_sample_size",
+            "confidence_method",
+        }
+        if not required.issubset(columns):
+            continue
+        connection.execute(
+            text(
+                f"UPDATE {table} SET confidence = 0, confidence_lower = NULL, "
+                "confidence_upper = NULL, confidence_sample_size = 0, "
+                "confidence_method = 'unavailable' "
+                "WHERE confidence_method = 'jeffreys-wilson-evidence-v2'"
+            )
+        )
+
+    from berrybrain_api.graph_ontology import EDGE_RULES, NODE_RULES
+
+    if "graph_nodes" in existing_tables:
+        connection.execute(
+            text(
+                "UPDATE graph_nodes SET semantic_status = 'quarantined' "
+                "WHERE quality_gate_status IN ('rejected', 'insufficient_evidence')"
+            )
+        )
+        for node_type, rule in NODE_RULES.items():
+            connection.execute(
+                text(
+                    "UPDATE graph_nodes SET ontology_class = :ontology_class "
+                    "WHERE type = :node_type"
+                ),
+                {
+                    "ontology_class": rule.ontology_class,
+                    "node_type": node_type,
+                },
+            )
+    if "graph_edges" in existing_tables:
+        connection.execute(
+            text(
+                "UPDATE graph_edges SET semantic_status = 'quarantined' "
+                "WHERE quality_gate_status IN ('rejected', 'insufficient_evidence')"
+            )
+        )
+        for edge_type, rule in EDGE_RULES.items():
+            connection.execute(
+                text(
+                    "UPDATE graph_edges SET ontology_property = :ontology_property "
+                    "WHERE type = :edge_type"
+                ),
+                {
+                    "ontology_property": rule.ontology_property,
+                    "edge_type": edge_type,
+                },
+            )
+        invalid_edges = list(
+            connection.execute(
+                text(
+                    "SELECT edge.* FROM graph_edges edge "
+                    "LEFT JOIN graph_nodes source ON source.id = edge.source_node_id "
+                    "LEFT JOIN graph_nodes target ON target.id = edge.target_node_id "
+                    "WHERE source.id IS NULL OR target.id IS NULL"
+                )
+            ).mappings()
+        )
+        for row in invalid_edges:
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migration_archive "
+                    "(migration_version, table_name, row_id, payload, archived_at) "
+                    "VALUES (12, 'graph_edges', :row_id, :payload, :archived_at)"
+                ),
+                {
+                    "row_id": row["id"],
+                    "payload": json.dumps(dict(row), default=str, sort_keys=True),
+                    "archived_at": archived_at,
+                },
+            )
+            connection.execute(
+                text("DELETE FROM graph_edges WHERE id = :id"), {"id": row["id"]}
+            )
+
+    _create_graph_integrity_triggers(connection, existing_tables)
+    _create_relational_integrity_triggers(connection, existing_tables)
+
+
+def _create_graph_integrity_triggers(
+    connection: Connection, existing_tables: set[str]
+) -> None:
+    if not {"graph_nodes", "graph_edges"}.issubset(existing_tables):
+        return
+    statements = [
+        "CREATE TRIGGER IF NOT EXISTS graph_edges_parent_guard_insert BEFORE INSERT ON graph_edges BEGIN "
+        "SELECT RAISE(ABORT, 'Graph edge source node does not exist') WHERE NOT EXISTS "
+        "(SELECT 1 FROM graph_nodes WHERE id = NEW.source_node_id); "
+        "SELECT RAISE(ABORT, 'Graph edge target node does not exist') WHERE NOT EXISTS "
+        "(SELECT 1 FROM graph_nodes WHERE id = NEW.target_node_id); END",
+        "CREATE TRIGGER IF NOT EXISTS graph_edges_parent_guard_update BEFORE UPDATE OF source_node_id, target_node_id ON graph_edges BEGIN "
+        "SELECT RAISE(ABORT, 'Graph edge source node does not exist') WHERE NOT EXISTS "
+        "(SELECT 1 FROM graph_nodes WHERE id = NEW.source_node_id); "
+        "SELECT RAISE(ABORT, 'Graph edge target node does not exist') WHERE NOT EXISTS "
+        "(SELECT 1 FROM graph_nodes WHERE id = NEW.target_node_id); END",
+    ]
+    cascade_statements = [
+        "DELETE FROM graph_edges WHERE source_node_id = OLD.id OR target_node_id = OLD.id"
+    ]
+    for table in (
+        "semantic_profiles",
+        "semantic_cluster_assignments",
+        "node_enrichment_versions",
+    ):
+        if table in existing_tables:
+            cascade_statements.append(f"DELETE FROM {table} WHERE node_id = OLD.id")
+    statements.append(
+        "CREATE TRIGGER IF NOT EXISTS graph_nodes_scoped_delete AFTER DELETE ON graph_nodes BEGIN "
+        + "; ".join(cascade_statements)
+        + "; END"
+    )
+    for statement in statements:
+        connection.execute(text(statement))
+
+
+def _create_relational_integrity_triggers(
+    connection: Connection, existing_tables: set[str]
+) -> None:
+    relationships = (
+        ("note_attachments", "note_id", "notes", "CASCADE"),
+        ("attachment_extractions", "attachment_id", "note_attachments", "CASCADE"),
+        ("job_attempts", "job_id", "jobs", "CASCADE"),
+        ("worker_inbox", "job_id", "jobs", "CASCADE"),
+        ("user_sessions", "user_id", "users", "CASCADE"),
+        ("auth_otps", "user_id", "users", "CASCADE"),
+        ("generated_metadata", "note_id", "notes", "CASCADE"),
+        ("embeddings", "note_id", "notes", "CASCADE"),
+        ("chunks", "note_id", "notes", "CASCADE"),
+        ("connections", "source_note_id", "notes", "CASCADE"),
+        ("connections", "target_note_id", "notes", "CASCADE"),
+        ("graph_inferences", "insight_id", "insights", "SET NULL"),
+        ("semantic_profiles", "node_id", "graph_nodes", "CASCADE"),
+        (
+            "semantic_cluster_assignments",
+            "node_id",
+            "graph_nodes",
+            "CASCADE",
+        ),
+        (
+            "semantic_cluster_assignments",
+            "cluster_id",
+            "semantic_clusters",
+            "CASCADE",
+        ),
+        (
+            "semantic_cluster_assignments",
+            "alternative_cluster_id",
+            "semantic_clusters",
+            "SET NULL",
+        ),
+        ("node_enrichment_versions", "node_id", "graph_nodes", "CASCADE"),
+        (
+            "graph_research_results",
+            "run_id",
+            "graph_research_runs",
+            "CASCADE",
+        ),
+        ("graph_research_results", "node_id", "graph_nodes", "SET NULL"),
+        ("ask_turns", "session_id", "ask_sessions", "CASCADE"),
+    )
+    for child, column, parent, on_delete in relationships:
+        if not {child, parent}.issubset(existing_tables):
+            continue
+        prefix = f"ri_{child}_{column}"
+        error = f"{child}.{column} parent does not exist"
+        condition = (
+            f"NEW.{column} IS NOT NULL AND NOT EXISTS "
+            f"(SELECT 1 FROM {parent} WHERE id = NEW.{column})"
+        )
+        connection.execute(
+            text(
+                f"CREATE TRIGGER IF NOT EXISTS {prefix}_insert BEFORE INSERT ON {child} "
+                f"BEGIN SELECT RAISE(ABORT, '{error}') WHERE {condition}; END"
+            )
+        )
+        connection.execute(
+            text(
+                f"CREATE TRIGGER IF NOT EXISTS {prefix}_update BEFORE UPDATE OF {column} ON {child} "
+                f"BEGIN SELECT RAISE(ABORT, '{error}') WHERE {condition}; END"
+            )
+        )
+        if on_delete == "CASCADE":
+            action = f"DELETE FROM {child} WHERE {column} = OLD.id"
+        else:
+            action = f"UPDATE {child} SET {column} = NULL WHERE {column} = OLD.id"
+        connection.execute(
+            text(
+                f"CREATE TRIGGER IF NOT EXISTS {prefix}_delete AFTER DELETE ON {parent} "
+                f"BEGIN {action}; END"
+            )
+        )
+
+
+def _apply_legacy_migration_ddl(connection: Connection, version: int) -> None:
     if version == 7:
         from berrybrain_api.models import (
             AskSessionRecord,
@@ -405,6 +841,15 @@ def downgrade_schema(bind: Engine, target_version: int) -> dict[str, int]:
     previous = assert_schema_compatible(bind)
     _ensure_migration_table(bind)
     with bind.begin() as connection:
+        if target_version < 12:
+            trigger_names = connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                    "AND (name LIKE 'ri_%' OR name LIKE 'graph_%')"
+                )
+            ).scalars()
+            for trigger_name in trigger_names:
+                connection.execute(text(f'DROP TRIGGER IF EXISTS "{trigger_name}"'))
         connection.execute(
             text("DELETE FROM schema_migrations WHERE version > :target"),
             {"target": target_version},

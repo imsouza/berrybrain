@@ -139,6 +139,7 @@ class IntegrationTest(unittest.TestCase):
 
     def test_02_monitor_exposes_model_reliability_without_prompt_data(self):
         from berrybrain_api import database as db_mod
+        from berrybrain_api.learning import record_learning_event
         from berrybrain_api.models import ModelInvocationRecord
 
         with db_mod.SessionLocal() as session:
@@ -151,6 +152,14 @@ class IntegrationTest(unittest.TestCase):
                     status="completed",
                     latency_ms=25,
                 )
+            )
+            record_learning_event(
+                session,
+                event_type="ask.answer.upvoted",
+                target_type="ask_answer",
+                target_key="integration-answer",
+                action="upvoted",
+                source_note_ids=[],
             )
             session.commit()
 
@@ -169,6 +178,10 @@ class IntegrationTest(unittest.TestCase):
         self.assertGreaterEqual(reliability["completed"], 1)
         self.assertIn("test-provider", reliability["by_provider"])
         self.assertNotIn("prompt", str(reliability).lower())
+        learning = response.json()["learning"]
+        self.assertEqual(learning["mode"], "feedback-guided-adaptation")
+        self.assertFalse(learning["model_weights_updated"])
+        self.assertGreaterEqual(learning["positive_events"], 1)
 
     def test_02_status_empty(self):
         resp = self.client.get("/api/v1/status")
@@ -523,7 +536,7 @@ class IntegrationTest(unittest.TestCase):
         )
         projection = self.client.post("/api/v1/graph/expand")
         self.assertEqual(projection.status_code, 200)
-        graph = self.client.get("/api/v1/graph").json()
+        graph = self.client.get("/api/v1/graph?includeProvisional=true").json()
         self.assertTrue(
             any(
                 node.get("type") == "insight"
@@ -872,7 +885,7 @@ class IntegrationTest(unittest.TestCase):
 
         expanded = self.client.post("/api/v1/graph/expand")
         self.assertEqual(expanded.status_code, 200, expanded.text)
-        graph = self.client.get("/api/v1/graph").json()
+        graph = self.client.get("/api/v1/graph?includeProvisional=true").json()
         concept_nodes = [
             node
             for node in graph["nodes"]
@@ -1121,7 +1134,7 @@ class IntegrationTest(unittest.TestCase):
 
         built = self.client.post("/api/v1/graph/expand")
         self.assertEqual(built.status_code, 200, built.text)
-        graph = self.client.get("/api/v1/graph").json()
+        graph = self.client.get("/api/v1/graph?includeProvisional=true").json()
         self.assertTrue(
             any(
                 node["type"] == "concept" and node["label"].lower() == marker.lower()
@@ -1343,7 +1356,9 @@ class IntegrationTest(unittest.TestCase):
         resp2 = self.client.get("/api/v1/worker/status")
         self.assertEqual(resp2.status_code, 200)
         self.assertEqual(resp2.json()["worker"]["jobs_processed"], 5)
-        self.assertTrue(resp2.json()["worker"]["last_heartbeat"].endswith("Z"))
+        self.assertTrue(resp2.json()["worker"]["last_heartbeat_at"].endswith("Z"))
+        self.assertIn("active_provider_healthy", resp2.json()["worker"])
+        self.assertNotIn("ollama_healthy", resp2.json()["worker"])
 
     def test_14_settings(self):
         denied = self.client.put(

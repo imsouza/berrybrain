@@ -65,8 +65,8 @@ def run_release_gate() -> MaturityReleaseGate:
         failed.append("graph.performance_budget")
     if not retrieval.gates_passed:
         failed.append("retrieval.executed_ablation")
-    if not judge_calibration["calibrated"]:
-        failed.append("judge.human_calibration")
+    if not judge_calibration["regression_gate_passed"]:
+        failed.append("judge.reference_fixture_agreement")
 
     retrieval_payload = asdict(retrieval)
     retrieval_payload.pop("observations", None)

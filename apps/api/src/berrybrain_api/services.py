@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.confidence import (
     estimate_connection_confidence,
     persist_confidence,
@@ -325,7 +326,13 @@ def _parse_json_dict(value: str) -> dict[str, Any]:
 def _compact_confidence(target: Any) -> dict[str, Any] | None:
     sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
     if sample_size <= 0:
-        return None
+        return {
+            "score": None,
+            "lower": None,
+            "upper": None,
+            "sampleSize": 0,
+            "method": "unavailable",
+        }
     return {
         "score": getattr(target, "confidence", None),
         "lower": getattr(target, "confidence_lower", None),
@@ -421,11 +428,12 @@ def build_graph(
     session: Session,
     max_depth: int = 2,
     view: str = "",
+    include_provisional: bool = False,
 ) -> dict[str, Any]:
     graph_nodes = list(
         session.execute(
             select(GraphNodeRecord.__table__).where(
-                GraphNodeRecord.semantic_status == "active"
+                accepted_node_clause(include_provisional=include_provisional)
             )
         ).all()
     )
@@ -433,8 +441,7 @@ def build_graph(
         graph_edges = list(
             session.execute(
                 select(GraphEdgeRecord.__table__).where(
-                    GraphEdgeRecord.status != "ignored",
-                    GraphEdgeRecord.semantic_status == "active",
+                    accepted_edge_clause(include_provisional=include_provisional)
                 )
             ).all()
         )
@@ -456,6 +463,9 @@ def build_graph(
                     {
                         "id": node_ids[node.id],
                         "recordId": node.id,
+                        "stableId": node.stable_id,
+                        "iri": node.iri,
+                        "artifactVersion": node.artifact_version,
                         "label": node.label,
                         "title": getattr(node, "title", "") or node.label,
                         "summary": getattr(node, "summary", ""),
@@ -502,6 +512,9 @@ def build_graph(
                 _prune_empty_projection(
                     {
                         "id": edge.id,
+                        "stableId": edge.stable_id,
+                        "iri": edge.iri,
+                        "artifactVersion": edge.artifact_version,
                         "source": source,
                         "target": target,
                         "type": edge.type,

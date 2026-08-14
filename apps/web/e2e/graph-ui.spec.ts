@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 async function mockPagedGraph(page: Page, nodes: Record<string, unknown>[], edges: Record<string, unknown>[] = []) {
-  await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
+  await page.route("**/api/v1/graph/summary?*", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ node_count: nodes.length, edge_count: edges.length, orphan_count: edges.length ? 0 : nodes.length, graphVersion: 91 }),
@@ -54,7 +54,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       type: index % 2 === 0 ? "semantic_relation" : "explicit_link",
       confidence: 0.78,
     })).filter((edge) => edge.source !== edge.target);
-    await page.route("**/api/v1/graph", (route) => route.fulfill({
+    await page.route("**/api/v1/graph?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ nodes, edges, graphVersion: 42, stats: { orphan_count: 0 } }),
@@ -87,7 +87,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       }),
     );
 
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -286,7 +286,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
         body: JSON.stringify({ status: "created", insight }),
       }),
     );
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -316,7 +316,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       }),
     );
 
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -342,7 +342,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       });
     });
 
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -460,7 +460,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       cancellationRequested = true;
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "cancelling" }) });
     });
-    await page.route("**/api/v1/graph", (route) => route.fulfill({
+    await page.route("**/api/v1/graph?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ nodes: [], edges: [], stats: { orphan_count: 0 } }),
@@ -506,7 +506,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       contentType: "application/json",
       body: JSON.stringify({ run: { id: 8, status: "completed", progress: 100, completedQueries: 2 } }),
     }));
-    await page.route("**/api/v1/graph", (route) => route.fulfill({
+    await page.route("**/api/v1/graph?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ nodes: [], edges: [], stats: { orphan_count: 0 } }),
@@ -523,7 +523,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
   test("opens the node page and queues a failed semantic analysis retry", async ({ page }) => {
     test.setTimeout(120_000);
     let deleted = false;
-    await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
+    await page.route("**/api/v1/graph/summary?*", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ node_count: deleted ? 0 : 1, edge_count: 0, orphan_count: deleted ? 0 : 1, graphVersion: deleted ? 6 : 5 }),
@@ -551,7 +551,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/graph/nodes/11/summary", (route) => route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: 11, type: "concept", label: "Docker", title: "Docker", summary: "Container platform", status: "suggested", semanticState: "failed", confidenceInterval: { score: 0.8, lower: 0.6, upper: 0.9, sampleSize: 2, method: "jeffreys-wilson-evidence-v2" }, userNotes: "" }),
+      body: JSON.stringify({ id: 11, type: "concept", label: "Docker", title: "Docker", summary: "Container platform", status: "suggested", semanticState: "failed", confidenceInterval: { score: 0.8, lower: 0.6, upper: 0.9, sampleSize: 2, method: "empirical-bernstein-bounded-signals-v1" }, userNotes: "" }),
     }));
     await page.route("**/api/v1/graph/nodes/11/semantic-analysis", (route) => route.fulfill({
       status: 200,

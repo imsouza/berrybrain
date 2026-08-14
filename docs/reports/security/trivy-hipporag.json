@@ -1,40 +1,37 @@
 {
   "SchemaVersion": 2,
-  "Trivy": {
-    "Version": "0.73.0"
-  },
-  "ReportID": "019fe49b-d34c-70e8-8d6d-0c1ea5fc4dfe",
-  "CreatedAt": "2026-08-09T03:40:45.260064568Z",
-  "ArtifactID": "sha256:04dd08f128ae48da9ad7c4cd3b692f9c99819aa63c686d8fd721b8279bea52c1",
+  "ReportID": "019fff20-e5fb-7ad1-be4c-35f4f02f55cb",
+  "CreatedAt": "2026-08-14T07:16:13.947714453Z",
+  "ArtifactID": "sha256:687db3e39f1e2cbfa710c001f6f1b6437447afd9afa3bb9e02670f4ac8372817",
   "ArtifactName": "berrybrain-hipporag:local",
   "ArtifactType": "container_image",
   "Metadata": {
-    "Size": 189225984,
+    "Size": 189240320,
     "OS": {
       "Family": "debian",
       "Name": "13.6"
     },
-    "ImageID": "sha256:df8a5f8be2247ec70be123a001a03529a7c98751e4a63289e03679a961a2c4ab",
+    "ImageID": "sha256:4ad81013ee82cffc1a631e42a0d895b21b307be9567ee82c5dacb88acafcf6c2",
     "DiffIDs": [
       "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1",
-      "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65",
-      "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799",
-      "sha256:fadfc9a65b5890ff7cc1d3f7fcc43477b476078864f1ff58cfb1b788906e24de",
-      "sha256:9c2e5078885e8907408f57eacf71341cf01d70816e1e6532261dbee1387b395f",
-      "sha256:53e83258f4e365a65f0e3ae37888864e27a5caee2fed909ac624334d48a5991c",
-      "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0",
-      "sha256:bdeb6f46caa4d40d57031bd859ebd92cacad6a197447db778d7d7c706b018a92"
+      "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc",
+      "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff",
+      "sha256:965b9a662b7cffeecd4ad9e0f23b7dca01444733a2ff7f33faca00d057e404b1",
+      "sha256:df86398bec3843c1f6b38c737c564d3a93938d6f93127716f11d65660cfe6413",
+      "sha256:9b2fa5c8514366c403329721f1bf0b42c207f012e8f9bb95c8f94f1d26b4b86e",
+      "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0",
+      "sha256:3c1e351114cd05b2a1c0f27ce7e315beb0093da05e06a48d7fca2f5c394751cc"
     ],
     "RepoTags": [
       "berrybrain-hipporag:local"
     ],
     "RepoDigests": [
-      "berrybrain-hipporag@sha256:df8a5f8be2247ec70be123a001a03529a7c98751e4a63289e03679a961a2c4ab"
+      "berrybrain-hipporag@sha256:4ad81013ee82cffc1a631e42a0d895b21b307be9567ee82c5dacb88acafcf6c2"
     ],
     "Reference": "berrybrain-hipporag:local",
     "ImageConfig": {
       "architecture": "arm64",
-      "created": "2026-08-09T00:40:03.072421225-03:00",
+      "created": "2026-08-14T04:14:28.91263857-03:00",
       "history": [
         {
           "created": "2026-08-03T00:00:00Z",
@@ -42,96 +39,96 @@
           "comment": "debuerreotype 0.17"
         },
         {
-          "created": "2026-08-05T01:08:57Z",
+          "created": "2026-08-13T19:34:56Z",
           "created_by": "ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-05T01:08:57Z",
+          "created": "2026-08-13T19:34:56Z",
           "created_by": "ENV LANG=C.UTF-8",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-05T01:08:57Z",
+          "created": "2026-08-13T19:34:56Z",
           "created_by": "RUN /bin/sh -c set -eux; \tapt-get update; \tapt-get install -y --no-install-recommends \t\tca-certificates \t\tnetbase \t\ttzdata \t; \tapt-get dist-clean # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-05T01:08:57Z",
+          "created": "2026-08-13T19:34:56Z",
           "created_by": "ENV GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-05T01:08:57Z",
-          "created_by": "ENV PYTHON_VERSION=3.11.15",
+          "created": "2026-08-13T19:34:56Z",
+          "created_by": "ENV PYTHON_VERSION=3.11.16",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-05T01:08:57Z",
-          "created_by": "ENV PYTHON_SHA256=272179ddd9a2e41a0fc8e42e33dfbdca0b3711aa5abf372d3f2d51543d09b625",
+          "created": "2026-08-13T19:34:56Z",
+          "created_by": "ENV PYTHON_SHA256=91bcdebfdde239a003ae93738a7fce0f9230fee5c4bc2b86f6e6e8c6f98aabe8",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-05T01:20:13Z",
+          "created": "2026-08-13T19:46:07Z",
           "created_by": "RUN /bin/sh -c set -eux; \t\tsavedAptMark=\"$(apt-mark showmanual)\"; \tapt-get update; \tapt-get install -y --no-install-recommends \t\tdpkg-dev \t\tgcc \t\tgnupg \t\tlibbluetooth-dev \t\tlibbz2-dev \t\tlibc6-dev \t\tlibdb-dev \t\tlibffi-dev \t\tlibgdbm-dev \t\tliblzma-dev \t\tlibncursesw5-dev \t\tlibreadline-dev \t\tlibsqlite3-dev \t\tlibssl-dev \t\tmake \t\ttk-dev \t\tuuid-dev \t\twget \t\txz-utils \t\tzlib1g-dev \t; \t\twget -O python.tar.xz \"https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz\"; \techo \"$PYTHON_SHA256 *python.tar.xz\" | sha256sum -c -; \twget -O python.tar.xz.asc \"https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz.asc\"; \tGNUPGHOME=\"$(mktemp -d)\"; export GNUPGHOME; \tgpg --batch --keyserver hkps://keys.openpgp.org --recv-keys \"$GPG_KEY\"; \tgpg --batch --verify python.tar.xz.asc python.tar.xz; \tgpgconf --kill all; \trm -rf \"$GNUPGHOME\" python.tar.xz.asc; \tmkdir -p /usr/src/python; \ttar --extract --directory /usr/src/python --strip-components=1 --file python.tar.xz; \trm python.tar.xz; \t\tcd /usr/src/python; \tgnuArch=\"$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)\"; \t./configure \t\t--build=\"$gnuArch\" \t\t--enable-loadable-sqlite-extensions \t\t--enable-optimizations \t\t--enable-option-checking=fatal \t\t--enable-shared \t\t$(test \"${gnuArch%%-*}\" != 'riscv64' \u0026\u0026 echo '--with-lto') \t\t--with-ensurepip \t; \tnproc=\"$(nproc)\"; \tEXTRA_CFLAGS=\"$(dpkg-buildflags --get CFLAGS)\"; \tLDFLAGS=\"$(dpkg-buildflags --get LDFLAGS)\"; \tLDFLAGS=\"${LDFLAGS:-} -Wl,--strip-all\"; \tmake -j \"$nproc\" \t\t\"EXTRA_CFLAGS=${EXTRA_CFLAGS:-}\" \t\t\"LDFLAGS=${LDFLAGS:-}\" \t; \trm python; \tmake -j \"$nproc\" \t\t\"EXTRA_CFLAGS=${EXTRA_CFLAGS:-}\" \t\t\"LDFLAGS=${LDFLAGS:-} -Wl,-rpath='\\$\\$ORIGIN/../lib'\" \t\tpython \t; \tmake install; \t\tcd /; \trm -rf /usr/src/python; \t\tfind /usr/local -depth \t\t\\( \t\t\t\\( -type d -a \\( -name test -o -name tests -o -name idle_test \\) \\) \t\t\t-o \\( -type f -a \\( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \\) \\) \t\t\\) -exec rm -rf '{}' + \t; \t\tldconfig; \t\tapt-mark auto '.*' \u003e /dev/null; \tapt-mark manual $savedAptMark; \tfind /usr/local -type f -executable -not \\( -name '*tkinter*' \\) -exec ldd '{}' ';' \t\t| awk '/=\u003e/ { so = $(NF-1); if (index(so, \"/usr/local/\") == 1) { next }; gsub(\"^/(usr/)?\", \"\", so); printf \"*%s\\n\", so }' \t\t| sort -u \t\t| xargs -rt dpkg-query --search \t\t| awk 'sub(\":$\", \"\", $1) { print $1 }' \t\t| sort -u \t\t| xargs -r apt-mark manual \t; \tapt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \tapt-get dist-clean; \t\texport PYTHONDONTWRITEBYTECODE=1; \tpython3 --version; \t\tpip3 install \t\t--disable-pip-version-check \t\t--no-cache-dir \t\t--no-compile \t\t'setuptools==79.0.1' \t\t'wheel==0.46.3' \t; \tpip3 --version # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-05T01:20:13Z",
+          "created": "2026-08-13T19:46:07Z",
           "created_by": "RUN /bin/sh -c set -eux; \tfor src in idle3 pip3 pydoc3 python3 python3-config; do \t\tdst=\"$(echo \"$src\" | tr -d 3)\"; \t\t[ -s \"/usr/local/bin/$src\" ]; \t\t[ ! -e \"/usr/local/bin/$dst\" ]; \t\tln -svT \"$src\" \"/usr/local/bin/$dst\"; \tdone # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-05T01:20:13Z",
+          "created": "2026-08-13T19:46:07Z",
           "created_by": "CMD [\"python3\"]",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-09T01:50:00Z",
+          "created": "2026-08-14T07:13:43Z",
           "created_by": "WORKDIR /app",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-09T01:51:21Z",
+          "created": "2026-08-14T07:13:45Z",
           "created_by": "COPY apps/hipporag/requirements.txt . # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-09T03:40:01Z",
+          "created": "2026-08-14T07:14:27Z",
           "created_by": "RUN /bin/sh -c pip install --no-cache-dir --upgrade         \"setuptools\u003e=84.0.0\"     \u0026\u0026 pip install --no-cache-dir -r requirements.txt # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-09T03:40:03Z",
+          "created": "2026-08-14T07:14:28Z",
           "created_by": "COPY apps/hipporag/main.py . # buildkit",
           "comment": "buildkit.dockerfile.v0"
         },
         {
-          "created": "2026-08-09T03:40:03Z",
+          "created": "2026-08-14T07:14:28Z",
           "created_by": "VOLUME [/data]",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-09T03:40:03Z",
+          "created": "2026-08-14T07:14:28Z",
           "created_by": "ENV HIPPORAG_DATA_DIR=/data HIPPORAG_LLM_URL= HIPPORAG_SERVICE_TOKEN=",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-09T03:40:03Z",
+          "created": "2026-08-14T07:14:28Z",
           "created_by": "EXPOSE [8000/tcp]",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
         },
         {
-          "created": "2026-08-09T03:40:03Z",
+          "created": "2026-08-14T07:14:28Z",
           "created_by": "CMD [\"uvicorn\" \"main:app\" \"--host\" \"0.0.0.0\" \"--port\" \"8000\"]",
           "comment": "buildkit.dockerfile.v0",
           "empty_layer": true
@@ -142,13 +139,13 @@
         "type": "layers",
         "diff_ids": [
           "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1",
-          "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65",
-          "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799",
-          "sha256:fadfc9a65b5890ff7cc1d3f7fcc43477b476078864f1ff58cfb1b788906e24de",
-          "sha256:9c2e5078885e8907408f57eacf71341cf01d70816e1e6532261dbee1387b395f",
-          "sha256:53e83258f4e365a65f0e3ae37888864e27a5caee2fed909ac624334d48a5991c",
-          "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0",
-          "sha256:bdeb6f46caa4d40d57031bd859ebd92cacad6a197447db778d7d7c706b018a92"
+          "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc",
+          "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff",
+          "sha256:965b9a662b7cffeecd4ad9e0f23b7dca01444733a2ff7f33faca00d057e404b1",
+          "sha256:df86398bec3843c1f6b38c737c564d3a93938d6f93127716f11d65660cfe6413",
+          "sha256:9b2fa5c8514366c403329721f1bf0b42c207f012e8f9bb95c8f94f1d26b4b86e",
+          "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0",
+          "sha256:3c1e351114cd05b2a1c0f27ce7e315beb0093da05e06a48d7fca2f5c394751cc"
         ]
       },
       "config": {
@@ -164,8 +161,8 @@
           "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
           "LANG=C.UTF-8",
           "GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D",
-          "PYTHON_VERSION=3.11.15",
-          "PYTHON_SHA256=272179ddd9a2e41a0fc8e42e33dfbdca0b3711aa5abf372d3f2d51543d09b625",
+          "PYTHON_VERSION=3.11.16",
+          "PYTHON_SHA256=91bcdebfdde239a003ae93738a7fce0f9230fee5c4bc2b86f6e6e8c6f98aabe8",
           "HIPPORAG_DATA_DIR=/data",
           "HIPPORAG_LLM_URL=",
           "HIPPORAG_SERVICE_TOKEN="
@@ -193,38 +190,38 @@
       },
       {
         "Size": 4172288,
-        "Digest": "sha256:7655ac2ce854eb8f29a90fabb4dae3d34c9c10c163149cb354c1769548d3863a",
-        "DiffID": "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65"
+        "Digest": "sha256:dce7fdcbadc617c8284289e67f7796c24f259677c5506cbdc1e17fe4e4e8c548",
+        "DiffID": "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc"
       },
       {
-        "Size": 47498752,
-        "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-        "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+        "Size": 47506944,
+        "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+        "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
       },
       {
         "Size": 5120,
-        "Digest": "sha256:c9ec0625cc79db10f0bb0025077f1863a48542aab62d1d166bbe505f41044ed9",
-        "DiffID": "sha256:fadfc9a65b5890ff7cc1d3f7fcc43477b476078864f1ff58cfb1b788906e24de"
+        "Digest": "sha256:477af7c3a936b1f5ddbcde585bdf7736346cff6f3ab0b1d4a3b1a170daee70ae",
+        "DiffID": "sha256:965b9a662b7cffeecd4ad9e0f23b7dca01444733a2ff7f33faca00d057e404b1"
       },
       {
         "Size": 1536,
-        "Digest": "sha256:59cfe892e8fabb1f932cebb5f20c248fb54baa2d93c7732e02e18507aeacc7d6",
-        "DiffID": "sha256:9c2e5078885e8907408f57eacf71341cf01d70816e1e6532261dbee1387b395f"
+        "Digest": "sha256:9e1724fee0c920b898fe7490286b72665bf892d0ff697d5d369df314ab23a997",
+        "DiffID": "sha256:df86398bec3843c1f6b38c737c564d3a93938d6f93127716f11d65660cfe6413"
       },
       {
         "Size": 2560,
-        "Digest": "sha256:a15a8cbfda3914a911b8a075744543a4c761560c4bf1d1390a9f28eed8035c90",
-        "DiffID": "sha256:53e83258f4e365a65f0e3ae37888864e27a5caee2fed909ac624334d48a5991c"
+        "Digest": "sha256:0c510b7804f2912cd0cd8ac67beb7df58357bf3326ac3d2719b3729bbb131b9b",
+        "DiffID": "sha256:9b2fa5c8514366c403329721f1bf0b42c207f012e8f9bb95c8f94f1d26b4b86e"
       },
       {
-        "Size": 34539520,
-        "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-        "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+        "Size": 34545664,
+        "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+        "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
       },
       {
         "Size": 22528,
-        "Digest": "sha256:510a53c6053c604e83a712c16bd7f45d7accc68291511df358fd0622e960a1be",
-        "DiffID": "sha256:bdeb6f46caa4d40d57031bd859ebd92cacad6a197447db778d7d7c706b018a92"
+        "Digest": "sha256:2e475c1c9452c8bacf7bd282880b6e98cff1bccd8b3d0abce8ffb25abafa1823",
+        "DiffID": "sha256:3c1e351114cd05b2a1c0f27ce7e315beb0093da05e06a48d7fca2f5c394751cc"
       }
     ]
   },
@@ -239,7 +236,7 @@
           "Name": "adduser",
           "Identifier": {
             "PURL": "pkg:deb/debian/adduser@3.152?arch=all\u0026distro=debian-13.6",
-            "UID": "681428a4291e51"
+            "UID": "a26e3466c18314ad"
           },
           "Version": "3.152",
           "Arch": "all",
@@ -250,15 +247,12 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian Adduser Developers \u003cadduser@packages.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "passwd@1:4.17.4-2"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/sbin/adduser",
@@ -318,15 +312,14 @@
             "/usr/share/perl5/Debian/AdduserCommon.pm",
             "/usr/share/perl5/Debian/AdduserLogging.pm",
             "/usr/share/perl5/Debian/AdduserRetvalues.pm"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "apt@3.0.3",
           "Name": "apt",
           "Identifier": {
             "PURL": "pkg:deb/debian/apt@3.0.3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "74259ba5e5f143fc"
+            "UID": "2d59d2c56dee653e"
           },
           "Version": "3.0.3",
           "Arch": "arm64",
@@ -340,9 +333,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "APT Development Team \u003cdeity@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "adduser@3.152",
             "base-passwd@3.6.7",
@@ -542,15 +532,14 @@
             "/usr/share/man/pt/man8/apt-mark.8.gz",
             "/usr/share/man/pt/man8/apt-secure.8.gz",
             "/usr/share/man/pt/man8/apt.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "base-files@13.8+deb13u6",
           "Name": "base-files",
           "Identifier": {
             "PURL": "pkg:deb/debian/base-files@13.8%2Bdeb13u6?arch=arm64\u0026distro=debian-13.6",
-            "UID": "2e100d3efd1d1b46"
+            "UID": "3bc6188afb329c25"
           },
           "Version": "13.8+deb13u6",
           "Arch": "arm64",
@@ -561,9 +550,6 @@
             "verbatim"
           ],
           "Maintainer": "Santiago Vila \u003csanvila@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -598,15 +584,14 @@
             "/usr/share/doc/base-files/changelog.gz",
             "/usr/share/doc/base-files/copyright",
             "/usr/share/lintian/overrides/base-files"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "base-passwd@3.6.7",
           "Name": "base-passwd",
           "Identifier": {
             "PURL": "pkg:deb/debian/base-passwd@3.6.7?arch=arm64\u0026distro=debian-13.6",
-            "UID": "79dfa0c4603230da"
+            "UID": "bd6ed131e31f5e6a"
           },
           "Version": "3.6.7",
           "Arch": "arm64",
@@ -617,9 +602,6 @@
             "public-domain"
           ],
           "Maintainer": "Shadow package maintainers \u003cpkg-shadow-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libdebconfclient0@0.280",
@@ -648,15 +630,14 @@
             "/usr/share/man/pl/man8/update-passwd.8.gz",
             "/usr/share/man/ro/man8/update-passwd.8.gz",
             "/usr/share/man/ru/man8/update-passwd.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "bash@5.2.37-2+b9",
           "Name": "bash",
           "Identifier": {
             "PURL": "pkg:deb/debian/bash@5.2.37-2%2Bb9?arch=arm64\u0026distro=debian-13.6",
-            "UID": "260a696ce1b67795"
+            "UID": "f1488b4f6936e198"
           },
           "Version": "5.2.37",
           "Release": "2+b9",
@@ -678,9 +659,6 @@
             "permissive"
           ],
           "Maintainer": "Matthias Klose \u003cdoko@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "base-files@13.8+deb13u6",
             "debianutils@5.23.2"
@@ -755,15 +733,14 @@
             "/usr/share/man/man1/rbash.1.gz",
             "/usr/share/man/man7/bash-builtins.7.gz",
             "/usr/share/menu/bash"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "bsdutils@1:2.41-5",
           "Name": "bsdutils",
           "Identifier": {
             "PURL": "pkg:deb/debian/bsdutils@2.41-5?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "94e268d496da180"
+            "UID": "78faedae86c79359"
           },
           "Version": "2.41",
           "Release": "5",
@@ -792,9 +769,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -823,15 +797,14 @@
             "/usr/share/man/man1/scriptlive.1.gz",
             "/usr/share/man/man1/scriptreplay.1.gz",
             "/usr/share/man/man1/wall.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "ca-certificates@20250419",
           "Name": "ca-certificates",
           "Identifier": {
             "PURL": "pkg:deb/debian/ca-certificates@20250419?arch=all\u0026distro=debian-13.6",
-            "UID": "80d358ddeb1b09c3"
+            "UID": "6365e842529686ef"
           },
           "Version": "20250419",
           "Arch": "all",
@@ -843,16 +816,13 @@
             "MPL-2.0"
           ],
           "Maintainer": "Julien Cristau \u003cjcristau@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "debconf@1.5.91",
             "openssl@3.5.6-1~deb13u2"
           ],
           "Layer": {
-            "Digest": "sha256:7655ac2ce854eb8f29a90fabb4dae3d34c9c10c163149cb354c1769548d3863a",
-            "DiffID": "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65"
+            "Digest": "sha256:dce7fdcbadc617c8284289e67f7796c24f259677c5506cbdc1e17fe4e4e8c548",
+            "DiffID": "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc"
           },
           "InstalledFiles": [
             "/usr/sbin/update-ca-certificates",
@@ -1022,15 +992,14 @@
             "/usr/share/doc/ca-certificates/examples/ca-certificates-local/local/Local_Root_CA.crt",
             "/usr/share/doc/ca-certificates/examples/ca-certificates-local/local/Makefile",
             "/usr/share/man/man8/update-ca-certificates.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "coreutils@9.7-3",
           "Name": "coreutils",
           "Identifier": {
             "PURL": "pkg:deb/debian/coreutils@9.7-3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "9e6c7de4a64a873a"
+            "UID": "28ade44c044d8b84"
           },
           "Version": "9.7",
           "Release": "3",
@@ -1048,9 +1017,6 @@
             "GFDL-1.3-only"
           ],
           "Maintainer": "Michael Stone \u003cmstone@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -1322,15 +1288,14 @@
             "/usr/share/man/man1/whoami.1.gz",
             "/usr/share/man/man1/yes.1.gz",
             "/usr/share/man/man8/chroot.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "dash@0.5.12-12",
           "Name": "dash",
           "Identifier": {
             "PURL": "pkg:deb/debian/dash@0.5.12-12?arch=arm64\u0026distro=debian-13.6",
-            "UID": "208b0b3b5a429b38"
+            "UID": "ec6b4fea499e5f93"
           },
           "Version": "0.5.12",
           "Release": "12",
@@ -1345,9 +1310,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Andrej Shadura \u003candrewsh@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "debianutils@5.23.2"
           ],
@@ -1366,15 +1328,14 @@
             "/usr/share/lintian/overrides/dash",
             "/usr/share/man/man1/dash.1.gz",
             "/usr/share/menu/dash"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "debconf@1.5.91",
           "Name": "debconf",
           "Identifier": {
             "PURL": "pkg:deb/debian/debconf@1.5.91?arch=all\u0026distro=debian-13.6",
-            "UID": "f7c8b7ba83ed5cfe"
+            "UID": "dbd74d1c32616a65"
           },
           "Version": "1.5.91",
           "Arch": "all",
@@ -1384,9 +1345,6 @@
             "BSD-2-Clause"
           ],
           "Maintainer": "Debconf Developers \u003cdebconf-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -1523,15 +1481,14 @@
             "/usr/share/perl5/Debconf/TmpFile.pm",
             "/usr/share/perl5/Debian/DebConf/Client/ConfModule.pm",
             "/usr/share/pixmaps/debian-logo.png"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "debian-archive-keyring@2025.1",
           "Name": "debian-archive-keyring",
           "Identifier": {
             "PURL": "pkg:deb/debian/debian-archive-keyring@2025.1?arch=all\u0026distro=debian-13.6",
-            "UID": "a22d861380b1187c"
+            "UID": "3d23f3bc34b84a13"
           },
           "Version": "2025.1",
           "Arch": "all",
@@ -1541,9 +1498,6 @@
             "GPL-2.0-or-later"
           ],
           "Maintainer": "Debian Release Team \u003cpackages@release.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -1564,15 +1518,14 @@
             "/usr/share/keyrings/debian-archive-trixie-automatic.pgp",
             "/usr/share/keyrings/debian-archive-trixie-security-automatic.pgp",
             "/usr/share/keyrings/debian-archive-trixie-stable.pgp"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "debianutils@5.23.2",
           "Name": "debianutils",
           "Identifier": {
             "PURL": "pkg:deb/debian/debianutils@5.23.2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "6ec6f7bd5316c8f5"
+            "UID": "fa191b3a95d11d1a"
           },
           "Version": "5.23.2",
           "Arch": "arm64",
@@ -1585,9 +1538,6 @@
             "SMAIL-GPL"
           ],
           "Maintainer": "Ileana Dumitrescu \u003cileanadumitrescu95@gmail.com\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -1663,15 +1613,14 @@
             "/usr/share/man/sl/man8/remove-shell.8.gz",
             "/usr/share/man/sl/man8/run-parts.8.gz",
             "/usr/share/man/sl/man8/savelog.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "diffutils@1:3.10-4",
           "Name": "diffutils",
           "Identifier": {
             "PURL": "pkg:deb/debian/diffutils@3.10-4?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "2fd93bb8d621e327"
+            "UID": "7b5620e93df0f4d8"
           },
           "Version": "3.10",
           "Release": "4",
@@ -1702,9 +1651,6 @@
             "GFDL-1.3-only"
           ],
           "Maintainer": "Santiago Vila \u003csanvila@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -1759,15 +1705,14 @@
             "/usr/share/man/man1/diff.1.gz",
             "/usr/share/man/man1/diff3.1.gz",
             "/usr/share/man/man1/sdiff.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "dpkg@1.22.22",
           "Name": "dpkg",
           "Identifier": {
             "PURL": "pkg:deb/debian/dpkg@1.22.22?arch=arm64\u0026distro=debian-13.6",
-            "UID": "98bc286d385c09af"
+            "UID": "1fab7212c5fa282c"
           },
           "Version": "1.22.22",
           "Arch": "arm64",
@@ -1779,9 +1724,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Dpkg Developers \u003cdebian-dpkg@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "tar@1.35+dfsg-3.1"
           ],
@@ -1935,15 +1877,14 @@
             "/usr/share/man/sv/man5/dpkg.cfg.5.gz",
             "/usr/share/man/sv/man8/start-stop-daemon.8.gz",
             "/usr/share/polkit-1/actions/org.dpkg.pkexec.update-alternatives.policy"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "findutils@4.10.0-3",
           "Name": "findutils",
           "Identifier": {
             "PURL": "pkg:deb/debian/findutils@4.10.0-3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "47ea6500c7d53469"
+            "UID": "385bb758330a557e"
           },
           "Version": "4.10.0",
           "Release": "3",
@@ -1976,9 +1917,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Andreas Metzler \u003cametzler@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2037,15 +1975,14 @@
             "/usr/share/locale/zh_TW/LC_MESSAGES/findutils.mo",
             "/usr/share/man/man1/find.1.gz",
             "/usr/share/man/man1/xargs.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "gcc-14-base@14.2.0-19",
           "Name": "gcc-14-base",
           "Identifier": {
             "PURL": "pkg:deb/debian/gcc-14-base@14.2.0-19?arch=arm64\u0026distro=debian-13.6",
-            "UID": "97729813f5e96303"
+            "UID": "b74f28fd752d38e7"
           },
           "Version": "14.2.0",
           "Release": "19",
@@ -2061,9 +1998,6 @@
             "LGPL-2.0-or-later"
           ],
           "Maintainer": "Debian GCC Maintainers \u003cdebian-gcc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2073,15 +2007,14 @@
             "/usr/share/doc/gcc-14-base/TODO.Debian",
             "/usr/share/doc/gcc-14-base/changelog.Debian.gz",
             "/usr/share/doc/gcc-14-base/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "grep@3.11-4+b1",
           "Name": "grep",
           "Identifier": {
             "PURL": "pkg:deb/debian/grep@3.11-4%2Bb1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "703fcf0d5268ab6c"
+            "UID": "e560cc96c10880be"
           },
           "Version": "3.11",
           "Release": "4+b1",
@@ -2094,9 +2027,6 @@
             "GPL-3.0-only"
           ],
           "Maintainer": "Anibal Monsalve Salazar \u003canibal@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2163,15 +2093,14 @@
             "/usr/share/locale/zh_CN/LC_MESSAGES/grep.mo",
             "/usr/share/locale/zh_TW/LC_MESSAGES/grep.mo",
             "/usr/share/man/man1/grep.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "gzip@1.13-1",
           "Name": "gzip",
           "Identifier": {
             "PURL": "pkg:deb/debian/gzip@1.13-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "96c405cbe579d2a5"
+            "UID": "760deb6f2bc766f1"
           },
           "Version": "1.13",
           "Release": "1",
@@ -2187,9 +2116,6 @@
             "GFDL-3"
           ],
           "Maintainer": "Milan Kupcevic \u003cmilan@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2223,15 +2149,14 @@
             "/usr/share/man/man1/zless.1.gz",
             "/usr/share/man/man1/zmore.1.gz",
             "/usr/share/man/man1/znew.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "hostname@3.25",
           "Name": "hostname",
           "Identifier": {
             "PURL": "pkg:deb/debian/hostname@3.25?arch=arm64\u0026distro=debian-13.6",
-            "UID": "fa5bea54d301f122"
+            "UID": "451e0638f8b9f046"
           },
           "Version": "3.25",
           "Arch": "arm64",
@@ -2241,9 +2166,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Michael Meskes \u003cmeskes@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2253,15 +2175,14 @@
             "/usr/share/doc/hostname/changelog.gz",
             "/usr/share/doc/hostname/copyright",
             "/usr/share/man/man1/hostname.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "init-system-helpers@1.69~deb13u1",
           "Name": "init-system-helpers",
           "Identifier": {
             "PURL": "pkg:deb/debian/init-system-helpers@1.69~deb13u1?arch=all\u0026distro=debian-13.6",
-            "UID": "cb52819ec2f1a236"
+            "UID": "317be9d9c6744acd"
           },
           "Version": "1.69~deb13u1",
           "Arch": "all",
@@ -2273,9 +2194,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian systemd Maintainers \u003cpkg-systemd-maintainers@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2297,15 +2215,14 @@
             "/usr/share/man/man8/invoke-rc.d.8.gz",
             "/usr/share/man/man8/service.8.gz",
             "/usr/share/man/man8/update-rc.d.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libacl1@2.3.2-2+b1",
           "Name": "libacl1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libacl1@2.3.2-2%2Bb1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "e028456a3c99844e"
+            "UID": "77cfc1368aee341"
           },
           "Version": "2.3.2",
           "Release": "2+b1",
@@ -2320,9 +2237,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Guillem Jover \u003cguillem@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -2337,15 +2251,14 @@
             "/usr/share/doc/libacl1/changelog.gz",
             "/usr/share/doc/libacl1/copyright",
             "/usr/share/lintian/overrides/libacl1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libapt-pkg7.0@3.0.3",
           "Name": "libapt-pkg7.0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libapt-pkg7.0@3.0.3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "6033c205f12a0fc7"
+            "UID": "cff703a75038609b"
           },
           "Version": "3.0.3",
           "Arch": "arm64",
@@ -2359,9 +2272,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "APT Development Team \u003cdeity@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libbz2-1.0@1.0.8-6",
             "libc6@2.41-12+deb13u3",
@@ -2428,15 +2338,14 @@
             "/usr/share/locale/vi/LC_MESSAGES/libapt-pkg7.0.mo",
             "/usr/share/locale/zh_CN/LC_MESSAGES/libapt-pkg7.0.mo",
             "/usr/share/locale/zh_TW/LC_MESSAGES/libapt-pkg7.0.mo"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libattr1@1:2.5.2-3",
           "Name": "libattr1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libattr1@2.5.2-3?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "1f154e199bd04886"
+            "UID": "b194fdaa482f68fa"
           },
           "Version": "2.5.2",
           "Release": "3",
@@ -2453,9 +2362,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Guillem Jover \u003cguillem@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -2469,15 +2375,14 @@
             "/usr/share/doc/libattr1/changelog.gz",
             "/usr/share/doc/libattr1/copyright",
             "/usr/share/lintian/overrides/libattr1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libaudit-common@1:4.0.2-2",
           "Name": "libaudit-common",
           "Identifier": {
             "PURL": "pkg:deb/debian/libaudit-common@4.0.2-2?arch=all\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "d20cd9a11d8e018d"
+            "UID": "4845289e49197cbd"
           },
           "Version": "4.0.2",
           "Release": "2",
@@ -2493,9 +2398,6 @@
             "GPL-1.0-only"
           ],
           "Maintainer": "Laurent Bigonville \u003cbigon@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -2505,15 +2407,14 @@
             "/usr/share/doc/libaudit-common/changelog.gz",
             "/usr/share/doc/libaudit-common/copyright",
             "/usr/share/man/man5/libaudit.conf.5.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libaudit1@1:4.0.2-2+b2",
           "Name": "libaudit1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libaudit1@4.0.2-2%2Bb2?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "c0481095df7cd613"
+            "UID": "112dfac29622df87"
           },
           "Version": "4.0.2",
           "Release": "2+b2",
@@ -2529,9 +2430,6 @@
             "GPL-1.0-only"
           ],
           "Maintainer": "Laurent Bigonville \u003cbigon@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libaudit-common@1:4.0.2-2",
             "libc6@2.41-12+deb13u3",
@@ -2547,15 +2445,14 @@
             "/usr/share/doc/libaudit1/changelog.Debian.gz",
             "/usr/share/doc/libaudit1/changelog.gz",
             "/usr/share/doc/libaudit1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libblkid1@2.41-5",
           "Name": "libblkid1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libblkid1@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "a6db2dda07a49c3e"
+            "UID": "67506f496525398d"
           },
           "Version": "2.41",
           "Release": "5",
@@ -2583,9 +2480,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -2600,15 +2494,14 @@
             "/usr/share/doc/libblkid1/changelog.gz",
             "/usr/share/doc/libblkid1/copyright",
             "/usr/share/lintian/overrides/libblkid1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libbsd0@0.12.2-2",
           "Name": "libbsd0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libbsd0@0.12.2-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "767ff656323bad77"
+            "UID": "18d209a493ef2b12"
           },
           "Version": "0.12.2",
           "Release": "2",
@@ -2633,9 +2526,6 @@
             "Beerware"
           ],
           "Maintainer": "Guillem Jover \u003cguillem@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libmd0@1.1.0-2+b1"
@@ -2650,15 +2540,14 @@
             "/usr/share/doc/libbsd0/changelog.gz",
             "/usr/share/doc/libbsd0/copyright",
             "/usr/share/lintian/overrides/libbsd0"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libbz2-1.0@1.0.8-6",
           "Name": "libbz2-1.0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libbz2-1.0@1.0.8-6?arch=arm64\u0026distro=debian-13.6",
-            "UID": "a6cba554b11070f0"
+            "UID": "4f68aa58c87e31c1"
           },
           "Version": "1.0.8",
           "Release": "6",
@@ -2671,9 +2560,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Anibal Monsalve Salazar \u003canibal@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -2686,15 +2572,14 @@
             "/usr/share/doc/libbz2-1.0/changelog.Debian.gz",
             "/usr/share/doc/libbz2-1.0/changelog.gz",
             "/usr/share/doc/libbz2-1.0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libc-bin@2.41-12+deb13u3",
           "Name": "libc-bin",
           "Identifier": {
             "PURL": "pkg:deb/debian/libc-bin@2.41-12%2Bdeb13u3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "2e8566d61c970979"
+            "UID": "3012144af68170ec"
           },
           "Version": "2.41",
           "Release": "12+deb13u3",
@@ -2737,9 +2622,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "GNU Libc Maintainers \u003cdebian-glibc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -2779,15 +2661,14 @@
             "/usr/share/lintian/overrides/libc-bin",
             "/usr/share/man/man1/getconf.1.gz",
             "/usr/share/man/man1/tzselect.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libc6@2.41-12+deb13u3",
           "Name": "libc6",
           "Identifier": {
             "PURL": "pkg:deb/debian/libc6@2.41-12%2Bdeb13u3?arch=arm64\u0026distro=debian-13.6",
-            "UID": "2605d7a869f2f4c5"
+            "UID": "279320498cd4004a"
           },
           "Version": "2.41",
           "Release": "12+deb13u3",
@@ -2830,9 +2711,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "GNU Libc Maintainers \u003cdebian-glibc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libgcc-s1@14.2.0-19"
           ],
@@ -3125,15 +3003,14 @@
             "/usr/share/doc/libc6/changelog.gz",
             "/usr/share/doc/libc6/copyright",
             "/usr/share/lintian/overrides/libc6"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libcap-ng0@0.8.5-4+b1",
           "Name": "libcap-ng0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libcap-ng0@0.8.5-4%2Bb1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "69069380edfd18d"
+            "UID": "a6c4460e534c55bb"
           },
           "Version": "0.8.5",
           "Release": "4+b1",
@@ -3149,9 +3026,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Håvard F. Aasen \u003chavard.f.aasen@pfft.no\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3166,15 +3040,14 @@
             "/usr/share/doc/libcap-ng0/changelog.Debian.gz",
             "/usr/share/doc/libcap-ng0/changelog.gz",
             "/usr/share/doc/libcap-ng0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libcap2@1:2.75-10+deb13u1+b1",
           "Name": "libcap2",
           "Identifier": {
             "PURL": "pkg:deb/debian/libcap2@2.75-10%2Bdeb13u1%2Bb1?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "3c25fce6b666ef92"
+            "UID": "1f3bafcc442421cf"
           },
           "Version": "2.75",
           "Release": "10+deb13u1+b1",
@@ -3190,9 +3063,6 @@
             "GPL-2.0-or-later"
           ],
           "Maintainer": "Christian Kastner \u003cckk@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3207,15 +3077,14 @@
             "/usr/share/doc/libcap2/changelog.Debian.gz",
             "/usr/share/doc/libcap2/changelog.gz",
             "/usr/share/doc/libcap2/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libcrypt1@1:4.4.38-1",
           "Name": "libcrypt1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libcrypt1@4.4.38-1?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "e82688fedd7c9ecc"
+            "UID": "571aa7ba2f92cc6c"
           },
           "Version": "4.4.38",
           "Release": "1",
@@ -3226,9 +3095,6 @@
           "SrcRelease": "1",
           "SrcEpoch": 1,
           "Maintainer": "Marco d'Itri \u003cmd@linux.it\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3241,15 +3107,14 @@
             "/usr/share/doc/libcrypt1/changelog.Debian.gz",
             "/usr/share/doc/libcrypt1/changelog.gz",
             "/usr/share/doc/libcrypt1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libdb5.3t64@5.3.28+dfsg2-9",
           "Name": "libdb5.3t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libdb5.3t64@5.3.28%2Bdfsg2-9?arch=arm64\u0026distro=debian-13.6",
-            "UID": "40b70760bc2c808a"
+            "UID": "e8dcc390d576d2af"
           },
           "Version": "5.3.28+dfsg2",
           "Release": "9",
@@ -3271,9 +3136,6 @@
             "Zlib"
           ],
           "Maintainer": "Debian QA Group \u003cpackages@qa.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3287,15 +3149,14 @@
             "/usr/share/doc/libdb5.3t64/changelog.Debian.gz",
             "/usr/share/doc/libdb5.3t64/copyright",
             "/usr/share/lintian/overrides/libdb5.3t64"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libdebconfclient0@0.280",
           "Name": "libdebconfclient0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libdebconfclient0@0.280?arch=arm64\u0026distro=debian-13.6",
-            "UID": "9980280cd15b6115"
+            "UID": "2fd92d93a11bcfc2"
           },
           "Version": "0.280",
           "Arch": "arm64",
@@ -3307,9 +3168,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian Install System Team \u003cdebian-boot@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3321,15 +3179,14 @@
             "/usr/lib/aarch64-linux-gnu/libdebconfclient.so.0.0.0",
             "/usr/share/doc/libdebconfclient0/changelog.gz",
             "/usr/share/doc/libdebconfclient0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libffi8@3.4.8-2",
           "Name": "libffi8",
           "Identifier": {
             "PURL": "pkg:deb/debian/libffi8@3.4.8-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "57f286e83dfbe1d3"
+            "UID": "84cfa6f7b2b48a78"
           },
           "Version": "3.4.8",
           "Release": "2",
@@ -3347,29 +3204,25 @@
             "public-domain"
           ],
           "Maintainer": "Debian GCC Maintainers \u003cdebian-gcc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/lib/aarch64-linux-gnu/libffi.so.8.1.4",
             "/usr/share/doc/libffi8/changelog.Debian.gz",
             "/usr/share/doc/libffi8/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libgcc-s1@14.2.0-19",
           "Name": "libgcc-s1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libgcc-s1@14.2.0-19?arch=arm64\u0026distro=debian-13.6",
-            "UID": "b33a8aca229e6b08"
+            "UID": "3fda4a090a113240"
           },
           "Version": "14.2.0",
           "Release": "19",
@@ -3378,9 +3231,6 @@
           "SrcVersion": "14.2.0",
           "SrcRelease": "19",
           "Maintainer": "Debian GCC Maintainers \u003cdebian-gcc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "gcc-14-base@14.2.0-19",
             "libc6@2.41-12+deb13u3"
@@ -3392,15 +3242,14 @@
           "InstalledFiles": [
             "/usr/lib/aarch64-linux-gnu/libgcc_s.so.1",
             "/usr/share/lintian/overrides/libgcc-s1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libgdbm6t64@1.24-2",
           "Name": "libgdbm6t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libgdbm6t64@1.24-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "c0d42ca82c75364f"
+            "UID": "da4ddbad6dd75818"
           },
           "Version": "1.24",
           "Release": "2",
@@ -3416,15 +3265,12 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Nicolas Mora \u003cbabelouest@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/lib/aarch64-linux-gnu/libgdbm.so.6.0.0",
@@ -3432,15 +3278,14 @@
             "/usr/share/doc/libgdbm6t64/changelog.gz",
             "/usr/share/doc/libgdbm6t64/copyright",
             "/usr/share/lintian/overrides/libgdbm6t64"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libgmp10@2:6.3.0+dfsg-3",
           "Name": "libgmp10",
           "Identifier": {
             "PURL": "pkg:deb/debian/libgmp10@6.3.0%2Bdfsg-3?arch=arm64\u0026distro=debian-13.6\u0026epoch=2",
-            "UID": "5e0fb0f220f80004"
+            "UID": "485810054254c4f2"
           },
           "Version": "6.3.0+dfsg",
           "Release": "3",
@@ -3460,9 +3305,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Debian Science Maintainers \u003cdebian-science-maintainers@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3476,15 +3318,14 @@
             "/usr/share/doc/libgmp10/changelog.Debian.gz",
             "/usr/share/doc/libgmp10/changelog.gz",
             "/usr/share/doc/libgmp10/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libhogweed6t64@3.10.1-1",
           "Name": "libhogweed6t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libhogweed6t64@3.10.1-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "3d36ada7fa8aa677"
+            "UID": "dbddec917fe7435e"
           },
           "Version": "3.10.1",
           "Release": "1",
@@ -3504,9 +3345,6 @@
             "GAP"
           ],
           "Maintainer": "Magnus Holmgren \u003cholmgren@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libgmp10@2:6.3.0+dfsg-3",
@@ -3522,15 +3360,14 @@
             "/usr/share/doc/libhogweed6t64/changelog.gz",
             "/usr/share/doc/libhogweed6t64/copyright",
             "/usr/share/lintian/overrides/libhogweed6t64"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "liblastlog2-2@2.41-5",
           "Name": "liblastlog2-2",
           "Identifier": {
             "PURL": "pkg:deb/debian/liblastlog2-2@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "22309d5616968425"
+            "UID": "765c4466a1dcd4a6"
           },
           "Version": "2.41",
           "Release": "5",
@@ -3558,9 +3395,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libsqlite3-0@3.46.1-7+deb13u1"
@@ -3575,15 +3409,14 @@
             "/usr/share/doc/liblastlog2-2/changelog.Debian.gz",
             "/usr/share/doc/liblastlog2-2/changelog.gz",
             "/usr/share/doc/liblastlog2-2/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "liblz4-1@1.10.0-4",
           "Name": "liblz4-1",
           "Identifier": {
             "PURL": "pkg:deb/debian/liblz4-1@1.10.0-4?arch=arm64\u0026distro=debian-13.6",
-            "UID": "a8ab74fe4ceaf00e"
+            "UID": "2bb62ea29e402a8d"
           },
           "Version": "1.10.0",
           "Release": "4",
@@ -3597,9 +3430,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Nobuhiro Iwamatsu \u003ciwamatsu@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libxxhash0@0.8.3-2"
@@ -3612,15 +3442,14 @@
             "/usr/lib/aarch64-linux-gnu/liblz4.so.1.10.0",
             "/usr/share/doc/liblz4-1/changelog.Debian.gz",
             "/usr/share/doc/liblz4-1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "liblzma5@5.8.1-1+deb13u1",
           "Name": "liblzma5",
           "Identifier": {
             "PURL": "pkg:deb/debian/liblzma5@5.8.1-1%2Bdeb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "b1043ccc1b926e60"
+            "UID": "f0417bf870857813"
           },
           "Version": "5.8.1",
           "Release": "1+deb13u1",
@@ -3645,9 +3474,6 @@
             "GPL-3.0-only"
           ],
           "Maintainer": "Sebastian Andrzej Siewior \u003csebastian@breakpoint.cc\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3663,15 +3489,14 @@
             "/usr/share/doc/liblzma5/changelog.Debian.gz",
             "/usr/share/doc/liblzma5/changelog.gz",
             "/usr/share/doc/liblzma5/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libmd0@1.1.0-2+b1",
           "Name": "libmd0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libmd0@1.1.0-2%2Bb1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "270e148c0622635"
+            "UID": "5c80f2283c7ec9fc"
           },
           "Version": "1.1.0",
           "Release": "2+b1",
@@ -3691,9 +3516,6 @@
             "public-domain-sha1"
           ],
           "Maintainer": "Guillem Jover \u003cguillem@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3707,15 +3529,14 @@
             "/usr/share/doc/libmd0/changelog.Debian.gz",
             "/usr/share/doc/libmd0/changelog.gz",
             "/usr/share/doc/libmd0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libmount1@2.41-5",
           "Name": "libmount1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libmount1@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "edbd65a914e51b9a"
+            "UID": "ebcf2c08c2ddf874"
           },
           "Version": "2.41",
           "Release": "5",
@@ -3743,9 +3564,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libblkid1@2.41-5",
             "libc6@2.41-12+deb13u3",
@@ -3762,15 +3580,14 @@
             "/usr/share/doc/libmount1/changelog.gz",
             "/usr/share/doc/libmount1/copyright",
             "/usr/share/lintian/overrides/libmount1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libncursesw6@6.5+20250216-2",
           "Name": "libncursesw6",
           "Identifier": {
             "PURL": "pkg:deb/debian/libncursesw6@6.5%2B20250216-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "15a6331f485f6934"
+            "UID": "2c59d654c16b7ad5"
           },
           "Version": "6.5+20250216",
           "Release": "2",
@@ -3779,31 +3596,27 @@
           "SrcVersion": "6.5+20250216",
           "SrcRelease": "2",
           "Maintainer": "Ncurses Maintainers \u003cncurses@packages.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libtinfo6@6.5+20250216-2"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/lib/aarch64-linux-gnu/libformw.so.6.5",
             "/usr/lib/aarch64-linux-gnu/libmenuw.so.6.5",
             "/usr/lib/aarch64-linux-gnu/libncursesw.so.6.5",
             "/usr/lib/aarch64-linux-gnu/libpanelw.so.6.5"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libnettle8t64@3.10.1-1",
           "Name": "libnettle8t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libnettle8t64@3.10.1-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "98ff8e59ef937c50"
+            "UID": "5785db456d2e6409"
           },
           "Version": "3.10.1",
           "Release": "1",
@@ -3823,9 +3636,6 @@
             "GAP"
           ],
           "Maintainer": "Magnus Holmgren \u003cholmgren@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -3841,15 +3651,14 @@
             "/usr/share/doc/libnettle8t64/changelog.gz",
             "/usr/share/doc/libnettle8t64/copyright",
             "/usr/share/lintian/overrides/libnettle8t64"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libpam-modules@1.7.0-5",
           "Name": "libpam-modules",
           "Identifier": {
             "PURL": "pkg:deb/debian/libpam-modules@1.7.0-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "f055b87ccf74ee64"
+            "UID": "e01747fd4ab5a086"
           },
           "Version": "1.7.0",
           "Release": "5",
@@ -3871,9 +3680,6 @@
             "Beerware"
           ],
           "Maintainer": "Sam Hartman \u003chartmans@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -3930,15 +3736,14 @@
             "/usr/share/doc/libpam-modules/examples/upperLOWER.c",
             "/usr/share/lintian/overrides/libpam-modules",
             "/usr/share/pam-configs/mkhomedir"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libpam-modules-bin@1.7.0-5",
           "Name": "libpam-modules-bin",
           "Identifier": {
             "PURL": "pkg:deb/debian/libpam-modules-bin@1.7.0-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "2b076d0df8a2e9b2"
+            "UID": "ab9d3f81097e5dde"
           },
           "Version": "1.7.0",
           "Release": "5",
@@ -3960,9 +3765,6 @@
             "Beerware"
           ],
           "Maintainer": "Sam Hartman \u003chartmans@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libaudit1@1:4.0.2-2+b2",
             "libc6@2.41-12+deb13u3",
@@ -3988,15 +3790,14 @@
             "/usr/share/doc/libpam-modules-bin/changelog.gz",
             "/usr/share/doc/libpam-modules-bin/copyright",
             "/usr/share/lintian/overrides/libpam-modules-bin"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libpam-runtime@1.7.0-5",
           "Name": "libpam-runtime",
           "Identifier": {
             "PURL": "pkg:deb/debian/libpam-runtime@1.7.0-5?arch=all\u0026distro=debian-13.6",
-            "UID": "1d4f3eaf1c0f9548"
+            "UID": "2e8bd19930283d52"
           },
           "Version": "1.7.0",
           "Release": "5",
@@ -4018,9 +3819,6 @@
             "Beerware"
           ],
           "Maintainer": "Sam Hartman \u003chartmans@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "debconf@1.5.91",
             "libpam-modules@1.7.0-5"
@@ -4193,15 +3991,14 @@
             "/usr/share/pam/common-session-noninteractive",
             "/usr/share/pam/common-session-noninteractive.md5sums",
             "/usr/share/pam/common-session.md5sums"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libpam0g@1.7.0-5",
           "Name": "libpam0g",
           "Identifier": {
             "PURL": "pkg:deb/debian/libpam0g@1.7.0-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "b73bc45355047606"
+            "UID": "c08ef3ee5b3d3482"
           },
           "Version": "1.7.0",
           "Release": "5",
@@ -4223,9 +4020,6 @@
             "Beerware"
           ],
           "Maintainer": "Sam Hartman \u003chartmans@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "debconf@1.5.91",
             "libaudit1@1:4.0.2-2+b2",
@@ -4247,15 +4041,14 @@
             "/usr/share/doc/libpam0g/changelog.gz",
             "/usr/share/doc/libpam0g/copyright",
             "/usr/share/lintian/overrides/libpam0g"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libpcre2-8-0@10.46-1~deb13u1",
           "Name": "libpcre2-8-0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libpcre2-8-0@10.46-1~deb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "83fe02f007211c44"
+            "UID": "9503e3ce94a6296d"
           },
           "Version": "10.46",
           "Release": "1~deb13u1",
@@ -4271,9 +4064,6 @@
             "public-domain"
           ],
           "Maintainer": "Matthew Vernon \u003cmatthew@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4287,15 +4077,14 @@
             "/usr/share/doc/libpcre2-8-0/changelog.Debian.gz",
             "/usr/share/doc/libpcre2-8-0/changelog.gz",
             "/usr/share/doc/libpcre2-8-0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libreadline8t64@8.2-6",
           "Name": "libreadline8t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libreadline8t64@8.2-6?arch=arm64\u0026distro=debian-13.6",
-            "UID": "15a97b22e5fab0bf"
+            "UID": "527f5ee2faecb1c3"
           },
           "Version": "8.2",
           "Release": "6",
@@ -4313,17 +4102,14 @@
             "ISC-no-attribution"
           ],
           "Maintainer": "Matthias Klose \u003cdoko@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libtinfo6@6.5+20250216-2",
             "readline-common@8.2-6"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/lib/aarch64-linux-gnu/libhistory.so.8.2",
@@ -4335,15 +4121,14 @@
             "/usr/share/doc/libreadline8t64/copyright",
             "/usr/share/doc/libreadline8t64/examples/Inputrc",
             "/usr/share/doc/libreadline8t64/inputrc.arrows"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libseccomp2@2.6.0-2",
           "Name": "libseccomp2",
           "Identifier": {
             "PURL": "pkg:deb/debian/libseccomp2@2.6.0-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "86dc304dd51e42e9"
+            "UID": "280ce0357f9f258d"
           },
           "Version": "2.6.0",
           "Release": "2",
@@ -4355,9 +4140,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Kees Cook \u003ckees@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4370,15 +4152,14 @@
             "/usr/share/doc/libseccomp2/changelog.Debian.gz",
             "/usr/share/doc/libseccomp2/changelog.gz",
             "/usr/share/doc/libseccomp2/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libselinux1@3.8.1-1",
           "Name": "libselinux1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libselinux1@3.8.1-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "c1022c54fc6aff69"
+            "UID": "d1ece72845f9379f"
           },
           "Version": "3.8.1",
           "Release": "1",
@@ -4391,9 +4172,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian SELinux maintainers \u003cselinux-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libpcre2-8-0@10.46-1~deb13u1"
@@ -4407,15 +4185,14 @@
             "/usr/lib/tmpfiles.d/libselinux1.conf",
             "/usr/share/doc/libselinux1/changelog.Debian.gz",
             "/usr/share/doc/libselinux1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsemanage-common@3.8.1-1",
           "Name": "libsemanage-common",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsemanage-common@3.8.1-1?arch=all\u0026distro=debian-13.6",
-            "UID": "ecc6b54d8bc6318c"
+            "UID": "82e27fcff653c8e2"
           },
           "Version": "3.8.1",
           "Release": "1",
@@ -4429,9 +4206,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian SELinux maintainers \u003cselinux-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -4440,15 +4214,14 @@
             "/usr/share/doc/libsemanage-common/changelog.Debian.gz",
             "/usr/share/doc/libsemanage-common/copyright",
             "/usr/share/man/man5/semanage.conf.5.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsemanage2@3.8.1-1",
           "Name": "libsemanage2",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsemanage2@3.8.1-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "5ec5c3c6fc09cd53"
+            "UID": "f30a1d6bd483466b"
           },
           "Version": "3.8.1",
           "Release": "1",
@@ -4462,9 +4235,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Debian SELinux maintainers \u003cselinux-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libaudit1@1:4.0.2-2+b2",
             "libbz2-1.0@1.0.8-6",
@@ -4481,15 +4251,14 @@
             "/usr/lib/aarch64-linux-gnu/libsemanage.so.2",
             "/usr/share/doc/libsemanage2/changelog.Debian.gz",
             "/usr/share/doc/libsemanage2/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsepol2@3.8.1-1",
           "Name": "libsepol2",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsepol2@3.8.1-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "69e942152de853b4"
+            "UID": "cf2dd94dd0bf7b64"
           },
           "Version": "3.8.1",
           "Release": "1",
@@ -4505,9 +4274,6 @@
             "GPL-2.0-or-later"
           ],
           "Maintainer": "Debian SELinux maintainers \u003cselinux-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4519,15 +4285,14 @@
             "/usr/lib/aarch64-linux-gnu/libsepol.so.2",
             "/usr/share/doc/libsepol2/changelog.Debian.gz",
             "/usr/share/doc/libsepol2/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsmartcols1@2.41-5",
           "Name": "libsmartcols1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsmartcols1@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "1c2df6837b99221b"
+            "UID": "512d007dfcfae19e"
           },
           "Version": "2.41",
           "Release": "5",
@@ -4555,9 +4320,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4572,15 +4334,14 @@
             "/usr/share/doc/libsmartcols1/changelog.gz",
             "/usr/share/doc/libsmartcols1/copyright",
             "/usr/share/lintian/overrides/libsmartcols1"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsqlite3-0@3.46.1-7+deb13u1",
           "Name": "libsqlite3-0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsqlite3-0@3.46.1-7%2Bdeb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "ab497ed2d6c9f210"
+            "UID": "d2f10097b009bcc7"
           },
           "Version": "3.46.1",
           "Release": "7+deb13u1",
@@ -4594,9 +4355,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Laszlo Boszormenyi (GCS) \u003cgcs@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4611,15 +4369,14 @@
             "/usr/share/doc/libsqlite3-0/changelog.gz",
             "/usr/share/doc/libsqlite3-0/changelog.html.gz",
             "/usr/share/doc/libsqlite3-0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libssl3t64@3.5.6-1~deb13u2",
           "Name": "libssl3t64",
           "Identifier": {
             "PURL": "pkg:deb/debian/libssl3t64@3.5.6-1~deb13u2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "5032c4a6c4018a8d"
+            "UID": "a39e3b81bc25fa31"
           },
           "Version": "3.5.6",
           "Release": "1~deb13u2",
@@ -4634,9 +4391,6 @@
             "GPL-1.0-only"
           ],
           "Maintainer": "Debian OpenSSL Team \u003cpkg-openssl-devel@alioth-lists.debian.net\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libzstd1@1.5.7+dfsg-1",
@@ -4657,15 +4411,14 @@
             "/usr/share/doc/libssl3t64/changelog.gz",
             "/usr/share/doc/libssl3t64/copyright",
             "/usr/share/lintian/overrides/libssl3t64"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libstdc++6@14.2.0-19",
           "Name": "libstdc++6",
           "Identifier": {
             "PURL": "pkg:deb/debian/libstdc%2B%2B6@14.2.0-19?arch=arm64\u0026distro=debian-13.6",
-            "UID": "da3a400f3e0d945"
+            "UID": "d39653a4bd3fe657"
           },
           "Version": "14.2.0",
           "Release": "19",
@@ -4674,9 +4427,6 @@
           "SrcVersion": "14.2.0",
           "SrcRelease": "19",
           "Maintainer": "Debian GCC Maintainers \u003cdebian-gcc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "gcc-14-base@14.2.0-19",
             "libc6@2.41-12+deb13u3",
@@ -4693,15 +4443,14 @@
             "/usr/share/gcc/python/libstdcxx/v6/printers.py",
             "/usr/share/gcc/python/libstdcxx/v6/xmethods.py",
             "/usr/share/gdb/auto-load/usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33-gdb.py"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libsystemd0@257.13-1~deb13u1",
           "Name": "libsystemd0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libsystemd0@257.13-1~deb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "f9f4518ab05c2b0f"
+            "UID": "f78dff8e0a8fbd2e"
           },
           "Version": "257.13",
           "Release": "1~deb13u1",
@@ -4720,9 +4469,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Debian systemd Maintainers \u003cpkg-systemd-maintainers@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libcap2@1:2.75-10+deb13u1+b1"
@@ -4736,15 +4482,14 @@
             "/usr/share/doc/libsystemd0/NEWS.Debian.gz",
             "/usr/share/doc/libsystemd0/changelog.Debian.gz",
             "/usr/share/doc/libsystemd0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libtinfo6@6.5+20250216-2",
           "Name": "libtinfo6",
           "Identifier": {
             "PURL": "pkg:deb/debian/libtinfo6@6.5%2B20250216-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "dcf1d505057b126d"
+            "UID": "1c136d6c11417a59"
           },
           "Version": "6.5+20250216",
           "Release": "2",
@@ -4758,9 +4503,6 @@
             "BSD-3-Clause"
           ],
           "Maintainer": "Ncurses Maintainers \u003cncurses@packages.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4774,15 +4516,14 @@
             "/usr/share/doc/libtinfo6/changelog.Debian.gz",
             "/usr/share/doc/libtinfo6/changelog.gz",
             "/usr/share/doc/libtinfo6/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libudev1@257.13-1~deb13u1",
           "Name": "libudev1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libudev1@257.13-1~deb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "6ad9e3cbb5fcdc33"
+            "UID": "1a5bf131fcc612a"
           },
           "Version": "257.13",
           "Release": "1~deb13u1",
@@ -4801,9 +4542,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Debian systemd Maintainers \u003cpkg-systemd-maintainers@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libcap2@1:2.75-10+deb13u1+b1"
@@ -4817,15 +4555,14 @@
             "/usr/share/doc/libudev1/NEWS.Debian.gz",
             "/usr/share/doc/libudev1/changelog.Debian.gz",
             "/usr/share/doc/libudev1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libuuid1@2.41-5",
           "Name": "libuuid1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libuuid1@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "4f56fb91313e3755"
+            "UID": "23a0219c734ac302"
           },
           "Version": "2.41",
           "Release": "5",
@@ -4853,9 +4590,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4869,15 +4603,14 @@
             "/usr/share/doc/libuuid1/changelog.Debian.gz",
             "/usr/share/doc/libuuid1/changelog.gz",
             "/usr/share/doc/libuuid1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libxxhash0@0.8.3-2",
           "Name": "libxxhash0",
           "Identifier": {
             "PURL": "pkg:deb/debian/libxxhash0@0.8.3-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "1e0320c35f3a2bde"
+            "UID": "61b55159dcd9ecea"
           },
           "Version": "0.8.3",
           "Release": "2",
@@ -4891,9 +4624,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Josue Ortega \u003cjosue@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4906,15 +4636,14 @@
             "/usr/share/doc/libxxhash0/changelog.Debian.gz",
             "/usr/share/doc/libxxhash0/changelog.gz",
             "/usr/share/doc/libxxhash0/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "libzstd1@1.5.7+dfsg-1",
           "Name": "libzstd1",
           "Identifier": {
             "PURL": "pkg:deb/debian/libzstd1@1.5.7%2Bdfsg-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "8aa7544df1141bf6"
+            "UID": "5fd53a5a4a369344"
           },
           "Version": "1.5.7+dfsg",
           "Release": "1",
@@ -4929,9 +4658,6 @@
             "MIT"
           ],
           "Maintainer": "RPM packaging team \u003cteam+pkg-rpm@tracker.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -4944,15 +4670,14 @@
             "/usr/share/doc/libzstd1/changelog.Debian.gz",
             "/usr/share/doc/libzstd1/changelog.gz",
             "/usr/share/doc/libzstd1/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "login@1:4.16.0-2+really2.41-5",
           "Name": "login",
           "Identifier": {
             "PURL": "pkg:deb/debian/login@4.16.0-2%2Breally2.41-5?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "c10aa9dd27113351"
+            "UID": "af505c1150cca987"
           },
           "Version": "4.16.0-2+really2.41",
           "Release": "5",
@@ -4981,9 +4706,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libaudit1@1:4.0.2-2+b2",
             "libc6@2.41-12+deb13u3",
@@ -5023,15 +4745,14 @@
             "/usr/share/man/uk/man1/login.1.gz",
             "/usr/share/man/uk/man1/newgrp.1.gz",
             "/usr/share/man/uk/man8/nologin.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "login.defs@1:4.17.4-2",
           "Name": "login.defs",
           "Identifier": {
             "PURL": "pkg:deb/debian/login.defs@4.17.4-2?arch=all\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "b6a337588c67d5a3"
+            "UID": "b2ebc9108569350a"
           },
           "Version": "4.17.4",
           "Release": "2",
@@ -5048,9 +4769,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Shadow package maintainers \u003cpkg-shadow-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -5068,15 +4786,14 @@
             "/usr/share/man/ru/man5/login.defs.5.gz",
             "/usr/share/man/uk/man5/login.defs.5.gz",
             "/usr/share/man/zh_CN/man5/login.defs.5.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "mawk@1.3.4.20250131-1",
           "Name": "mawk",
           "Identifier": {
             "PURL": "pkg:deb/debian/mawk@1.3.4.20250131-1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "80774cb931ea09b6"
+            "UID": "f4bcab157722942b"
           },
           "Version": "1.3.4.20250131",
           "Release": "1",
@@ -5090,9 +4807,6 @@
             "CC-BY-3.0"
           ],
           "Maintainer": "Boyuan Yang \u003cbyang@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -5120,15 +4834,14 @@
             "/usr/share/man/man1/mawk.1.gz",
             "/usr/share/man/man7/mawk-arrays.7.gz",
             "/usr/share/man/man7/mawk-code.7.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "mount@2.41-5",
           "Name": "mount",
           "Identifier": {
             "PURL": "pkg:deb/debian/mount@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "b5d8c7f244f632c9"
+            "UID": "7111600ea553ec8"
           },
           "Version": "2.41",
           "Release": "5",
@@ -5156,9 +4869,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -5188,15 +4898,14 @@
             "/usr/share/man/man8/mount.8.gz",
             "/usr/share/man/man8/swapon.8.gz",
             "/usr/share/man/man8/umount.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "ncurses-base@6.5+20250216-2",
           "Name": "ncurses-base",
           "Identifier": {
             "PURL": "pkg:deb/debian/ncurses-base@6.5%2B20250216-2?arch=all\u0026distro=debian-13.6",
-            "UID": "767a0231348a5cb5"
+            "UID": "76a1fb5936f344dc"
           },
           "Version": "6.5+20250216",
           "Release": "2",
@@ -5210,9 +4919,6 @@
             "BSD-3-Clause"
           ],
           "Maintainer": "Ncurses Maintainers \u003cncurses@packages.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -5269,15 +4975,14 @@
             "/usr/share/terminfo/x/xterm-r6",
             "/usr/share/terminfo/x/xterm-vt220",
             "/usr/share/terminfo/x/xterm-xfree86"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "ncurses-bin@6.5+20250216-2",
           "Name": "ncurses-bin",
           "Identifier": {
             "PURL": "pkg:deb/debian/ncurses-bin@6.5%2B20250216-2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "829d0332fb3554d0"
+            "UID": "c637f9440bbb2795"
           },
           "Version": "6.5+20250216",
           "Release": "2",
@@ -5291,9 +4996,6 @@
             "BSD-3-Clause"
           ],
           "Maintainer": "Ncurses Maintainers \u003cncurses@packages.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -5323,15 +5025,14 @@
             "/usr/share/man/man5/terminfo.5.gz",
             "/usr/share/man/man5/user_caps.5.gz",
             "/usr/share/man/man7/term.7.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "netbase@6.5",
           "Name": "netbase",
           "Identifier": {
             "PURL": "pkg:deb/debian/netbase@6.5?arch=all\u0026distro=debian-13.6",
-            "UID": "9929ff265179fc61"
+            "UID": "b9a2c240e75fe15e"
           },
           "Version": "6.5",
           "Arch": "all",
@@ -5341,25 +5042,21 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Marco d'Itri \u003cmd@linux.it\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
-            "Digest": "sha256:7655ac2ce854eb8f29a90fabb4dae3d34c9c10c163149cb354c1769548d3863a",
-            "DiffID": "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65"
+            "Digest": "sha256:dce7fdcbadc617c8284289e67f7796c24f259677c5506cbdc1e17fe4e4e8c548",
+            "DiffID": "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc"
           },
           "InstalledFiles": [
             "/usr/share/doc/netbase/changelog.gz",
             "/usr/share/doc/netbase/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "openssl@3.5.6-1~deb13u2",
           "Name": "openssl",
           "Identifier": {
             "PURL": "pkg:deb/debian/openssl@3.5.6-1~deb13u2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "875e4f2ea5fb4d08"
+            "UID": "87d43458177f4f27"
           },
           "Version": "3.5.6",
           "Release": "1~deb13u2",
@@ -5374,16 +5071,13 @@
             "GPL-1.0-only"
           ],
           "Maintainer": "Debian OpenSSL Team \u003cpkg-openssl-devel@alioth-lists.debian.net\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libssl3t64@3.5.6-1~deb13u2"
           ],
           "Layer": {
-            "Digest": "sha256:7655ac2ce854eb8f29a90fabb4dae3d34c9c10c163149cb354c1769548d3863a",
-            "DiffID": "sha256:479c01ffe817bb89aeed839642503ade7a75811cf6e5c5ef1df0b1a119ce0d65"
+            "Digest": "sha256:dce7fdcbadc617c8284289e67f7796c24f259677c5506cbdc1e17fe4e4e8c548",
+            "DiffID": "sha256:659237c43814bf2958577be502d6cdcf93afc7b6f113138a7a1cd9a3f6a9dbcc"
           },
           "InstalledFiles": [
             "/usr/bin/c_rehash",
@@ -5625,15 +5319,14 @@
             "/usr/share/man/man7/provider.7ssl.gz",
             "/usr/share/man/man7/proxy-certificates.7ssl.gz",
             "/usr/share/man/man7/x509.7ssl.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "openssl-provider-legacy@3.5.6-1~deb13u2",
           "Name": "openssl-provider-legacy",
           "Identifier": {
             "PURL": "pkg:deb/debian/openssl-provider-legacy@3.5.6-1~deb13u2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "25968bf04d827b0a"
+            "UID": "77136ff71c57611a"
           },
           "Version": "3.5.6",
           "Release": "1~deb13u2",
@@ -5648,9 +5341,6 @@
             "GPL-1.0-only"
           ],
           "Maintainer": "Debian OpenSSL Team \u003cpkg-openssl-devel@alioth-lists.debian.net\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libssl3t64@3.5.6-1~deb13u2"
@@ -5664,15 +5354,14 @@
             "/usr/share/doc/openssl-provider-legacy/changelog.Debian.gz",
             "/usr/share/doc/openssl-provider-legacy/changelog.gz",
             "/usr/share/doc/openssl-provider-legacy/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "passwd@1:4.17.4-2",
           "Name": "passwd",
           "Identifier": {
             "PURL": "pkg:deb/debian/passwd@4.17.4-2?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "e0869896a8070bc9"
+            "UID": "b95a5fc6aba39744"
           },
           "Version": "4.17.4",
           "Release": "2",
@@ -5689,9 +5378,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Shadow package maintainers \u003cpkg-shadow-devel@lists.alioth.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "base-passwd@3.6.7",
             "libacl1@2.3.2-2+b1",
@@ -6037,15 +5723,14 @@
             "/usr/share/man/zh_TW/man8/useradd.8.gz",
             "/usr/share/man/zh_TW/man8/userdel.8.gz",
             "/usr/share/man/zh_TW/man8/usermod.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "perl-base@5.40.1-6",
           "Name": "perl-base",
           "Identifier": {
             "PURL": "pkg:deb/debian/perl-base@5.40.1-6?arch=arm64\u0026distro=debian-13.6",
-            "UID": "b9c070033835aadb"
+            "UID": "c27dbff5ae8e0632"
           },
           "Version": "5.40.1",
           "Release": "6",
@@ -6079,9 +5764,6 @@
             "Artistic-2"
           ],
           "Maintainer": "Niko Tyni \u003cntyni@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -6711,15 +6393,14 @@
             "/usr/share/doc/perl/Documentation",
             "/usr/share/lintian/overrides/perl-base",
             "/usr/share/man/man1/perl.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "readline-common@8.2-6",
           "Name": "readline-common",
           "Identifier": {
             "PURL": "pkg:deb/debian/readline-common@8.2-6?arch=all\u0026distro=debian-13.6",
-            "UID": "e762758a1681f62e"
+            "UID": "7f5f4bcfd1669a46"
           },
           "Version": "8.2",
           "Release": "6",
@@ -6737,12 +6418,9 @@
             "ISC-no-attribution"
           ],
           "Maintainer": "Matthias Klose \u003cdoko@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
           "InstalledFiles": [
             "/usr/share/doc/readline-common/changelog.Debian.gz",
@@ -6754,15 +6432,14 @@
             "/usr/share/man/man3/history.3readline.gz",
             "/usr/share/man/man3/readline.3readline.gz",
             "/usr/share/readline/inputrc"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "sed@4.9-2+deb13u1",
           "Name": "sed",
           "Identifier": {
             "PURL": "pkg:deb/debian/sed@4.9-2%2Bdeb13u1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "9d2deb936a53af07"
+            "UID": "7eda3d9f3f504149"
           },
           "Version": "4.9",
           "Release": "2+deb13u1",
@@ -6782,9 +6459,6 @@
             "pcre"
           ],
           "Maintainer": "Clint Adams \u003cclint@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -6843,15 +6517,14 @@
             "/usr/share/locale/zh_CN/LC_MESSAGES/sed.mo",
             "/usr/share/locale/zh_TW/LC_MESSAGES/sed.mo",
             "/usr/share/man/man1/sed.1.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "sqv@1.3.0-3+b2",
           "Name": "sqv",
           "Identifier": {
             "PURL": "pkg:deb/debian/sqv@1.3.0-3%2Bb2?arch=arm64\u0026distro=debian-13.6",
-            "UID": "9183de2c71616cbf"
+            "UID": "6d148e3dfa2682f4"
           },
           "Version": "1.3.0",
           "Release": "3+b2",
@@ -6864,9 +6537,6 @@
             "LGPL-2.0-only"
           ],
           "Maintainer": "Debian Rust Maintainers \u003cpkg-rust-maintainers@alioth-lists.debian.net\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3",
             "libgcc-s1@14.2.0-19",
@@ -6888,15 +6558,14 @@
             "/usr/share/fish/completions/sqv.fish",
             "/usr/share/man/man1/sqv.1.gz",
             "/usr/share/zsh/vendor-completions/_sqv"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "sysvinit-utils@3.14-4",
           "Name": "sysvinit-utils",
           "Identifier": {
             "PURL": "pkg:deb/debian/sysvinit-utils@3.14-4?arch=arm64\u0026distro=debian-13.6",
-            "UID": "206dd142ae2ef151"
+            "UID": "409f6a1e4b353e27"
           },
           "Version": "3.14",
           "Release": "4",
@@ -6912,9 +6581,6 @@
             "LGPL-2.1-only"
           ],
           "Maintainer": "Debian sysvinit maintainers \u003cdebian-init-diversity@chiark.greenend.org.uk\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -6935,15 +6601,14 @@
             "/usr/share/man/man8/fstab-decode.8.gz",
             "/usr/share/man/man8/killall5.8.gz",
             "/usr/share/man/man8/pidof.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "tar@1.35+dfsg-3.1",
           "Name": "tar",
           "Identifier": {
             "PURL": "pkg:deb/debian/tar@1.35%2Bdfsg-3.1?arch=arm64\u0026distro=debian-13.6",
-            "UID": "dffc8a93aad9f629"
+            "UID": "e48247ac68b24ab6"
           },
           "Version": "1.35+dfsg",
           "Release": "3.1",
@@ -6963,9 +6628,6 @@
             "GPL-2.0-only"
           ],
           "Maintainer": "Janos Lenart \u003cocsi@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -7025,15 +6687,14 @@
             "/usr/share/man/man1/tar.1.gz",
             "/usr/share/man/man1/tarcat.1.gz",
             "/usr/share/man/man8/rmt-tar.8.gz"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "tzdata@2026b-0+deb13u1",
           "Name": "tzdata",
           "Identifier": {
             "PURL": "pkg:deb/debian/tzdata@2026b-0%2Bdeb13u1?arch=all\u0026distro=debian-13.6",
-            "UID": "9e352e373d8245f0"
+            "UID": "6698e2883de2f799"
           },
           "Version": "2026b",
           "Release": "0+deb13u1",
@@ -7045,9 +6706,6 @@
             "public-domain"
           ],
           "Maintainer": "GNU Libc Maintainers \u003cdebian-glibc@lists.debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "debconf@1.5.91"
           ],
@@ -7505,15 +7163,14 @@
             "/usr/share/zoneinfo/zone.tab",
             "/usr/share/zoneinfo/zone1970.tab",
             "/usr/share/zoneinfo/zonenow.tab"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "util-linux@2.41-5",
           "Name": "util-linux",
           "Identifier": {
             "PURL": "pkg:deb/debian/util-linux@2.41-5?arch=arm64\u0026distro=debian-13.6",
-            "UID": "e14fbd5975825c96"
+            "UID": "6c28848524cb4614"
           },
           "Version": "2.41",
           "Release": "5",
@@ -7541,9 +7198,6 @@
             "LGPL-3.0-only"
           ],
           "Maintainer": "Chris Hofstaedtler \u003czeha@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "Layer": {
             "Digest": "sha256:1b7200988f192e72703c70486d494e2457935ac9b0f031ac09eb115b01a12d45",
             "DiffID": "sha256:c01c35a040a25a51cd473910e3212a46d85fb700a6467c687f231d7edd47cbc1"
@@ -7797,15 +7451,14 @@
             "/usr/share/man/man8/wipefs.8.gz",
             "/usr/share/man/man8/zramctl.8.gz",
             "/usr/share/util-linux/logcheck/ignore.d.server/util-linux"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         },
         {
           "ID": "zlib1g@1:1.3.dfsg+really1.3.1-1+b1",
           "Name": "zlib1g",
           "Identifier": {
             "PURL": "pkg:deb/debian/zlib1g@1.3.dfsg%2Breally1.3.1-1%2Bb1?arch=arm64\u0026distro=debian-13.6\u0026epoch=1",
-            "UID": "4a5ad1c8c93ecc5d"
+            "UID": "a3e798c506279104"
           },
           "Version": "1.3.dfsg+really1.3.1",
           "Release": "1+b1",
@@ -7819,9 +7472,6 @@
             "Zlib"
           ],
           "Maintainer": "Mark Brown \u003cbroonie@debian.org\u003e",
-          "Repository": {
-            "Class": "official"
-          },
           "DependsOn": [
             "libc6@2.41-12+deb13u3"
           ],
@@ -7835,8 +7485,7 @@
             "/usr/share/doc/zlib1g/changelog.Debian.gz",
             "/usr/share/doc/zlib1g/changelog.gz",
             "/usr/share/doc/zlib1g/copyright"
-          ],
-          "AnalyzedBy": "dpkg"
+          ]
         }
       ]
     },
@@ -7849,545 +7498,513 @@
           "Name": "annotated-doc",
           "Identifier": {
             "PURL": "pkg:pypi/annotated-doc@0.0.5",
-            "UID": "5ef66cf3929c6b46"
+            "UID": "97f161a63f3c0908"
           },
           "Version": "0.0.5",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/annotated_doc-0.0.5.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/annotated_doc-0.0.5.dist-info/METADATA"
         },
         {
           "Name": "annotated-types",
           "Identifier": {
             "PURL": "pkg:pypi/annotated-types@0.8.0",
-            "UID": "334ad696bbf87e9f"
+            "UID": "aa174a4507511dc6"
           },
           "Version": "0.8.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/annotated_types-0.8.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/annotated_types-0.8.0.dist-info/METADATA"
         },
         {
           "Name": "anyio",
           "Identifier": {
             "PURL": "pkg:pypi/anyio@4.14.2",
-            "UID": "46105fe719f35d9a"
+            "UID": "34c3dcd6cef12cb6"
           },
           "Version": "4.14.2",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/anyio-4.14.2.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/anyio-4.14.2.dist-info/METADATA"
         },
         {
           "Name": "autocommand",
           "Identifier": {
             "PURL": "pkg:pypi/autocommand@2.2.2",
-            "UID": "de2aeb22213f7255"
+            "UID": "28fb792e4aae875"
           },
           "Version": "2.2.2",
           "Licenses": [
             "LGPL-3.0-only"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/autocommand-2.2.2.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/autocommand-2.2.2.dist-info/METADATA"
         },
         {
           "Name": "backports.tarfile",
           "Identifier": {
             "PURL": "pkg:pypi/backports.tarfile@1.2.0",
-            "UID": "1333ca5d453000df"
+            "UID": "211f0dcf30dbe02b"
           },
           "Version": "1.2.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/backports.tarfile-1.2.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/backports.tarfile-1.2.0.dist-info/METADATA"
         },
         {
           "Name": "certifi",
           "Identifier": {
             "PURL": "pkg:pypi/certifi@2026.7.22",
-            "UID": "fd504eea95509f7"
+            "UID": "c35c20406685a527"
           },
           "Version": "2026.7.22",
           "Licenses": [
             "MPL-2.0"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/certifi-2026.7.22.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/certifi-2026.7.22.dist-info/METADATA"
         },
         {
           "Name": "click",
           "Identifier": {
             "PURL": "pkg:pypi/click@8.4.2",
-            "UID": "4e28a51bc258cd00"
+            "UID": "a290159fe2f91b0"
           },
           "Version": "8.4.2",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/click-8.4.2.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/click-8.4.2.dist-info/METADATA"
         },
         {
           "Name": "fastapi",
           "Identifier": {
             "PURL": "pkg:pypi/fastapi@0.140.13",
-            "UID": "69ad3c435316777a"
+            "UID": "b1ec9db17cf27616"
           },
           "Version": "0.140.13",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/fastapi-0.140.13.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/fastapi-0.140.13.dist-info/METADATA"
         },
         {
           "Name": "h11",
           "Identifier": {
             "PURL": "pkg:pypi/h11@0.16.0",
-            "UID": "455db3a00bf72"
+            "UID": "30d840be1d79f66"
           },
           "Version": "0.16.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/h11-0.16.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/h11-0.16.0.dist-info/METADATA"
         },
         {
           "Name": "httpcore",
           "Identifier": {
             "PURL": "pkg:pypi/httpcore@1.0.9",
-            "UID": "5f1e35fbdba869a3"
+            "UID": "8ab9fbc33170827d"
           },
           "Version": "1.0.9",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/httpcore-1.0.9.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/httpcore-1.0.9.dist-info/METADATA"
         },
         {
           "Name": "httpx",
           "Identifier": {
             "PURL": "pkg:pypi/httpx@0.28.1",
-            "UID": "90b35739e155fb56"
+            "UID": "2f72fc1ef2925b16"
           },
           "Version": "0.28.1",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/httpx-0.28.1.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/httpx-0.28.1.dist-info/METADATA"
         },
         {
           "Name": "idna",
           "Identifier": {
             "PURL": "pkg:pypi/idna@3.18",
-            "UID": "b3a39293fac77ef8"
+            "UID": "3586775db8f0d082"
           },
           "Version": "3.18",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/idna-3.18.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/idna-3.18.dist-info/METADATA"
         },
         {
           "Name": "importlib_metadata",
           "Identifier": {
             "PURL": "pkg:pypi/importlib-metadata@8.7.1",
-            "UID": "13858cf6789e6e4f"
+            "UID": "dd7c17ca8b29cb7f"
           },
           "Version": "8.7.1",
           "Licenses": [
             "Apache-2.0"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/importlib_metadata-8.7.1.dist-info/METADATA"
         },
         {
           "Name": "jaraco.context",
           "Identifier": {
             "PURL": "pkg:pypi/jaraco.context@6.1.0",
-            "UID": "edc994527cc192be"
+            "UID": "2fce95b6cb70d6e"
           },
           "Version": "6.1.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco_context-6.1.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco_context-6.1.0.dist-info/METADATA"
         },
         {
           "Name": "jaraco.functools",
           "Identifier": {
             "PURL": "pkg:pypi/jaraco.functools@4.4.0",
-            "UID": "956775410f1566c"
+            "UID": "1ed6c427f9bec73e"
           },
           "Version": "4.4.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco_functools-4.4.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco_functools-4.4.0.dist-info/METADATA"
         },
         {
           "Name": "jaraco.text",
           "Identifier": {
             "PURL": "pkg:pypi/jaraco.text@4.0.0",
-            "UID": "3aaeb4b03ffe92df"
+            "UID": "fed50699e66d1829"
           },
           "Version": "4.0.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco.text-4.0.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/jaraco.text-4.0.0.dist-info/METADATA"
         },
         {
           "Name": "more-itertools",
           "Identifier": {
             "PURL": "pkg:pypi/more-itertools@10.8.0",
-            "UID": "48768e529734d939"
+            "UID": "46aea2447ab05077"
           },
           "Version": "10.8.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/more_itertools-10.8.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/more_itertools-10.8.0.dist-info/METADATA"
         },
         {
           "Name": "packaging",
           "Identifier": {
             "PURL": "pkg:pypi/packaging@26.0",
-            "UID": "b7a4cfb763aabbd8"
+            "UID": "d28161a07acd386a"
           },
           "Version": "26.0",
           "Licenses": [
             "Apache-2.0 OR BSD-2-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/packaging-26.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/packaging-26.0.dist-info/METADATA"
         },
         {
           "Name": "packaging",
           "Identifier": {
             "PURL": "pkg:pypi/packaging@26.3",
-            "UID": "c2637f54d6182f69"
+            "UID": "f62b3d4a766cd17d"
           },
           "Version": "26.3",
           "Licenses": [
             "Apache-2.0 OR BSD-2-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/packaging-26.3.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/packaging-26.3.dist-info/METADATA"
         },
         {
           "Name": "pip",
           "Identifier": {
             "PURL": "pkg:pypi/pip@24.0",
-            "UID": "7a4293168b845101"
+            "UID": "55a4d9bee68c93ea"
           },
           "Version": "24.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/pip-24.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/pip-24.0.dist-info/METADATA"
         },
         {
           "Name": "platformdirs",
           "Identifier": {
             "PURL": "pkg:pypi/platformdirs@4.4.0",
-            "UID": "9fc9cafc0ba1e5f2"
+            "UID": "5a075996639fff1e"
           },
           "Version": "4.4.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/platformdirs-4.4.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/platformdirs-4.4.0.dist-info/METADATA"
         },
         {
           "Name": "pydantic",
           "Identifier": {
             "PURL": "pkg:pypi/pydantic@2.13.4",
-            "UID": "833e8607ae534fcd"
+            "UID": "5f6ccb1b63f27d3"
           },
           "Version": "2.13.4",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/pydantic-2.13.4.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/pydantic-2.13.4.dist-info/METADATA"
         },
         {
           "Name": "pydantic_core",
           "Identifier": {
             "PURL": "pkg:pypi/pydantic-core@2.46.4",
-            "UID": "e7ecd418abaa5d76"
+            "UID": "584963552baab429"
           },
           "Version": "2.46.4",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/pydantic_core-2.46.4.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/pydantic_core-2.46.4.dist-info/METADATA"
         },
         {
           "Name": "setuptools",
           "Identifier": {
             "PURL": "pkg:pypi/setuptools@84.0.0",
-            "UID": "936db1bcdbd74aa1"
+            "UID": "520b8345c0ac012f"
           },
           "Version": "84.0.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools-84.0.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools-84.0.0.dist-info/METADATA"
         },
         {
           "Name": "starlette",
           "Identifier": {
             "PURL": "pkg:pypi/starlette@1.6.0",
-            "UID": "e30c9d27fc607136"
+            "UID": "eb8d539db7af9217"
           },
           "Version": "1.6.0",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/starlette-1.6.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/starlette-1.6.0.dist-info/METADATA"
         },
         {
           "Name": "tomli",
           "Identifier": {
             "PURL": "pkg:pypi/tomli@2.4.0",
-            "UID": "15a5f24fd31bc7ab"
+            "UID": "93dd6e1237cc88c3"
           },
           "Version": "2.4.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/tomli-2.4.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/tomli-2.4.0.dist-info/METADATA"
         },
         {
           "Name": "typing-inspection",
           "Identifier": {
-            "PURL": "pkg:pypi/typing-inspection@0.4.2",
-            "UID": "7bdf740a2123aab8"
+            "PURL": "pkg:pypi/typing-inspection@0.4.4",
+            "UID": "af5e738680feea"
           },
-          "Version": "0.4.2",
+          "Version": "0.4.4",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/typing_inspection-0.4.2.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/typing_inspection-0.4.4.dist-info/METADATA"
         },
         {
           "Name": "typing_extensions",
           "Identifier": {
             "PURL": "pkg:pypi/typing-extensions@4.16.0",
-            "UID": "14e8a5608945c20e"
+            "UID": "f87e728fc065cba9"
           },
           "Version": "4.16.0",
           "Licenses": [
             "PSF-2.0"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/typing_extensions-4.16.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/typing_extensions-4.16.0.dist-info/METADATA"
         },
         {
           "Name": "uvicorn",
           "Identifier": {
             "PURL": "pkg:pypi/uvicorn@0.41.0",
-            "UID": "e9a8bdc8e5cea177"
+            "UID": "9fdc3212d4a02cfd"
           },
           "Version": "0.41.0",
           "Licenses": [
             "BSD-3-Clause"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/uvicorn-0.41.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/uvicorn-0.41.0.dist-info/METADATA"
         },
         {
           "Name": "wheel",
           "Identifier": {
             "PURL": "pkg:pypi/wheel@0.46.3",
-            "UID": "d6b0d1d43f8ebc8"
+            "UID": "2fe07c5f387715f3"
           },
           "Version": "0.46.3",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/wheel-0.46.3.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/wheel-0.46.3.dist-info/METADATA"
         },
         {
           "Name": "wheel",
           "Identifier": {
             "PURL": "pkg:pypi/wheel@0.46.3",
-            "UID": "28350f0a99874b2b"
+            "UID": "e83b5d3aa802cf24"
           },
           "Version": "0.46.3",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:f0bd26649fe5e1345d632fd99b930b6e4ec490b626139d42b216d475ae2b2070",
-            "DiffID": "sha256:51bbf5bd9497a2c1da40c0198c7a67fffadaaa1aa84140467ccdfb4d72c30799"
+            "Digest": "sha256:00430733972ce348d8ce3bdbaf6f2007cc5056d2e254943606d1ea1114dd3298",
+            "DiffID": "sha256:df2b0074925d6d10ba41ec619930b964539172388a51008777f14f120d581aff"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/wheel-0.46.3.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/wheel-0.46.3.dist-info/METADATA"
         },
         {
           "Name": "zipp",
           "Identifier": {
             "PURL": "pkg:pypi/zipp@3.23.0",
-            "UID": "b79ddb0965627a29"
+            "UID": "edcaf3def40678e9"
           },
           "Version": "3.23.0",
           "Licenses": [
             "MIT"
           ],
           "Layer": {
-            "Digest": "sha256:4a9e814ab6e4a5b4d79caea8ad377aedc0124c286708eccb08fd99bbe6687726",
-            "DiffID": "sha256:2dfa1092272f77d70d0318d3a57520eeaef45f2d4e711bd569e0b3d91b8a86b0"
+            "Digest": "sha256:1b7f170e24873cc5a71127ddd5ebf89c14c9df1ad41bbad595b17c0a744a8151",
+            "DiffID": "sha256:2e415095efbbf1e0d6ed15362d5bac7a720ad598fc8451dc11303b4d56255db0"
           },
-          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/zipp-3.23.0.dist-info/METADATA",
-          "AnalyzedBy": "python-pkg"
+          "FilePath": "usr/local/lib/python3.11/site-packages/setuptools/_vendor/zipp-3.23.0.dist-info/METADATA"
         }
       ]
     }

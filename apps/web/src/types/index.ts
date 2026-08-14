@@ -12,7 +12,10 @@ export type Stats = {
     last_heartbeat_at?: string | null;
     jobs_processed?: number;
     errors?: number;
-    ollama_healthy?: boolean;
+    active_provider_mode?: string;
+    active_provider_id?: string;
+    active_provider_healthy?: boolean;
+    capability_health?: Record<string, string>;
   } | null;
 };
 export type Insight = {

@@ -14,6 +14,12 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.artifact_state import (
+    accepted_edge_clause,
+    accepted_node_clause,
+    processable_edge_clause,
+    processable_node_clause,
+)
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
 from berrybrain_api.confidence import serialize_confidence
@@ -42,8 +48,10 @@ from berrybrain_api.jobs import (
     create_job,
     enqueue_job,
 )
+from berrybrain_api.learning import build_learning_guidance, record_learning_event
 from berrybrain_api.models import (
     GraphEdgeRecord,
+    GraphInferenceRecord,
     GraphNodeRecord,
     GraphResearchResultRecord,
     GraphResearchRunRecord,
@@ -51,6 +59,11 @@ from berrybrain_api.models import (
     JobRecord,
     NoteRecord,
     SettingRecord,
+)
+from berrybrain_api.ontology_service import (
+    ontology_metadata,
+    serialize_knowledge_graph,
+    validate_knowledge_graph,
 )
 from berrybrain_api.second_brain import (
     expand_knowledge_graph,
@@ -75,6 +88,11 @@ class GraphInferRequest(BaseModel):
     question: str
 
 
+class InferenceFeedbackRequest(BaseModel):
+    action: str = Field(pattern="^(upvoted|downvoted|corrected)$")
+    correction: str = Field(default="", max_length=8000)
+
+
 class ManualNotesRequest(BaseModel):
     notes: str = ""
 
@@ -92,6 +110,10 @@ class UpdateGraphNodeRequest(BaseModel):
 
 class EdgeTypeRequest(BaseModel):
     type: str
+
+
+class ConfidenceRecalculationRequest(BaseModel):
+    node_ids: list[int] = Field(default_factory=list, alias="nodeIds")
 
 
 class ManualEvidenceRequest(BaseModel):
@@ -162,6 +184,9 @@ def _serialize_paged_node(node: GraphNodeRecord) -> dict[str, Any]:
     return {
         "id": f"{node.type}_{node.id}",
         "recordId": node.id,
+        "stableId": node.stable_id,
+        "iri": node.iri,
+        "artifactVersion": node.artifact_version,
         "type": node.type,
         "label": node.label,
         "title": node.title or node.label,
@@ -203,16 +228,78 @@ def _json_object(raw: str | None) -> dict[str, Any]:
 def get_graph(
     max_depth: int = 2,
     view: str = "",
+    include_provisional: bool = Query(False, alias="includeProvisional"),
 ) -> dict:
     """GET /graph supports view filtering: enriched, raw, validated, needs_review, hidden."""
     with SessionLocal() as session:
-        return build_graph(session, max_depth=max_depth, view=view)
+        return build_graph(
+            session,
+            max_depth=max_depth,
+            view=view,
+            include_provisional=include_provisional,
+        )
+
+
+@router.get("/ontology")
+def get_graph_ontology() -> dict[str, Any]:
+    return ontology_metadata()
+
+
+@router.get("/learning-policy")
+def get_graph_learning_policy(
+    note_id: list[int] | None = Query(None, alias="noteId"),
+    note_path: str = Query("", alias="notePath"),
+    target_type: str = Query("", alias="targetType"),
+) -> dict[str, Any]:
+    with SessionLocal() as session:
+        source_note_ids = [value for value in (note_id or []) if value > 0]
+        if note_path:
+            matching_id = session.scalar(
+                select(NoteRecord.id).where(NoteRecord.path == note_path)
+            )
+            if matching_id:
+                source_note_ids.append(int(matching_id))
+        return build_learning_guidance(
+            session,
+            source_note_ids=source_note_ids,
+            target_type=target_type or None,
+        )
+
+
+@router.get("/ontology/export")
+def export_graph_ontology(
+    output_format: str = Query("json-ld", alias="format", pattern="^(json-ld|turtle)$"),
+    include_provisional: bool = Query(False, alias="includeProvisional"),
+) -> Response:
+    with SessionLocal() as session:
+        payload = serialize_knowledge_graph(
+            session,
+            output_format=output_format,
+            include_provisional=include_provisional,
+        )
+    media_type = "application/ld+json" if output_format == "json-ld" else "text/turtle"
+    return Response(content=payload, media_type=media_type)
+
+
+@router.get("/ontology/validate")
+def validate_graph_ontology(
+    include_provisional: bool = Query(False, alias="includeProvisional"),
+) -> dict[str, Any]:
+    with SessionLocal() as session:
+        return validate_knowledge_graph(
+            session, include_provisional=include_provisional
+        )
 
 
 @router.get("/summary")
-def get_graph_summary() -> dict:
+def get_graph_summary(
+    include_provisional: bool = Query(False, alias="includeProvisional"),
+) -> dict:
     with SessionLocal() as session:
-        return {**summarize_graph(session), "graphVersion": _graph_version(session)}
+        return {
+            **summarize_graph(session, include_provisional=include_provisional),
+            "graphVersion": _graph_version(session),
+        }
 
 
 @router.get("/nodes")
@@ -220,14 +307,14 @@ def get_graph_nodes_page(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=250, ge=1, le=2000),
     types: str = "",
+    include_provisional: bool = Query(False, alias="includeProvisional"),
 ) -> dict:
     with SessionLocal() as session:
         query = (
             select(GraphNodeRecord)
             .where(
                 GraphNodeRecord.id > cursor,
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                accepted_node_clause(include_provisional=include_provisional),
             )
             .order_by(GraphNodeRecord.id)
             .limit(limit + 1)
@@ -250,14 +337,14 @@ def get_graph_edges_page(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=5000),
     node_ids: str = "",
+    include_provisional: bool = Query(False, alias="includeProvisional"),
 ) -> dict:
     with SessionLocal() as session:
         query = (
             select(GraphEdgeRecord)
             .where(
                 GraphEdgeRecord.id > cursor,
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(include_provisional=include_provisional),
             )
             .order_by(GraphEdgeRecord.id)
             .limit(limit + 1)
@@ -292,6 +379,9 @@ def get_graph_edges_page(
         edges = [
             {
                 "id": edge.id,
+                "stableId": edge.stable_id,
+                "iri": edge.iri,
+                "artifactVersion": edge.artifact_version,
                 "source": f"{node_types.get(edge.source_node_id, 'node')}_{edge.source_node_id}",
                 "target": f"{node_types.get(edge.target_node_id, 'node')}_{edge.target_node_id}",
                 "type": edge.type,
@@ -317,7 +407,10 @@ def get_graph_edges_page(
 
 
 @router.get("/delta")
-def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
+def get_graph_delta(
+    since_version: int = Query(default=0, ge=0),
+    include_provisional: bool = Query(False, alias="includeProvisional"),
+) -> dict:
     since = datetime.fromtimestamp(since_version / 1_000_000, UTC).replace(tzinfo=None)
     with SessionLocal() as session:
         nodes = list(
@@ -325,8 +418,7 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
                 select(GraphNodeRecord)
                 .where(
                     GraphNodeRecord.updated_at > since,
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    accepted_node_clause(include_provisional=include_provisional),
                 )
                 .order_by(GraphNodeRecord.id)
                 .limit(1001)
@@ -337,8 +429,7 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
                 select(GraphEdgeRecord.id)
                 .where(
                     GraphEdgeRecord.updated_at > since,
-                    GraphEdgeRecord.status != "ignored",
-                    GraphEdgeRecord.semantic_status == "active",
+                    accepted_edge_clause(include_provisional=include_provisional),
                 )
                 .order_by(GraphEdgeRecord.id)
                 .limit(2001)
@@ -353,15 +444,13 @@ def get_graph_delta(since_version: int = Query(default=0, ge=0)) -> dict:
             "requiresFullRefresh": truncated,
             "nodeCount": session.scalar(
                 select(func.count(GraphNodeRecord.id)).where(
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    accepted_node_clause(include_provisional=include_provisional)
                 )
             )
             or 0,
             "edgeCount": session.scalar(
                 select(func.count(GraphEdgeRecord.id)).where(
-                    GraphEdgeRecord.status != "ignored",
-                    GraphEdgeRecord.semantic_status == "active",
+                    accepted_edge_clause(include_provisional=include_provisional)
                 )
             )
             or 0,
@@ -499,6 +588,73 @@ async def infer_graph(
     return serialize_graph_inference(inference)
 
 
+@router.post("/inferences/{inference_id}/feedback")
+def record_inference_feedback(
+    inference_id: int,
+    payload: InferenceFeedbackRequest,
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    inference = session.get(GraphInferenceRecord, inference_id)
+    if inference is None:
+        raise HTTPException(status_code=404, detail="Graph inference not found")
+    if payload.action == "corrected" and not payload.correction.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="A corrected answer is required for correction feedback",
+        )
+    source_note_ids = _inference_source_note_ids(session, inference)
+    event = record_learning_event(
+        session,
+        event_type=f"ask.answer.{payload.action}",
+        target_type="ask_answer",
+        target_key=f"graph-inference:{inference.id}",
+        action=payload.action,
+        source_note_ids=source_note_ids,
+        before_state={"answer": inference.answer, "question": inference.question},
+        after_state={"correction": payload.correction.strip()},
+        actor_type="user",
+        origin="graph_ask_api",
+    )
+    session.commit()
+    return {"status": "recorded", "eventId": event.event_id, "action": event.action}
+
+
+def _inference_source_note_ids(
+    session: Session, inference: GraphInferenceRecord
+) -> list[int]:
+    note_ids: set[int] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"noteId", "sourceNoteId"} and str(item).isdigit():
+                    note_ids.add(int(item))
+                elif key == "sourceNoteIds" and isinstance(item, list):
+                    note_ids.update(
+                        int(value) for value in item if str(value).isdigit()
+                    )
+                else:
+                    collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    collect(_parse_json_list(inference.evidence))
+    related_node_ids = {
+        int(value.rsplit("_", 1)[-1])
+        for value in _parse_json_list(inference.related_nodes)
+        if isinstance(value, str) and value.rsplit("_", 1)[-1].isdigit()
+    }
+    if related_node_ids:
+        for raw in session.scalars(
+            select(GraphNodeRecord.source_note_ids).where(
+                GraphNodeRecord.id.in_(related_node_ids)
+            )
+        ):
+            collect({"sourceNoteIds": _parse_json_list(raw)})
+    return sorted(value for value in note_ids if value > 0)
+
+
 @router.post("/sync")
 def sync_graph() -> dict:
     with SessionLocal() as session:
@@ -514,7 +670,7 @@ def enrich_missing_graph_nodes(limit: int = 20) -> dict:
         candidates = list(
             session.execute(
                 select(GraphNodeRecord)
-                .where(GraphNodeRecord.status != "ignored")
+                .where(accepted_node_clause(include_provisional=True))
                 .where(
                     GraphNodeRecord.semantic_state.in_(["pending", "stale", "failed"])
                 )
@@ -593,6 +749,7 @@ def delete_graph_node_endpoint(node_id: int) -> dict:
         from berrybrain_api.graph_invalidation import (
             collect_node_deletion_impact,
             invalidate_dependent_insights,
+            invalidate_dependent_relationships,
         )
 
         impact = collect_node_deletion_impact(session, node)
@@ -601,6 +758,7 @@ def delete_graph_node_endpoint(node_id: int) -> dict:
             impact,
             primary_node_id=node_id,
         )
+        invalidated_relationships = invalidate_dependent_relationships(session, impact)
         GraphWriteService(session, autocommit=False).delete_node(
             node_id, user_decision=True
         )
@@ -660,6 +818,7 @@ def delete_graph_node_endpoint(node_id: int) -> dict:
             "impact": {
                 **impact.to_dict(),
                 "invalidatedInsights": invalidated_insights,
+                "invalidatedRelationships": invalidated_relationships,
                 "scope": "incident_subgraph",
             },
             "message": (
@@ -857,11 +1016,65 @@ def restore_graph_edge(edge_id: int) -> dict:
         }
 
 
-@router.patch("/connections/{edge_id}/type")
+@router.patch("/connections/{edge_id}/type", status_code=202)
 def update_graph_edge_type(edge_id: int, payload: EdgeTypeRequest) -> dict:
     with SessionLocal() as session:
         edge = GraphWriteService(session).update_edge_type(edge_id, payload.type)
-        return {"id": edge.id, "type": edge.type}
+        version = _graph_version(session)
+        endpoint_ids = [edge.source_node_id, edge.target_node_id]
+        judge_job = enqueue_job(
+            session,
+            "JUDGE_ARTIFACT",
+            judge_artifact_payload(
+                session,
+                "edge",
+                edge.id,
+                str(edge.updated_at.timestamp()) if edge.updated_at else str(version),
+            ),
+            priority=20,
+            max_attempts=2,
+        )
+        stats_job = create_job(
+            session,
+            UPDATE_GRAPH_STATS,
+            {
+                "trigger": "edge_type_corrected",
+                "affected_node_ids": endpoint_ids,
+                "idempotency_key": f"edge-type-stats:{edge.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        cluster_job = create_job(
+            session,
+            UPDATE_GRAPH_CLUSTERS,
+            {
+                "trigger": "edge_type_corrected",
+                "scope_node_ids": endpoint_ids,
+                "idempotency_key": f"edge-type-clusters:{edge.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        insight_job = create_job(
+            session,
+            GENERATE_GRAPH_INSIGHTS,
+            {
+                "trigger": "edge_type_corrected",
+                "affected_node_ids": endpoint_ids,
+                "idempotency_key": f"edge-type-insights:{edge.id}:{version}",
+            },
+            max_attempts=2,
+        )
+        return {
+            "id": edge.id,
+            "type": edge.type,
+            "status": "accepted_for_recalculation",
+            "jobs": {
+                "judge": judge_job.id,
+                "stats": stats_job.id,
+                "clusters": cluster_job.id,
+                "insights": insight_job.id,
+            },
+        }
 
 
 @router.post("/connections/{edge_id}/evidence")
@@ -1078,7 +1291,7 @@ async def enrich_graph_node_with_ai(node_id: int, response: Response) -> dict:
                     (GraphEdgeRecord.source_node_id == node.id)
                     | (GraphEdgeRecord.target_node_id == node.id)
                 )
-                .where(GraphEdgeRecord.status != "ignored")
+                .where(accepted_edge_clause())
                 .limit(12)
             ).scalars()
         )
@@ -1477,3 +1690,35 @@ def recalculate_quality_report() -> dict:
             max_attempts=2,
         )
         return {"status": "queued", "jobId": job.id}
+
+
+@router.post("/confidence/recalculate")
+def recalculate_graph_confidence(
+    payload: ConfidenceRecalculationRequest,
+) -> dict[str, int | str]:
+    from berrybrain_api.graph_write_service import (
+        recalculate_edge_confidence,
+        recalculate_node_confidence,
+    )
+
+    with SessionLocal() as session:
+        node_query = select(GraphNodeRecord).where(processable_node_clause())
+        if payload.node_ids:
+            node_query = node_query.where(GraphNodeRecord.id.in_(payload.node_ids))
+        nodes = list(session.execute(node_query).scalars())
+        node_ids = {node.id for node in nodes}
+        edge_query = select(GraphEdgeRecord).where(processable_edge_clause())
+        if node_ids:
+            edge_query = edge_query.where(
+                (GraphEdgeRecord.source_node_id.in_(node_ids))
+                | (GraphEdgeRecord.target_node_id.in_(node_ids))
+            )
+        elif payload.node_ids:
+            return {"status": "completed", "nodes": 0, "edges": 0}
+        edges = list(session.execute(edge_query).scalars())
+        for node in nodes:
+            recalculate_node_confidence(node, session)
+        for edge in edges:
+            recalculate_edge_confidence(edge, session)
+        session.commit()
+        return {"status": "completed", "nodes": len(nodes), "edges": len(edges)}

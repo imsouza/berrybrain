@@ -6,6 +6,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.ai_gateway import get_ai_config
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.models import (
     EmbeddingRecord,
@@ -79,14 +80,18 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
     notes = list(session.execute(select(NoteRecord)).scalars())
     processable_notes = [note for note in notes if (note.content or "").strip()]
     embedding_note_ids = set(session.execute(select(EmbeddingRecord.note_id)).scalars())
+    graph_node_count = session.scalar(select(func.count(GraphNodeRecord.id))) or 0
+    graph_edge_count = session.scalar(select(func.count(GraphEdgeRecord.id))) or 0
     assimilation = note_assimilation_map(session, notes)
     unassimilated = [
         note for note in notes if not assimilation.get(note.id, {}).get("assimilated")
     ]
-    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
-    visible_nodes = [node for node in graph_nodes if node.status != "ignored"]
-    graph_edges = list(session.execute(select(GraphEdgeRecord)).scalars())
-    visible_edges = [edge for edge in graph_edges if edge.status != "ignored"]
+    visible_nodes = list(
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
+    )
+    visible_edges = list(
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
+    )
     visible_nodes_with_ai_context = [
         node for node in visible_nodes if (node.ai_context or "").strip()
     ]
@@ -180,9 +185,9 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
             ][:20],
         },
         "knowledgeGraph": {
-            "nodes": len(graph_nodes),
+            "nodes": graph_node_count,
             "visibleNodes": len(visible_nodes),
-            "edges": len(graph_edges),
+            "edges": graph_edge_count,
             "visibleEdges": len(visible_edges),
             "visibleNodesWithAiContext": len(visible_nodes_with_ai_context),
             "visibleAiContextCoverage": graph_context_coverage,

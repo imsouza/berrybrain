@@ -7,10 +7,19 @@ import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from statistics import NormalDist
+from statistics import variance
 from typing import Any
 
 TOKEN_RE = re.compile(r"[\w-]{3,}", flags=re.UNICODE)
+PROVENANCE_SIGNAL_PREFIXES = (
+    "connection-evidence:",
+    "edge-evidence:",
+    "insight-evidence:",
+    "node-evidence:",
+    "related-note:",
+    "source-attachment:",
+    "source-note:",
+)
 
 
 @dataclass(frozen=True)
@@ -50,44 +59,54 @@ def estimate_confidence(
     *,
     level: float = 0.95,
 ) -> ConfidenceEstimate:
-    """Estimate a Jeffreys-smoothed mean and Wilson interval from independent signals."""
+    """Estimate a bounded uncertainty interval from distinct scored observations.
+
+    Provenance identifiers establish traceability but are not correctness outcomes, so
+    they never increase confidence by themselves. Scored observations are interpreted
+    as independent bounded measurements; callers must not pass duplicate sources.
+    """
     observations: list[ConfidenceSignal] = []
+    factors: list[str] = []
     seen_sources: set[str] = set()
     for item in signals:
         signal = item if isinstance(item, ConfidenceSignal) else ConfidenceSignal(*item)
         if signal.source in seen_sources or not math.isfinite(signal.score):
             continue
         seen_sources.add(signal.source)
+        factors.append(signal.source)
+        if signal.source.startswith(PROVENANCE_SIGNAL_PREFIXES):
+            continue
         observations.append(
             ConfidenceSignal(max(0.0, min(1.0, float(signal.score))), signal.source)
         )
 
     if not observations:
-        return ConfidenceEstimate(None, None, None, 0, "unavailable", ())
+        return ConfidenceEstimate(None, None, None, 0, "unavailable", tuple(factors))
 
     sample_size = len(observations)
     observed_mean = sum(item.score for item in observations) / sample_size
-    z = NormalDist().inv_cdf(0.5 + level / 2)
-    denominator = 1 + (z * z / sample_size)
-    center = (observed_mean + (z * z / (2 * sample_size))) / denominator
-    margin = (
-        z
-        * math.sqrt(
-            (observed_mean * (1 - observed_mean) / sample_size)
-            + (z * z / (4 * sample_size * sample_size))
+    if not 0 < level < 1:
+        raise ValueError("Confidence level must be between 0 and 1")
+    if sample_size == 1:
+        lower, upper = 0.0, 1.0
+    else:
+        delta = 1.0 - level
+        empirical_variance = variance(item.score for item in observations)
+        log_term = math.log(3.0 / delta)
+        radius = (
+            math.sqrt(2.0 * empirical_variance * log_term / sample_size)
+            + 3.0 * log_term / sample_size
         )
-        / denominator
-    )
-    posterior_mean = (sum(item.score for item in observations) + 0.5) / (
-        sample_size + 1
-    )
+        lower = max(0.0, observed_mean - radius)
+        upper = min(1.0, observed_mean + radius)
+    conservative_center = (lower + upper) / 2.0
     return ConfidenceEstimate(
-        round(posterior_mean, 6),
-        round(max(0.0, center - margin), 6),
-        round(min(1.0, center + margin), 6),
+        round(conservative_center, 6),
+        round(lower, 6),
+        round(upper, 6),
         sample_size,
-        "jeffreys-wilson-evidence-v2",
-        tuple(item.source for item in observations),
+        "empirical-bernstein-bounded-signals-v1",
+        tuple(factors),
         level,
     )
 

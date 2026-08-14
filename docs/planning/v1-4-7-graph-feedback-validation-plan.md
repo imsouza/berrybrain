@@ -147,3 +147,19 @@ Committee results persist every model verdict plus the aggregate. Invalid commit
 - [x] Focused and full validation suites pass.
 - [x] README, Docs, changelog, and versions match verified behavior.
 - [ ] PR checks pass before `v1.4.7` is merged and released.
+Runtime follow-up completed on 2026-08-13:
+
+- [x] Preserve valid cluster colors while semantic enrichment is pending or stale.
+- [x] Distinguish a missing cluster scope from an explicit empty scope in the worker.
+- [x] Expand scoped recalculation to every active member of an affected cluster.
+- [x] Reuse cluster identity and color by prior membership overlap.
+- [x] Apply validated edge confidence as a real similarity signal.
+- [x] Split assignments below the semantic cohesion floor.
+- [x] Count current node memberships instead of historical assignment rows.
+- [x] Suppress deleted concepts before deterministic relation generation.
+- [x] Quarantine indirect note relationships that cite a deleted concept.
+- [x] Replace, rather than accumulate, evidence for recalculated shared-concept edges.
+
+Real runtime audit after repair: 88 active nodes, 0 pending colors, 0 references to inactive
+clusters, 18 active non-empty clusters, 18 distinct active colors, and 0 active relationships based
+on the deleted `skip` concept.

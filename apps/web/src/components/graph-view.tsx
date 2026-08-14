@@ -409,7 +409,7 @@ export function useGraphData(apiUrl: string) {
     }
     async function loadMetadata() {
       const [summaryResponse, paletteResponse] = await Promise.all([
-        fetchGraphResource(`${apiUrl}/api/v1/graph/summary`),
+        fetchGraphResource(`${apiUrl}/api/v1/graph/summary?includeProvisional=true`),
         fetchGraphResource(`${apiUrl}/api/v1/graph/palette`),
       ]);
       if (!summaryResponse.ok) throw new Error("Graph summary unavailable");
@@ -432,7 +432,7 @@ export function useGraphData(apiUrl: string) {
         while (nodeCursor !== null && !cancelled) {
           const limit = publishedInitialNodes ? 2_000 : 500;
           const response = await fetchGraphResource(
-            `${apiUrl}/api/v1/graph/nodes?cursor=${nodeCursor}&limit=${limit}`,
+            `${apiUrl}/api/v1/graph/nodes?cursor=${nodeCursor}&limit=${limit}&includeProvisional=true`,
           );
           if (!response.ok) throw new Error("Graph nodes unavailable");
           const page: { nodes?: GNode[]; nextCursor: number | null; graphVersion?: number } = await response.json();
@@ -448,7 +448,7 @@ export function useGraphData(apiUrl: string) {
         let publishedInitialEdges = false;
         while (edgeCursor !== null && !cancelled) {
           const response = await fetchGraphResource(
-            `${apiUrl}/api/v1/graph/edges?cursor=${edgeCursor}&limit=5000`,
+            `${apiUrl}/api/v1/graph/edges?cursor=${edgeCursor}&limit=5000&includeProvisional=true`,
           );
           if (!response.ok) throw new Error("Graph edges unavailable");
           const page: { edges?: GEdge[]; nextCursor: number | null; graphVersion?: number } = await response.json();
@@ -463,7 +463,7 @@ export function useGraphData(apiUrl: string) {
     async function loadDelta(previous: GraphData): Promise<boolean> {
       if (previous.graphVersion === undefined) return false;
       const response = await fetchGraphResource(
-        `${apiUrl}/api/v1/graph/delta?since_version=${previous.graphVersion}`,
+        `${apiUrl}/api/v1/graph/delta?since_version=${previous.graphVersion}&includeProvisional=true`,
       );
       if (!response.ok) return false;
       const delta: {
@@ -503,7 +503,7 @@ export function useGraphData(apiUrl: string) {
       } catch {
         try {
           const legacyResponse = await fetchGraphResource(
-            `${apiUrl}/api/v1/graph`,
+            `${apiUrl}/api/v1/graph?includeProvisional=true`,
             5_000,
           );
           if (!legacyResponse.ok) throw new Error("Legacy graph endpoint unavailable");

@@ -1,0 +1,15 @@
+{
+  "absolute_overhead_ms": 0.0038840301614254708,
+  "disabled_mean_ms": 0.0036051466998954615,
+  "enabled_mean_ms": 0.007489176861320932,
+  "iterations": 5000,
+  "overhead_ci95": {
+    "confidence": 0.95,
+    "lower": 0.003526,
+    "method": "bootstrap-percentile",
+    "samples": 15,
+    "upper": 0.004281
+  },
+  "relative_overhead": 1.0773570355786344,
+  "samples": 15
+}

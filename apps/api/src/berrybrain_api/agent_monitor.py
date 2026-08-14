@@ -6,17 +6,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.ai_configuration import load_configuration
+from berrybrain_api.artifact_state import (
+    processable_edge_clause,
+    processable_node_clause,
+)
 from berrybrain_api.job_contracts import judge_artifact_payload
 from berrybrain_api.jobs import (
     GENERATE_GRAPH_INSIGHTS,
     PENDING,
     RUNNING,
     UPDATE_GRAPH_CLUSTERS,
+    UPDATE_GRAPH_STATS,
     create_job,
     enqueue_job,
 )
 from berrybrain_api.models import (
     ArtifactEvaluationRecord,
+    GraphEdgeRecord,
     GraphNodeRecord,
     JobRecord,
     SettingRecord,
@@ -30,8 +36,7 @@ def ensure_agent_monitoring(session: Session) -> dict:
     graph_exists = session.scalar(
         select(GraphNodeRecord.id)
         .where(
-            GraphNodeRecord.status != "ignored",
-            GraphNodeRecord.semantic_status == "active",
+            processable_node_clause(),
         )
         .limit(1)
     )
@@ -48,6 +53,16 @@ def ensure_agent_monitoring(session: Session) -> dict:
     )
     if cluster_job is not None:
         queued.append({"type": cluster_job.type, "id": cluster_job.id})
+
+    stats_job = _ensure_due_job(
+        session,
+        UPDATE_GRAPH_STATS,
+        now=now,
+        interval=timedelta(hours=1),
+        trigger="agent_monitor",
+    )
+    if stats_job is not None:
+        queued.append({"type": stats_job.type, "id": stats_job.id})
 
     configuration = load_configuration(session)
     if configuration is None or not configuration.validated_at:
@@ -81,9 +96,11 @@ def ensure_agent_monitoring(session: Session) -> dict:
             select(GraphNodeRecord)
             .where(
                 GraphNodeRecord.created_by == "ai",
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
-                GraphNodeRecord.id.not_in(evaluated_node_ids),
+                processable_node_clause(),
+                (
+                    GraphNodeRecord.id.not_in(evaluated_node_ids)
+                    | GraphNodeRecord.quality_gate_status.in_(("pending", "review"))
+                ),
             )
             .order_by(GraphNodeRecord.updated_at.asc(), GraphNodeRecord.id.asc())
             .limit(3)
@@ -104,13 +121,49 @@ def ensure_agent_monitoring(session: Session) -> dict:
         )
         queued.append({"type": job.type, "id": job.id, "nodeId": node.id})
 
+    evaluated_edge_ids = set(
+        session.execute(
+            select(ArtifactEvaluationRecord.artifact_id).where(
+                ArtifactEvaluationRecord.artifact_type == "edge"
+            )
+        ).scalars()
+    )
+    edge_candidates = list(
+        session.execute(
+            select(GraphEdgeRecord)
+            .where(
+                GraphEdgeRecord.created_by.in_(("ai", "system")),
+                processable_edge_clause(),
+                (
+                    GraphEdgeRecord.id.not_in(evaluated_edge_ids)
+                    | GraphEdgeRecord.quality_gate_status.in_(("pending", "review"))
+                ),
+            )
+            .order_by(GraphEdgeRecord.updated_at.asc(), GraphEdgeRecord.id.asc())
+            .limit(5)
+        ).scalars()
+    )
+    for edge in edge_candidates:
+        job = enqueue_job(
+            session,
+            "JUDGE_ARTIFACT",
+            judge_artifact_payload(
+                session,
+                "edge",
+                edge.id,
+                str((edge.updated_at or now).timestamp()),
+            ),
+            priority=20,
+            max_attempts=2,
+        )
+        queued.append({"type": job.type, "id": job.id, "edgeId": edge.id})
+
     candidates = list(
         session.execute(
             select(GraphNodeRecord)
             .where(
                 GraphNodeRecord.type != "note",
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                processable_node_clause(),
                 (
                     GraphNodeRecord.semantic_state.in_(["pending", "stale"])
                     | (GraphNodeRecord.ai_summary == "")

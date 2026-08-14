@@ -111,6 +111,20 @@ def record_feedback(
     )
     session.add(feedback)
     session.flush()
+    from berrybrain_api.learning import record_learning_event
+
+    record_learning_event(
+        session,
+        event_type=f"graph.{artifact_kind}.{action}",
+        target_type=f"graph_{artifact_kind}",
+        target_key=artifact_key,
+        action=action,
+        source_note_ids=normalized_ids,
+        before_state=original_payload,
+        after_state=replacement_payload or {},
+        actor_type="user",
+        origin="graph",
+    )
     return feedback
 
 

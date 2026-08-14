@@ -1,12 +1,12 @@
 {
-  "claim_p95_ms": 51.28135149999999,
+  "claim_p95_ms": 60.36653405,
   "completed_jobs": 100,
-  "drain_rate_jobs_per_second": 12.48005163767818,
+  "drain_rate_jobs_per_second": 11.918320092247177,
   "duplicate_claims": 0,
-  "end_to_end_p50_ms": 5036.135177,
-  "end_to_end_p95_ms": 7693.7467639999995,
-  "end_to_end_p99_ms": 7954.86403961,
-  "enqueue_rate_jobs_per_second": 52.388526844385254,
+  "end_to_end_p50_ms": 5452.5610665,
+  "end_to_end_p95_ms": 8060.363820199999,
+  "end_to_end_p99_ms": 8326.84583084,
+  "enqueue_rate_jobs_per_second": 49.15012054186885,
   "jobs": 100,
   "remaining_jobs": 0
 }

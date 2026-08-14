@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from berrybrain_api.artifact_state import processable_node_clause
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import index_knowledge_base
 from berrybrain_api.config import get_settings
@@ -306,7 +307,7 @@ def prepare_semantic_graph(payload: PrepareSemanticGraphRequest) -> dict:
             session.execute(
                 select(GraphNodeRecord)
                 .where(
-                    GraphNodeRecord.status != "ignored",
+                    processable_node_clause(),
                     GraphNodeRecord.semantic_state.in_(
                         ["pending", "stale", "failed", "needs_review"]
                     ),

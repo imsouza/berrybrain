@@ -172,7 +172,7 @@ async def send_heartbeat(
     api_url: str,
     jobs_processed: int,
     errors: int,
-    ollama_healthy: bool = False,
+    active_provider_healthy: bool = False,
 ) -> None:
     with suppress(Exception):
         await client.post(
@@ -180,6 +180,6 @@ async def send_heartbeat(
             json={
                 "jobs_processed": jobs_processed,
                 "errors": errors,
-                "ollama_healthy": ollama_healthy,
+                "active_provider_healthy": active_provider_healthy,
             },
         )

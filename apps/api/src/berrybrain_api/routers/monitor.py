@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from berrybrain_api.ai_configuration import load_configuration
 from berrybrain_api.ai_gateway import provider_resilience_snapshot
 from berrybrain_api.database import SessionLocal, engine
 from berrybrain_api.jobs import list_jobs, parse_json, serialize_datetime
@@ -11,7 +12,9 @@ from berrybrain_api.models import (
     ConnectionRecord,
     EmbeddingRecord,
     GeneratedMetadataRecord,
+    GraphFeedbackRecord,
     InsightRecord,
+    LearningEventRecord,
     ModelInvocationRecord,
     NoteRecord,
     WorkerStatus,
@@ -30,7 +33,30 @@ router = APIRouter(prefix="/api/v1", tags=["monitor"])
 class HeartbeatRequest(BaseModel):
     jobs_processed: int = 0
     errors: int = 0
-    ollama_healthy: bool = False
+    active_provider_healthy: bool | None = None
+    ollama_healthy: bool | None = None
+
+
+def _worker_status_payload(session, worker: WorkerStatus) -> dict:
+    configuration = load_configuration(session)
+    mode = configuration.mode if configuration is not None else "unconfigured"
+    provider_id = (
+        configuration.main.provider_id if configuration is not None else "unconfigured"
+    )
+    active_healthy = bool(worker.ollama_healthy)
+    return {
+        "status": worker.status,
+        "last_heartbeat_at": serialize_datetime(worker.last_heartbeat),
+        "jobs_processed": worker.jobs_processed,
+        "errors": worker.errors,
+        "active_provider_mode": mode,
+        "active_provider_id": provider_id,
+        "active_provider_healthy": active_healthy,
+        "capability_health": {
+            "generation": "healthy" if active_healthy else "unavailable",
+            "worker": "healthy" if worker.status == "running" else worker.status,
+        },
+    }
 
 
 @router.get("/monitor/stats")
@@ -69,17 +95,35 @@ def monitor_stats() -> dict:
             bucket["total"] += 1
             if item.status in {"completed", "failed"}:
                 bucket[item.status] += 1
+        learning_total = session.scalar(select(func.count(LearningEventRecord.id))) or 0
+        learning_recent = (
+            session.scalar(
+                select(func.count(LearningEventRecord.id)).where(
+                    LearningEventRecord.created_at
+                    >= datetime.now(UTC) - timedelta(hours=24)
+                )
+            )
+            or 0
+        )
+        learning_by_target = {
+            target: int(count)
+            for target, count in session.execute(
+                select(
+                    LearningEventRecord.target_type,
+                    func.count(LearningEventRecord.id),
+                ).group_by(LearningEventRecord.target_type)
+            )
+        }
+        latest_learning_event = session.scalar(
+            select(LearningEventRecord)
+            .order_by(
+                LearningEventRecord.created_at.desc(), LearningEventRecord.id.desc()
+            )
+            .limit(1)
+        )
         return {
             "schema": schema_diagnostic(engine),
-            "worker": {
-                "status": worker.status,
-                "last_heartbeat_at": serialize_datetime(worker.last_heartbeat),
-                "jobs_processed": worker.jobs_processed,
-                "errors": worker.errors,
-                "ollama_healthy": worker.ollama_healthy,
-            }
-            if worker
-            else None,
+            "worker": _worker_status_payload(session, worker) if worker else None,
             "notes": session.query(NoteRecord).count(),
             "connections": session.query(ConnectionRecord).count(),
             "insights": session.query(InsightRecord).count(),
@@ -137,6 +181,43 @@ def monitor_stats() -> dict:
                 ][:5],
                 "circuits": provider_resilience_snapshot(),
             },
+            "learning": {
+                "mode": "feedback-guided-adaptation",
+                "policy_version": "feedback-policy.v1",
+                "model_weights_updated": False,
+                "total_events": int(learning_total),
+                "events_last_24h": int(learning_recent),
+                "positive_events": session.scalar(
+                    select(func.count(LearningEventRecord.id)).where(
+                        LearningEventRecord.signal > 0
+                    )
+                )
+                or 0,
+                "negative_events": session.scalar(
+                    select(func.count(LearningEventRecord.id)).where(
+                        LearningEventRecord.signal < 0
+                    )
+                )
+                or 0,
+                "neutral_events": session.scalar(
+                    select(func.count(LearningEventRecord.id)).where(
+                        LearningEventRecord.signal == 0
+                    )
+                )
+                or 0,
+                "active_graph_feedback": session.scalar(
+                    select(func.count(GraphFeedbackRecord.id)).where(
+                        GraphFeedbackRecord.active.is_(True)
+                    )
+                )
+                or 0,
+                "by_target": learning_by_target,
+                "latest_event_at": serialize_datetime(
+                    latest_learning_event.created_at
+                    if latest_learning_event is not None
+                    else None
+                ),
+            },
             "running_jobs": [
                 {
                     "id": j.id,
@@ -177,20 +258,18 @@ def worker_heartbeat(payload: HeartbeatRequest) -> dict:
         ws.last_heartbeat = datetime.now(UTC)
         ws.jobs_processed = payload.jobs_processed
         ws.errors = payload.errors
-        ws.ollama_healthy = payload.ollama_healthy
+        ws.ollama_healthy = (
+            payload.active_provider_healthy
+            if payload.active_provider_healthy is not None
+            else bool(payload.ollama_healthy)
+        )
         session.commit()
         session.refresh(ws)
         from berrybrain_api.agent_monitor import ensure_agent_monitoring
 
         agent_monitor = ensure_agent_monitoring(session)
         return {
-            "worker": {
-                "status": ws.status,
-                "last_heartbeat": serialize_datetime(ws.last_heartbeat),
-                "jobs_processed": ws.jobs_processed,
-                "errors": ws.errors,
-                "ollama_healthy": ws.ollama_healthy,
-            },
+            "worker": _worker_status_payload(session, ws),
             "agentMonitor": agent_monitor,
         }
 
@@ -203,15 +282,7 @@ def worker_status() -> dict:
         ).scalar_one_or_none()
         if ws is None:
             return {"worker": None}
-        return {
-            "worker": {
-                "status": ws.status,
-                "last_heartbeat": serialize_datetime(ws.last_heartbeat),
-                "jobs_processed": ws.jobs_processed,
-                "errors": ws.errors,
-                "ollama_healthy": ws.ollama_healthy,
-            }
-        }
+        return {"worker": _worker_status_payload(session, ws)}
 
 
 class EmbeddingRequest(BaseModel):

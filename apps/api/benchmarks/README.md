@@ -25,8 +25,8 @@ availability or model drift.
 ## Insight usefulness
 
 `PYTHONPATH=src python -m benchmarks.insight_usefulness_benchmark` evaluates the
-publication barrier against an expert-labeled internal dataset. Every fixture has
-a reviewer rationale. The gate requires at least 80% accuracy, precision, recall,
+publication barrier against an authored synthetic regression set. Every fixture has
+a reference rationale. The gate requires at least 80% accuracy, precision, recall,
 and usefulness among accepted insights. Operational diagnostics, implementation
 data, generic claims, and unsupported hypotheses are negative controls.
 
@@ -54,7 +54,8 @@ PYTHONPATH=src:. python -m benchmarks.retrieval_quality_benchmark \
 
 `PYTHONPATH=src:. python -m benchmarks.maturity_release_gate` requires semantic
 search, insight usefulness, cognitive graph integrity, graph performance, executed
-retrieval ablation, and human-labeled Judge calibration to pass. CI fixtures are
+retrieval ablation, and Judge reference-fixture agreement to pass. The synthetic
+Judge fixture does not count as independent human calibration. CI fixtures are
 regression evidence; they must not be described as independent comparative evidence.
 
 ## Performance and comparative runners

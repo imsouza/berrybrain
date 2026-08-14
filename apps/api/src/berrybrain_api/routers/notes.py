@@ -240,6 +240,8 @@ def create_note_endpoint(payload: CreateNoteRequest) -> dict:
     with SessionLocal() as session:
         record = sync_note_record(session, settings.vault_path, str(note["path"]))
         note["id"] = record.id
+        note["stableId"] = record.stable_id
+        note["sourceVersion"] = record.source_version
         enqueue_note_changed_jobs(
             session, record.path, "NOTE_CREATED", record.content_hash
         )
@@ -649,6 +651,8 @@ def read_note_endpoint(note_path: str) -> dict:
         ).scalar_one_or_none()
         if record:
             note["id"] = record.id
+            note["stableId"] = record.stable_id
+            note["sourceVersion"] = record.source_version
     return note
 
 
@@ -667,10 +671,26 @@ def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
         if record is not None:
             new_path = str(result["path"])
             previous_content = record.content
+            previous_title = record.title
             record.path = new_path
             record.title = payload.title
             session.flush()
             record = sync_note_record(session, settings.vault_path, new_path)
+            from berrybrain_api.learning import record_learning_event
+
+            record_learning_event(
+                session,
+                event_type="note.renamed",
+                target_type="note",
+                target_key=record.stable_id,
+                action="corrected",
+                source_note_ids=[record.id],
+                before_state={"path": note_path, "title": previous_title},
+                after_state={"path": record.path, "title": record.title},
+                actor_type="user",
+                origin="notes_api",
+            )
+            session.commit()
             _update_internal_links(session, note_path, new_path)
             affected = affected_job_types_for_note_update(
                 previous_content, record.content, record.path
@@ -727,10 +747,26 @@ def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
             select(NoteRecord).where(NoteRecord.path == old_rel)
         ).scalar_one_or_none()
         if record is not None:
+            previous_title = record.title
             record.path = new_rel
             record.updated_at = datetime.now(UTC)
             session.flush()
             record = sync_note_record(session, settings.vault_path, new_rel)
+            from berrybrain_api.learning import record_learning_event
+
+            record_learning_event(
+                session,
+                event_type="note.moved",
+                target_type="note",
+                target_key=record.stable_id,
+                action="corrected",
+                source_note_ids=[record.id],
+                before_state={"path": old_rel, "title": previous_title},
+                after_state={"path": record.path, "title": record.title},
+                actor_type="user",
+                origin="notes_api",
+            )
+            session.commit()
             _update_internal_links(session, old_rel, new_rel)
             enqueue_note_changed_jobs(
                 session,

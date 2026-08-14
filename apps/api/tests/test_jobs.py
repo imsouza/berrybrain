@@ -518,6 +518,12 @@ class JobServiceTest(unittest.TestCase):
         self.assertEqual(
             current_progress["estimatedRemainingSeconds"], len(current) * 10
         )
+        self.assertEqual(
+            current_progress["estimatedRemainingSecondsP50"], len(current) * 10
+        )
+        self.assertEqual(
+            current_progress["estimatedRemainingSecondsP95"], len(current) * 10
+        )
         self.assertEqual(current_progress["estimateSampleCount"], len(current))
         self.assertEqual(current_progress["graphState"], "waiting")
 

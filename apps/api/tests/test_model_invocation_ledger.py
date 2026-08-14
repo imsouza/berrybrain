@@ -2,6 +2,7 @@ import asyncio
 import tempfile
 import unittest
 import urllib.error
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from berrybrain_api.model_invocation_service import (
     ModelInvocationHandle,
     _safe_error_message,
     finish_model_invocation,
+    reconcile_stale_model_invocations,
     start_model_invocation,
 )
 from berrybrain_api.models import ModelInvocationRecord
@@ -38,6 +40,40 @@ class ModelInvocationLedgerTest(unittest.IsolatedAsyncioTestCase):
         self.session.close()
         self.engine.dispose()
         self.tmp.cleanup()
+
+    def test_stale_running_invocations_are_reconciled_without_touching_fresh_calls(
+        self,
+    ) -> None:
+        now = datetime.now(UTC)
+        stale = ModelInvocationRecord(
+            capability="graph.enrich",
+            provider="cloud",
+            model="model-a",
+            status="running",
+            remote=True,
+            started_at=now - timedelta(minutes=40),
+        )
+        fresh = ModelInvocationRecord(
+            capability="ask.answer",
+            provider="cloud",
+            model="model-a",
+            status="running",
+            remote=True,
+            started_at=now - timedelta(minutes=2),
+        )
+        self.session.add_all((stale, fresh))
+        self.session.commit()
+
+        reconciled = reconcile_stale_model_invocations(
+            self.session, stale_after_minutes=30
+        )
+        self.session.commit()
+
+        self.assertEqual(reconciled, 1)
+        self.assertEqual(stale.status, "failed")
+        self.assertEqual(stale.error_class, "StaleModelInvocation")
+        self.assertIsNotNone(stale.completed_at)
+        self.assertEqual(fresh.status, "running")
 
     async def test_success_records_provenance_without_prompt_content(self) -> None:
         secret_prompt = "private note content that must never be persisted"

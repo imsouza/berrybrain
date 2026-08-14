@@ -1,0 +1,103 @@
+@prefix bb: <https://berrybrain.app/ns#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <https://schema.org/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://berrybrain.app/ontology/1.4.8> a owl:Ontology ;
+    owl:versionIRI <https://berrybrain.app/ontology/1.4.8> ;
+    owl:versionInfo "1.4.8" ;
+    dcterms:title "BerryBrain Knowledge Graph Ontology"@en ;
+    dcterms:description "Vocabulary for evidence-grounded personal knowledge artifacts and assertions."@en .
+
+bb:KnowledgeArtifact a owl:Class ;
+    rdfs:label "Knowledge artifact"@en .
+
+bb:Vault a owl:Class ;
+    rdfs:subClassOf schema:DataCatalog, bb:KnowledgeArtifact ;
+    rdfs:label "Vault"@en .
+
+bb:Topic a owl:Class ;
+    rdfs:subClassOf skos:Concept, bb:KnowledgeArtifact ;
+    rdfs:label "Topic"@en .
+
+bb:Insight a owl:Class ;
+    rdfs:subClassOf prov:Entity, bb:KnowledgeArtifact ;
+    rdfs:label "Insight"@en .
+
+bb:Context a owl:Class ;
+    rdfs:subClassOf bb:KnowledgeArtifact ;
+    rdfs:label "Context"@en .
+
+bb:KnowledgeGap a owl:Class ;
+    rdfs:subClassOf bb:KnowledgeArtifact ;
+    rdfs:label "Knowledge gap"@en .
+
+bb:StudyPath a owl:Class ;
+    rdfs:subClassOf bb:KnowledgeArtifact ;
+    rdfs:label "Study path"@en .
+
+bb:Assertion a owl:Class ;
+    rdfs:label "Auditable graph assertion"@en .
+
+bb:supports a owl:ObjectProperty ;
+    rdfs:label "supports"@en .
+
+bb:contradicts a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:label "contradicts"@en .
+
+bb:instanceOfConcept a owl:ObjectProperty ;
+    rdfs:domain schema:Thing ;
+    rdfs:range skos:Concept ;
+    rdfs:label "instance of concept"@en .
+
+bb:prerequisiteFor a owl:ObjectProperty ;
+    rdfs:label "prerequisite for"@en .
+
+bb:exampleOf a owl:ObjectProperty ;
+    rdfs:label "example of"@en .
+
+bb:appliesTo a owl:ObjectProperty ;
+    rdfs:label "applies to"@en .
+
+bb:equivalentEntity a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain schema:Thing ;
+    rdfs:range schema:Thing ;
+    rdfs:label "equivalent entity"@en .
+
+bb:contrastsWith a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:label "contrasts with"@en .
+
+bb:contextualizes a owl:ObjectProperty ;
+    rdfs:label "contextualizes"@en .
+
+bb:relatedTo a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:label "related to"@en .
+
+bb:subject a owl:ObjectProperty ;
+    rdfs:domain bb:Assertion .
+
+bb:predicate a owl:ObjectProperty ;
+    rdfs:domain bb:Assertion .
+
+bb:object a owl:ObjectProperty ;
+    rdfs:domain bb:Assertion .
+
+bb:stableId a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+bb:nodeType a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+bb:edgeType a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+bb:qualityStatus a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+bb:confidence a owl:DatatypeProperty ;
+    rdfs:range xsd:decimal .

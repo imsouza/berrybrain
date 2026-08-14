@@ -159,7 +159,8 @@ class VaultScanTest(unittest.TestCase):
         self.assertEqual(canonical_note_nodes[0].label, "First revised")
         self.assertEqual(json.loads(retained_shared.source_note_ids), [second.id])
         self.assertEqual(json.loads(retained_edge.source_note_ids), [second.id])
-        self.assertEqual(retained_shared.confidence_sample_size, 1)
+        self.assertEqual(retained_shared.confidence_sample_size, 0)
+        self.assertEqual(retained_shared.confidence_method, "unavailable")
         self.assertIsNone(self.session.get(GraphNodeRecord, orphan.id))
         self.assertIsNone(self.session.get(GraphEdgeRecord, orphan_edge.id))
 
