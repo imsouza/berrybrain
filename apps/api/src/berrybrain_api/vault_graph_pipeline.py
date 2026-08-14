@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from berrybrain_api.artifact_state import processable_node_clause
 from berrybrain_api.database import SessionLocal, engine
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -145,9 +146,7 @@ def diagnose_pipeline(vault_path: str | Path) -> PipelineDiagnostic:
             )
         graph_nodes["all"] = session.query(GraphNodeRecord).count()
         graph_nodes["active"] = (
-            session.query(GraphNodeRecord)
-            .filter(GraphNodeRecord.status != "ignored")
-            .count()
+            session.query(GraphNodeRecord).filter(processable_node_clause()).count()
         )
 
         graph_edges["all"] = session.query(GraphEdgeRecord).count()

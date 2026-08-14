@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter
 from sqlalchemy import select
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, NoteRecord
@@ -85,16 +86,14 @@ async def hipporag_sync_graph() -> dict:
         nodes = list(
             session.execute(
                 select(GraphNodeRecord).where(
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    accepted_node_clause(),
                 )
             ).scalars()
         )
         edges = list(
             session.execute(
                 select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.status != "ignored",
-                    GraphEdgeRecord.semantic_status == "active",
+                    accepted_edge_clause(),
                 )
             ).scalars()
         )

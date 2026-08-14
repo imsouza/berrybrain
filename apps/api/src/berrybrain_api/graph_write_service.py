@@ -542,6 +542,7 @@ class GraphWriteService:
         pipeline_run_id: str = "",
         status: str = "suggested",
         label: str = "",
+        replace_evidence: bool = False,
     ) -> GraphEdgeRecord:
         canonical_type = canonical_edge_type(edge_type)
         if source_node_id == target_node_id:
@@ -614,7 +615,9 @@ class GraphWriteService:
             edge = existing_edge
             created = False
         before = _edge_state(edge)
-        merged_evidence = _json_list(edge.evidence) + evidence
+        merged_evidence = (
+            evidence if replace_evidence else _json_list(edge.evidence) + evidence
+        )
         unique_evidence = {
             _json_dump(item) if isinstance(item, dict) else str(item): item
             for item in merged_evidence
@@ -808,6 +811,20 @@ class GraphWriteService:
         before = _node_state(node)
         node.user_notes = notes
         node.updated_at = datetime.now(UTC)
+        from berrybrain_api.learning import record_learning_event
+
+        record_learning_event(
+            self.session,
+            event_type="graph.node.annotated",
+            target_type="graph_node",
+            target_key=node_artifact_key(node.type, node.label),
+            action="annotated",
+            source_note_ids=node_source_note_ids(node),
+            before_state={"userNotes": before.get("user_notes", "")},
+            after_state={"userNotes": notes},
+            actor_type="user",
+            origin="graph",
+        )
         self._record(
             "GRAPH_NODE_NOTES_CHANGED",
             "graph_node",
@@ -924,6 +941,20 @@ class GraphWriteService:
         before = _edge_state(edge)
         edge.user_notes = notes
         edge.updated_at = datetime.now(UTC)
+        from berrybrain_api.learning import record_learning_event
+
+        record_learning_event(
+            self.session,
+            event_type="graph.edge.annotated",
+            target_type="graph_edge",
+            target_key=f"edge:{edge.id}",
+            action="annotated",
+            source_note_ids=edge_source_note_ids(edge),
+            before_state={"userNotes": before.get("user_notes", "")},
+            after_state={"userNotes": notes},
+            actor_type="user",
+            origin="graph",
+        )
         self._record(
             "GRAPH_EDGE_NOTES_CHANGED",
             "graph_edge",
@@ -1255,9 +1286,22 @@ class GraphWriteService:
                 detail="Changing this type would create a duplicate graph edge",
             )
         before = _edge_state(edge)
+        previous_key = edge_artifact_key(source, target, edge.type)
         edge.type = canonical_type
         edge.ontology_property = ontology_property(canonical_type)
+        edge.quality_gate_status = "pending"
+        edge.quality_score = 0.0
+        edge.semantic_status = "active"
         edge.updated_at = datetime.now(UTC)
+        record_feedback(
+            self.session,
+            artifact_kind="edge",
+            artifact_key=previous_key,
+            source_note_ids=edge_source_note_ids(edge),
+            action="corrected",
+            original_payload=before,
+            replacement_payload=_edge_state(edge),
+        )
         self._record(
             "GRAPH_EDGE_TYPE_CHANGED",
             "graph_edge",
@@ -1298,7 +1342,7 @@ class GraphWriteService:
                 )
             ).scalars()
         )
-        before = {
+        before: dict[str, Any] = {
             "survivor": _node_state(survivor),
             "merged": _node_state(merged),
             "edges": [_edge_state(edge) for edge in affected_edges],
@@ -1355,11 +1399,20 @@ class GraphWriteService:
                 _recalculate_edge_confidence(duplicate)
                 edge.status = "archived"
 
-        after = {
+        after: dict[str, Any] = {
             "survivor": _node_state(survivor),
             "merged": _node_state(merged),
             "edges": [_edge_state(edge) for edge in affected_edges],
         }
+        record_feedback(
+            self.session,
+            artifact_kind="node",
+            artifact_key=node_artifact_key(merged.type, merged.label),
+            source_note_ids=sorted(source_ids),
+            action="corrected",
+            original_payload=before["merged"],
+            replacement_payload=after["survivor"],
+        )
         log = self._record(
             "GRAPH_NODES_MERGED",
             "graph_node",
@@ -1391,6 +1444,24 @@ class GraphWriteService:
         )
         edge.evidence = _json_dump(evidence)
         edge.updated_at = datetime.now(UTC)
+        from berrybrain_api.learning import record_learning_event
+
+        record_learning_event(
+            self.session,
+            event_type="graph.edge.evidence_added",
+            target_type="graph_edge",
+            target_key=f"edge:{edge.id}",
+            action="evidence_added",
+            source_note_ids=edge_source_note_ids(edge),
+            before_state={"evidenceCount": len(evidence) - 1},
+            after_state={
+                "evidenceCount": len(evidence),
+                "excerpt": excerpt.strip(),
+                "sourceNoteId": source_note_id,
+            },
+            actor_type="user",
+            origin="graph",
+        )
         self._record(
             "GRAPH_EDGE_EVIDENCE_ADDED",
             "graph_edge",
@@ -1415,6 +1486,19 @@ class GraphWriteService:
         if log.action_type == "GRAPH_NODES_MERGED":
             self._undo_node_merge(before)
             target = self.session.get(GraphNodeRecord, int(log.target_id))
+            restored = self.session.get(
+                GraphNodeRecord, int((before.get("merged") or {}).get("id") or 0)
+            )
+            if restored is not None:
+                record_feedback(
+                    self.session,
+                    artifact_kind="node",
+                    artifact_key=node_artifact_key(restored.type, restored.label),
+                    source_note_ids=node_source_note_ids(restored),
+                    action="restored",
+                    original_payload=json.loads(log.after_state or "{}"),
+                    replacement_payload=_node_state(restored),
+                )
         elif log.target_type == "graph_node":
             target = self.session.get(GraphNodeRecord, int(log.target_id))
         elif log.target_type == "graph_edge":

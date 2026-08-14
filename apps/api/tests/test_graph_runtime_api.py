@@ -7,14 +7,24 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
-from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, JobRecord
+from berrybrain_api.models import (
+    ConnectionRecord,
+    GraphEdgeRecord,
+    GraphInferenceRecord,
+    GraphNodeRecord,
+    JobRecord,
+    LearningEventRecord,
+    NoteRecord,
+)
 from berrybrain_api.routers.graph import (
+    InferenceFeedbackRequest,
     ReclusterRequest,
     delete_graph_node_endpoint,
     get_graph_delta,
     get_graph_edges_page,
     get_graph_nodes_page,
     recluster_graph,
+    record_inference_feedback,
 )
 
 
@@ -41,6 +51,7 @@ class GraphRuntimeApiTest(unittest.TestCase):
                     target_node_id=nodes[1].id,
                     type="related",
                     label="Related",
+                    quality_gate_status="passed",
                 )
             )
             session.commit()
@@ -79,6 +90,38 @@ class GraphRuntimeApiTest(unittest.TestCase):
         self.assertEqual(delta["nodeCount"], 3)
         self.assertEqual(delta["edgeCount"], 1)
         self.assertGreater(delta["graphVersion"], 0)
+
+    def test_inference_feedback_creates_learning_event(self) -> None:
+        with self.factory() as session:
+            source = GraphNodeRecord(
+                type="concept",
+                label="Forecasting",
+                source_note_ids="[4,9]",
+            )
+            session.add(source)
+            session.flush()
+            inference = GraphInferenceRecord(
+                question="What connects these notes?",
+                answer="The accepted graph evidence links them.",
+                status="answered",
+                evidence=(
+                    f'[{{"metadata":{{"sourceNoteIds":[4],"nodeId":{source.id}' + "}}]"
+                ),
+                related_nodes=f'["concept_{source.id}"]',
+            )
+            session.add(inference)
+            session.commit()
+            inference_id = inference.id
+            result = record_inference_feedback(
+                inference_id,
+                InferenceFeedbackRequest(action="upvoted"),
+                session,
+            )
+            event = session.query(LearningEventRecord).one()
+
+        self.assertEqual(result["action"], "upvoted")
+        self.assertEqual(event.target_key, f"graph-inference:{inference_id}")
+        self.assertEqual(event.source_note_ids, "[4,9]")
 
     def test_recluster_requires_matching_preview_token(self) -> None:
         with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
@@ -155,6 +198,74 @@ class GraphRuntimeApiTest(unittest.TestCase):
         self.assertEqual(result["impact"]["scope"], "incident_subgraph")
         self.assertIn("insights", result["jobs"])
         self.assertEqual(obsolete_statuses, {"superseded"})
+
+    def test_delete_concept_invalidates_derived_note_relationships(self) -> None:
+        with self.factory() as session:
+            first_note = NoteRecord(title="First note", slug="first", path="first.md")
+            second_note = NoteRecord(
+                title="Second note", slug="second", path="second.md"
+            )
+            session.add_all([first_note, second_note])
+            session.flush()
+            first_node = GraphNodeRecord(
+                type="note",
+                label=first_note.title,
+                source_id=first_note.id,
+                source_note_ids=json.dumps([first_note.id]),
+            )
+            second_node = GraphNodeRecord(
+                type="note",
+                label=second_note.title,
+                source_id=second_note.id,
+                source_note_ids=json.dumps([second_note.id]),
+            )
+            concept = GraphNodeRecord(
+                type="concept",
+                label="Discarded bridge",
+                source_note_ids=json.dumps([first_note.id, second_note.id]),
+            )
+            session.add_all([first_node, second_node, concept])
+            session.flush()
+            edge = GraphEdgeRecord(
+                source_node_id=first_node.id,
+                target_node_id=second_node.id,
+                type="related",
+                label="shared concept",
+                reason=(
+                    'The notes "First note" and "Second note" share the '
+                    'concept "Discarded bridge".'
+                ),
+                evidence=json.dumps(["Discarded bridge"]),
+                source_note_ids=json.dumps([first_note.id, second_note.id]),
+                status="suggested",
+                semantic_status="active",
+                created_by="system",
+            )
+            connection = ConnectionRecord(
+                source_note_id=first_note.id,
+                target_note_id=second_note.id,
+                connection_type="shared_concept",
+                reason=edge.reason,
+                evidence=edge.evidence,
+                status="suggested",
+            )
+            session.add_all([edge, connection])
+            session.commit()
+            concept_id = concept.id
+            edge_id = edge.id
+            connection_id = connection.id
+
+        with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
+            result = delete_graph_node_endpoint(concept_id)
+
+        with self.factory() as session:
+            stale_edge = session.get(GraphEdgeRecord, edge_id)
+            stale_connection = session.get(ConnectionRecord, connection_id)
+            self.assertEqual(stale_edge.status, "stale")
+            self.assertEqual(stale_edge.semantic_status, "quarantined")
+            self.assertEqual(stale_connection.status, "stale")
+
+        self.assertEqual(result["impact"]["invalidatedRelationships"], 2)
 
 
 if __name__ == "__main__":

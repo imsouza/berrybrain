@@ -38,6 +38,8 @@ type HomeSummary = {
     lastResult: string;
     status: StatusKind | string;
     estimatedRemainingSeconds?: number | null;
+    estimatedRemainingSecondsP50?: number | null;
+    estimatedRemainingSecondsP95?: number | null;
     remainingTasks?: number;
   };
   stats: {
@@ -368,11 +370,13 @@ function HomeAskBar({
           />
         </div>
       </div>
-      <VoicePromptButton value={value} onChange={onChange} />
-      <button type="button" className="bb-action grid h-10 w-10 shrink-0 place-items-center" aria-label="Open Ask workspace" title="Open Ask workspace" onClick={onOpenWorkspace}><ExternalLink className="size-4" /></button>
-      <button type="submit" disabled={!value.trim()} className="bb-action bb-action--primary h-10 shrink-0 px-5 text-sm font-semibold">
-        Ask
-      </button>
+      <div className="flex w-full items-center gap-2 sm:w-auto">
+        <VoicePromptButton value={value} onChange={onChange} />
+        <button type="button" className="bb-action grid h-10 w-10 shrink-0 place-items-center" aria-label="Open Ask workspace" title="Open Ask workspace" onClick={onOpenWorkspace}><ExternalLink className="size-4" /></button>
+        <button type="submit" disabled={!value.trim()} className="bb-action bb-action--primary h-10 min-w-0 flex-1 px-5 text-sm font-semibold sm:flex-none">
+          Ask
+        </button>
+      </div>
     </form>
   );
 }
@@ -427,10 +431,15 @@ function ComposeCard({ noNotes, value, disabled, onChange, onSubmit, onCreateEmp
 function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: HomeSummary; status: StatusKind; onOpenMonitor: () => void }) {
   const running = status === "running";
   const waiting = status === "waiting_provider" || status === "queued";
-  const eta = summary.progress.estimatedRemainingSeconds;
+  const etaCandidates = [
+    summary.progress.estimatedRemainingSecondsP50,
+    summary.progress.estimatedRemainingSeconds,
+  ].filter((value): value is number => typeof value === "number");
+  const eta = etaCandidates.length ? Math.max(...etaCandidates) : null;
+  const etaP95 = summary.progress.estimatedRemainingSecondsP95;
   const progressDescription = summary.progress.mode === "indeterminate"
     ? eta != null
-      ? `About ${formatEta(eta)} until knowledge is up to date`
+      ? `${formatEtaRange(eta, etaP95)} until knowledge is up to date`
       : "Estimating the current queue"
     : "Knowledge maintenance is up to date";
   return (
@@ -462,7 +471,7 @@ function AutopilotProgressCard({ summary, status, onOpenMonitor }: { summary: Ho
   );
 }
 
-function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: ActiveJob[]; pipelineProgress: { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string }[]; onOpenMonitor: () => void }) {
+function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: ActiveJob[]; pipelineProgress: { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; estimatedRemainingSecondsP95?: number | null; graphState?: string }[]; onOpenMonitor: () => void }) {
   const progressByPath = new Map(pipelineProgress.map((p) => [p.notePath, p]));
   return (
     <Section title={t("processingNow")}>
@@ -487,7 +496,7 @@ function ActiveJobsPanel({ jobs, pipelineProgress, onOpenMonitor }: { jobs: Acti
                     <span className="text-[10px] text-muted/50">{tf("pipelineStep", { step: String(pp.completed), total: String(pp.total) })}</span>
                   </div>
                 )}
-                {pp && <p className="mt-1 text-[10px] text-muted/50">Graph {pp.graphState || "waiting"}{pp.estimatedRemainingSeconds != null ? ` · about ${formatEta(pp.estimatedRemainingSeconds)} remaining` : " · estimating"}</p>}
+                {pp && <p className="mt-1 text-[10px] text-muted/50">Graph {pp.graphState || "waiting"}{pp.estimatedRemainingSeconds != null ? ` · ${formatEtaRange(pp.estimatedRemainingSeconds, pp.estimatedRemainingSecondsP95)}` : " · estimating"}</p>}
                 <p className="mt-1 text-[10px] text-muted/45">{providerLabel(job.provider || "")}{job.model ? ` · ${job.model}` : ""}</p>
               </button>
             );
@@ -694,4 +703,11 @@ function formatEta(seconds: number) {
   if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`;
   const minutes = Math.ceil(seconds / 60);
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
+}
+
+function formatEtaRange(p50: number, p95?: number | null) {
+  const lower = Math.max(0, p50);
+  const upper = Math.max(lower, p95 ?? lower);
+  if (upper <= lower) return `About ${formatEta(lower)}`;
+  return `${formatEta(lower)}-${formatEta(upper)} estimated`;
 }

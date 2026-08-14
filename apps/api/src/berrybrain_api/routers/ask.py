@@ -7,10 +7,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from berrybrain_api.ai_gateway import generate_graph_answer, get_ai_config
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.ask_flow import (
     append_ask_turn,
     cancel_ask_session,
@@ -22,7 +23,9 @@ from berrybrain_api.ask_flow import (
     serialize_ask_turn,
 )
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.learning import record_learning_event
 from berrybrain_api.models import (
+    AskTurnRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
     SemanticClusterRecord,
@@ -44,6 +47,11 @@ class CreateAskSessionRequest(BaseModel):
 
 class CreateAskTurnRequest(BaseModel):
     content: str
+
+
+class AskTurnFeedbackRequest(BaseModel):
+    action: str = Field(pattern="^(upvoted|downvoted|corrected)$")
+    correction: str = Field(default="", max_length=8000)
 
 
 def _suggestion_id(prompt: str) -> str:
@@ -356,8 +364,7 @@ async def _refresh_ai_suggestions(
                 session.execute(
                     select(GraphNodeRecord)
                     .where(
-                        GraphNodeRecord.status != "ignored",
-                        GraphNodeRecord.semantic_status == "active",
+                        accepted_node_clause(),
                     )
                     .order_by(
                         GraphNodeRecord.updated_at.desc(), GraphNodeRecord.id.desc()
@@ -369,7 +376,7 @@ async def _refresh_ai_suggestions(
             edges = list(
                 session.execute(
                     select(GraphEdgeRecord).where(
-                        GraphEdgeRecord.status != "ignored",
+                        accepted_edge_clause(),
                         GraphEdgeRecord.source_node_id.in_(node_ids),
                         GraphEdgeRecord.target_node_id.in_(node_ids),
                     )
@@ -421,8 +428,7 @@ async def get_suggestions(background_tasks: BackgroundTasks, limit: int = 8) -> 
             session.execute(
                 select(GraphNodeRecord)
                 .where(
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    accepted_node_clause(),
                 )
                 .order_by(GraphNodeRecord.updated_at.desc(), GraphNodeRecord.id.desc())
                 .limit(200)
@@ -436,7 +442,7 @@ async def get_suggestions(background_tasks: BackgroundTasks, limit: int = 8) -> 
         edge_rows = list(
             session.execute(
                 select(GraphEdgeRecord).where(
-                    GraphEdgeRecord.status != "ignored",
+                    accepted_edge_clause(),
                     GraphEdgeRecord.source_node_id.in_(node_ids),
                     GraphEdgeRecord.target_node_id.in_(node_ids),
                 )
@@ -589,6 +595,43 @@ async def create_turn(session_id: str, payload: CreateAskTurnRequest) -> dict:
         return {
             "userTurn": serialize_ask_turn(user_turn),
             "assistantTurn": serialize_ask_turn(assistant_turn),
+        }
+
+
+@router.post("/sessions/{session_id}/turns/{turn_id}/feedback")
+def record_turn_feedback(
+    session_id: str, turn_id: int, payload: AskTurnFeedbackRequest
+) -> dict[str, Any]:
+    with SessionLocal() as session:
+        turn = session.get(AskTurnRecord, turn_id)
+        if turn is None or turn.session_id != session_id:
+            raise HTTPException(status_code=404, detail="Ask turn not found")
+        if turn.role != "assistant":
+            raise HTTPException(
+                status_code=422,
+                detail="Feedback can only be recorded for an assistant answer",
+            )
+        if payload.action == "corrected" and not payload.correction.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="A corrected answer is required for correction feedback",
+            )
+        event = record_learning_event(
+            session,
+            event_type=f"ask.answer.{payload.action}",
+            target_type="ask_answer",
+            target_key=f"ask:{session_id}:turn:{turn.id}",
+            action=payload.action,
+            before_state={"answer": turn.content},
+            after_state={"correction": payload.correction.strip()},
+            actor_type="user",
+            origin="ask_api",
+        )
+        session.commit()
+        return {
+            "status": "recorded",
+            "eventId": event.event_id,
+            "action": event.action,
         }
 
 

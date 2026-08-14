@@ -1,0 +1,340 @@
+{
+  "classification": "exploratory",
+  "experiment": {
+    "ablations": [
+      {
+        "continuous_agents": false,
+        "description": "lexical retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A0",
+        "judge": false,
+        "retrieval": "lexical"
+      },
+      {
+        "continuous_agents": false,
+        "description": "dense retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A1",
+        "judge": false,
+        "retrieval": "dense"
+      },
+      {
+        "continuous_agents": false,
+        "description": "hybrid retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": false,
+        "identifier": "A2",
+        "judge": false,
+        "retrieval": "hybrid"
+      },
+      {
+        "continuous_agents": false,
+        "description": "graph retrieval",
+        "family": "answer",
+        "generation": false,
+        "graph_expansion": true,
+        "identifier": "A3",
+        "judge": false,
+        "retrieval": "hybrid"
+      }
+    ],
+    "scale": {
+      "graph_edges": 1000,
+      "graph_nodes": 500,
+      "intended_use": "pull-request regression",
+      "name": "S",
+      "notes": 100,
+      "query_repetitions": 7
+    },
+    "schemaVersion": "berrybrain-experiment.v1",
+    "sharedControls": {
+      "cacheMode": "cold",
+      "chunkSize": 1000,
+      "contextLimit": 8192,
+      "corpusParityRequired": true,
+      "modelParityRequired": true,
+      "queryParityRequired": true,
+      "seed": 20260812
+    }
+  },
+  "faultInjection": {
+    "contained_count": 3,
+    "fault_count": 3,
+    "integrity_preserved_count": 3,
+    "maximum_recovery_ms": 9.588458109647036,
+    "observations": [
+      {
+        "contained": true,
+        "detail": "URLError",
+        "fault": "provider-or-sidecar-unavailable",
+        "integrity_preserved": true,
+        "recovery_ms": 9.588458109647036,
+        "user_visible_state": "degraded"
+      },
+      {
+        "contained": true,
+        "detail": "invalid-model-output",
+        "fault": "malformed-model-output",
+        "integrity_preserved": true,
+        "recovery_ms": 0.0639620702713728,
+        "user_visible_state": "failed"
+      },
+      {
+        "contained": true,
+        "detail": "write-blocked-before-mutation",
+        "fault": "disk-write-unavailable",
+        "integrity_preserved": true,
+        "recovery_ms": 1.2449619825929403,
+        "user_visible_state": "failed"
+      }
+    ],
+    "passed": true
+  },
+  "generatedAt": "2026-08-14T04:48:50.140763+00:00",
+  "graphOnDisk": {
+    "edge_count": 1000,
+    "latency_p50_ms": 188.61941783688962,
+    "latency_p95_ms": 222.63294993899763,
+    "latency_samples_ms": [
+      214.96398001909256,
+      222.63294993899763,
+      195.5430309753865,
+      188.61941783688962,
+      180.7195630390197,
+      179.8064480535686,
+      186.4573978818953
+    ],
+    "meets_targets": true,
+    "memory_budget_bytes": 536870912,
+    "node_count": 500,
+    "p95_budget_ms": 5000,
+    "payload_budget_bytes": 16777216,
+    "payload_bytes": 864092,
+    "peak_memory_bytes": 3933306,
+    "sample_count": 7
+  },
+  "httpLoad": {
+    "concurrency": 10,
+    "duration_seconds": 1.3137527948711067,
+    "error_rate": 0.0,
+    "failures": 0,
+    "latency_p50_ms": 119.26133899999999,
+    "latency_p95_ms": 224.54771324999996,
+    "latency_p99_ms": 257.9573005700001,
+    "requests": 100,
+    "status_codes": {
+      "200": 100
+    },
+    "successes": 100,
+    "throughput_rps": 76.11782094043886
+  },
+  "passed": true,
+  "profile": "S",
+  "releaseGate": {
+    "cognition": {
+      "concept_precision": 1.0,
+      "concept_recall": 1.0,
+      "connection_precision": 1.0,
+      "connection_recall": 1.0,
+      "diagnostic_leakage_rate": 0.0,
+      "idempotent_rebuild": true,
+      "insight_grounded_rate": 1.0,
+      "meets_targets": true,
+      "note_count": 6,
+      "provenance_coverage": 1.0,
+      "review_status_preserved": true,
+      "stale_knowledge_removed": true,
+      "unsupported_claim_rate": 0.0
+    },
+    "failed_gates": [],
+    "graph_performance": {
+      "edge_count": 20000,
+      "latency_p50_ms": 2733.7707311380655,
+      "latency_p95_ms": 2824.202881194651,
+      "latency_samples_ms": [
+        2669.212298002094,
+        2765.218247892335,
+        2737.9668860230595,
+        2705.344886984676,
+        2733.7707311380655,
+        2719.933505868539,
+        2824.202881194651
+      ],
+      "meets_targets": true,
+      "memory_budget_bytes": 536870912,
+      "node_count": 5000,
+      "p95_budget_ms": 5000,
+      "payload_budget_bytes": 16777216,
+      "payload_bytes": 14153919,
+      "peak_memory_bytes": 63961535,
+      "sample_count": 7
+    },
+    "insights": {
+      "accepted_usefulness_rate": 1.0,
+      "accuracy": 1.0,
+      "fixture_count": 12,
+      "meets_target": true,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "judge_calibration": {
+      "annotation_source": "authored-reference-fixture",
+      "calibrated": false,
+      "classification": "synthetic-regression",
+      "comparable": 30,
+      "disagreed": 1,
+      "false_acceptance_rate": 0.0,
+      "false_rejection_rate": 0.0,
+      "gates": {
+        "fa_max": 0.05,
+        "fr_max": 0.1,
+        "min_evals": 100,
+        "min_reviews": 30,
+        "weighted_kappa_min": 0.7
+      },
+      "human_review_jsonl_fields": [
+        "committee_id",
+        "artifact_type",
+        "artifact_id",
+        "reviewer",
+        "verdict",
+        "score",
+        "notes"
+      ],
+      "limitation": "Reference labels are synthetic regression fixtures and do not count as independent human calibration.",
+      "matched": 29,
+      "regression_gate_passed": true,
+      "status": "regression_only",
+      "total_evaluations": 100,
+      "total_human_reviews": 0,
+      "total_reference_reviews": 30,
+      "weighted_kappa": 0.9801
+    },
+    "passed": true,
+    "retrieval_ablation": {
+      "ablations": [
+        {
+          "configuration": "lexical_only",
+          "failures": 0,
+          "latency_p50_ms": 6.60995,
+          "latency_p95_ms": 7.995839,
+          "latency_p99_ms": 9.782448,
+          "mean_reciprocal_rank": 0.016667,
+          "ndcg_at_10": 0.024678,
+          "negative_rejection_rate": 1.0,
+          "query_count": 44,
+          "recall_at_10": 0.05
+        },
+        {
+          "configuration": "dense_only",
+          "failures": 0,
+          "latency_p50_ms": 7.316856,
+          "latency_p95_ms": 8.798478,
+          "latency_p99_ms": 10.769115,
+          "mean_reciprocal_rank": 0.5,
+          "ndcg_at_10": 0.5,
+          "negative_rejection_rate": 1.0,
+          "query_count": 44,
+          "recall_at_10": 0.5
+        },
+        {
+          "configuration": "standard_hybrid",
+          "failures": 0,
+          "latency_p50_ms": 14.711191,
+          "latency_p95_ms": 16.650846,
+          "latency_p99_ms": 17.403506,
+          "mean_reciprocal_rank": 0.5,
+          "ndcg_at_10": 0.5,
+          "negative_rejection_rate": 1.0,
+          "query_count": 44,
+          "recall_at_10": 0.5
+        },
+        {
+          "configuration": "graph_lexical",
+          "failures": 0,
+          "latency_p50_ms": 17.664765,
+          "latency_p95_ms": 24.86388,
+          "latency_p99_ms": 26.028622,
+          "mean_reciprocal_rank": 0.25,
+          "ndcg_at_10": 0.315465,
+          "negative_rejection_rate": 1.0,
+          "query_count": 44,
+          "recall_at_10": 0.5
+        },
+        {
+          "configuration": "graph_hybrid",
+          "failures": 0,
+          "latency_p50_ms": 28.860623,
+          "latency_p95_ms": 38.122468,
+          "latency_p99_ms": 38.749185,
+          "mean_reciprocal_rank": 0.75,
+          "ndcg_at_10": 0.815465,
+          "negative_rejection_rate": 1.0,
+          "query_count": 44,
+          "recall_at_10": 1.0
+        }
+      ],
+      "citation_precision": 1.0,
+      "dataset_version": "retrieval-ablation.v1",
+      "evidence_faithfulness": 1.0,
+      "factual_query_count": 20,
+      "factual_recall_regression": 0.0,
+      "gates_passed": true,
+      "graph_factual_recall": 1.0,
+      "graph_multi_hop_recall": 1.0,
+      "ignored_edge_rejected": true,
+      "multi_hop_gain_ci95": {
+        "confidence": 0.95,
+        "lower": 1.0,
+        "method": "bootstrap-percentile",
+        "samples": 20,
+        "upper": 1.0
+      },
+      "multi_hop_query_count": 20,
+      "multi_hop_recall_gain": 1.0,
+      "negative_query_count": 4,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "stale_deleted_rejected": true,
+      "standard_factual_recall": 1.0,
+      "standard_multi_hop_recall": 0.0
+    },
+    "semantic": {
+      "indexing_coverage": 1.0,
+      "latency_p50_ms": 32.56248100660741,
+      "latency_p95_ms": 64.32727095670998,
+      "mean_reciprocal_rank": 1.0,
+      "meets_initial_targets": true,
+      "ndcg_at_10": 1.0,
+      "negative_query_count": 5,
+      "negative_rejection_rate": 1.0,
+      "note_count": 100,
+      "positive_query_count": 40,
+      "query_count": 45,
+      "recall_at_10": 1.0,
+      "recall_at_5": 0.5,
+      "relationship_recall_at_10": 1.0,
+      "stale_evidence_count": 0,
+      "unexpected_zero_result_rate": 0.0,
+      "zero_result_rate": 0.1111111111111111
+    }
+  },
+  "schemaVersion": "berrybrain-evaluation.v1",
+  "workerQueue": {
+    "claim_p95_ms": 60.36653405,
+    "completed_jobs": 100,
+    "drain_rate_jobs_per_second": 11.918320092247177,
+    "duplicate_claims": 0,
+    "end_to_end_p50_ms": 5452.5610665,
+    "end_to_end_p95_ms": 8060.363820199999,
+    "end_to_end_p99_ms": 8326.84583084,
+    "enqueue_rate_jobs_per_second": 49.15012054186885,
+    "jobs": 100,
+    "remaining_jobs": 0
+  }
+}

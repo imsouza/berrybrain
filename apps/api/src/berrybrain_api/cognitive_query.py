@@ -18,6 +18,8 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
+from berrybrain_api.learning import build_learning_guidance
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -107,12 +109,25 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         "confidence. If evidence is weak, status must be insufficient_evidence."
     )
     prompt_evidence = _bounded_query_evidence(evidence)
+    source_note_ids = sorted(
+        {
+            int(metadata["noteId"])
+            for item in prompt_evidence
+            if isinstance((metadata := item.get("metadata")), dict)
+            and str(metadata.get("noteId", "")).isdigit()
+        }
+    )
     prompt = json.dumps(
         {
             "question": question,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
             "evidence": prompt_evidence,
+            "learningGuidance": build_learning_guidance(
+                session,
+                source_note_ids=source_note_ids,
+                target_type="ask_answer",
+            ),
             "rules": [
                 "Do not invent facts.",
                 "Cite concrete note/node/edge/job evidence.",
@@ -410,20 +425,10 @@ def retrieve_graph(
 ) -> tuple[list[RetrievalEvidence], list[str]]:
     query_tokens = _tokens(query)
     nodes = list(
-        session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
-            )
-        ).scalars()
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
     )
     edges = list(
-        session.execute(
-            select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
-            )
-        ).scalars()
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
     )
     node_by_id = {node.id: node for node in nodes}
     results: list[RetrievalEvidence] = []
@@ -467,6 +472,7 @@ def retrieve_graph(
                     "confidenceLower": node.confidence_lower,
                     "status": node.status,
                     "ontologyClass": node.ontology_class,
+                    "sourceNoteIds": _json_list(node.source_note_ids),
                     "evidence": _json_list(node.source_evidence),
                     "provider": node.provider,
                     "model": node.model,
@@ -514,6 +520,7 @@ def retrieve_graph(
                     "confidenceLower": edge.confidence_lower,
                     "status": edge.status,
                     "ontologyProperty": edge.ontology_property,
+                    "sourceNoteIds": _json_list(edge.source_note_ids),
                     "direction": {
                         "sourceNodeId": edge.source_node_id,
                         "targetNodeId": edge.target_node_id,

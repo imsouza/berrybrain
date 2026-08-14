@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
+from berrybrain_api.artifact_state import apply_quality_verdict
 from berrybrain_api.config import PROJECT_ROOT, get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.judge_committee import (
@@ -105,6 +106,8 @@ def _parse_json_list(raw: object) -> list[object]:
 
 
 def _judge_source_context(session, artifact: object, artifact_type: str) -> dict:
+    from berrybrain_api.learning import build_learning_guidance
+
     source_note_ids = {
         int(value)
         for value in _parse_json_list(getattr(artifact, "source_note_ids", "[]"))
@@ -143,7 +146,12 @@ def _judge_source_context(session, artifact: object, artifact_type: str) -> dict
                 "contentExcerpt": " ".join((note.content or "").split())[:800],
             }
             for note in notes
-        ]
+        ],
+        "learningGuidance": build_learning_guidance(
+            session,
+            source_note_ids=sorted(source_note_ids),
+            target_type=f"graph_{artifact_type}",
+        ),
     }
     if artifact_type == "edge":
         endpoint_ids = [
@@ -372,7 +380,7 @@ def submit_evaluation(eval_req: ArtifactEvaluationCreate):
                 .first()
             )
             if artifact:
-                artifact.quality_gate_status = eval_req.verdict
+                apply_quality_verdict(artifact, eval_req.verdict)
                 artifact.quality_score = eval_req.score
                 artifact.latest_evaluation_id = evaluation.id
                 if hasattr(artifact, "updated_at"):
@@ -572,13 +580,9 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
                     enforcing=False,
                 )
                 session.refresh(artifact)
-                artifact.quality_gate_status = summary.verdict
+                apply_quality_verdict(artifact, summary.verdict)
                 artifact.quality_score = summary.score
                 artifact.latest_evaluation_id = summary.id
-                if hasattr(artifact, "semantic_status"):
-                    artifact.semantic_status = (
-                        "quarantined" if summary.verdict == "rejected" else "active"
-                    )
                 if hasattr(artifact, "updated_at"):
                     artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.commit()
@@ -620,15 +624,9 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
             session.add(evaluation)
             session.flush()
 
-            artifact.quality_gate_status = verdict
+            apply_quality_verdict(artifact, verdict)
             artifact.quality_score = score
             artifact.latest_evaluation_id = evaluation.id
-            if hasattr(artifact, "semantic_status"):
-                artifact.semantic_status = (
-                    "quarantined"
-                    if verdict in {"rejected", "insufficient_evidence"}
-                    else "active"
-                )
             if hasattr(artifact, "updated_at"):
                 artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
 

@@ -89,7 +89,8 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(json.loads(repeated.source_note_ids), [1, 2])
 
     def test_node_edit_invalidates_computed_confidence(self) -> None:
-        self.assertGreater(self.left.confidence_sample_size, 0)
+        self.assertEqual(self.left.confidence_sample_size, 0)
+        self.assertIn("source-note:1", self.left.confidence_factors)
         updated = self.writer.update_node_fields(
             self.left.id,
             summary="Distributed components coordinate through messages.",
@@ -122,9 +123,13 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(first.id, duplicate.id)
         self.assertEqual(len(edges), 1)
         self.assertEqual(duplicate.type, "related")
-        self.assertAlmostEqual(duplicate.confidence, 0.85)
-        self.assertEqual(duplicate.confidence_sample_size, 3)
-        self.assertEqual(duplicate.confidence_method, "jeffreys-wilson-evidence-v2")
+        self.assertAlmostEqual(duplicate.confidence, 0.5)
+        self.assertEqual(duplicate.confidence_sample_size, 1)
+        self.assertEqual(
+            duplicate.confidence_method,
+            "empirical-bernstein-bounded-signals-v1",
+        )
+        self.assertIn("edge-evidence:", duplicate.confidence_factors)
         self.assertLess(duplicate.confidence_lower, duplicate.confidence)
 
     def test_ai_edge_requires_traceable_chunk_evidence(self) -> None:

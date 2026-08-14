@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_node_clause
 from berrybrain_api.jobs import create_job
 from berrybrain_api.models import (
     GraphNodeRecord,
@@ -64,7 +65,7 @@ def execute_research_run(
     candidates = list(
         session.execute(
             select(GraphNodeRecord)
-            .where(GraphNodeRecord.status != "ignored")
+            .where(accepted_node_clause(include_provisional=True))
             .where(
                 or_(
                     GraphNodeRecord.semantic_state.in_(

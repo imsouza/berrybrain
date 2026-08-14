@@ -14,6 +14,7 @@ from berrybrain_api.graph_inference_service import (
     persist_graph_inference,
 )
 from berrybrain_api.jobs import GENERATE_GRAPH_INSIGHTS, create_job
+from berrybrain_api.learning import record_learning_event
 from berrybrain_api.models import InsightRecord, JobRecord, NoteRecord
 from berrybrain_api.second_brain import _generate_graph_insights
 from berrybrain_api.services import (
@@ -313,6 +314,32 @@ def _is_valid_generated_insight(
     return True, ""
 
 
+def _record_insight_learning(
+    session: Session, insight: InsightRecord, action: str
+) -> None:
+    try:
+        parsed_note_ids = json.loads(insight.related_notes or "[]")
+    except (TypeError, json.JSONDecodeError):
+        parsed_note_ids = []
+    source_note_ids = [
+        int(value)
+        for value in parsed_note_ids
+        if str(value).isdigit() and int(value) > 0
+    ]
+    record_learning_event(
+        session,
+        event_type=f"insight.{action}",
+        target_type="insight",
+        target_key=f"insight:{insight.id}:{insight.title.casefold()}",
+        action=action,
+        source_note_ids=source_note_ids,
+        before_state={"qualityStatus": insight.quality_gate_status},
+        after_state={"status": insight.status, "feedbackScore": insight.feedback_score},
+        actor_type="user",
+        origin="insights_api",
+    )
+
+
 @router.post("/sync")
 def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
     data = payload.payload
@@ -497,6 +524,8 @@ async def create_insight_from_inference(
 def dismiss_insight_endpoint(insight_id: int) -> dict:
     with SessionLocal() as session:
         insight = dismiss_insight(session, insight_id)
+        _record_insight_learning(session, insight, "dismissed")
+        session.commit()
         return {"insight": serialize_insight(insight)}
 
 
@@ -504,6 +533,8 @@ def dismiss_insight_endpoint(insight_id: int) -> dict:
 def ignore_insight_endpoint(insight_id: int) -> dict:
     with SessionLocal() as session:
         insight = dismiss_insight(session, insight_id)
+        _record_insight_learning(session, insight, "ignored")
+        session.commit()
         create_automation_log(
             session,
             "INSIGHT_IGNORED",
@@ -532,6 +563,8 @@ def apply_insight_endpoint(insight_id: int) -> dict:
         insight.updated_at = utc_now()
         session.commit()
         session.refresh(insight)
+        _record_insight_learning(session, insight, "accepted")
+        session.commit()
         create_automation_log(
             session,
             "INSIGHT_APPLIED",
@@ -557,6 +590,8 @@ def converted_to_note_endpoint(insight_id: int) -> dict:
         insight.updated_at = datetime.now(UTC)
         session.commit()
         session.refresh(insight)
+        _record_insight_learning(session, insight, "accepted")
+        session.commit()
         return {"status": insight.status, "insight": serialize_insight(insight)}
 
 

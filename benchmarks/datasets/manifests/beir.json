@@ -1,13 +1,36 @@
 {
   "schemaVersion": "berrybrain-dataset.v1",
-  "id": "beir-selected-subsets",
-  "source": "BEIR benchmark",
-  "license": "Dataset-specific upstream licenses; verify each selected subset before acquisition",
-  "version": "upstream-pinned-at-acquisition",
+  "id": "beir-scifact-test",
+  "source": "BEIR SciFact",
+  "license": "Upstream SciFact terms apply; the archive is measured locally and is not redistributed by BerryBrain",
+  "version": "scifact.zip retrieved 2026-08-14; upstream file last modified 2021-04-20",
   "citation": "Thakur et al., BEIR: A Heterogeneous Benchmark for Zero-shot Evaluation of Information Retrieval Models",
-  "acquisition": "Use the official BEIR repository or dataset host, retain upstream split, then record SHA-256 before any run.",
-  "status": "not-installed",
+  "acquisition": "Download the official BEIR SciFact archive, retain the complete test split, join title and body for BM25 text, rename _id to id, and convert test.tsv qrels to JSONL without changing relevance labels.",
+  "status": "measured-external-artifact-not-vendored",
   "files": [
-    {"path": "beir/corpus.jsonl", "sha256": null, "split": "selected", "sourceUrl": "https://github.com/beir-cellar/beir"}
+    {
+      "path": "scifact.zip",
+      "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+      "split": "archive",
+      "sourceUrl": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+    },
+    {
+      "path": "normalized/corpus.jsonl",
+      "sha256": "810fae27ebf7c88ec66b8ff9f6f296c21d1670345faacbd43a8c047f5929251a",
+      "split": "test-corpus",
+      "records": 5183
+    },
+    {
+      "path": "normalized/queries.jsonl",
+      "sha256": "8a2f8d87d612b71c697ca7fe30c68d0afa4b9234dcf98b353ab15f571134d768",
+      "split": "test-queries",
+      "records": 300
+    },
+    {
+      "path": "normalized/qrels.jsonl",
+      "sha256": "b2657a06e609af1a49f17b4e81cd204d1a3464828ae75563669335f4c5d62748",
+      "split": "test-qrels",
+      "records": 339
+    }
   ]
 }

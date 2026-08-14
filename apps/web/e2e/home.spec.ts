@@ -11,7 +11,7 @@ test.describe("Home page", () => {
     await expect(page.locator("h1")).toContainText("knowledge you can navigate");
     await expect(page.locator("header").getByRole("link", { name: "Open BerryBrain", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "GitHub", exact: true }).first()).toBeVisible();
-    const donate = page.getByRole("link", { name: "Donate to BerryBrain on Ko-fi" });
+    const donate = page.getByRole("link", { name: "♥ Donate" });
     await expect(donate).toBeVisible();
     await expect(donate).toHaveAttribute("href", "https://ko-fi.com/berrybrain");
     await expect(donate).toContainText("♥ Donate");

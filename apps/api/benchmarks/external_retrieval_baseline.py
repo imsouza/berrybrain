@@ -19,7 +19,9 @@ TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 @dataclass(frozen=True)
 class ExternalBaselineMetrics:
     method: str
+    corpus_count: int
     query_count: int
+    index_build_ms: float
     recall_at_10: float
     mean_reciprocal_rank: float
     ndcg_at_10: float
@@ -46,15 +48,32 @@ def _tokens(text: str) -> list[str]:
     return TOKEN_PATTERN.findall(text.casefold())
 
 
-def _bm25_scores(corpus: list[dict[str, Any]], query: str) -> dict[str, float]:
+@dataclass(frozen=True)
+class _Bm25Index:
+    tokenized: tuple[tuple[str, ...], ...]
+    average_length: float
+    document_frequency: Counter[str]
+
+
+def _build_bm25_index(corpus: list[dict[str, Any]]) -> _Bm25Index:
     tokenized = [_tokens(str(item["text"])) for item in corpus]
     average_length = statistics.fmean(len(tokens) for tokens in tokenized) or 1.0
     document_frequency: Counter[str] = Counter()
     for tokens in tokenized:
         document_frequency.update(set(tokens))
+    return _Bm25Index(
+        tokenized=tuple(tuple(tokens) for tokens in tokenized),
+        average_length=average_length,
+        document_frequency=document_frequency,
+    )
+
+
+def _bm25_scores(
+    corpus: list[dict[str, Any]], query: str, index: _Bm25Index
+) -> dict[str, float]:
     query_tokens = _tokens(query)
     scores: dict[str, float] = {}
-    for item, tokens in zip(corpus, tokenized, strict=True):
+    for item, tokens in zip(corpus, index.tokenized, strict=True):
         frequencies = Counter(tokens)
         score = 0.0
         for token in query_tokens:
@@ -63,11 +82,11 @@ def _bm25_scores(corpus: list[dict[str, Any]], query: str) -> dict[str, float]:
                 continue
             inverse_frequency = math.log(
                 1
-                + (len(corpus) - document_frequency[token] + 0.5)
-                / (document_frequency[token] + 0.5)
+                + (len(corpus) - index.document_frequency[token] + 0.5)
+                / (index.document_frequency[token] + 0.5)
             )
             denominator = frequency + 1.5 * (
-                1 - 0.75 + 0.75 * len(tokens) / average_length
+                1 - 0.75 + 0.75 * len(tokens) / index.average_length
             )
             score += inverse_frequency * frequency * 2.5 / denominator
         scores[str(item["id"])] = score
@@ -158,13 +177,16 @@ def run_external_baseline(
     for row in qrels_rows:
         qrels[str(row["query_id"])][str(row["document_id"])] = int(row["relevance"])
 
+    index_started = time.perf_counter()
+    lexical_index = _build_bm25_index(corpus)
+    index_build_ms = (time.perf_counter() - index_started) * 1000
     observations: list[dict[str, Any]] = []
     for query in queries:
         query_id = str(query["id"])
         if query_id not in qrels:
             raise ValueError(f"query {query_id} has no qrels")
         started = time.perf_counter()
-        lexical = _rank(_bm25_scores(corpus, str(query["text"])))
+        lexical = _rank(_bm25_scores(corpus, str(query["text"]), lexical_index))
         if method == "bm25":
             ranking = lexical
         else:
@@ -187,7 +209,9 @@ def run_external_baseline(
     latencies = [float(item["latencyMs"]) for item in observations]
     metrics = ExternalBaselineMetrics(
         method=method,
+        corpus_count=len(corpus),
         query_count=len(observations),
+        index_build_ms=index_build_ms,
         recall_at_10=statistics.fmean(
             float(item["recallAt10"]) for item in observations
         ),

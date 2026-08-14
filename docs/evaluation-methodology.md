@@ -33,6 +33,8 @@ generalization evidence. Neither substitutes for a user study.
 - **RQ5:** Does the complete system improve knowledge-work task success compared with search-only
   and non-graph RAG baselines?
 - **RQ6:** Are confidence values calibrated against observed correctness and reviewer decisions?
+- **RQ7:** Does context-scoped user feedback reduce recurrence of rejected artifacts and correction
+  effort without suppressing valid knowledge in unrelated contexts?
 
 ## Primary Metrics
 
@@ -42,6 +44,8 @@ correctness, refusal correctness, and cost per successful answer. Graph evaluati
 precision and recall, edge precision and recall, ontology violations, duplicate rate, orphan rate,
 provenance coverage, and path-answer success. Systems evaluation uses request rate, error rate,
 queue wait, drain rate, CPU, RSS, database growth, payload bytes, LCP, CLS, long tasks, and heap.
+Feedback adaptation uses rejected-pattern recurrence, accepted-artifact precision, correction edit
+distance, decisions overridden by later feedback, unrelated-context spillover, and time-to-resolution.
 
 ## Judge Evaluation Design
 
@@ -97,6 +101,8 @@ seen.
 - LLM-as-judge scores are secondary until calibrated against human labels.
 - Private vault data requires explicit consent, minimization, redaction, and an LGPD review.
 - Synthetic data supports regression and fault injection but does not establish ecological validity.
+- Learning evaluation compares feedback disabled/enabled on the same ordered event stream. It must
+  include related and unrelated contexts, correction reversals, and deletion/regeneration probes.
 
 ## Acceptance
 

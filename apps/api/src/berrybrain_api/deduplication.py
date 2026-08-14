@@ -190,6 +190,9 @@ def _prune_stale_graph_insights(session: Session, valid_normalized: set[str]) ->
             select(InsightRecord).where(
                 InsightRecord.type.in_(("recurring_concept", "new_connection")),
                 InsightRecord.status == "suggested",
+                InsightRecord.provider.in_(
+                    ("content-analysis", "deterministic", "system", "")
+                ),
             )
         ).scalars()
     )

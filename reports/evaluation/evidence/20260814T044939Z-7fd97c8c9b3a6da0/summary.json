@@ -1,0 +1,88 @@
+{
+  "ablations": [
+    {
+      "configuration": "lexical_only",
+      "failures": 0,
+      "latency_p50_ms": 7.721729,
+      "latency_p95_ms": 10.219219,
+      "latency_p99_ms": 12.58881,
+      "mean_reciprocal_rank": 0.016667,
+      "ndcg_at_10": 0.024678,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "recall_at_10": 0.05
+    },
+    {
+      "configuration": "dense_only",
+      "failures": 0,
+      "latency_p50_ms": 8.335968,
+      "latency_p95_ms": 10.852029,
+      "latency_p99_ms": 14.566662,
+      "mean_reciprocal_rank": 0.5,
+      "ndcg_at_10": 0.5,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "recall_at_10": 0.5
+    },
+    {
+      "configuration": "standard_hybrid",
+      "failures": 0,
+      "latency_p50_ms": 19.439597,
+      "latency_p95_ms": 23.381277,
+      "latency_p99_ms": 24.82141,
+      "mean_reciprocal_rank": 0.5,
+      "ndcg_at_10": 0.5,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "recall_at_10": 0.5
+    },
+    {
+      "configuration": "graph_lexical",
+      "failures": 0,
+      "latency_p50_ms": 15.974403,
+      "latency_p95_ms": 19.558562,
+      "latency_p99_ms": 24.734918,
+      "mean_reciprocal_rank": 0.25,
+      "ndcg_at_10": 0.315465,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "recall_at_10": 0.5
+    },
+    {
+      "configuration": "graph_hybrid",
+      "failures": 0,
+      "latency_p50_ms": 22.685546,
+      "latency_p95_ms": 31.470026,
+      "latency_p99_ms": 34.946848,
+      "mean_reciprocal_rank": 0.75,
+      "ndcg_at_10": 0.815465,
+      "negative_rejection_rate": 1.0,
+      "query_count": 44,
+      "recall_at_10": 1.0
+    }
+  ],
+  "citation_precision": 1.0,
+  "dataset_version": "retrieval-ablation.v1",
+  "evidence_faithfulness": 1.0,
+  "factual_query_count": 20,
+  "factual_recall_regression": 0.0,
+  "gates_passed": true,
+  "graph_factual_recall": 1.0,
+  "graph_multi_hop_recall": 1.0,
+  "ignored_edge_rejected": true,
+  "multi_hop_gain_ci95": {
+    "confidence": 0.95,
+    "lower": 1.0,
+    "method": "bootstrap-percentile",
+    "samples": 20,
+    "upper": 1.0
+  },
+  "multi_hop_query_count": 20,
+  "multi_hop_recall_gain": 1.0,
+  "negative_query_count": 4,
+  "negative_rejection_rate": 1.0,
+  "query_count": 44,
+  "stale_deleted_rejected": true,
+  "standard_factual_recall": 1.0,
+  "standard_multi_hop_recall": 0.0
+}

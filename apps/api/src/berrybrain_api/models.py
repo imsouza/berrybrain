@@ -1,6 +1,18 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, LargeBinary, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    event,
+    inspect,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from berrybrain_api.database import Base
@@ -10,10 +22,26 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def new_stable_id() -> str:
+    return str(uuid4())
+
+
+def new_graph_node_iri() -> str:
+    return f"urn:berrybrain:graph-node:{new_stable_id()}"
+
+
+def new_graph_edge_iri() -> str:
+    return f"urn:berrybrain:graph-edge:{new_stable_id()}"
+
+
 class NoteRecord(Base):
     __tablename__ = "notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    stable_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=new_stable_id, index=True
+    )
+    source_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
@@ -33,7 +61,9 @@ class NoteAttachmentRecord(Base):
     __tablename__ = "note_attachments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     note_path: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     stored_path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
@@ -57,7 +87,10 @@ class AttachmentExtractionRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     attachment_id: Mapped[int] = mapped_column(
-        Integer, nullable=False, unique=True, index=True
+        ForeignKey("note_attachments.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
     )
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     extracted_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -115,7 +148,9 @@ class JobAttemptRecord(Base):
     __tablename__ = "job_attempts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     job_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     payload_schema_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1
@@ -160,7 +195,9 @@ class WorkerInboxRecord(Base):
     message_id: Mapped[str] = mapped_column(
         String(220), unique=True, nullable=False, index=True
     )
-    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     message_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     claim_token: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="processed")
@@ -220,7 +257,9 @@ class UserSessionRecord(Base):
     __tablename__ = "user_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     session_hash: Mapped[str] = mapped_column(
         String(128), unique=True, nullable=False, index=True
     )
@@ -256,7 +295,9 @@ class AuthOtpRecord(Base):
     __tablename__ = "auth_otps"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     purpose: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     code_hash: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -399,8 +440,12 @@ class ConnectionRecord(Base):
     __tablename__ = "connections"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    source_note_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    target_note_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False
+    )
+    target_note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False
+    )
     connection_type: Mapped[str] = mapped_column(String(80), nullable=False)
     confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -518,7 +563,9 @@ class GraphInferenceRecord(Base):
     prompt_version: Mapped[str] = mapped_column(
         String(80), nullable=False, default="graph-inference.v2"
     )
-    insight_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    insight_id: Mapped[int | None] = mapped_column(
+        ForeignKey("insights.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -588,7 +635,9 @@ class GeneratedMetadataRecord(Base):
     __tablename__ = "generated_metadata"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     generation_type: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
@@ -600,7 +649,9 @@ class EmbeddingRecord(Base):
     __tablename__ = "embeddings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=-1)
     vector: Mapped[str] = mapped_column(Text, nullable=False)
@@ -641,7 +692,9 @@ class ChunkRecord(Base):
     __tablename__ = "chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    note_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    note_id: Mapped[int] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     note_version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     heading_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -659,6 +712,13 @@ class GraphNodeRecord(Base):
     __tablename__ = "graph_nodes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    stable_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=new_stable_id, index=True
+    )
+    iri: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, default=new_graph_node_iri
+    )
+    artifact_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
@@ -713,7 +773,11 @@ class GraphNodeRecord(Base):
     semantic_profile_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
-    cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("semantic_clusters.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     vault_id: Mapped[str] = mapped_column(
         String(160), nullable=False, default="default", index=True
     )
@@ -741,8 +805,19 @@ class GraphEdgeRecord(Base):
     __tablename__ = "graph_edges"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    source_node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    target_node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    stable_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=new_stable_id, index=True
+    )
+    iri: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, default=new_graph_edge_iri
+    )
+    artifact_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_node_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_node_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -804,11 +879,75 @@ class GraphFeedbackRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class LearningEventRecord(Base):
+    __tablename__ = "learning_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=new_stable_id, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    target_key: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    signal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    context_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    source_note_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    before_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    after_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    actor_type: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="user", index=True
+    )
+    origin: Mapped[str] = mapped_column(String(80), nullable=False, default="api")
+    consumed_by: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
+
+
+@event.listens_for(NoteRecord, "before_insert")
+def _initialize_note_identity(_mapper, _connection, note: NoteRecord) -> None:
+    note.stable_id = note.stable_id or new_stable_id()
+    note.source_version = max(1, int(note.source_version or 1))
+
+
+@event.listens_for(NoteRecord, "before_update")
+def _advance_note_source_version(_mapper, _connection, note: NoteRecord) -> None:
+    if inspect(note).attrs.content_hash.history.has_changes():
+        note.source_version = max(1, int(note.source_version or 1)) + 1
+
+
+def _initialize_graph_identity(artifact, kind: str) -> None:
+    artifact.stable_id = artifact.stable_id or new_stable_id()
+    artifact.iri = artifact.iri or f"urn:berrybrain:{kind}:{artifact.stable_id}"
+    artifact.artifact_version = max(1, int(artifact.artifact_version or 1))
+
+
+@event.listens_for(GraphNodeRecord, "before_insert")
+def _initialize_graph_node_identity(
+    _mapper, _connection, node: GraphNodeRecord
+) -> None:
+    _initialize_graph_identity(node, "graph-node")
+
+
+@event.listens_for(GraphEdgeRecord, "before_insert")
+def _initialize_graph_edge_identity(
+    _mapper, _connection, edge: GraphEdgeRecord
+) -> None:
+    _initialize_graph_identity(edge, "graph-edge")
+
+
+@event.listens_for(GraphNodeRecord, "before_update")
+@event.listens_for(GraphEdgeRecord, "before_update")
+def _advance_graph_artifact_version(_mapper, _connection, artifact) -> None:
+    artifact.artifact_version = max(1, int(artifact.artifact_version or 1)) + 1
+
+
 class SemanticProfileRecord(Base):
     __tablename__ = "semantic_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     source_fingerprint: Mapped[str] = mapped_column(
         String(128), nullable=False, index=True
     )
@@ -848,8 +987,14 @@ class SemanticClusterAssignmentRecord(Base):
     __tablename__ = "semantic_cluster_assignments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    cluster_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cluster_id: Mapped[int] = mapped_column(
+        ForeignKey("semantic_clusters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     confidence_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -859,7 +1004,9 @@ class SemanticClusterAssignmentRecord(Base):
     confidence_method: Mapped[str] = mapped_column(
         String(80), nullable=False, default="unavailable"
     )
-    alternative_cluster_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    alternative_cluster_id: Mapped[int | None] = mapped_column(
+        ForeignKey("semantic_clusters.id", ondelete="SET NULL"), nullable=True
+    )
     margin: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
@@ -923,7 +1070,9 @@ class NodeEnrichmentVersionRecord(Base):
     __tablename__ = "node_enrichment_versions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    node_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    node_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     source_fingerprint: Mapped[str] = mapped_column(
         String(128), nullable=False, index=True
@@ -958,8 +1107,14 @@ class GraphResearchResultRecord(Base):
     __tablename__ = "graph_research_results"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    run_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    node_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("graph_research_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    node_id: Mapped[int | None] = mapped_column(
+        ForeignKey("graph_nodes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     query: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -990,7 +1145,9 @@ class AskTurnRecord(Base):
     __tablename__ = "ask_turns"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("ask_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
