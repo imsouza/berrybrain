@@ -65,12 +65,61 @@ class MaturationRegressionTest(unittest.TestCase):
         }
         self.assertTrue({"once", "august", "edgar", "december"}.isdisjoint(labels))
 
+    def test_navigation_boilerplate_cannot_connect_unrelated_notes(self) -> None:
+        self.session.add_all(
+            [
+                NoteRecord(
+                    title="The Raven By Edgar Allan Poe",
+                    slug="the-raven",
+                    path="reference/the-raven.md",
+                    content=(
+                        "Skip to main content\n\n"
+                        "## Midnight Visitor\n\n"
+                        "A poem about memory, grief, and an ominous visitor."
+                    ),
+                ),
+                NoteRecord(
+                    title="Crimson Desert Patch Notes",
+                    slug="crimson-desert-patch",
+                    path="games/crimson-desert-patch.md",
+                    content=(
+                        "Skip to content\n\n"
+                        "## Weather Rendering Update\n\n"
+                        "A game patch changes rendering and performance settings."
+                    ),
+                ),
+            ]
+        )
+        self.session.commit()
+
+        result = expand_knowledge_graph(self.session)
+
+        concept_labels = {
+            node.label.casefold()
+            for node in self.session.query(GraphNodeRecord).filter_by(type="concept")
+        }
+        insight_text = " ".join(
+            f"{insight.title} {insight.description}".casefold()
+            for insight in self.session.query(InsightRecord)
+        )
+        edge_text = " ".join(
+            f"{edge.reason} {edge.evidence}".casefold()
+            for edge in self.session.query(GraphEdgeRecord)
+        )
+        self.assertNotIn("skip", concept_labels)
+        self.assertNotIn('concept "skip"', insight_text)
+        self.assertNotIn('concept "skip"', edge_text)
+        self.assertEqual(result["rejectedCandidates"], 0)
+
     def test_typed_metadata_nodes_keep_ids_until_the_source_changes(self) -> None:
         note = NoteRecord(
             title="Forecasting Study",
             slug="forecasting-study",
             path="studies/forecasting-study.md",
-            content="A study of forecasting methods.",
+            content=(
+                "A study of forecasting methods. Time Series Analysis uses "
+                "observations ordered over time."
+            ),
             content_hash="forecasting-v1",
         )
         self.session.add(note)
@@ -84,6 +133,9 @@ class MaturationRegressionTest(unittest.TestCase):
                     {
                         "name": "Time Series Analysis",
                         "scope": "Methods for observations ordered over time.",
+                        "evidence": (
+                            "Time Series Analysis uses observations ordered over time."
+                        ),
                     }
                 ]
             },

@@ -5,6 +5,7 @@ import json
 import socket
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urlparse
 
@@ -136,7 +137,30 @@ def validate_configuration(payload: ConfigurationPayload) -> dict[str, object]:
         "health": True,
         "models": sorted(requested),
     }
-    return {"valid": True, "capabilitySnapshot": capabilities}
+    from berrybrain_api.judge_committee import (
+        DEFAULT_COMMITTEE_SIZE,
+        MIN_COMMITTEE_SIZE,
+        recommend_committee,
+    )
+
+    committee = recommend_committee(
+        provider=configuration.judge.provider_id,
+        available_models=models,
+        generator_model=configuration.main.model_id,
+        primary_judge_model=configuration.judge.model_id,
+        committee_size=DEFAULT_COMMITTEE_SIZE,
+    )
+    return {
+        "valid": True,
+        "capabilitySnapshot": capabilities,
+        "judgeDefaults": {
+            "mode": (
+                "committee" if len(committee) >= MIN_COMMITTEE_SIZE else "single_model"
+            ),
+            "committeeSize": DEFAULT_COMMITTEE_SIZE,
+            "committee": committee,
+        },
+    }
 
 
 @router.put("/configuration", dependencies=[Depends(_require_admin_csrf)])
@@ -170,6 +194,47 @@ def put_configuration(payload: ConfigurationPayload) -> dict[str, object]:
         if configuration.mode == "cloud" and payload.api_key.strip():
             set_setting(session, "ai_api_key", payload.api_key.strip())
         set_setting(session, "onboarding_completed", "true")
+        from berrybrain_api.judge_committee import (
+            DEFAULT_COMMITTEE_SIZE,
+            configure_provider_committee,
+            judge_model_candidates,
+            load_judge_config,
+        )
+
+        current_judge = load_judge_config(session)
+        candidates = judge_model_candidates(
+            available_models=models,
+            generator_model=configuration.main.model_id,
+            primary_judge_model=configuration.judge.model_id,
+            preferred_models=[
+                str(item.get("model") or "") for item in current_judge.committee
+            ],
+        )
+        validated_judge_models = _probe_judge_models(
+            configuration.judge.provider_id,
+            endpoint,
+            api_key,
+            candidates,
+            required=max(
+                DEFAULT_COMMITTEE_SIZE,
+                current_judge.committee_size,
+            ),
+        )
+
+        judge_config = configure_provider_committee(
+            session,
+            provider=configuration.judge.provider_id,
+            available_models=validated_judge_models,
+            generator_model=configuration.main.model_id,
+            primary_judge_model=configuration.judge.model_id,
+        )
+        configuration = configuration.model_copy(
+            update={
+                "judge": configuration.judge.model_copy(
+                    update={"mode": judge_config.mode.value}
+                )
+            }
+        )
         saved = save_configuration(session, configuration, validated=True)
         session.commit()
         gate = configuration_gate(session)
@@ -233,6 +298,54 @@ def _fetch_models(provider_id: str, endpoint: str, api_key: str) -> list[str]:
         if model_id:
             models.append(str(model_id).strip())
     return sorted(set(models))
+
+
+def _probe_judge_models(
+    provider_id: str,
+    endpoint: str,
+    api_key: str,
+    candidates: list[str],
+    *,
+    required: int,
+) -> list[str]:
+    from berrybrain_api.ai_gateway import _cloud_json, _ollama_json
+
+    def probe(model: str) -> bool:
+        try:
+            if provider_id == "ollama":
+                result = _ollama_json(
+                    {"ollama_base_url": endpoint, "ollama_model": model},
+                    "Return an object with probe set to true.",
+                    "Return one JSON object and no prose.",
+                    8,
+                    32,
+                )
+            else:
+                result = _cloud_json(
+                    {
+                        "cloud_api_url": endpoint,
+                        "cloud_api_key": api_key,
+                        "cloud_model": model,
+                    },
+                    "Return an object with probe set to true.",
+                    "Return one JSON object and no prose.",
+                    12,
+                    32,
+                )
+            return isinstance(result, dict) and result.get("probe") is True
+        except Exception:
+            return False
+
+    max_probes = min(len(candidates), 8 if provider_id == "ollama" else 12)
+    selected = candidates[:max_probes]
+    if provider_id == "ollama":
+        checks = [probe(model) for model in selected]
+    else:
+        with ThreadPoolExecutor(max_workers=min(3, len(selected) or 1)) as executor:
+            checks = list(executor.map(probe, selected))
+    return [model for model, valid in zip(selected, checks, strict=True) if valid][
+        :required
+    ]
 
 
 def _validate_provider_endpoint(provider_id: str, endpoint: str) -> None:

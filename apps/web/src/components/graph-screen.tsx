@@ -161,6 +161,14 @@ type GraphEdge = {
   model?: string;
 };
 
+type GraphMutationStatus = {
+  operation: "node_deleted";
+  message: string;
+  jobIds: number[];
+  phase: "working" | "completed" | "failed";
+  impact?: { invalidatedInsights?: number; incidentEdgeCount?: number };
+};
+
 type InferenceResult = {
   inferenceId?: number;
   status: "answered" | "success" | "sufficient_evidence" | "insufficient_evidence" | string;
@@ -379,6 +387,51 @@ export function GraphScreen({
   const [filterConfidence, setFilterConfidence] = useState(0);
   const [pipelineDiag, setPipelineDiag] = useState<{ code: string; text: string }[]>([]);
   const [graphPipeline, setGraphPipeline] = useState<{ active: number; degraded: number; estimatedRemainingSeconds: number | null }>({ active: 0, degraded: 0, estimatedRemainingSeconds: null });
+  const [graphMutationStatus, setGraphMutationStatus] = useState<GraphMutationStatus | null>(null);
+  useEffect(() => {
+    if (askOnly || apiUrl === "__demo__" || typeof window === "undefined") return;
+    const raw = sessionStorage.getItem("bb_graph_mutation_status");
+    if (!raw) return;
+    let saved: Omit<GraphMutationStatus, "phase">;
+    try {
+      saved = JSON.parse(raw) as Omit<GraphMutationStatus, "phase">;
+    } catch {
+      sessionStorage.removeItem("bb_graph_mutation_status");
+      return;
+    }
+    if (!Array.isArray(saved.jobIds) || !saved.jobIds.length) return;
+    let cancelled = false;
+    let finished = false;
+    setGraphMutationStatus({ ...saved, phase: "working" });
+    const refreshStatus = async () => {
+      try {
+        const response = await apiFetch(`${apiUrl}/api/v1/jobs?limit=200`);
+        if (!response.ok) return;
+        const payload = await response.json();
+        const tracked = (payload.jobs || []).filter((job: { id?: number }) => saved.jobIds.includes(Number(job.id)));
+        const failed = tracked.some((job: { status?: string }) => ["failed", "dead_letter"].includes(job.status || ""));
+        const complete = tracked.length === saved.jobIds.length && tracked.every((job: { status?: string }) => ["completed", "superseded"].includes(job.status || ""));
+        if (cancelled || (!failed && !complete)) return;
+        finished = true;
+        sessionStorage.removeItem("bb_graph_mutation_status");
+        setGraphMutationStatus({
+          ...saved,
+          phase: failed ? "failed" : "completed",
+          message: failed
+            ? "The node was deleted, but part of the affected-subgraph recalculation needs attention."
+            : "Node deletion and affected-subgraph recalculation completed.",
+        });
+        if (complete) void reload();
+      } catch {
+        // Keep the visible working state while the job endpoint is temporarily unavailable.
+      }
+    };
+    void refreshStatus();
+    const interval = window.setInterval(() => {
+      if (!finished) void refreshStatus();
+    }, 3000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [apiUrl, askOnly, reload]);
   useEffect(() => {
     if (!autoFocusAsk) return;
     const initialQuery = initialAskQuery.trim();
@@ -1015,6 +1068,15 @@ export function GraphScreen({
           </div>
         )}
       </div>
+
+      {graphMutationStatus && !askOnly && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2 text-[11px]" role="status" aria-live="polite">
+          <RefreshCw className={`size-3.5 ${graphMutationStatus.phase === "failed" ? "text-danger" : "text-accent"} ${graphMutationStatus.phase === "working" ? "animate-spin" : ""}`} />
+          <span className="font-medium text-foreground">{graphMutationStatus.message}</span>
+          {graphMutationStatus.impact?.invalidatedInsights ? <span className="text-muted">{graphMutationStatus.impact.invalidatedInsights} dependent insight{graphMutationStatus.impact.invalidatedInsights === 1 ? "" : "s"} invalidated</span> : null}
+          {graphMutationStatus.phase !== "working" && <button type="button" className="ml-auto text-xs text-muted hover:text-foreground" onClick={() => setGraphMutationStatus(null)}>Dismiss</button>}
+        </div>
+      )}
 
       {!askOnly && (graphPipeline.active > 0 || graphPipeline.degraded > 0) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2 text-[11px]" role="status">

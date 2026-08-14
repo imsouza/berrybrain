@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import logging
+import urllib.error
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
-from berrybrain_api.config import PROJECT_ROOT
+from berrybrain_api.config import PROJECT_ROOT, get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.judge_committee import (
+    DEFAULT_COMMITTEE_SIZE,
+    MAX_COMMITTEE_SIZE,
+    MIN_COMMITTEE_SIZE,
     JudgeConfig,
     JudgeMode,
     disagreement,
-    generator_model_blocked_in_committee,
+    eligible_committee_slots,
     is_high_impact,
     load_judge_config,
     persist_committee_run,
+    recommend_committee,
     save_judge_config,
     should_use_committee,
 )
@@ -28,16 +33,28 @@ from berrybrain_api.models import (
     HumanReviewRecord,
     InsightRecord,
     JudgeVerdictRecord,
+    NoteRecord,
 )
+from berrybrain_api.security import assert_csrf, normalize_email, require_session_user
 
 router = APIRouter(prefix="/api/v1/judge", tags=["judge"])
 logger = logging.getLogger(__name__)
 
 _VERDICT_ORDER = {"rejected": 0, "review": 1, "passed": 2}
+JUDGE_PROMPT_VERSION = "artifact-judge.v2.md"
+
+
+def _require_admin_csrf(request: Request) -> None:
+    settings = get_settings()
+    with SessionLocal() as session:
+        user, session_record = require_session_user(session, settings, request)
+        if normalize_email(user.email) != normalize_email(settings.admin_email):
+            raise HTTPException(status_code=403, detail="Owner access required")
+        assert_csrf(settings, request, session_record)
 
 
 def _load_judge_prompt() -> str:
-    prompt_path = PROJECT_ROOT / "prompts" / "artifact-judge.v1.md"
+    prompt_path = PROJECT_ROOT / "prompts" / JUDGE_PROMPT_VERSION
     try:
         prompt = prompt_path.read_text(encoding="utf-8").strip()
     except OSError as exc:
@@ -73,6 +90,163 @@ def _with_judge_route(config: dict[str, str]) -> dict[str, str]:
     else:
         routed["ollama_model"] = model or ""
     return routed
+
+
+def _parse_json_list(raw: object) -> list[object]:
+    import json
+
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(str(raw or "[]"))
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _judge_source_context(session, artifact: object, artifact_type: str) -> dict:
+    source_note_ids = {
+        int(value)
+        for value in _parse_json_list(getattr(artifact, "source_note_ids", "[]"))
+        if str(value).isdigit()
+    }
+    if artifact_type == "connection":
+        source_note_ids.update(
+            int(value)
+            for value in (
+                getattr(artifact, "source_note_id", 0),
+                getattr(artifact, "target_note_id", 0),
+            )
+            if int(value or 0) > 0
+        )
+    if artifact_type == "insight":
+        source_note_ids.update(
+            int(value)
+            for value in _parse_json_list(getattr(artifact, "related_notes", "[]"))
+            if str(value).isdigit()
+        )
+    notes = (
+        session.query(NoteRecord)
+        .filter(NoteRecord.id.in_(sorted(source_note_ids)))
+        .order_by(NoteRecord.id)
+        .limit(6)
+        .all()
+        if source_note_ids
+        else []
+    )
+    context: dict[str, object] = {
+        "sourceDocuments": [
+            {
+                "id": note.id,
+                "title": note.title,
+                "path": note.path,
+                "contentExcerpt": " ".join((note.content or "").split())[:800],
+            }
+            for note in notes
+        ]
+    }
+    if artifact_type == "edge":
+        endpoint_ids = [
+            int(getattr(artifact, "source_node_id", 0) or 0),
+            int(getattr(artifact, "target_node_id", 0) or 0),
+        ]
+        endpoints = (
+            session.query(GraphNodeRecord)
+            .filter(GraphNodeRecord.id.in_(endpoint_ids))
+            .all()
+        )
+        context["endpoints"] = [
+            {"id": node.id, "type": node.type, "label": node.label}
+            for node in endpoints
+        ]
+    return context
+
+
+async def _run_committee_models(
+    *,
+    session,
+    committee: list[dict[str, str]],
+    generator_model: str,
+    prompt: str,
+    system: str,
+) -> list[dict]:
+    from berrybrain_api.ai_gateway import generate_graph_answer, get_ai_config
+
+    eligible = eligible_committee_slots(committee, generator_model)
+    if len(eligible) < 2:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Committee mode requires at least two unique configured Judge models "
+                "that differ from the artifact generator."
+            ),
+        )
+    verdicts: list[dict] = []
+    for judge in eligible:
+        local_config = get_ai_config(session)
+        local_config["judge_provider"] = judge["provider"]
+        local_config["judge_model"] = judge["model"]
+        routed_config = _with_judge_route(local_config)
+        started_at = datetime.now(UTC)
+        try:
+            role = judge.get("role") or "general"
+            focus = judge.get("focus") or "Evaluate the complete artifact rubric."
+            role_system = (
+                f"{system}\n\nCommittee assignment\n"
+                f"Role: {role}\nFocus: {focus}\n"
+                "Return the complete required rubric. Give special attention to this role, "
+                "but do not ignore decisive failures in other dimensions."
+            )
+            result = await generate_graph_answer(
+                config=routed_config,
+                prompt=prompt,
+                system=role_system,
+                session=session,
+                prompt_version=JUDGE_PROMPT_VERSION,
+            )
+            elapsed = (datetime.now(UTC) - started_at).total_seconds() * 1000
+            rubric = result.get("rubric", {})
+            if not isinstance(rubric, dict):
+                rubric = {}
+            rubric["committeeRole"] = role
+            verdicts.append(
+                {
+                    "slot": judge["slot"],
+                    "provider": judge["provider"],
+                    "model": judge["model"],
+                    "role": role,
+                    "verdict": result.get("verdict", "error"),
+                    "score": float(result.get("score", 0.0)),
+                    "rubric": rubric,
+                    "reasoning": result.get("reasoning", ""),
+                    "latency_ms": int(elapsed),
+                }
+            )
+        except Exception as exc:
+            logger.warning(
+                "Committee Judge %s failed: %s", judge["slot"], type(exc).__name__
+            )
+            verdicts.append(
+                {
+                    "slot": judge["slot"],
+                    "provider": judge["provider"],
+                    "model": judge["model"],
+                    "role": judge.get("role") or "general",
+                    "verdict": "error",
+                    "score": 0.0,
+                    "rubric": {},
+                    "reasoning": "judge-unavailable",
+                    "latency_ms": 0,
+                }
+            )
+    available = [item for item in verdicts if item["verdict"] != "error"]
+    if len(available) < 2:
+        raise HTTPException(
+            status_code=503,
+            detail="Fewer than two committee Judge models returned valid verdicts.",
+            headers={"Retry-After": "30"},
+        )
+    return verdicts
 
 
 def _weighted_kappa(pairs: list[tuple[str, str]]) -> float:
@@ -331,17 +505,99 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
 
         system = _load_judge_prompt()
 
-        prompt = json.dumps({"artifact": artifact_json, "evidence": evidence})
-
-        config = _with_judge_route(get_ai_config(session))
+        prompt = json.dumps(
+            {
+                "artifact": artifact_json,
+                "evidence": evidence,
+                "context": _judge_source_context(session, artifact, req.artifact_type),
+            },
+            ensure_ascii=False,
+        )
 
         try:
+            judge_config = load_judge_config(session)
+            if judge_config.mode == JudgeMode.DETERMINISTIC:
+                evaluation = ArtifactEvaluationRecord(
+                    artifact_type=req.artifact_type,
+                    artifact_id=req.artifact_id,
+                    verdict="review",
+                    score=0.0,
+                    rubric=json.dumps({"mode": "deterministic"}),
+                    reasoning=(
+                        "No LLM Judge was invoked. Deterministic mode requires human review."
+                    ),
+                    evidence_used=evidence,
+                    provider="deterministic",
+                    model="policy-only",
+                    prompt_version=JUDGE_PROMPT_VERSION,
+                )
+                session.add(evaluation)
+                session.flush()
+                artifact.quality_gate_status = "review"
+                artifact.quality_score = 0.0
+                artifact.latest_evaluation_id = evaluation.id
+                if hasattr(artifact, "updated_at"):
+                    artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.commit()
+                return {
+                    "status": "success",
+                    "executionMode": "deterministic",
+                    "verdict": "review",
+                    "score": 0.0,
+                }
+
+            if should_use_committee(judge_config, req.artifact_type):
+                if not judge_config.consent_at:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Committee mode requires explicit consent.",
+                    )
+                generator_model = str(
+                    getattr(artifact, "created_by_model", "")
+                    or getattr(artifact, "model", "")
+                    or ""
+                )
+                verdicts = await _run_committee_models(
+                    session=session,
+                    committee=judge_config.committee,
+                    generator_model=generator_model,
+                    prompt=prompt,
+                    system=system,
+                )
+                summary = persist_committee_run(
+                    session,
+                    artifact_type=req.artifact_type,
+                    artifact_id=req.artifact_id,
+                    verdicts=verdicts,
+                    enforcing=False,
+                )
+                session.refresh(artifact)
+                artifact.quality_gate_status = summary.verdict
+                artifact.quality_score = summary.score
+                artifact.latest_evaluation_id = summary.id
+                if hasattr(artifact, "semantic_status"):
+                    artifact.semantic_status = (
+                        "quarantined" if summary.verdict == "rejected" else "active"
+                    )
+                if hasattr(artifact, "updated_at"):
+                    artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                session.commit()
+                return {
+                    "status": "success",
+                    "executionMode": "committee",
+                    "evaluationId": summary.id,
+                    "verdict": summary.verdict,
+                    "score": summary.score,
+                    "judgeCount": len(verdicts),
+                }
+
+            config = _with_judge_route(get_ai_config(session))
             result = await generate_graph_answer(
                 config=config,
                 prompt=prompt,
                 system=system,
                 session=session,
-                prompt_version="artifact-judge.v1.md",
+                prompt_version=JUDGE_PROMPT_VERSION,
             )
 
             verdict = result.get("verdict", "error")
@@ -359,21 +615,30 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
                 evidence_used=evidence,
                 provider=config.get("judge_provider", "local"),
                 model=config.get("judge_model", ""),
-                prompt_version="artifact-judge.v1.md",
+                prompt_version=JUDGE_PROMPT_VERSION,
             )
             session.add(evaluation)
+            session.flush()
 
             artifact.quality_gate_status = verdict
             artifact.quality_score = score
+            artifact.latest_evaluation_id = evaluation.id
             if hasattr(artifact, "semantic_status"):
                 artifact.semantic_status = (
-                    "quarantined" if verdict == "rejected" else "active"
+                    "quarantined"
+                    if verdict in {"rejected", "insufficient_evidence"}
+                    else "active"
                 )
             if hasattr(artifact, "updated_at"):
                 artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
             session.commit()
-            return {"status": "success", "verdict": verdict, "score": score}
+            return {
+                "status": "success",
+                "executionMode": "single_model",
+                "verdict": verdict,
+                "score": score,
+            }
 
         except GraphAIUnavailable as exc:
             raise HTTPException(
@@ -409,10 +674,11 @@ def get_judge_mode():
 class JudgeModeUpdate(BaseModel):
     mode: str
     committee: list[dict] | None = None
+    committee_size: int = DEFAULT_COMMITTEE_SIZE
     consent_at: str | None = None
 
 
-@router.post("/mode")
+@router.post("/mode", dependencies=[Depends(_require_admin_csrf)])
 def set_judge_mode(req: JudgeModeUpdate):
     try:
         mode = JudgeMode(req.mode)
@@ -421,10 +687,34 @@ def set_judge_mode(req: JudgeModeUpdate):
     with SessionLocal() as session:
         cfg = load_judge_config(session)
         cfg.mode = mode
+        cfg.committee_size = max(
+            MIN_COMMITTEE_SIZE,
+            min(MAX_COMMITTEE_SIZE, req.committee_size),
+        )
         if req.committee is not None:
-            if not isinstance(req.committee, list) or len(req.committee) < 2:
-                return {"status": "error", "message": "committee needs >= 2 judges"}
-            cfg.committee = req.committee
+            cfg.committee = eligible_committee_slots(req.committee)[
+                : cfg.committee_size
+            ]
+        if mode == JudgeMode.COMMITTEE:
+            from berrybrain_api.ai_configuration import load_configuration
+
+            ai_configuration = load_configuration(session)
+            generator_model = ai_configuration.main.model_id if ai_configuration else ""
+            active_provider = (
+                ai_configuration.judge.provider_id if ai_configuration else ""
+            )
+            eligible = eligible_committee_slots(cfg.committee, generator_model)
+            if len(eligible) < cfg.committee_size or any(
+                item["provider"] != active_provider for item in eligible
+            ):
+                return {
+                    "status": "error",
+                    "message": (
+                        "Committee mode requires the selected number of unique, "
+                        "non-generator models from the active provider."
+                    ),
+                }
+            cfg.committee = eligible
         if mode == JudgeMode.COMMITTEE and not cfg.consent_at:
             if not req.consent_at:
                 return {
@@ -434,6 +724,94 @@ def set_judge_mode(req: JudgeModeUpdate):
             cfg.consent_at = req.consent_at
         save_judge_config(session, cfg)
         return cfg.to_dict()
+
+
+class JudgeDefaultsRequest(BaseModel):
+    provider: str
+    models: list[str]
+    generator_model: str = ""
+    primary_judge_model: str = ""
+    committee_size: int = DEFAULT_COMMITTEE_SIZE
+
+
+def _judge_defaults_response(
+    committee: list[dict[str, str]], requested_size: int
+) -> dict[str, object]:
+    ready = len(committee) >= MIN_COMMITTEE_SIZE
+    assigned_size = len(committee) if ready else requested_size
+    return {
+        "mode": "committee" if ready else "single_model",
+        "committee_size": assigned_size,
+        "committee": committee,
+        "ready": ready,
+        "message": (
+            f"Assigned {assigned_size} distinct compatibility-tested Judge models."
+            if ready
+            else "At least two non-generator chat models are required for committee mode."
+        ),
+    }
+
+
+@router.post("/defaults", dependencies=[Depends(_require_admin_csrf)])
+def get_judge_defaults(req: JudgeDefaultsRequest) -> dict:
+    from berrybrain_api.ai_configuration import PROVIDERS, load_configuration
+    from berrybrain_api.routers.ai_configuration import (
+        _fetch_models,
+        _probe_judge_models,
+        _provider_endpoint,
+        _setting,
+    )
+
+    if req.provider not in PROVIDERS:
+        raise HTTPException(status_code=422, detail="Judge provider is not supported")
+    committee_size = max(
+        MIN_COMMITTEE_SIZE,
+        min(MAX_COMMITTEE_SIZE, req.committee_size),
+    )
+    with SessionLocal() as session:
+        configuration = load_configuration(session)
+        if configuration is None or configuration.judge.provider_id != req.provider:
+            raise HTTPException(
+                status_code=409,
+                detail="Judge defaults require the active validated provider.",
+            )
+        endpoint = _provider_endpoint(session, req.provider)
+        api_key = _setting(session, "ai_api_key")
+        try:
+            provider_models = _fetch_models(req.provider, endpoint, api_key)
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Judge provider models could not be loaded.",
+            ) from exc
+    from berrybrain_api.judge_committee import judge_model_candidates
+
+    requested_models = set(req.models)
+    available_models = [
+        model
+        for model in provider_models
+        if not requested_models or model in requested_models
+    ]
+    candidates = judge_model_candidates(
+        available_models=available_models,
+        generator_model=req.generator_model,
+        primary_judge_model=req.primary_judge_model,
+    )
+    validated_models = _probe_judge_models(
+        req.provider,
+        endpoint,
+        api_key,
+        candidates,
+        required=committee_size,
+    )
+    committee = recommend_committee(
+        provider=req.provider,
+        available_models=validated_models,
+        generator_model=req.generator_model,
+        primary_judge_model=req.primary_judge_model,
+        committee_size=committee_size,
+    )
+    return _judge_defaults_response(committee, committee_size)
 
 
 class CommitteeRequest(BaseModel):
@@ -446,8 +824,6 @@ class CommitteeRequest(BaseModel):
 @router.post("/committee")
 async def judge_committee(req: CommitteeRequest):
     import json as _json
-
-    from berrybrain_api.ai_gateway import generate_graph_answer, get_ai_config
 
     with SessionLocal() as session:
         cfg = load_judge_config(session)
@@ -469,16 +845,6 @@ async def judge_committee(req: CommitteeRequest):
             total_reviews = session.query(HumanReviewRecord).count()
             if total_evals < 100 or total_reviews < 30:
                 return {"status": "error", "message": "uncalibrated enforcing blocked"}
-
-        blocked = generator_model_blocked_in_committee(
-            req.generator_model or "", cfg.committee
-        )
-        if blocked:
-            return {
-                "status": "error",
-                "message": "generator model present in committee",
-                "blocked_slots": blocked,
-            }
 
         system = _load_judge_prompt()
 
@@ -504,49 +870,29 @@ async def judge_committee(req: CommitteeRequest):
         for k, v in artifact_json.items():
             if isinstance(v, datetime):
                 artifact_json[k] = v.isoformat()
-        prompt = _json.dumps({"artifact": artifact_json, "evidence": evidence})
+        prompt = _json.dumps(
+            {
+                "artifact": artifact_json,
+                "evidence": evidence,
+                "context": _judge_source_context(session, artifact, req.artifact_type),
+            },
+            ensure_ascii=False,
+        )
 
-        verdicts: list[dict] = []
-        for judge in cfg.committee:
-            local_config = get_ai_config(session)
-            local_config["judge_provider"] = judge.get("provider", "ollama")
-            local_config["judge_model"] = judge.get("model", "")
-            routed_config = _with_judge_route(local_config)
-            t0 = datetime.now(UTC)
-            try:
-                result = await generate_graph_answer(
-                    config=routed_config,
-                    prompt=prompt,
-                    system=system,
-                    session=session,
-                    prompt_version="artifact-judge.v1.md",
+        verdicts = await _run_committee_models(
+            session=session,
+            committee=cfg.committee,
+            generator_model=(
+                req.generator_model
+                or str(
+                    getattr(artifact, "created_by_model", "")
+                    or getattr(artifact, "model", "")
+                    or ""
                 )
-                elapsed = (datetime.now(UTC) - t0).total_seconds() * 1000
-                verdicts.append(
-                    {
-                        "slot": judge.get("slot", ""),
-                        "provider": local_config["judge_provider"],
-                        "model": local_config["judge_model"],
-                        "verdict": result.get("verdict", "error"),
-                        "score": float(result.get("score", 0.0)),
-                        "rubric": result.get("rubric", {}),
-                        "reasoning": result.get("reasoning", ""),
-                        "latency_ms": int(elapsed),
-                    }
-                )
-            except Exception:
-                verdicts.append(
-                    {
-                        "slot": judge.get("slot", ""),
-                        "provider": local_config["judge_provider"],
-                        "model": local_config["judge_model"],
-                        "verdict": "error",
-                        "score": 0.0,
-                        "rubric": {},
-                        "reasoning": "judge-unavailable",
-                        "latency_ms": 0,
-                    }
-                )
+            ),
+            prompt=prompt,
+            system=system,
+        )
 
         summary = persist_committee_run(
             session,

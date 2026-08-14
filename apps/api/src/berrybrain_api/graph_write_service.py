@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
@@ -24,6 +25,14 @@ from berrybrain_api.graph_contracts import (
     normalize_graph_label,
     stored_node_types,
 )
+from berrybrain_api.graph_feedback import (
+    edge_artifact_key,
+    edge_source_note_ids,
+    node_artifact_key,
+    node_source_note_ids,
+    record_feedback,
+    resolve_feedback,
+)
 from berrybrain_api.graph_ontology import (
     canonical_label,
     ontology_class,
@@ -35,6 +44,8 @@ from berrybrain_api.models import (
     AutomationLogRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
+    SemanticClusterAssignmentRecord,
+    SemanticProfileRecord,
 )
 
 AI_EVIDENCE_FIELDS = {
@@ -96,7 +107,11 @@ def _unique_json_values(*raw_values: str) -> list[Any]:
     return list(unique.values())
 
 
-def _recalculate_node_confidence(node: GraphNodeRecord) -> None:
+def _recalculate_node_confidence(
+    node: GraphNodeRecord,
+    session: Session | None = None,
+    extra_signals: Iterable[ConfidenceSignal] = (),
+) -> None:
     signals = [
         ConfidenceSignal(1.0, f"source-note:{note_id}")
         for note_id in _json_list(node.source_note_ids)
@@ -113,10 +128,24 @@ def _recalculate_node_confidence(node: GraphNodeRecord) -> None:
         )
         for item in _json_list(node.source_evidence)
     )
+    if session is not None:
+        decision = resolve_feedback(
+            session,
+            artifact_kind="node",
+            artifact_key=node_artifact_key(node.type, node.label),
+            source_note_ids=node_source_note_ids(node),
+        )
+        if decision and decision.action in {"confirmed", "corrected"}:
+            signals.append(
+                ConfidenceSignal(1.0, f"human-feedback:{decision.record_id}")
+            )
+    signals.extend(extra_signals)
     persist_confidence(node, estimate_confidence(signals))
 
 
-def _recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
+def _recalculate_edge_confidence(
+    edge: GraphEdgeRecord, session: Session | None = None
+) -> None:
     signals = [
         ConfidenceSignal(
             1.0,
@@ -125,17 +154,35 @@ def _recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
         )
         for item in _json_list(edge.evidence)
     ]
+    if session is not None:
+        source = session.get(GraphNodeRecord, edge.source_node_id)
+        target = session.get(GraphNodeRecord, edge.target_node_id)
+        if source is not None and target is not None:
+            decision = resolve_feedback(
+                session,
+                artifact_kind="edge",
+                artifact_key=edge_artifact_key(source, target, edge.type),
+                source_note_ids=edge_source_note_ids(edge),
+            )
+            if decision and decision.action in {"confirmed", "corrected"}:
+                signals.append(
+                    ConfidenceSignal(1.0, f"human-feedback:{decision.record_id}")
+                )
     persist_confidence(edge, estimate_confidence(signals))
 
 
-def recalculate_node_confidence(node: GraphNodeRecord) -> None:
+def recalculate_node_confidence(
+    node: GraphNodeRecord, session: Session | None = None
+) -> None:
     """Refresh persisted confidence after graph provenance changes."""
-    _recalculate_node_confidence(node)
+    _recalculate_node_confidence(node, session)
 
 
-def recalculate_edge_confidence(edge: GraphEdgeRecord) -> None:
+def recalculate_edge_confidence(
+    edge: GraphEdgeRecord, session: Session | None = None
+) -> None:
     """Refresh persisted confidence after graph provenance changes."""
-    _recalculate_edge_confidence(edge)
+    _recalculate_edge_confidence(edge, session)
 
 
 def _node_state(node: GraphNodeRecord) -> dict[str, Any]:
@@ -251,6 +298,19 @@ class GraphWriteService:
         graph_metadata: dict[str, Any] | str | None = None,
     ) -> GraphNodeRecord:
         canonical_type = canonical_node_type(node_type)
+        feedback_source_ids = sorted(set(source_note_ids or []))
+        feedback_decision = resolve_feedback(
+            self.session,
+            artifact_kind="node",
+            artifact_key=node_artifact_key(canonical_type, label),
+            source_note_ids=feedback_source_ids,
+        )
+        if feedback_decision and feedback_decision.action == "corrected":
+            replacement_type = feedback_decision.replacement.get("type")
+            replacement_label = feedback_decision.replacement.get("label")
+            if replacement_type and replacement_label:
+                canonical_type = canonical_node_type(str(replacement_type))
+                label = str(replacement_label)
         normalized_label = normalize_graph_label(label)
         if not normalized_label:
             raise HTTPException(status_code=422, detail="Graph node label is required")
@@ -372,6 +432,17 @@ class GraphWriteService:
         existing.provider = provider or existing.provider
         existing.model = model or existing.model
         existing.prompt_version = prompt_version or existing.prompt_version
+        if feedback_decision and feedback_decision.suppresses and created_by != "user":
+            existing.status = "ignored"
+            existing.semantic_status = "quarantined"
+            existing.quality_gate_status = "rejected"
+            metadata_value = {}
+            with suppress(json.JSONDecodeError, TypeError):
+                metadata_value = json.loads(existing.graph_metadata or "{}")
+            if not isinstance(metadata_value, dict):
+                metadata_value = {}
+            metadata_value["feedbackSuppressionId"] = feedback_decision.record_id
+            existing.graph_metadata = _json_dump(metadata_value)
         confidence_signals = [
             ConfidenceSignal(1.0, f"source-note:{note_id}")
             for note_id in _json_list(existing.source_note_ids)
@@ -400,13 +471,28 @@ class GraphWriteService:
             confidence_signals.append(
                 ConfidenceSignal(float(confidence), f"model:{source_key}")
             )
+        if feedback_decision and feedback_decision.action in {
+            "confirmed",
+            "corrected",
+        }:
+            confidence_signals.append(
+                ConfidenceSignal(1.0, f"human-feedback:{feedback_decision.record_id}")
+            )
         persist_confidence(existing, estimate_confidence(confidence_signals))
         if graph_metadata is not None:
-            existing.graph_metadata = (
-                graph_metadata
-                if isinstance(graph_metadata, str)
-                else _json_dump(graph_metadata)
-            )
+            incoming_metadata: Any = graph_metadata
+            if isinstance(graph_metadata, str):
+                incoming_metadata = {}
+                with suppress(json.JSONDecodeError, TypeError):
+                    incoming_metadata = json.loads(graph_metadata)
+            current_metadata = {}
+            with suppress(json.JSONDecodeError, TypeError):
+                current_metadata = json.loads(existing.graph_metadata or "{}")
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            if isinstance(incoming_metadata, dict):
+                current_metadata.update(incoming_metadata)
+            existing.graph_metadata = _json_dump(current_metadata)
         after = _node_state(existing)
         state_changed = created or before != after
         if state_changed:
@@ -498,6 +584,16 @@ class GraphWriteService:
         if canonical_type in SYMMETRIC_EDGE_TYPES and source_node_id > target_node_id:
             source_node_id, target_node_id = target_node_id, source_node_id
 
+        source_node = self.session.get(GraphNodeRecord, source_node_id)
+        target_node = self.session.get(GraphNodeRecord, target_node_id)
+        assert source_node is not None and target_node is not None
+        feedback_decision = resolve_feedback(
+            self.session,
+            artifact_kind="edge",
+            artifact_key=edge_artifact_key(source_node, target_node, canonical_type),
+            source_note_ids=sorted(set(source_note_ids or [])),
+        )
+
         existing_edge = self.session.execute(
             select(GraphEdgeRecord).where(
                 GraphEdgeRecord.source_node_id == source_node_id,
@@ -547,15 +643,33 @@ class GraphWriteService:
             confidence_signals.append(
                 ConfidenceSignal(float(confidence), f"model:{signal_source}")
             )
+        if feedback_decision and feedback_decision.action in {
+            "confirmed",
+            "corrected",
+        }:
+            confidence_signals.append(
+                ConfidenceSignal(1.0, f"human-feedback:{feedback_decision.record_id}")
+            )
         persist_confidence(edge, estimate_confidence(confidence_signals))
         edge.ontology_property = ontology_property(canonical_type)
-        edge.semantic_status = "active"
+        suppressed = (
+            bool(
+                feedback_decision
+                and feedback_decision.suppresses
+                and created_by != "user"
+            )
+            or source_node.semantic_status != "active"
+            or target_node.semantic_status != "active"
+        )
+        edge.semantic_status = "quarantined" if suppressed else "active"
         edge.created_by = created_by
         edge.created_by_model = model
         edge.provider = provider
         edge.model = model
         edge.prompt_version = prompt_version
-        edge.status = status
+        edge.status = "ignored" if suppressed else status
+        if suppressed:
+            edge.quality_gate_status = "rejected"
         edge.updated_at = datetime.now(UTC)
         metadata = {"pipeline_run_id": pipeline_run_id} if pipeline_run_id else {}
         edge.ai_notes = _json_dump(metadata) if metadata else edge.ai_notes
@@ -586,7 +700,9 @@ class GraphWriteService:
         self._persist(edge)
         return edge
 
-    def set_node_status(self, node_id: int, status: str) -> GraphNodeRecord:
+    def set_node_status(
+        self, node_id: int, status: str, *, user_decision: bool = False
+    ) -> GraphNodeRecord:
         node = self.session.get(GraphNodeRecord, node_id)
         if node is None:
             raise HTTPException(status_code=404, detail="Graph node not found")
@@ -596,6 +712,31 @@ class GraphWriteService:
             )
         before = _node_state(node)
         node.status = status
+        feedback = None
+        if user_decision:
+            action = {
+                "confirmed": "confirmed",
+                "ignored": "ignored",
+                "suggested": "restored",
+            }.get(status)
+            if action:
+                feedback = record_feedback(
+                    self.session,
+                    artifact_kind="node",
+                    artifact_key=node_artifact_key(node.type, node.label),
+                    source_note_ids=node_source_note_ids(node),
+                    action=action,
+                    original_payload=before,
+                    replacement_payload=_node_state(node),
+                )
+                node.semantic_status = (
+                    "quarantined" if status == "ignored" else "active"
+                )
+                _recalculate_node_confidence(
+                    node,
+                    self.session,
+                    (ConfidenceSignal(1.0, f"human-feedback:{feedback.id}"),),
+                )
         node.updated_at = datetime.now(UTC)
         log = self._record(
             "GRAPH_NODE_STATUS_CHANGED",
@@ -609,7 +750,9 @@ class GraphWriteService:
         node.mutation_log_id = log.id  # type: ignore[attr-defined]
         return node
 
-    def set_edge_status(self, edge_id: int, status: str) -> GraphEdgeRecord:
+    def set_edge_status(
+        self, edge_id: int, status: str, *, user_decision: bool = False
+    ) -> GraphEdgeRecord:
         edge = self.session.get(GraphEdgeRecord, edge_id)
         if edge is None:
             raise HTTPException(status_code=404, detail="Graph edge not found")
@@ -619,6 +762,32 @@ class GraphWriteService:
             )
         before = _edge_state(edge)
         edge.status = status
+        if user_decision:
+            source = self.session.get(GraphNodeRecord, edge.source_node_id)
+            target = self.session.get(GraphNodeRecord, edge.target_node_id)
+            if source is None or target is None:
+                raise HTTPException(
+                    status_code=409, detail="Graph edge endpoint node not found"
+                )
+            action = {
+                "confirmed": "confirmed",
+                "ignored": "ignored",
+                "suggested": "restored",
+            }.get(status)
+            if action:
+                record_feedback(
+                    self.session,
+                    artifact_kind="edge",
+                    artifact_key=edge_artifact_key(source, target, edge.type),
+                    source_note_ids=edge_source_note_ids(edge),
+                    action=action,
+                    original_payload=before,
+                    replacement_payload=_edge_state(edge),
+                )
+                edge.semantic_status = (
+                    "quarantined" if status == "ignored" else "active"
+                )
+                _recalculate_edge_confidence(edge, self.session)
         edge.updated_at = datetime.now(UTC)
         log = self._record(
             "GRAPH_EDGE_STATUS_CHANGED",
@@ -660,6 +829,7 @@ class GraphWriteService:
         summary: str | None = None,
         source: str | None = None,
         status: str | None = None,
+        user_decision: bool = False,
     ) -> GraphNodeRecord:
         node = self.session.get(GraphNodeRecord, node_id)
         if node is None:
@@ -669,6 +839,8 @@ class GraphWriteService:
                 status_code=422, detail=f"Unsupported graph status: {status}"
             )
         before = _node_state(node)
+        previous_key = node_artifact_key(node.type, node.label)
+        previous_source_note_ids = node_source_note_ids(node)
         next_type = (
             canonical_node_type(node_type)
             if node_type is not None
@@ -711,7 +883,27 @@ class GraphWriteService:
         if status is not None:
             node.status = status
         node.semantic_state = "pending"
-        persist_confidence(node, estimate_confidence([]))
+        feedback = None
+        if user_decision:
+            current_key = node_artifact_key(node.type, node.label)
+            action = "corrected" if current_key != previous_key else "confirmed"
+            feedback = record_feedback(
+                self.session,
+                artifact_kind="node",
+                artifact_key=previous_key,
+                source_note_ids=previous_source_note_ids,
+                action=action,
+                original_payload=before,
+                replacement_payload=_node_state(node),
+            )
+        if feedback is None:
+            persist_confidence(node, estimate_confidence([]))
+        else:
+            _recalculate_node_confidence(
+                node,
+                self.session,
+                (ConfidenceSignal(1.0, f"human-feedback:{feedback.id}"),),
+            )
         node.updated_at = datetime.now(UTC)
         log = self._record(
             "GRAPH_NODE_FIELDS_CHANGED",
@@ -786,7 +978,9 @@ class GraphWriteService:
         self._persist(node)
         return node
 
-    def delete_node(self, node_id: int) -> GraphNodeRecord:
+    def delete_node(
+        self, node_id: int, *, user_decision: bool = False
+    ) -> GraphNodeRecord:
         node = self.session.get(GraphNodeRecord, node_id)
         if node is None:
             raise HTTPException(status_code=404, detail="Graph node not found")
@@ -796,6 +990,15 @@ class GraphWriteService:
                 detail="Vault note nodes cannot be deleted from the graph",
             )
         before = _node_state(node)
+        if user_decision:
+            record_feedback(
+                self.session,
+                artifact_kind="node",
+                artifact_key=node_artifact_key(node.type, node.label),
+                source_note_ids=node_source_note_ids(node),
+                action="deleted",
+                original_payload=before,
+            )
         edges = list(
             self.session.execute(
                 select(GraphEdgeRecord).where(
@@ -807,6 +1010,18 @@ class GraphWriteService:
         edge_states = [_edge_state(edge) for edge in edges]
         for edge in edges:
             self.session.delete(edge)
+        for assignment in self.session.execute(
+            select(SemanticClusterAssignmentRecord).where(
+                SemanticClusterAssignmentRecord.node_id == node.id
+            )
+        ).scalars():
+            self.session.delete(assignment)
+        for profile in self.session.execute(
+            select(SemanticProfileRecord).where(
+                SemanticProfileRecord.node_id == node.id
+            )
+        ).scalars():
+            self.session.delete(profile)
         self.session.delete(node)
         self._record(
             "GRAPH_NODE_DELETED",
@@ -820,11 +1035,29 @@ class GraphWriteService:
         self._persist()
         return node
 
-    def delete_edge(self, edge_id: int, *, reason: str = "Graph edge removed") -> bool:
+    def delete_edge(
+        self,
+        edge_id: int,
+        *,
+        reason: str = "Graph edge removed",
+        user_decision: bool = False,
+    ) -> bool:
         edge = self.session.get(GraphEdgeRecord, edge_id)
         if edge is None:
             return False
         before = _edge_state(edge)
+        if user_decision:
+            source = self.session.get(GraphNodeRecord, edge.source_node_id)
+            target = self.session.get(GraphNodeRecord, edge.target_node_id)
+            if source is not None and target is not None:
+                record_feedback(
+                    self.session,
+                    artifact_kind="edge",
+                    artifact_key=edge_artifact_key(source, target, edge.type),
+                    source_note_ids=edge_source_note_ids(edge),
+                    action="deleted",
+                    original_payload=before,
+                )
         self.session.delete(edge)
         self._record(
             "GRAPH_EDGE_DELETED",

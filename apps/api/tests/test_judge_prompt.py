@@ -35,7 +35,7 @@ class JudgePromptTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             prompt_dir = Path(root) / "prompts"
             prompt_dir.mkdir()
-            (prompt_dir / "artifact-judge.v1.md").write_text(
+            (prompt_dir / "artifact-judge.v2.md").write_text(
                 "Evaluate the artifact.", encoding="utf-8"
             )
             with patch.object(judge, "PROJECT_ROOT", Path(root)):

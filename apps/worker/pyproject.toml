@@ -1,6 +1,6 @@
 [project]
 name = "berrybrain-worker"
-version = "1.4.6"
+version = "1.4.7"
 description = "BerryBrain local worker"
 requires-python = ">=3.12"
 dependencies = [

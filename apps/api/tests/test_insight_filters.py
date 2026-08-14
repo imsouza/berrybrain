@@ -100,16 +100,17 @@ class InsightFilterTest(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(reason, "technical_or_system_diagnostic")
 
-    @patch("berrybrain_api.routers.insights.expand_knowledge_graph")
+    @patch("berrybrain_api.routers.insights._generate_graph_insights")
     @patch("berrybrain_api.routers.insights.create_insight")
     @patch("berrybrain_api.routers.insights.SessionLocal")
-    def test_sync_creates_only_grounded_knowledge_and_expands_graph(
+    def test_sync_creates_only_grounded_knowledge_and_projects_new_insights(
         self,
         session_local: MagicMock,
         create_insight: MagicMock,
-        expand_graph: MagicMock,
+        project_insights: MagicMock,
     ) -> None:
         session = session_local.return_value.__enter__.return_value
+        create_insight.return_value.id = 42
         payload = SyncInsightsRequest(
             payload={
                 "insights": [
@@ -158,16 +159,17 @@ class InsightFilterTest(unittest.TestCase):
         self.assertAlmostEqual(kwargs["confidence"], 0.5)
         self.assertEqual(args[5], 5)
         self.assertEqual(kwargs["provider"], "nvidia-nim")
-        expand_graph.assert_called_once_with(session)
+        project_insights.assert_called_once_with(session, {42})
+        session.commit.assert_called_once()
 
-    @patch("berrybrain_api.routers.insights.expand_knowledge_graph")
+    @patch("berrybrain_api.routers.insights._generate_graph_insights")
     @patch("berrybrain_api.routers.insights.create_insight")
     @patch("berrybrain_api.routers.insights.SessionLocal")
     def test_sync_rejects_diagnostics_malformed_and_unsupported_evidence(
         self,
         session_local: MagicMock,
         create_insight: MagicMock,
-        expand_graph: MagicMock,
+        project_insights: MagicMock,
     ) -> None:
         session_local.return_value.__enter__.return_value = MagicMock()
         payload = SyncInsightsRequest(
@@ -204,18 +206,19 @@ class InsightFilterTest(unittest.TestCase):
             ["system_diagnostic", "system_diagnostic"],
         )
         create_insight.assert_not_called()
-        expand_graph.assert_not_called()
+        project_insights.assert_not_called()
 
-    @patch("berrybrain_api.routers.insights.expand_knowledge_graph")
+    @patch("berrybrain_api.routers.insights._generate_graph_insights")
     @patch("berrybrain_api.routers.insights.create_insight")
     @patch("berrybrain_api.routers.insights.SessionLocal")
     def test_sync_supports_single_insight_payload_and_normalizes_unknown_type(
         self,
         session_local: MagicMock,
         create_insight: MagicMock,
-        expand_graph: MagicMock,
+        project_insights: MagicMock,
     ) -> None:
         session = session_local.return_value.__enter__.return_value
+        create_insight.return_value.id = 51
         result = sync_insights_from_ai(
             SyncInsightsRequest(
                 payload={
@@ -244,7 +247,7 @@ class InsightFilterTest(unittest.TestCase):
         self.assertEqual(args[1], "knowledge_gap")
         self.assertEqual(args[5], 5)
         self.assertIsNone(kwargs["confidence"])
-        expand_graph.assert_called_once_with(session)
+        project_insights.assert_called_once_with(session, {51})
 
 
 if __name__ == "__main__":

@@ -176,11 +176,13 @@ def audit_knowledge_confidence(
             ),
             apply=apply,
             reason=lambda item: item.description or item.name,
-            evidence=lambda item: _parse_json_list(item.source_evidence)
-            + [
-                {"sourceNoteId": note_id}
-                for note_id in _parse_json_list(item.related_note_ids)
-            ],
+            evidence=lambda item: (
+                _parse_json_list(item.source_evidence)
+                + [
+                    {"sourceNoteId": note_id}
+                    for note_id in _parse_json_list(item.related_note_ids)
+                ]
+            ),
         ),
         "graphInferences": _audit_float_confidence_records(
             list(

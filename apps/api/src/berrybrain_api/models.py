@@ -786,6 +786,24 @@ class GraphEdgeRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class GraphFeedbackRecord(Base):
+    __tablename__ = "graph_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    artifact_kind: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    artifact_key: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    context_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    source_note_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    original_payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    replacement_payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class SemanticProfileRecord(Base):
     __tablename__ = "semantic_profiles"
 

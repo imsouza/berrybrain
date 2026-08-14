@@ -33,12 +33,12 @@ def build_analysis_artifacts(report: dict[str, Any]) -> tuple[str, dict[str, Any
     )
     markdown = f"""# BerryBrain Evaluation Table
 
-**Caption:** Exploratory profile {report['profile']} results generated from the machine-readable
+**Caption:** Exploratory profile {report["profile"]} results generated from the machine-readable
 evaluation bundle. Synthetic retrieval results are internal regression evidence and must not be
 interpreted as external comparative validity.
 
 **Provenance:** `reports/evaluation/full-evaluation.json`, generated
-`{report['generatedAt']}`. Evidence manifests retain revision, dirty state, environment, seed,
+`{report["generatedAt"]}`. Evidence manifests retain revision, dirty state, environment, seed,
 configuration, observations, and checksums.
 
 | Retrieval configuration | Recall@10 | MRR | NDCG@10 | p95 latency (ms) |
@@ -48,14 +48,14 @@ configuration, observations, and checksums.
 ## System Profile
 
 - HTTP: {http_text}.
-- On-disk graph: {graph['node_count']} nodes, {graph['edge_count']} edges, p95
-  {graph['latency_p95_ms']:.2f} ms, payload {graph['payload_bytes']} bytes, peak traced memory
-  {graph['peak_memory_bytes']} bytes.
-- Worker queue: enqueue {worker['enqueue_rate_jobs_per_second']:.2f} jobs/s, drain
-  {worker['drain_rate_jobs_per_second']:.2f} jobs/s, end-to-end p95
-  {worker['end_to_end_p95_ms']:.2f} ms, duplicate claims {worker['duplicate_claims']}.
-- Maturity V3: {report['maturity']['readiness']}, minimum Level
-  {report['maturity']['minimum_level']}, median Level {report['maturity']['median_level']}.
+- On-disk graph: {graph["node_count"]} nodes, {graph["edge_count"]} edges, p95
+  {graph["latency_p95_ms"]:.2f} ms, payload {graph["payload_bytes"]} bytes, peak traced memory
+  {graph["peak_memory_bytes"]} bytes.
+- Worker queue: enqueue {worker["enqueue_rate_jobs_per_second"]:.2f} jobs/s, drain
+  {worker["drain_rate_jobs_per_second"]:.2f} jobs/s, end-to-end p95
+  {worker["end_to_end_p95_ms"]:.2f} ms, duplicate claims {worker["duplicate_claims"]}.
+- Maturity V3: {report["maturity"]["readiness"]}, minimum Level
+  {report["maturity"]["minimum_level"]}, median Level {report["maturity"]["median_level"]}.
 """
     chart = {
         "$schema": "https://vega.github.io/schema/vega-lite/v5.json",

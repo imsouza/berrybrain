@@ -358,8 +358,14 @@ model that writes an answer or proposes an edge.
 - The Judge always resolves the provider/model slot saved in the active AI configuration.
 - Local mode lists installed Ollama models; choose the Judge model explicitly.
 - Cloud presets reuse the selected provider endpoint and key, but the Judge model is explicit.
-- The default \`single_model\` mode makes one evaluation call; it does not silently invoke other LLMs.
-- Committee mode requires each judge slot to be configured separately.
+- The default committee ranks models returned by the active provider, then verifies each candidate
+  with the same structured-response route used by the Judge. Catalog presence alone is insufficient.
+- Only compatibility-tested models can be assigned to faithfulness, relevance, and contradiction.
+  Fixed provider model IDs are never assumed.
+- Settings supports two to five judges and editable model, role, and evaluation focus per slot.
+- The generator and non-text model categories are excluded from committee eligibility.
+- If fewer than two eligible models exist, BerryBrain remains in \`single_model\` mode.
+- Failed committee members remain auditable but do not vote or lower the aggregate score.
 - A generator model cannot judge its own high-impact output in committee mode.
 
 ### Enforcement gate
@@ -533,11 +539,17 @@ The graph is where notes, concepts, entities, topics, gaps, and insights become 
 - **Recalculate connections** from the Home graph card.
 - **Open note** jumps to the source note.
 - **Ask** starts a grounded question from the selected node and can continue in Flow.
+- **Delete** removes a non-note node and its incident edges, expires dependent insights, returns to
+  Graph, and shows progress while only the affected semantic neighborhood is recalculated.
 
 Every node type has exclusive geometry. Context determines cluster color, except note roots stay
 Berry red and insights are highlighted rectangles. Labels render once, adapt the bounded node
 geometry, wrap to three lines, and truncate after 58 characters. Pending semantic nodes receive
 provisional context colors instead of a generic pending color.
+
+Graph deletion is durable contextual feedback. Refresh and later graph expansion cannot make the
+same generated identity visible again from the same or an overlapping source scope. BerryBrain
+quarantines such a candidate, while unrelated contexts remain free to use the same valid term.
 
 The ontology maps internal types and roles to SKOS, PROV-O, schema.org, RDF, OWL, and Dublin Core.
 Canonical edges include \`mentions\`, \`references\`, \`derived_from\`, \`supports\`,
@@ -807,7 +819,9 @@ The Autopilot persists work before execution and treats each note version as imm
 - Canonical graph writes prevent duplicate nodes and edges during retry or reprocessing.
 - Edit/delete provenance repair removes only evidence owned by the changed note, recalculates
   shared confidence from remaining sources, and deletes derived artifacts only when orphaned.
-- Suggested graph artifacts can be confirmed, ignored, reprocessed, or reverted.
+- Suggested graph artifacts can be confirmed, ignored, reprocessed, corrected, restored, or
+  deleted. These decisions feed an auditable contextual admission policy; they do not fine-tune
+  model weights.
 
 Technical failures belong in **Monitor** and **Activity**. Knowledge insights remain limited to
 claims supported by notes, concepts, connections, or processed attachments.`,
@@ -821,6 +835,9 @@ claims supported by notes, concepts, connections, or processed attachments.`,
 - **Language**: the interface and generated structures use English; source notes remain unchanged.
 - **Fonts**: UI and editor font families and sizes.
 - **AI**: choose exactly one Local or Cloud mode, then configure main, embedding, Judge, and HippoRAG model slots.
+- **Judge**: select deterministic, single-model, or committee mode; edit committee count, models,
+  evaluation roles, and role-specific focus; or reapply compatibility-tested defaults from the
+  active provider.
 - **Cognitive layer**: retrieval mode, chunks, graph inference, confidence, and external vector stores.
 - **Graph**: rendering, clustering, enrichment, semantic color, and online research controls.
 - **Monitor**: operational limits, model calls, retries, dead letters, and service health.

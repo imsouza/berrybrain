@@ -15,7 +15,7 @@ from berrybrain_api.graph_inference_service import (
 )
 from berrybrain_api.jobs import GENERATE_GRAPH_INSIGHTS, create_job
 from berrybrain_api.models import InsightRecord, JobRecord, NoteRecord
-from berrybrain_api.second_brain import expand_knowledge_graph
+from berrybrain_api.second_brain import _generate_graph_insights
 from berrybrain_api.services import (
     create_insight,
     dismiss_insight,
@@ -323,6 +323,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
         items = insights if isinstance(insights, list) else []
 
     created = 0
+    created_ids: set[int] = set()
     skipped: list[dict] = []
     with SessionLocal() as session:
         for item in items:
@@ -431,7 +432,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                 )
                 continue
 
-            create_insight(
+            persisted = create_insight(
                 session,
                 itype,
                 title,
@@ -456,8 +457,10 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
                 ),
             )
             created += 1
+            created_ids.add(persisted.id)
         if created:
-            expand_knowledge_graph(session)
+            _generate_graph_insights(session, created_ids)
+            session.commit()
     return {"status": "synced", "insights_created": created, "skipped": skipped[:20]}
 
 

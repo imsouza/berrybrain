@@ -511,6 +511,7 @@ PORTABLE_TABLES = (
     "connections",
     "graph_nodes",
     "graph_edges",
+    "graph_feedback",
     "attachment_extractions",
     "model_invocations",
 )
