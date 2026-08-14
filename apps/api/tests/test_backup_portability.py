@@ -289,6 +289,18 @@ class BackupPortabilityTest(unittest.TestCase):
                 with create_engine(
                     f"sqlite:///{backup_database}"
                 ).begin() as connection:
+                    trigger_names = list(
+                        connection.execute(
+                            text(
+                                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                                "AND (name LIKE 'ri_%' OR name LIKE 'graph_%')"
+                            )
+                        ).scalars()
+                    )
+                    for trigger_name in trigger_names:
+                        connection.execute(
+                            text(f'DROP TRIGGER IF EXISTS "{trigger_name}"')
+                        )
                     connection.execute(
                         text("DELETE FROM schema_migrations WHERE version >= 5")
                     )

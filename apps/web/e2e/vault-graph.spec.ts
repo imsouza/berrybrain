@@ -35,7 +35,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
       });
     });
 
-    await page.route("**/api/v1/graph", (route) => {
+    await page.route("**/api/v1/graph?*", (route) => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -114,7 +114,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
       }),
     );
 
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

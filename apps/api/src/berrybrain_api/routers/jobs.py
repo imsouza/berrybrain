@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from berrybrain_api.artifact_state import processable_node_clause
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.job_contracts import (
     canonical_job_counts,
@@ -233,7 +234,7 @@ def pipeline_progress_endpoint() -> dict:
             for node in session.execute(
                 select(GraphNodeRecord).where(
                     GraphNodeRecord.type == "note",
-                    GraphNodeRecord.status != "ignored",
+                    processable_node_clause(),
                 )
             ).scalars()
             if node.source_id is not None

@@ -27,7 +27,7 @@ test("renders and interacts with a 10k-node progressive graph inside runtime bud
     contentType: "application/json",
     body: JSON.stringify({ settings: [{ key: "onboarding_completed", value: "true" }] }),
   }));
-  await page.route("**/api/v1/graph/summary", (route) => route.fulfill({
+  await page.route("**/api/v1/graph/summary?*", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ nodes: NODE_COUNT, edges: EDGE_COUNT, orphans: 0, graphVersion: 10 }),

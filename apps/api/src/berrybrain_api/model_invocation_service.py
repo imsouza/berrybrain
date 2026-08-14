@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+from sqlalchemy import select
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -82,6 +83,33 @@ def finish_model_invocation(
             ledger.commit()
     except Exception:
         return
+
+
+def reconcile_stale_model_invocations(
+    session: Session, *, stale_after_minutes: int = 30
+) -> int:
+    cutoff = datetime.now(UTC) - timedelta(minutes=max(1, stale_after_minutes))
+    records = list(
+        session.execute(
+            select(ModelInvocationRecord).where(
+                ModelInvocationRecord.status == "running",
+                ModelInvocationRecord.started_at < cutoff,
+            )
+        ).scalars()
+    )
+    completed_at = datetime.now(UTC)
+    for record in records:
+        record.status = "failed"
+        record.error_class = "StaleModelInvocation"
+        record.error_message = (
+            "The model invocation exceeded its execution lease and was reconciled."
+        )
+        record.completed_at = completed_at
+        started_at = record.started_at.replace(tzinfo=UTC)
+        record.latency_ms = max(
+            0, int((completed_at - started_at).total_seconds() * 1000)
+        )
+    return len(records)
 
 
 def _ledger_session(bind: Engine | Connection) -> Session:

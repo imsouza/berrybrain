@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import statistics
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -9,6 +8,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import (
+    accepted_edge_clause,
+    processable_node_clause,
+)
 from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.confidence import (
     serialize_confidence,
@@ -105,13 +108,14 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     estimated_remaining_seconds = _maintenance_eta_seconds(
         jobs, running_jobs, now, maintenance_backlog
     )
+    estimated_remaining_seconds_p95 = _maintenance_eta_seconds(
+        jobs, running_jobs, now, maintenance_backlog, quantile=0.95
+    )
 
     ai_config = _ai_config(session)
     connections = list(session.execute(select(ConnectionRecord)).scalars())
     graph_edges = list(
-        session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
-        ).scalars()
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
     )
     concepts = list(session.execute(select(ConceptRecord)).scalars())
     raw_insights = list(
@@ -201,6 +205,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             ),
             "status": progress_state,
             "estimatedRemainingSeconds": estimated_remaining_seconds,
+            "estimatedRemainingSecondsP50": estimated_remaining_seconds,
+            "estimatedRemainingSecondsP95": estimated_remaining_seconds_p95,
             "remainingTasks": remaining_tasks,
         },
         "stats": {
@@ -418,7 +424,7 @@ def _current_step(
             + len([j for j in running_jobs if j.type == "GENERATE_EMBEDDING"])
             + len([j for j in pending_jobs if j.type == "GENERATE_EMBEDDING"])
         )
-        return f"Processando embeddings: {completed}/{total} concluidos"
+        return f"Processing embeddings: {completed}/{total} completed"
 
     return JOB_LABELS.get(job.type, job.type.replace("_", " ").title())
 
@@ -803,8 +809,7 @@ def _maintenance_backlog_counts(
             .select_from(GraphNodeRecord)
             .where(
                 GraphNodeRecord.created_by == "ai",
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                processable_node_clause(),
                 GraphNodeRecord.id.not_in(evaluated_node_ids),
             )
         )
@@ -816,8 +821,7 @@ def _maintenance_backlog_counts(
             .select_from(GraphNodeRecord)
             .where(
                 GraphNodeRecord.type != "note",
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
+                processable_node_clause(),
                 (
                     GraphNodeRecord.semantic_state.in_(["pending", "stale"])
                     | (GraphNodeRecord.ai_summary == "")
@@ -840,6 +844,8 @@ def _maintenance_eta_seconds(
     running_jobs: list[JobRecord],
     now: datetime,
     backlog: Counter[str],
+    *,
+    quantile: float = 0.50,
 ) -> int | None:
     """Estimate the finite maintenance backlog from observed job durations."""
     duration_samples: dict[str, list[float]] = {}
@@ -857,15 +863,26 @@ def _maintenance_eta_seconds(
         samples = duration_samples.get(job_type)
         if not samples:
             return None
-        remaining += statistics.median(samples) * count
+        remaining += _duration_percentile(samples, quantile) * count
     for job in running_jobs:
         samples = duration_samples.get(job.type)
         if not samples:
             return None
         started = _as_aware(job.started_at)
         elapsed = max(0.0, (now - started).total_seconds()) if started else 0.0
-        remaining -= min(statistics.median(samples), elapsed)
+        remaining -= min(_duration_percentile(samples, quantile), elapsed)
     return max(1, round(remaining)) if backlog else 0
+
+
+def _duration_percentile(samples: list[float], quantile: float) -> float:
+    ordered = sorted(samples)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
 def _last_result(

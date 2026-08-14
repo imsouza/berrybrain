@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.7-blue)
+![Version](https://img.shields.io/badge/version-1.4.8-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.7](#whats-new-in-147)
+- [What's New in 1.4.8](#whats-new-in-148)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -77,10 +77,10 @@ The system is designed around one rule:
 | Editor | Editor-first workflow, autosave, preview/split mode, backlinks, attachments |
 | Autopilot | Async job queue for parsing, classification, assimilation, embeddings, graph expansion, insights |
 | Knowledge Graph | Notes, concepts, topics, entities, contexts, gaps, insights, and explainable edges |
-| Cognitive Layer | Knowledge Base + Knowledge Graph + Semantic Data Layer + HippoRAG Sidecar |
+| Cognitive Layer | Knowledge Base + Knowledge Graph + Semantic Data Layer + custom ontology-aware multi-hop sidecar |
 | AI Providers | NVIDIA NIM, OpenAI, OpenRouter, Groq, DeepSeek, custom OpenAI-compatible APIs, and Ollama/local |
 | Model Routing | Capability-based routing (Generation, Embedding, Judge, HippoRAG) with Fallback Chains |
-| RAG Judge | Deterministic, single-model, and committee evaluator with calibrated quality gates |
+| RAG Judge | Deterministic, single-model, and committee evaluator with auditable quality gates |
 | Insights | Knowledge gaps, central concepts, recurring ideas, weak concepts, connections, study suggestions |
 | Graph Inference | Ask questions about the graph with RRF (Reciprocal Rank Fusion) evidence-backed answers |
 | Ask Flow | Persistent, grounded multi-turn sessions with evidence, isolation, and cancellation |
@@ -93,7 +93,28 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.7
+## What's New in 1.4.8
+
+- **Feedback-guided adaptation**: note, graph, insight, and Ask decisions create append-only,
+  provenance-aware learning events. Every Worker AI job, subagent, Ask path, and Judge receives the
+  newest applicable global or overlapping-context policy as bounded untrusted data.
+- **No false training claim**: Monitor exposes learning direction, event counts, active graph
+  feedback, policy version, and `model_weights_updated=false`. BerryBrain adapts policy and graph
+  admission; it does not silently fine-tune provider models.
+- **Ontology application profile**: stable UUIDs and IRIs, a BerryBrain Turtle vocabulary, SHACL
+  shapes, JSON-LD/Turtle export, typed assertions, lifecycle graphs, and validation tests now share
+  one semantic contract with retrieval and visualization.
+- **Canonical artifact state**: Graph, Home, Ask, retrieval, clustering, insights, research, agents,
+  and the sidecar use one accepted-artifact policy. Provisional artifacts appear only when an
+  explicit workbench request asks for them.
+- **Provider and Judge integrity**: active-provider health replaces Ollama-specific assumptions;
+  stale calls are reconciled, cloud/local execution stays exclusive, and Judge defaults require
+  live structured-response compatibility.
+- **Measured release evidence**: the latest S profile, public BEIR SciFact BM25 context run, honest
+  synthetic Judge classification, ontology/lifecycle tests, and feedback adaptation tests are
+  published as machine-readable artifacts.
+
+### Included from 1.4.7
 
 - **Persistent graph decisions**: confirm, ignore, correct, restore, and delete actions now write
   contextual feedback. A deleted generated artifact is quarantined if extraction tries to recreate
@@ -199,8 +220,9 @@ The system is designed around one rule:
 - **Calculated confidence**: graph nodes, edges, insights, and cluster assignments persist a
   Jeffreys-smoothed point estimate, 95% Wilson interval, sample size, factors, method, and
   timestamp. No evidence means unavailable, not an invented default. Users cannot edit confidence.
-- **Context clustering**: deterministic medoids and silhouette selection replace transitive
-  threshold merging. Pending semantic nodes receive provisional cluster colors.
+- **Context clustering**: deterministic medoids, silhouette selection, validated relationship
+  signals, and a cohesion floor prevent unrelated nodes from being forced into the same color.
+  Reprocessing preserves the last valid context color until a replacement is calculated.
 - **Readable graph**: one full label per node, exclusive geometry by ontology type, Berry-red
   note roots, rectangular highlighted insights, directed arrows, and a relationship-role legend.
 - **Node workspace**: click zooms into the node, then opens `/graph/nodes/:id` in the existing
@@ -221,7 +243,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain v1.4.7 is locally validated for ontology-aware graph/RAG behavior, calculated
+BerryBrain v1.4.8 is locally validated for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
 
@@ -234,6 +256,7 @@ voice Ask, persistent Ask Flow, global research, progressive rendering, and oper
 | Graph scale | Bounded pages and deltas, deterministic extreme-scale layout, canvas LOD, medoid context clusters, provisional and vault colors |
 | Grounded interaction | Ask refusal without evidence, persistent Flow, cancellable turns, and explicit graph gap research |
 | Insight proposals | Knowledge-only insight policy, evidence-backed graph nodes, explicit accept/reject actions |
+| Feedback adaptation | Context-scoped learning ledger consumed by Ask, agents, Worker jobs, and Judges; no silent model-weight training |
 | Cognitive attachments | PDF/document extraction, image OCR, audio/video transcription, attachment chunks and graph evidence |
 | Data safety | Manifest/checksum backup, validated restore, versioned schema migrations, readable export |
 | Owner security | Local single-owner setup, configurable `admin` alias, local/dev default owner, Argon2id, signed sessions, CSRF, rate limiting, lockout, audit events |
@@ -259,35 +282,38 @@ browser, memory, and error distributions. Paired effects include deterministic b
 intervals. Every measured runner emits revision/environment metadata, raw observations, summaries,
 and SHA-256 checksums.
 
-Latest executed exploratory S profile, generated 12 August 2026 at 19:13 UTC:
+Latest executed exploratory S profile, generated 14 August 2026 at 04:48 UTC:
 
 | Retrieval configuration | Recall@10 | MRR | NDCG@10 | p95 latency |
 | --- | ---: | ---: | ---: | ---: |
-| Lexical only | 0.050 | 0.017 | 0.025 | 11.01 ms |
-| Dense only | 0.500 | 0.500 | 0.500 | 9.70 ms |
-| Standard hybrid | 0.500 | 0.500 | 0.500 | 18.27 ms |
-| Graph lexical | 0.500 | 0.250 | 0.315 | 21.99 ms |
-| Graph hybrid | 1.000 | 0.750 | 0.815 | 30.84 ms |
+| Lexical only | 0.050 | 0.017 | 0.025 | 10.22 ms |
+| Dense only | 0.500 | 0.500 | 0.500 | 10.85 ms |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 23.38 ms |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 19.56 ms |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 31.47 ms |
 
 | Runtime workload | Measured result |
 | --- | ---: |
-| HTTP, 100 requests at concurrency 10 | 67.98 req/s; p50/p95/p99 138.02/248.62/293.22 ms; 0 errors |
-| Worker, 100 jobs | 12.48 jobs/s drain; p95 7,693.75 ms; 0 duplicate claims |
-| On-disk graph, 500 nodes and 1,000 edges | p50/p95 175.46/306.76 ms; 541,592 B payload |
-| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.26 ms containment |
-| Judge calibration | Weighted kappa 0.9801; false acceptance/rejection 0.000/0.000 |
+| HTTP, 100 requests at concurrency 10 | 76.12 req/s; p50/p95/p99 119.26/224.55/257.96 ms; 0 errors |
+| Worker, 100 jobs | 11.92 jobs/s drain; p95 8,060.36 ms; 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | p50/p95 188.62/222.63 ms; 864,092 B payload |
+| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.59 ms containment |
+| Judge synthetic regression | 100 evaluations; 30 synthetic references; kappa 0.9801; `calibrated=false` |
+| Public baseline context | BEIR SciFact BM25: 5,183 documents, 300 queries, Recall@10 0.7816; not a direct comparison |
 
 The composed gate passed with zero failed gates. These numbers are real local executions from the
-machine-readable artifacts, classified as exploratory because the revision was dirty and external
-datasets, independent replication, and approved participant/field evidence remain unavailable.
+machine-readable artifacts and remain exploratory because the revision was dirty, the internal
+corpus is controlled, the Judge labels are synthetic, and independent replication plus approved
+participant/field evidence remain unavailable.
 
-Release-candidate browser regression, executed 13 August 2026 against the local production image:
+Release-candidate browser regression, executed 14 August 2026 against the local production image:
 
 | Browser workload | Measured result |
 | --- | ---: |
-| 10,000-node progressive graph | cold first visual 2,566.49 ms; warm 536.42 ms; complete 6,344.58 ms |
-| 10,000-node graph interaction | p95 35.30 ms; 23.10 MB used JS heap |
-| Public route navigation | 12 routes; maximum wall time 1,544.13 ms (`/docs`) |
+| 10,000-node progressive graph | cold first visual 1,745.35 ms; warm 593.25 ms; complete 4,443.49 ms |
+| 10,000-node graph interaction | p95 33.60 ms; 23.10 MB used JS heap |
+| Public route navigation | 12 routes; maximum wall time 981.67 ms (`/docs`) |
+| Browser functional/accessibility gate | 50/50 passed without retries |
 | Authenticated route navigation | 6 routes; maximum wall time 2,335.46 ms (`/notifications`) |
 | Lazy workspace panels | Settings 244.74 ms; Graph 565.03 ms |
 
@@ -315,7 +341,9 @@ Evaluation references:
 - [Dataset registry](docs/datasets.md)
 - [Reproducibility](docs/reproducibility.md)
 - [Thesis protocol](docs/thesis-research-protocol.md)
-- [v1.4.4 execution plan](docs/planning/v1-4-4-performance-maturity-thesis-benchmark-plan.md)
+- [Feedback-driven learning](docs/learning-and-feedback.md)
+- [Graph ontology and visual semantics](docs/ontology.md)
+- [v1.4.8 whole-system plan](docs/planning/v1-4-8.md)
 
 ---
 
@@ -342,6 +370,10 @@ flowchart LR
   Providers --> Ollama[Ollama Local]
   Providers --> Other[OpenAI-compatible APIs]
   API --> Graph[Knowledge Graph Services]
+  API --> Feedback[Learning Event Ledger]
+  Feedback --> Worker
+  Feedback --> Judge[Judge / Committee]
+  Worker --> Judge
   API --> KB[Knowledge Base / Vector Layer]
   API --> SDL[Semantic Data Layer]
 ```
@@ -546,9 +578,10 @@ enter these retrieval paths until reviewed.
 - Web validation is only allowed when research/external enrichment is enabled.
 
 Context is represented by semantic color. Every ontology type has its own geometry; note roots
-remain Berry red and insights use a highlighted rectangle. Related nodes keep stable medoid
-cluster colors, same-name entities can split by context, pending analysis receives a provisional
-cluster color, and vault nodes use reserved namespaces.
+remain Berry red and insights use a highlighted rectangle. Related nodes keep stable cluster
+colors, same-name entities can split by context, and vault nodes use reserved namespaces. A global
+cluster job omits the scope field; an explicit empty scope intentionally processes zero nodes.
+Existing nodes retain their last valid color while semantic analysis is pending.
 
 Large graphs use bounded API pages, version deltas, canvas level-of-detail, and selected-node
 preservation. At 8,000 nodes and above, a deterministic progressive layout avoids force-simulation

@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.confidence import ConfidenceSignal, estimate_confidence
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -23,8 +24,10 @@ from berrybrain_api.models import (
 )
 from berrybrain_api.semantic_enrichment import SEMANTIC_PROMPT_VERSION
 
-ALGORITHM_VERSION = 5
+ALGORITHM_VERSION = 6
 PENDING_COLOR_ID = "pending"
+MIN_CLUSTER_COHESION = 0.12
+RELATIONSHIP_SIMILARITY_WEIGHT = 0.4
 TOKEN_RE = re.compile(r"[^\W_]{3,}", re.UNICODE)
 STOP_WORDS = {
     "about",
@@ -55,9 +58,30 @@ STOP_WORDS = {
 def build_cluster_preview(
     session: Session, node_ids: set[int] | None = None
 ) -> dict[str, Any]:
+    requested_node_ids = set(node_ids) if node_ids is not None else None
+    if node_ids:
+        cluster_ids = {
+            int(value)
+            for value in session.execute(
+                select(GraphNodeRecord.cluster_id).where(
+                    GraphNodeRecord.id.in_(node_ids),
+                    GraphNodeRecord.cluster_id.is_not(None),
+                )
+            ).scalars()
+            if value is not None
+        }
+        if cluster_ids:
+            node_ids = set(node_ids)
+            node_ids.update(
+                session.execute(
+                    select(GraphNodeRecord.id).where(
+                        GraphNodeRecord.cluster_id.in_(cluster_ids),
+                        accepted_node_clause(include_provisional=True),
+                    )
+                ).scalars()
+            )
     node_query = select(GraphNodeRecord).where(
-        GraphNodeRecord.status != "ignored",
-        GraphNodeRecord.semantic_status == "active",
+        accepted_node_clause(include_provisional=True),
         GraphNodeRecord.type != "vault",
     )
     if node_ids is not None:
@@ -67,8 +91,7 @@ def build_cluster_preview(
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status != "ignored",
-                GraphEdgeRecord.semantic_status == "active",
+                accepted_edge_clause(include_provisional=True),
             )
         ).scalars()
     )
@@ -109,6 +132,7 @@ def build_cluster_preview(
     components, memberships = _select_clusters(vectors, edge_confidence)
 
     clusters: list[dict[str, Any]] = []
+    claimed_cluster_ids: set[int] = set()
     for cluster_position, member_ids in enumerate(
         sorted(components, key=lambda item: min(item)), start=1
     ):
@@ -128,10 +152,30 @@ def build_cluster_preview(
             primary_type = node_types.most_common(1)[0][0]
             terms = [primary_type, f"Group {cluster_position}"]
         label = " · ".join(terms[:3])
-        signature = "|".join([*semantic_terms, f"anchor:{min(member_ids)}"])
-        stable_key = (
-            "semantic-" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:20]
+        previous_clusters = Counter(
+            int(node_by_id[node_id].cluster_id)
+            for node_id in member_ids
+            if node_by_id[node_id].cluster_id is not None
+            and int(node_by_id[node_id].cluster_id) not in claimed_cluster_ids
         )
+        reusable_cluster = None
+        for cluster_id, _ in previous_clusters.most_common():
+            reusable_cluster = session.get(SemanticClusterRecord, cluster_id)
+            if reusable_cluster is not None:
+                claimed_cluster_ids.add(cluster_id)
+                break
+        if reusable_cluster is not None:
+            stable_key = reusable_cluster.stable_key
+        else:
+            member_signature = sorted(
+                f"{node_by_id[node_id].type}:"
+                f"{node_by_id[node_id].canonical_label or node_by_id[node_id].label.casefold()}"
+                for node_id in member_ids
+            )
+            signature = "|".join([*semantic_terms, *member_signature])
+            stable_key = (
+                "semantic-" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:20]
+            )
         member_confidence = {node_id: memberships[node_id] for node_id in member_ids}
         clusters.append(
             {
@@ -153,8 +197,9 @@ def build_cluster_preview(
         "unresolvedNodeIds": [],
         "provisionalNodeIds": provisional_ids,
         "clusters": clusters,
-        "scoped": node_ids is not None,
+        "scoped": requested_node_ids is not None,
         "scopeNodeIds": sorted(node_ids or []),
+        "requestedScopeNodeIds": sorted(requested_node_ids or []),
     }
 
 
@@ -238,6 +283,16 @@ def apply_cluster_preview(session: Session, preview: dict[str, Any]) -> dict[str
             node.color_reason = "Semantic classification pending or unresolved."
             node.color_updated_at = now
 
+    referenced_cluster_ids = {
+        int(value)
+        for value in session.execute(
+            select(GraphNodeRecord.cluster_id).where(
+                GraphNodeRecord.cluster_id.is_not(None),
+                accepted_node_clause(include_provisional=True),
+            )
+        ).scalars()
+        if value is not None
+    }
     clusters_to_check = (
         session.execute(select(SemanticClusterRecord)).scalars()
         if not scoped
@@ -248,20 +303,24 @@ def apply_cluster_preview(session: Session, preview: dict[str, Any]) -> dict[str
         ).scalars()
     )
     for cluster in clusters_to_check:
-        if cluster.id in active_ids:
-            continue
-        has_members = session.execute(
-            select(GraphNodeRecord.id)
-            .where(
-                GraphNodeRecord.cluster_id == cluster.id,
-                GraphNodeRecord.status != "ignored",
-                GraphNodeRecord.semantic_status == "active",
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-        if not scoped or has_members is None:
-            cluster.status = "inactive"
+        expected_status = (
+            "active" if cluster.id in referenced_cluster_ids else "inactive"
+        )
+        if cluster.status != expected_status:
+            cluster.status = expected_status
             cluster.updated_at = now
+    synchronized_nodes = session.execute(
+        select(GraphNodeRecord).where(
+            GraphNodeRecord.cluster_id.is_not(None),
+            accepted_node_clause(include_provisional=True),
+        )
+    ).scalars()
+    for node in synchronized_nodes:
+        cluster = session.get(SemanticClusterRecord, node.cluster_id)
+        if cluster is None or node.color_id == cluster.color_id:
+            continue
+        node.color_id = cluster.color_id
+        node.color_updated_at = now
     _ensure_vault_identities(session, now)
     session.commit()
     return {
@@ -275,9 +334,14 @@ def serialize_clusters(session: Session) -> list[dict[str, Any]]:
     counts = dict(
         session.execute(
             select(
-                SemanticClusterAssignmentRecord.cluster_id,
-                func.count(SemanticClusterAssignmentRecord.id),
-            ).group_by(SemanticClusterAssignmentRecord.cluster_id)
+                GraphNodeRecord.cluster_id,
+                func.count(GraphNodeRecord.id),
+            )
+            .where(
+                GraphNodeRecord.cluster_id.is_not(None),
+                accepted_node_clause(include_provisional=True),
+            )
+            .group_by(GraphNodeRecord.cluster_id)
         ).all()
     )
     return [
@@ -390,8 +454,8 @@ def _select_clusters(
         for right in node_ids[index + 1 :]:
             lexical = _weighted_jaccard(vectors[left], vectors[right])
             relationship = edge_confidence.get((left, right), 0.0)
-            similarities[(left, right)] = max(
-                lexical, lexical * (0.5 + relationship / 2)
+            similarities[(left, right)] = lexical + (
+                (1 - lexical) * relationship * RELATIONSHIP_SIMILARITY_WEIGHT
             )
 
     max_cluster_size = max(2, math.ceil(2 * math.sqrt(len(node_ids))))
@@ -415,21 +479,55 @@ def _select_clusters(
     best_groups = _enforce_cluster_capacity(
         best_groups, similarities, max_cluster_size=max_cluster_size
     )
+    best_groups = _split_weakly_connected_groups(best_groups, similarities)
 
     memberships: dict[int, float] = {}
     medoids = [_medoid(group, similarities) for group in best_groups]
     for group, medoid in zip(best_groups, medoids, strict=True):
         for node_id in group:
-            own = _similarity(node_id, medoid, similarities)
+            peers = [member for member in group if member != node_id]
             alternatives = [
                 _similarity(node_id, other, similarities)
                 for other in medoids
                 if other != medoid
             ]
             alternative = max(alternatives, default=0.0)
+            own = (
+                sum(_similarity(node_id, peer, similarities) for peer in peers)
+                / len(peers)
+                if peers
+                else 1 - alternative
+            )
             margin = max(0.0, own - alternative)
             memberships[node_id] = round((own + margin) / 2, 6)
     return best_groups, memberships
+
+
+def _split_weakly_connected_groups(
+    groups: list[list[int]],
+    similarities: dict[tuple[int, int], float],
+) -> list[list[int]]:
+    cohesive_groups: list[list[int]] = []
+    for group in groups:
+        remaining = set(group)
+        while remaining:
+            seed = min(remaining)
+            component = {seed}
+            frontier = [seed]
+            remaining.remove(seed)
+            while frontier:
+                current = frontier.pop()
+                connected = {
+                    candidate
+                    for candidate in remaining
+                    if _similarity(current, candidate, similarities)
+                    >= MIN_CLUSTER_COHESION
+                }
+                component.update(connected)
+                frontier.extend(sorted(connected))
+                remaining.difference_update(connected)
+            cohesive_groups.append(sorted(component))
+    return cohesive_groups
 
 
 def _cluster_selection_score(
@@ -578,15 +676,6 @@ def _apply_assignment(
     estimate = estimate_confidence(
         [ConfidenceSignal(confidence, "cluster-membership-v2")]
     )
-    algorithm_upgrade = bool(assignment and assignment.version < ALGORITHM_VERSION)
-    if assignment and assignment.cluster_id != cluster.id and not algorithm_upgrade:
-        previous_upper = assignment.confidence_upper
-        if (
-            previous_upper is not None
-            and estimate.lower is not None
-            and estimate.lower <= previous_upper
-        ):
-            return 0
     evidence = json.dumps(
         {"terms": terms, "clusterId": cluster.id},
         ensure_ascii=False,

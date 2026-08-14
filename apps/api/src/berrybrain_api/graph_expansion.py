@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.concept_extraction import (
     _extract_note_concepts,
     normalize_concept_name,
@@ -29,6 +31,7 @@ from berrybrain_api.deduplication import (
     _prune_stale_graph_insights,
     _prune_title_duplicate_typed_nodes,
 )
+from berrybrain_api.graph_feedback import node_artifact_key, resolve_feedback
 from berrybrain_api.graph_ontology import validate_node_name
 from berrybrain_api.graph_semantic_service import quarantine_generated_candidate
 from berrybrain_api.models import (
@@ -38,7 +41,9 @@ from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
     NoteRecord,
+    SettingRecord,
 )
+from berrybrain_api.settings_store import decode_setting_value
 
 # Constants from second_brain
 PROMPT_VERSION = "graph-expand.deterministic.v1"
@@ -198,6 +203,22 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
             concept_sources.pop(normalized, None)
             concept_models.pop(normalized, None)
 
+    for normalized in list(concept_to_note_ids):
+        source_note_ids = sorted(concept_to_note_ids[normalized])
+        decision = resolve_feedback(
+            session,
+            artifact_kind="node",
+            artifact_key=node_artifact_key(
+                "concept", _display_concept_name(normalized)
+            ),
+            source_note_ids=source_note_ids,
+        )
+        if decision is None or not decision.suppresses:
+            continue
+        del concept_to_note_ids[normalized]
+        concept_sources.pop(normalized, None)
+        concept_models.pop(normalized, None)
+
     _prune_stale_concepts(session, set(concept_to_note_ids))
     _prune_stale_graph_insights(session, set(concept_to_note_ids))
 
@@ -218,6 +239,8 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
     edges_count = 0
     connections_count = 0
     valid_shared_pairs: set[tuple[int, int]] = set()
+    minimum_shared_concepts = _minimum_shared_concepts(session)
+    shared_concepts_by_pair: dict[tuple[int, int], list[str]] = defaultdict(list)
     for normalized, concept_node in concept_nodes.items():
         for note_id in concept_to_note_ids[normalized]:
             note_node = note_nodes.get(_node_key("note", note_id))
@@ -233,7 +256,7 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
                 evidence=[concept_node.label],
                 source_note_ids=[note_id],
                 created_by="system",
-                status="confirmed",
+                status="suggested",
             )
             if edge:
                 edges_count += 1
@@ -242,52 +265,59 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         if len(shared_note_ids) > 1:
             for index, source_id in enumerate(shared_note_ids):
                 for target_id in shared_note_ids[index + 1 :]:
-                    valid_shared_pairs.add((source_id, target_id))
-                    source_note = next(
-                        (note for note in notes if note.id == source_id), None
-                    )
-                    target_note = next(
-                        (note for note in notes if note.id == target_id), None
-                    )
-                    if source_note is None or target_note is None:
-                        continue
-                    reason = (
-                        f'The notes "{source_note.title}" and "{target_note.title}" '
-                        f'share the concept "{concept_node.label}".'
-                    )
-                    conn = _upsert_note_connection(
-                        session,
-                        source_id,
-                        target_id,
-                        connection_type="shared_concept",
-                        reason=reason,
-                        evidence=[
-                            concept_node.label,
-                            source_note.title,
-                            target_note.title,
-                        ],
-                        created_by="system",
-                        status="suggested",
-                    )
-                    if conn:
-                        connections_count += 1
-                    source_node = note_nodes.get(_node_key("note", source_id))
-                    target_node = note_nodes.get(_node_key("note", target_id))
-                    if source_node and target_node:
-                        edge = _upsert_graph_edge(
-                            session,
-                            source_node.id,
-                            target_node.id,
-                            edge_type="related",
-                            label="shared concept",
-                            reason=reason,
-                            evidence=_parse_json_list(conn.evidence),
-                            source_note_ids=[source_id, target_id],
-                            created_by="system",
-                            status="suggested",
-                        )
-                if edge:
-                    edges_count += 1
+                    pair = (source_id, target_id)
+                    shared_concepts_by_pair[pair].append(concept_node.label)
+
+    note_by_id = {note.id: note for note in notes}
+    for (source_id, target_id), concept_labels in shared_concepts_by_pair.items():
+        source_note = note_by_id.get(source_id)
+        target_note = note_by_id.get(target_id)
+        if source_note is None or target_note is None:
+            continue
+        unique_labels = sorted(set(concept_labels), key=str.casefold)
+        has_enough_independent_evidence = len(unique_labels) >= minimum_shared_concepts
+        has_specific_single_evidence = len(
+            unique_labels
+        ) == 1 and _is_specific_concept_label(unique_labels[0])
+        if not (has_enough_independent_evidence or has_specific_single_evidence):
+            continue
+        valid_shared_pairs.add((source_id, target_id))
+        concept_text = ", ".join(f'"{label}"' for label in unique_labels)
+        reason = (
+            f'The notes "{source_note.title}" and "{target_note.title}" share '
+            f"the supported {'concept' if len(unique_labels) == 1 else 'concepts'} "
+            f"{concept_text}."
+        )
+        evidence = [*unique_labels, source_note.title, target_note.title]
+        conn = _upsert_note_connection(
+            session,
+            source_id,
+            target_id,
+            connection_type="shared_concept",
+            reason=reason,
+            evidence=evidence,
+            created_by="system",
+            status="suggested",
+        )
+        connections_count += int(conn is not None)
+        source_node = note_nodes.get(_node_key("note", source_id))
+        target_node = note_nodes.get(_node_key("note", target_id))
+        if source_node is None or target_node is None:
+            continue
+        edge = _upsert_graph_edge(
+            session,
+            source_node.id,
+            target_node.id,
+            edge_type="related",
+            label="shared concept",
+            reason=reason,
+            evidence=evidence,
+            source_note_ids=[source_id, target_id],
+            created_by="system",
+            status="suggested",
+            replace_evidence=True,
+        )
+        edges_count += int(edge is not None)
 
     _mark_stale_shared_concept_connections(session, valid_shared_pairs)
 
@@ -467,16 +497,12 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
     from berrybrain_api.jobs import supersede_missing_graph_artifact_jobs
 
     stale_jobs_superseded = supersede_missing_graph_artifact_jobs(session)
-    visible_nodes = [
-        node
-        for node in session.execute(select(GraphNodeRecord)).scalars()
-        if node.status != "ignored"
-    ]
-    visible_edges = [
-        edge
-        for edge in session.execute(select(GraphEdgeRecord)).scalars()
-        if edge.status != "ignored"
-    ]
+    visible_nodes = list(
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
+    )
+    visible_edges = list(
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
+    )
 
     session.commit()
     return {
@@ -650,6 +676,7 @@ def _upsert_graph_edge(
     model: str = "metadata-parser",
     prompt_version: str = PROMPT_VERSION,
     confidence: float | None = None,
+    replace_evidence: bool = False,
 ) -> GraphEdgeRecord | None:
     if not reason or not evidence:
         return None
@@ -670,6 +697,7 @@ def _upsert_graph_edge(
             model=model,
             prompt_version=prompt_version,
             status=status,
+            replace_evidence=replace_evidence,
         )
     except HTTPException:
         return None
@@ -704,7 +732,9 @@ def _mark_stale_shared_concept_connections(
     edges = list(
         session.execute(
             select(GraphEdgeRecord).where(
-                GraphEdgeRecord.type == "shared_concept",
+                GraphEdgeRecord.type == "related",
+                GraphEdgeRecord.label == "shared concept",
+                GraphEdgeRecord.created_by == "system",
                 GraphEdgeRecord.status.not_in(("ignored", "archived", "stale")),
             )
         ).scalars()
@@ -718,6 +748,7 @@ def _mark_stale_shared_concept_connections(
         if pair in valid_pairs:
             continue
         edge.status = "stale"
+        edge.semantic_status = "quarantined"
         edge.updated_at = datetime.now(UTC)
         stale_count += 1
     if stale_count:
@@ -742,3 +773,21 @@ def _human_join(items: list[str]) -> str:
     if len(clean) == 2:
         return f"{clean[0]} and {clean[1]}"
     return f"{', '.join(clean[:-1])}, and {clean[-1]}"
+
+
+def _minimum_shared_concepts(session: Session) -> int:
+    row = session.scalar(
+        select(SettingRecord).where(SettingRecord.key == "graph_min_shared_concepts")
+    )
+    if row is None:
+        return 2
+    try:
+        value = int(decode_setting_value(row.key, row.value))
+    except (TypeError, ValueError):
+        return 2
+    return max(2, min(value, 10))
+
+
+def _is_specific_concept_label(label: str) -> bool:
+    tokens = re.findall(r"[^\W_]+", str(label).casefold(), flags=re.UNICODE)
+    return len(tokens) >= 2

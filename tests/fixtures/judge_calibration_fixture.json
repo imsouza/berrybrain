@@ -1,4 +1,7 @@
 {
+  "schema_version": "berrybrain-judge-reference.v2",
+  "classification": "synthetic-regression",
+  "annotation_source": "authored-reference-fixture",
   "total_evaluations": 100,
   "reviews": [
     {"committee_id": "cal-001", "artifact_type": "edge", "artifact_id": 1, "reviewer": "fixture-human", "verdict": "passed", "judge_verdict": "passed", "score": 0.96, "notes": "grounded"},

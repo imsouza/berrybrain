@@ -1,0 +1,12 @@
+{
+  "corpus_count": 5183,
+  "index_build_ms": 1393.1168939452618,
+  "latency_p50_ms": 309.78441110346466,
+  "latency_p95_ms": 386.2050949013792,
+  "latency_p99_ms": 406.3038282794877,
+  "mean_reciprocal_rank": 0.6386100230185541,
+  "method": "bm25",
+  "ndcg_at_10": 0.6643898053153052,
+  "query_count": 300,
+  "recall_at_10": 0.781611111111111
+}

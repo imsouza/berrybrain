@@ -1,0 +1,86 @@
+@prefix bb: <https://berrybrain.app/ns#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+bb:KnowledgeNodeShape a sh:NodeShape ;
+    sh:targetSubjectsOf bb:nodeType ;
+    sh:nodeKind sh:IRI ;
+    sh:property [
+        sh:path rdf:type ;
+        sh:minCount 1 ;
+        sh:nodeKind sh:IRI
+    ] ;
+    sh:property [
+        sh:path rdfs:label ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:minLength 1
+    ] ;
+    sh:property [
+        sh:path bb:stableId ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:pattern "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" ;
+        sh:flags "i"
+    ] .
+
+bb:AssertionShape a sh:NodeShape ;
+    sh:targetClass bb:Assertion ;
+    sh:nodeKind sh:IRI ;
+    sh:property [ sh:path bb:subject ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path bb:predicate ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path bb:object ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path bb:edgeType ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [
+        sh:path bb:qualityStatus ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ("passed" "pending" "review")
+    ] ;
+    sh:sparql [
+        sh:message "Self-referential assertions are not allowed."@en ;
+        sh:select """
+            SELECT $this WHERE {
+                $this bb:subject ?node ; bb:object ?node .
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "The assertion source and target types violate the BerryBrain edge contract."@en ;
+        sh:select """
+            SELECT $this WHERE {
+                $this bb:subject ?source ; bb:object ?target ; bb:edgeType ?edgeType .
+                ?source bb:nodeType ?sourceType .
+                ?target bb:nodeType ?targetType .
+                FILTER (
+                    (?edgeType = "mentions" && ?sourceType != "note") ||
+                    (?edgeType = "instance_of" && (?sourceType != "entity" || ?targetType != "concept")) ||
+                    (?edgeType = "same_as" && (?sourceType != "entity" || ?targetType != "entity")) ||
+                    (?edgeType = "attached_to" && (?sourceType != "attachment" || ?targetType != "note")) ||
+                    (?edgeType IN ("broader", "narrower") &&
+                        (?sourceType NOT IN ("concept", "topic") || ?targetType NOT IN ("concept", "topic")))
+                )
+            }
+        """
+    ] .
+
+bb:InsightShape a sh:NodeShape ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            SELECT ?this WHERE { ?this bb:nodeType "insight" . }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "An insight must have an evidence-grounded derived-from assertion."@en ;
+        sh:select """
+            SELECT $this WHERE {
+                FILTER NOT EXISTS { $this prov:wasDerivedFrom ?evidence . }
+            }
+        """
+    ] .

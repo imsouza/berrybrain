@@ -10,6 +10,7 @@ from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
     SemanticClusterAssignmentRecord,
+    SemanticClusterRecord,
     SemanticProfileRecord,
 )
 from berrybrain_api.semantic_clustering import (
@@ -105,7 +106,7 @@ class SemanticClusteringTest(unittest.TestCase):
 
         self.assertTrue(applied["applied"])
         self.assertEqual(len(assignments), 2)
-        self.assertTrue(all(item.version == 5 for item in assignments))
+        self.assertTrue(all(item.version == 6 for item in assignments))
         self.assertEqual(first.color_id, second.color_id)
         self.assertIn("pending", {item["namespace"] for item in palette["colors"]})
         self.assertIn("vault", {item["namespace"] for item in palette["colors"]})
@@ -113,7 +114,7 @@ class SemanticClusteringTest(unittest.TestCase):
 
         reapplied = apply_cluster_preview(self.session, preview)
         self.assertEqual(reapplied["assignmentsUpdated"], 0)
-        self.assertTrue(all(item.version == 5 for item in assignments))
+        self.assertTrue(all(item.version == 6 for item in assignments))
 
     def test_algorithm_upgrade_bypasses_assignment_hysteresis(self) -> None:
         self._node("Forecasting", "Time series forecasting and prediction.")
@@ -130,7 +131,7 @@ class SemanticClusteringTest(unittest.TestCase):
 
         migrated = apply_cluster_preview(self.session, preview)
         self.assertEqual(migrated["assignmentsUpdated"], 2)
-        self.assertTrue(all(item.version == 5 for item in assignments))
+        self.assertTrue(all(item.version == 6 for item in assignments))
 
     def test_provisional_cluster_uses_neutral_label_and_singular_grammar(self) -> None:
         self.session.add(
@@ -236,6 +237,48 @@ class SemanticClusteringTest(unittest.TestCase):
             max_cluster_size,
         )
 
+    def test_unrelated_nodes_are_not_forced_into_the_same_color_cluster(self) -> None:
+        university = self._node(
+            "University",
+            "Academic institution, courses, students, and research programs.",
+        )
+        headphones = self._node(
+            "Headphones",
+            "Audio transducer, impedance, frequency response, and listening.",
+        )
+        security = self._node(
+            "Security scanner",
+            "Network vulnerability assessment, exploits, and defensive controls.",
+        )
+        self.session.commit()
+
+        preview = build_cluster_preview(self.session)
+        apply_cluster_preview(self.session, preview)
+
+        self.assertEqual(
+            len({university.cluster_id, headphones.cluster_id, security.cluster_id}),
+            3,
+        )
+
+    def test_validated_edge_contributes_to_semantic_cluster_similarity(self) -> None:
+        source = self._node("Alpha", "A unique source with little lexical overlap.")
+        target = self._node("Omega", "A separate target using different terminology.")
+        self.session.add(
+            GraphEdgeRecord(
+                source_node_id=source.id,
+                target_node_id=target.id,
+                type="related",
+                confidence=0.95,
+                status="confirmed",
+                semantic_status="active",
+            )
+        )
+        self.session.commit()
+
+        apply_cluster_preview(self.session, build_cluster_preview(self.session))
+
+        self.assertEqual(source.cluster_id, target.cluster_id)
+
     def test_scoped_recalculation_preserves_unaffected_cluster(self) -> None:
         first_a = self._node("Docker", "Container runtime and deployment images.")
         first_b = self._node("Containers", "Container runtime and deployment images.")
@@ -257,6 +300,35 @@ class SemanticClusteringTest(unittest.TestCase):
         self.assertEqual(set(applied["scopeNodeIds"]), scope)
         self.assertEqual(second_a.cluster_id, unaffected_cluster_id)
         self.assertEqual(second_b.cluster_id, unaffected_cluster_id)
+
+    def test_scoped_recalculation_expands_to_current_cluster_members(self) -> None:
+        first = self._node("Docker", "Container runtime and deployment images.")
+        second = self._node("Containers", "Container runtime and deployment images.")
+        self.session.commit()
+        apply_cluster_preview(self.session, build_cluster_preview(self.session))
+
+        preview = build_cluster_preview(self.session, node_ids={first.id})
+
+        self.assertEqual(set(preview["requestedScopeNodeIds"]), {first.id})
+        self.assertEqual(set(preview["scopeNodeIds"]), {first.id, second.id})
+
+    def test_apply_repairs_pending_color_and_inactive_cluster_reference(self) -> None:
+        node = self._node("Docker", "Container runtime and deployment images.")
+        self.session.commit()
+        preview = build_cluster_preview(self.session)
+        apply_cluster_preview(self.session, preview)
+        cluster = self.session.get(SemanticClusterRecord, node.cluster_id)
+        node.color_id = "pending"
+        cluster.status = "inactive"
+        self.session.commit()
+
+        apply_cluster_preview(self.session, build_cluster_preview(self.session))
+        self.session.refresh(node)
+        self.session.refresh(cluster)
+
+        self.assertNotEqual(node.color_id, "pending")
+        self.assertEqual(node.color_id, cluster.color_id)
+        self.assertEqual(cluster.status, "active")
 
 
 if __name__ == "__main__":

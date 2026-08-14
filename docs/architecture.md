@@ -30,9 +30,10 @@ confidence provenance while preserving an auditable human decision.
 ### Node-deletion invalidation
 
 Before deleting a non-note node, the API captures its incident edges, source notes, neighbors,
-semantic cluster, and dependent insight nodes/records. The transaction expires dependent insights,
-deletes their graph projections, removes incident edges and owned semantic profiles/assignments,
-records deletion feedback, and deletes the target. It then queues four observable repairs:
+semantic cluster, dependent insight nodes/records, and indirect derived relationships that cite the
+artifact. The transaction expires dependent insights, quarantines cited note-to-note relationships,
+deletes graph projections, removes incident edges and owned semantic profiles/assignments, records
+deletion feedback, and deletes the target. It then queues four observable repairs:
 
 | Job | Scope |
 | --- | --- |
@@ -73,6 +74,24 @@ System UI, API messages, prompts, generated metadata, and generated answers are 
 
 Worker heartbeats schedule due graph enrichment, insight and gap discovery, Judge evaluation, and semantic clustering. Enrichment jobs capture the current evidence fingerprint, discard stale or already-completed work before a model call, and apply a cooldown after provider dead letters to prevent retry storms.
 
+Semantic clustering uses node profiles, lexical evidence, and active validated edges. Global jobs
+omit `scope_node_ids`; scoped jobs send an explicit list that expands to all current members of the
+affected clusters. Cluster identity is reused by membership overlap so local changes do not rotate
+colors unnecessarily. Weakly connected assignments are split, color and cluster state are committed
+together, and the previous valid color remains visible while enrichment is pending.
+
+## Feedback Adaptation Architecture
+
+Knowledge-affecting user actions are written to an append-only learning-event ledger. Graph
+decisions also maintain one active feedback policy per canonical artifact and source context. Ask,
+graph inference, every Worker AI job, and Judge evaluation resolve the applicable policy from global
+or overlapping source-note context. The newest scoped signal for an actor and target wins.
+
+The policy is bounded and passed as untrusted data. It can suppress a rejected pattern, preserve a
+correction, or provide annotation context, but cannot bypass evidence, ontology, or quality checks.
+Model weights are not updated. This mechanism is policy adaptation with provenance and rollback,
+not online fine-tuning. See [Feedback-Driven Learning](learning-and-feedback.md).
+
 ## Evaluation Architecture
 
 Production runtime never imports benchmark fixtures. Executable runners live under
@@ -107,5 +126,8 @@ flowchart LR
 - [Version 1.4.3 Ask and agent workspace](planning/v1-4-3-ask-agent-workspace.md)
 - [Version 1.4.7 graph feedback validation](planning/v1-4-7-graph-feedback-validation-plan.md)
 - [Version 1.4.7 Judge and deletion invalidation](planning/v1-4-7-judge-committee-deletion-invalidation.md)
+- [Version 1.4.8 whole-system coherence plan](planning/v1-4-8.md)
+- [Feedback-driven learning](learning-and-feedback.md)
+- [Graph ontology and visual semantics](ontology.md)
 - [Security model](planning/SECURITY_MODEL.md)
 - [Recovery](planning/RECOVERY.md)

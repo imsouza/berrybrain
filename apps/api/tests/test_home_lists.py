@@ -69,8 +69,8 @@ class HomeListServicesTest(unittest.TestCase):
         self.assertEqual(connections[0]["type"], "semantic")
         self.assertEqual(connections[0]["confidencePercent"], connection.confidence)
         interval = connections[0]["confidenceInterval"]
-        self.assertEqual(interval["sampleSize"], 2)
-        self.assertEqual(interval["method"], "jeffreys-wilson-evidence-v2")
+        self.assertEqual(interval["sampleSize"], 1)
+        self.assertEqual(interval["method"], "empirical-bernstein-bounded-signals-v1")
         self.assertLess(interval["lower"], interval["score"])
         self.assertGreater(interval["upper"], interval["score"])
         self.assertEqual(connections[0]["source"]["title"], "Observability")
@@ -98,8 +98,11 @@ class HomeListServicesTest(unittest.TestCase):
 
         self.assertEqual(preview["pending"], 1)
         self.assertEqual(applied["recalculated"], 1)
-        self.assertEqual(connection.confidence_method, "jeffreys-wilson-evidence-v2")
-        self.assertEqual(connection.confidence_sample_size, 2)
+        self.assertEqual(
+            connection.confidence_method,
+            "empirical-bernstein-bounded-signals-v1",
+        )
+        self.assertEqual(connection.confidence_sample_size, 1)
         self.assertIsNotNone(connection.confidence_updated_at)
         self.assertNotEqual(connection.confidence, 91)
         self.assertEqual(repeated["pending"], 0)

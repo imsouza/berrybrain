@@ -51,6 +51,7 @@ const SECTION_AREAS: Record<string, SettingsArea[]> = {
     "Knowledge Graph",
   ],
   "Judge committee": ["Judge"],
+  "Graph behavior": ["Knowledge Graph"],
   Local: ["Main provider"],
   Saving: ["General"],
   Maintenance: ["Maintenance"],
@@ -98,6 +99,7 @@ type Settings = {
   graph_ollama_model: string;
   graph_auto_confirm_confidence: string;
   graph_default_layout: "brain" | "radial" | "type" | "connections";
+  graph_min_shared_concepts: string;
   kb_vector_store: "sqlite" | "qdrant" | "chroma";
   kb_embedding_provider: "local" | "cloud";
   kb_embedding_model: string;
@@ -202,6 +204,7 @@ function defaults(): Settings {
     graph_ollama_model: DEFAULT_LOCAL_MODEL,
     graph_auto_confirm_confidence: "0.9",
     graph_default_layout: "brain",
+    graph_min_shared_concepts: "2",
     kb_vector_store: "sqlite",
     kb_embedding_provider: "local",
     kb_embedding_model: "",
@@ -280,6 +283,7 @@ function loadSettings(): Settings {
     graph_ollama_model: d.graph_ollama_model,
     graph_auto_confirm_confidence: localStorage.getItem("bb_graph_auto_confirm_confidence") || d.graph_auto_confirm_confidence,
     graph_default_layout: (localStorage.getItem("bb_graph_default_layout") as Settings["graph_default_layout"]) || d.graph_default_layout,
+    graph_min_shared_concepts: localStorage.getItem("bb_graph_min_shared_concepts") || d.graph_min_shared_concepts,
     kb_vector_store: (localStorage.getItem("bb_kb_vector_store") as Settings["kb_vector_store"]) || d.kb_vector_store,
     kb_embedding_provider: d.kb_embedding_provider,
     kb_embedding_model: d.kb_embedding_model,
@@ -348,6 +352,7 @@ const SETTING_KEYS: (keyof Settings)[] = [
   "display_name",
   "graph_auto_confirm_confidence",
   "graph_default_layout",
+  "graph_min_shared_concepts",
   "kb_vector_store",
   "kb_chunk_size",
   "kb_chunk_overlap",
@@ -1141,7 +1146,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             >
               Configure local Ollama
             </button>
-            <Field label="Auto-confirm confidence" description="Suggested graph connections above this confidence can be confirmed automatically.">
+          </Section>
+
+          <Section title="Graph behavior" description="Configure deterministic graph presentation and candidate generation rules.">
+            <Field label="Auto-confirm confidence" description="Suggested graph connections above this confidence can be confirmed automatically after required validation.">
               <TextInput value={s.graph_auto_confirm_confidence} onChange={(value) => update("graph_auto_confirm_confidence", value)} placeholder="0.9" />
             </Field>
             <Field label="Default graph layout" description="Initial visual layout used by the graph screen.">
@@ -1152,6 +1160,9 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                 <option value="type">By type</option>
                 <option value="connections">Centrality</option>
               </Select>
+            </Field>
+            <Field label="Minimum shared concepts" description="Single generic words never connect notes. Set how many independent shared concepts qualify a deterministic relationship.">
+              <TextInput value={s.graph_min_shared_concepts} onChange={(value) => update("graph_min_shared_concepts", value)} placeholder="2" />
             </Field>
           </Section>
 

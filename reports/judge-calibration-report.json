@@ -1,5 +1,7 @@
 {
-  "calibrated": true,
+  "annotation_source": "authored-reference-fixture",
+  "calibrated": false,
+  "classification": "synthetic-regression",
   "comparable": 30,
   "disagreed": 1,
   "false_acceptance_rate": 0.0,
@@ -20,9 +22,12 @@
     "score",
     "notes"
   ],
+  "limitation": "Reference labels are synthetic regression fixtures and do not count as independent human calibration.",
   "matched": 29,
-  "status": "calibrated",
+  "regression_gate_passed": true,
+  "status": "regression_only",
   "total_evaluations": 100,
-  "total_human_reviews": 30,
+  "total_human_reviews": 0,
+  "total_reference_reviews": 30,
   "weighted_kappa": 0.9801
 }

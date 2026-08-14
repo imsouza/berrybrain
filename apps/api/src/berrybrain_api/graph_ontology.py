@@ -21,19 +21,17 @@ class EdgeRule:
 
 
 NODE_RULES = {
-    "vault": NodeRule("schema:DataCatalog", "Visual root for a vault namespace."),
+    "vault": NodeRule("bb:Vault", "Stable namespace for a user vault."),
     "note": NodeRule("schema:CreativeWork", "Authored document stored in the vault."),
     "concept": NodeRule("skos:Concept", "Reusable abstract idea or technique."),
     "entity": NodeRule(
         "schema:Thing",
         "Identifiable person, organization, product, place, project, or standard.",
     ),
-    "topic": NodeRule(
-        "skos:ConceptScheme", "Broad subject grouping notes and concepts."
-    ),
+    "topic": NodeRule("bb:Topic", "Broad subject represented as a SKOS concept."),
     "source": NodeRule("prov:Entity", "External provenance resource."),
     "attachment": NodeRule("schema:MediaObject", "File attached to a note."),
-    "insight": NodeRule("prov:Entity", "Evidence-grounded derived claim."),
+    "insight": NodeRule("bb:Insight", "Evidence-grounded derived claim."),
     "context": NodeRule(
         "bb:Context", "Situational, temporal, domain, or project scope."
     ),
@@ -77,7 +75,9 @@ EDGE_RULES = {
         frozenset({"concept", "topic"}),
         frozenset({"concept", "topic"}),
     ),
-    "instance_of": EdgeRule("rdf:type", frozenset({"entity"}), frozenset({"concept"})),
+    "instance_of": EdgeRule(
+        "bb:instanceOfConcept", frozenset({"entity"}), frozenset({"concept"})
+    ),
     "part_of": EdgeRule("dcterms:isPartOf", _KNOWLEDGE, _KNOWLEDGE),
     "prerequisite_for": EdgeRule(
         "bb:prerequisiteFor",
@@ -93,16 +93,16 @@ EDGE_RULES = {
         "bb:appliesTo", frozenset({"concept", "insight"}), _KNOWLEDGE
     ),
     "same_as": EdgeRule(
-        "owl:sameAs", frozenset({"entity"}), frozenset({"entity"}), True
+        "bb:equivalentEntity", frozenset({"entity"}), frozenset({"entity"}), True
     ),
     "contrasts_with": EdgeRule(
-        "skos:related",
+        "bb:contrastsWith",
         frozenset({"concept", "insight", "note"}),
         frozenset({"concept", "insight", "note"}),
         True,
     ),
     "attached_to": EdgeRule(
-        "schema:associatedMedia", frozenset({"attachment"}), frozenset({"note"})
+        "dcterms:isPartOf", frozenset({"attachment"}), frozenset({"note"})
     ),
     "contextualizes": EdgeRule(
         "bb:contextualizes",
@@ -110,7 +110,7 @@ EDGE_RULES = {
         _KNOWLEDGE | _DERIVED | frozenset({"note"}),
     ),
     "related": EdgeRule(
-        "skos:related",
+        "bb:relatedTo",
         _KNOWLEDGE | frozenset({"note"}),
         _KNOWLEDGE | frozenset({"note"}),
         True,

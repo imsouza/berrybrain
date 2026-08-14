@@ -1,11 +1,13 @@
 import json
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
 from berrybrain_api.generated_metadata import upsert_generated_metadata
+from berrybrain_api.graph_write_service import GraphWriteService
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -110,6 +112,64 @@ class MaturationRegressionTest(unittest.TestCase):
         self.assertNotIn('concept "skip"', insight_text)
         self.assertNotIn('concept "skip"', edge_text)
         self.assertEqual(result["rejectedCandidates"], 0)
+
+    def test_deleted_concept_feedback_prevents_relation_regeneration(self) -> None:
+        self.session.add_all(
+            [
+                NoteRecord(
+                    title="Forecast source",
+                    slug="forecast-source",
+                    path="forecast-source.md",
+                    content="## Temporal Coupling\n\nForecast observations over time.",
+                ),
+                NoteRecord(
+                    title="Signal source",
+                    slug="signal-source",
+                    path="signal-source.md",
+                    content="## Temporal Coupling\n\nCompare observations over time.",
+                ),
+            ]
+        )
+        self.session.commit()
+        extracted = [("Temporal Coupling", "Temporal Coupling", "metadata-parser")]
+        with patch(
+            "berrybrain_api.graph_expansion._extract_note_concepts",
+            return_value=extracted,
+        ):
+            expand_knowledge_graph(self.session)
+            concept = (
+                self.session.query(GraphNodeRecord)
+                .filter(
+                    GraphNodeRecord.type == "concept",
+                    GraphNodeRecord.label.ilike("temporal coupling"),
+                )
+                .one()
+            )
+
+            GraphWriteService(self.session, autocommit=False).delete_node(
+                concept.id, user_decision=True
+            )
+            self.session.commit()
+            expand_knowledge_graph(self.session)
+
+        active_concepts = {
+            node.label.casefold()
+            for node in self.session.query(GraphNodeRecord).filter(
+                GraphNodeRecord.type == "concept",
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
+        }
+        active_edges = [
+            edge
+            for edge in self.session.query(GraphEdgeRecord)
+            if edge.status not in {"ignored", "archived", "stale"}
+            and edge.semantic_status == "active"
+        ]
+        self.assertNotIn("temporal coupling", active_concepts)
+        self.assertFalse(
+            any("temporal coupling" in edge.reason.casefold() for edge in active_edges)
+        )
 
     def test_typed_metadata_nodes_keep_ids_until_the_source_changes(self) -> None:
         note = NoteRecord(
@@ -268,7 +328,7 @@ class MaturationRegressionTest(unittest.TestCase):
         self.session.commit()
 
         result = expand_knowledge_graph(self.session)
-        graph = build_graph(self.session)
+        graph = build_graph(self.session, include_provisional=True)
 
         self.assertEqual(result["notes"], 10)
         self.assertGreaterEqual(graph["stats"]["node_count"], 10)
@@ -276,7 +336,11 @@ class MaturationRegressionTest(unittest.TestCase):
         for edge in graph["edges"]:
             self.assertTrue(edge["reason"])
             self.assertTrue(edge["evidence"])
-            self.assertIsNotNone(edge["confidence"])
+            interval = edge["confidenceInterval"]
+            self.assertIn(
+                interval["method"],
+                {"unavailable", "empirical-bernstein-bounded-signals-v1"},
+            )
             self.assertTrue(edge["status"])
             self.assertTrue(edge["provider"])
             self.assertTrue(edge["model"])

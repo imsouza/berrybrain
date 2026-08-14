@@ -8,8 +8,17 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import (
+    processable_edge_clause,
+    processable_node_clause,
+)
 from berrybrain_api.graph_write_service import GraphWriteService
-from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, InsightRecord
+from berrybrain_api.models import (
+    ConnectionRecord,
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    InsightRecord,
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +29,8 @@ class NodeDeletionImpact:
     cluster_scope_node_ids: tuple[int, ...]
     dependent_insight_node_ids: tuple[int, ...]
     dependent_insight_record_ids: tuple[int, ...]
+    dependent_edge_ids: tuple[int, ...]
+    dependent_connection_ids: tuple[int, ...]
     incident_edge_count: int
 
     def to_dict(self) -> dict[str, object]:
@@ -29,6 +40,8 @@ class NodeDeletionImpact:
             "clusterScopeNodeIds": list(self.cluster_scope_node_ids),
             "dependentInsightNodeIds": list(self.dependent_insight_node_ids),
             "dependentInsightRecordIds": list(self.dependent_insight_record_ids),
+            "dependentEdgeIds": list(self.dependent_edge_ids),
+            "dependentConnectionIds": list(self.dependent_connection_ids),
             "incidentEdgeCount": self.incident_edge_count,
         }
 
@@ -74,8 +87,7 @@ def collect_node_deletion_impact(
                 select(GraphNodeRecord.id).where(
                     GraphNodeRecord.cluster_id.in_(cluster_ids),
                     GraphNodeRecord.id != node.id,
-                    GraphNodeRecord.status != "ignored",
-                    GraphNodeRecord.semantic_status == "active",
+                    processable_node_clause(),
                 )
             ).scalars()
         )
@@ -83,12 +95,43 @@ def collect_node_deletion_impact(
     for edge in incident_edges:
         source_note_ids.update(_integer_json_values(edge.source_note_ids))
     normalized_label = node.label.strip().casefold()
+    dependent_edge_ids: set[int] = set()
+    dependent_connection_ids: set[int] = set()
+    if node.type == "concept" and source_note_ids and normalized_label:
+        for edge in session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.type == "related",
+                GraphEdgeRecord.label == "shared concept",
+                processable_edge_clause(),
+            )
+        ).scalars():
+            if not (source_note_ids & _integer_json_values(edge.source_note_ids)):
+                continue
+            if _mentions_label(
+                normalized_label, f"{edge.reason or ''} {edge.evidence or ''}"
+            ):
+                dependent_edge_ids.add(edge.id)
+        for connection in session.execute(
+            select(ConnectionRecord).where(
+                ConnectionRecord.connection_type == "shared_concept",
+                ConnectionRecord.status.not_in(("ignored", "archived", "stale")),
+            )
+        ).scalars():
+            if source_note_ids.isdisjoint(
+                {connection.source_note_id, connection.target_note_id}
+            ):
+                continue
+            if _mentions_label(
+                normalized_label,
+                f"{connection.reason or ''} {connection.evidence or ''}",
+            ):
+                dependent_connection_ids.add(connection.id)
     if source_note_ids and normalized_label:
         for candidate in session.execute(
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type == "insight",
                 GraphNodeRecord.id != node.id,
-                GraphNodeRecord.status.not_in(("ignored", "archived")),
+                processable_node_clause(),
             )
         ).scalars():
             if not (source_note_ids & _integer_json_values(candidate.source_note_ids)):
@@ -142,6 +185,8 @@ def collect_node_deletion_impact(
         cluster_scope_node_ids=tuple(sorted(cluster_scope)),
         dependent_insight_node_ids=tuple(sorted(dependent_insight_nodes)),
         dependent_insight_record_ids=tuple(sorted(insight_record_ids)),
+        dependent_edge_ids=tuple(sorted(dependent_edge_ids)),
+        dependent_connection_ids=tuple(sorted(dependent_connection_ids)),
         incident_edge_count=len(incident_edges),
     )
 
@@ -169,6 +214,30 @@ def invalidate_dependent_insights(
             continue
         if session.get(GraphNodeRecord, insight_node_id) is not None:
             writer.delete_node(insight_node_id, user_decision=True)
+    session.flush()
+    return invalidated
+
+
+def invalidate_dependent_relationships(
+    session: Session, impact: NodeDeletionImpact
+) -> int:
+    now = datetime.now(UTC).replace(tzinfo=None)
+    invalidated = 0
+    for edge_id in impact.dependent_edge_ids:
+        edge = session.get(GraphEdgeRecord, edge_id)
+        if edge is None:
+            continue
+        edge.status = "stale"
+        edge.semantic_status = "quarantined"
+        edge.updated_at = now
+        invalidated += 1
+    for connection_id in impact.dependent_connection_ids:
+        connection = session.get(ConnectionRecord, connection_id)
+        if connection is None:
+            continue
+        connection.status = "stale"
+        connection.updated_at = now
+        invalidated += 1
     session.flush()
     return invalidated
 

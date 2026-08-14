@@ -27,7 +27,7 @@ test.describe("Graph empty-state diagnostics (mocked API)", () => {
         }),
       }),
     );
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -48,7 +48,7 @@ test.describe("Graph empty-state diagnostics (mocked API)", () => {
         }),
       }),
     );
-    await page.route("**/api/v1/graph", (route) =>
+    await page.route("**/api/v1/graph?*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

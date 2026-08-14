@@ -3,63 +3,63 @@
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "durable-semantic-memory",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "retrieval-and-grounded-inference",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "knowledge-graph-and-ontology",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "insights-and-continuous-agents",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "transparency-confidence-and-user-control",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "performance-efficiency-and-scalability",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "reliability-and-recoverability",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "maintainability-architecture-and-governance",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   },
   {
     "artifact": "reports/evaluation/full-evaluation.json",
     "capability": "interaction-quality-and-accessibility",
     "classification": "ci-regression",
-    "expiresAt": "2026-11-10T19:13:05.809821+00:00",
+    "expiresAt": "2026-11-12T04:48:50.173870+00:00",
     "level": 2
   }
 ]

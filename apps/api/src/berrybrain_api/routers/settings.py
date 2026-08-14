@@ -55,6 +55,7 @@ from berrybrain_api.security import (
     require_session_user,
     verify_service_token,
 )
+from berrybrain_api.settings_registry import validate_public_setting
 from berrybrain_api.settings_store import (
     decode_setting_value,
     encode_setting_value,
@@ -630,11 +631,14 @@ def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     with SessionLocal() as session:
-        values = {
-            key: value
-            for key, value in payload.values.items()
-            if key not in SECRET_KEYS or bool(value.strip())
-        }
+        try:
+            values = {
+                key: validate_public_setting(key, value)
+                for key, value in payload.values.items()
+                if key not in SECRET_KEYS or bool(value.strip())
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if "ai_api_key" in values:
             requested_revision = payload.aiTestRevision.strip()
             tested_revision = _setting_value(session, "ai_last_test_key_revision")
@@ -687,9 +691,13 @@ def get_setting_endpoint(key: str, request: Request) -> dict:
 def update_setting_endpoint(
     key: str, payload: UpdateSettingRequest, request: Request
 ) -> dict:
+    try:
+        value = validate_public_setting(key, payload.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     with SessionLocal() as session:
-        setting = set_setting(session, key, payload.value)
-        if key == "ai_api_key" and payload.value.strip():
+        setting = set_setting(session, key, value)
+        if key == "ai_api_key" and value:
             _set_values(session, {"ai_key_revision": _new_key_revision()})
             session.commit()
         data = serialize_setting(setting)

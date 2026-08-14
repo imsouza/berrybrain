@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.models import (
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -66,16 +67,16 @@ def graph_quality_report(session: Session) -> dict:
         .scalar()
         or 0
     )
-    visible_nodes = total_nodes - (
+    visible_nodes = (
         session.query(func.count(GraphNodeRecord.id))
-        .filter(GraphNodeRecord.status == "ignored")
+        .filter(accepted_node_clause())
         .scalar()
         or 0
     )
     visible_nodes_with_summary = (
         session.query(func.count(GraphNodeRecord.id))
         .filter(
-            GraphNodeRecord.status != "ignored",
+            accepted_node_clause(),
             GraphNodeRecord.summary.isnot(None),
             GraphNodeRecord.summary != "",
         )
@@ -85,7 +86,7 @@ def graph_quality_report(session: Session) -> dict:
     visible_nodes_with_evidence = (
         session.query(func.count(GraphNodeRecord.id))
         .filter(
-            GraphNodeRecord.status != "ignored",
+            accepted_node_clause(),
             GraphNodeRecord.source_evidence.isnot(None),
             GraphNodeRecord.source_evidence != "",
         )
@@ -95,7 +96,7 @@ def graph_quality_report(session: Session) -> dict:
     visible_nodes_with_ai_context = (
         session.query(func.count(GraphNodeRecord.id))
         .filter(
-            GraphNodeRecord.status != "ignored",
+            accepted_node_clause(),
             GraphNodeRecord.ai_context.isnot(None),
             GraphNodeRecord.ai_context != "",
         )
@@ -139,18 +140,10 @@ def graph_quality_report(session: Session) -> dict:
     )
 
     visible_node_rows = list(
-        session.execute(
-            select(GraphNodeRecord).where(
-                GraphNodeRecord.status.not_in(("ignored", "archived"))
-            )
-        ).scalars()
+        session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
     )
     visible_edge_rows = list(
-        session.execute(
-            select(GraphEdgeRecord).where(
-                GraphEdgeRecord.status.not_in(("ignored", "archived"))
-            )
-        ).scalars()
+        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
     )
     degree = {node.id: 0 for node in visible_node_rows}
     for edge in visible_edge_rows:

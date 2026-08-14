@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import statistics
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import uuid4
@@ -102,8 +101,13 @@ def calculate_pipeline_progress(
         duration = _completed_duration_seconds(job)
         if duration is not None:
             duration_samples.setdefault(job.type, []).append(duration)
-    duration_medians = {
-        job_type: statistics.median(samples)
+    duration_p50 = {
+        job_type: _percentile(samples, 0.50)
+        for job_type, samples in duration_samples.items()
+        if samples
+    }
+    duration_p95 = {
+        job_type: _percentile(samples, 0.95)
         for job_type, samples in duration_samples.items()
         if samples
     }
@@ -169,8 +173,9 @@ def calculate_pipeline_progress(
         else:
             state = "degraded"
         current_step = running_type or pending_type
-        estimated_remaining = _estimated_remaining_seconds(
-            latest_jobs, duration_medians
+        estimated_remaining = _estimated_remaining_seconds(latest_jobs, duration_p50)
+        estimated_remaining_p95 = _estimated_remaining_seconds(
+            latest_jobs, duration_p95
         )
         oldest_created = min(
             (job.created_at for job in latest_jobs.values() if job.created_at),
@@ -211,6 +216,16 @@ def calculate_pipeline_progress(
                     if estimated_remaining is not None
                     else None
                 ),
+                "estimatedRemainingSecondsP50": (
+                    round(estimated_remaining)
+                    if estimated_remaining is not None
+                    else None
+                ),
+                "estimatedRemainingSecondsP95": (
+                    round(estimated_remaining_p95)
+                    if estimated_remaining_p95 is not None
+                    else None
+                ),
                 "estimateSampleCount": sum(
                     len(duration_samples.get(job_type, []))
                     for job_type, status in statuses.items()
@@ -238,6 +253,17 @@ def _completed_duration_seconds(job: JobRecord) -> float | None:
         normalize_utc(job.completed_at) - normalize_utc(job.started_at)
     ).total_seconds()
     return duration if duration >= 0 else None
+
+
+def _percentile(samples: list[float], quantile: float) -> float:
+    ordered = sorted(samples)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
 def _estimated_remaining_seconds(
@@ -770,6 +796,11 @@ def canonicalize_job_note_reference(session: Session, job: JobRecord) -> str:
 
 
 def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) -> int:
+    from berrybrain_api.model_invocation_service import (
+        reconcile_stale_model_invocations,
+    )
+
+    reconcile_stale_model_invocations(session, stale_after_minutes=stale_after_minutes)
     cutoff = utc_now() - timedelta(minutes=stale_after_minutes)
     stale_count = 0
     running_jobs = session.execute(
