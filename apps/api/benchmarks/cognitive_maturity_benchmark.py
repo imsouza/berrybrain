@@ -110,7 +110,13 @@ def build_fixture_database() -> tuple[Session, dict[int, str]]:
             title=fixture.title,
             slug=fixture.key,
             path=f"knowledge/{fixture.key}.md",
-            content="curated maturity benchmark source material.",
+            content=(
+                f"# {fixture.title}\n\n"
+                + ". ".join(
+                    f"This source discusses {concept}" for concept in fixture.concepts
+                )
+                + "."
+            ),
             content_hash=content_hash,
             status="processed",
             language="en",

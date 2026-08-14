@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
 import httpx
 from fastapi import APIRouter
 from sqlalchemy import select
 
+from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord, NoteRecord
 
 router = APIRouter(prefix="/api/v1/hipporag", tags=["hipporag"])
 logger = logging.getLogger(__name__)
 
-HIPPORAG_URL = os.getenv("HIPPORAG_URL", "http://localhost:8000")
-HIPPORAG_SERVICE_TOKEN = os.getenv("HIPPORAG_SERVICE_TOKEN", "")
+_settings = get_settings()
+HIPPORAG_URL = _settings.hipporag_url.rstrip("/")
+HIPPORAG_SERVICE_TOKEN = _settings.hipporag_service_token
 
 
 def _headers() -> dict[str, str]:

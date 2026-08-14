@@ -121,6 +121,11 @@ def configuration_fingerprint(
 
 
 def provider_catalog() -> list[dict[str, object]]:
+    from berrybrain_api.judge_committee import (
+        DEFAULT_COMMITTEE_SIZE,
+        DEFAULT_JUDGE_ROLES,
+    )
+
     return [
         {
             "id": provider_id,
@@ -133,6 +138,11 @@ def provider_catalog() -> list[dict[str, object]]:
                 "structured_output",
                 "health",
             ],
+            "judgeDefaults": {
+                "committeeSize": DEFAULT_COMMITTEE_SIZE,
+                "roles": [dict(role) for role in DEFAULT_JUDGE_ROLES[:3]],
+                "assignment": "distinct_available_non_generator_models",
+            },
         }
         for provider_id, data in PROVIDERS.items()
     ]

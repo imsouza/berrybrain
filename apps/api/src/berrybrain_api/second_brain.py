@@ -27,6 +27,7 @@ from berrybrain_api.concept_extraction import (  # noqa: F401
     _flatten_metadata_text,
     _is_valid_concept_name,
     _is_valid_topic_name,
+    _traceable_content_evidence,
     _unique_concept_names,
     normalize_concept_name,
 )
@@ -363,6 +364,7 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
         select(GraphEdgeRecord).where(
             GraphEdgeRecord.created_by == "ai",
             GraphEdgeRecord.status.not_in(("ignored", "archived", "stale")),
+            GraphEdgeRecord.semantic_status == "active",
         )
     ).scalars():
         if has_traceable_ai_evidence(edge):
@@ -467,11 +469,18 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
     edges = list(
         session.execute(
             select(GraphEdgeRecord)
-            .where(GraphEdgeRecord.status != "ignored")
+            .where(
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
             .order_by(GraphEdgeRecord.confidence.desc())
         ).scalars()
     )
-    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
+    graph_nodes = list(
+        session.execute(
+            select(GraphNodeRecord).where(GraphNodeRecord.semantic_status == "active")
+        ).scalars()
+    )
     node_by_id = {node.id: node for node in graph_nodes}
     edge_matches: list[
         tuple[int, GraphEdgeRecord, GraphNodeRecord, GraphNodeRecord]
@@ -572,6 +581,16 @@ def _generate_deterministic_insights(session: Session) -> int:
     created_or_updated = 0
 
     for concept in concepts:
+        visible_concept_node = session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.type == "concept",
+                GraphNodeRecord.source_id == concept.id,
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
+        ).scalar_one_or_none()
+        if visible_concept_node is None:
+            continue
         note_ids = [
             note_id
             for note_id in _parse_json_list(concept.related_note_ids)
@@ -660,8 +679,13 @@ def _generate_deterministic_insights(session: Session) -> int:
     return created_or_updated
 
 
-def _generate_graph_insights(session: Session) -> int:
-    insights = list(session.execute(select(InsightRecord)).scalars())
+def _generate_graph_insights(
+    session: Session, insight_ids: set[int] | None = None
+) -> int:
+    query = select(InsightRecord)
+    if insight_ids is not None:
+        query = query.where(InsightRecord.id.in_(insight_ids))
+    insights = list(session.execute(query).scalars())
     for insight in insights:
         if not _is_graph_worthy_insight(insight):
             stale = session.execute(
@@ -775,7 +799,12 @@ def _upsert_content_insight(
 def _is_graph_worthy_insight(insight: InsightRecord) -> bool:
     if getattr(insight, "dismissed_at", None) is not None:
         return False
-    if (insight.status or "") in {"ignored", "archived"}:
+    if (insight.status or "") in {
+        "ignored",
+        "archived",
+        "expired",
+        "dismissed",
+    }:
         return False
     if (getattr(insight, "type", "") or "").lower() in {
         "system_diagnostic",
@@ -904,6 +933,7 @@ def _resolve_insight_source_nodes(
                     node is not None
                     and node.id != insight_node_id
                     and node.status != "ignored"
+                    and node.semantic_status == "active"
                 ):
                     targets[node.id] = node
 
@@ -911,7 +941,10 @@ def _resolve_insight_source_nodes(
     if normalized_evidence:
         nodes = list(
             session.execute(
-                select(GraphNodeRecord).where(GraphNodeRecord.status != "ignored")
+                select(GraphNodeRecord).where(
+                    GraphNodeRecord.status != "ignored",
+                    GraphNodeRecord.semantic_status == "active",
+                )
             ).scalars()
         )
         for node in nodes:
@@ -1006,10 +1039,20 @@ async def infer_from_graph_with_ai(session: Session, question: str) -> dict[str,
 
 def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, Any]:
     tokens = _tokenize(question)
-    nodes = list(session.execute(select(GraphNodeRecord)).scalars())
+    nodes = list(
+        session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
+        ).scalars()
+    )
     edges = list(
         session.execute(
-            select(GraphEdgeRecord).where(GraphEdgeRecord.status != "ignored")
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
         ).scalars()
     )
     if not nodes:
@@ -1152,20 +1195,37 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
 
 
 def summarize_graph(session: Session) -> dict[str, Any]:
-    nodes = list(session.execute(select(GraphNodeRecord)).scalars())
-    edges = list(session.execute(select(GraphEdgeRecord)).scalars())
+    nodes = list(
+        session.execute(
+            select(GraphNodeRecord).where(
+                GraphNodeRecord.status != "ignored",
+                GraphNodeRecord.semantic_status == "active",
+            )
+        ).scalars()
+    )
+    node_ids = {node.id for node in nodes}
+    edges = list(
+        session.execute(
+            select(GraphEdgeRecord).where(
+                GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
+            )
+        ).scalars()
+    )
+    edges = [
+        edge
+        for edge in edges
+        if edge.source_node_id in node_ids and edge.target_node_id in node_ids
+    ]
     degrees: dict[int, int] = defaultdict(int)
     for edge in edges:
-        if edge.status == "ignored":
-            continue
         degrees[edge.source_node_id] += 1
         degrees[edge.target_node_id] += 1
-    active_edges = [edge for edge in edges if edge.status != "ignored"]
     return {
         "nodes": len(nodes),
-        "edges": len(active_edges),
+        "edges": len(edges),
         "orphans": sum(1 for node in nodes if degrees.get(node.id, 0) == 0),
-        "clusters": _estimate_clusters(nodes, active_edges),
+        "clusters": _estimate_clusters(nodes, edges),
         "centralNotes": [
             {"id": node_id, "degree": degree}
             for node_id, degree in sorted(
@@ -1176,6 +1236,11 @@ def summarize_graph(session: Session) -> dict[str, Any]:
 
 
 def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
+    from berrybrain_api.graph_feedback import (
+        node_artifact_key,
+        node_source_note_ids,
+        resolve_feedback,
+    )
     from berrybrain_api.semantic_enrichment import source_fingerprint
 
     node = session.get(GraphNodeRecord, node_id)
@@ -1194,6 +1259,7 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
                 (GraphEdgeRecord.source_node_id == node.id)
                 | (GraphEdgeRecord.target_node_id == node.id),
                 GraphEdgeRecord.status != "ignored",
+                GraphEdgeRecord.semantic_status == "active",
             )
         ).scalars()
     )
@@ -1202,6 +1268,12 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         edge_types[edge.type] = edge_types.get(edge.type, 0) + 1
     synthetic_summary = node.summary or _build_node_summary(
         node, note_records, edges, edge_types
+    )
+    feedback = resolve_feedback(
+        session,
+        artifact_kind="node",
+        artifact_key=node_artifact_key(node.type, node.label),
+        source_note_ids=node_source_note_ids(node),
     )
 
     return {
@@ -1250,6 +1322,16 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         ],
         "connections": [_serialize_edge(edge) for edge in edges],
         "whyThisExists": _why_node_exists(node, note_records),
+        "feedback": (
+            {
+                "action": feedback.action,
+                "recordId": feedback.record_id,
+                "suppresses": feedback.suppresses,
+                "scope": "source_context",
+            }
+            if feedback
+            else None
+        ),
     }
 
 
@@ -1473,6 +1555,7 @@ def _extract_topics_from_metadata(
         note.id: normalize_concept_name(note.title)
         for note in session.execute(select(NoteRecord)).scalars()
     }
+    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "topics":
@@ -1493,8 +1576,17 @@ def _extract_topics_from_metadata(
                         continue
                     name = str(topic_name.get("name") or "")
                     evidence = str(
-                        topic_name.get("scope") or topic_name.get("description") or ""
+                        topic_name.get("evidence")
+                        or topic_name.get("scope")
+                        or topic_name.get("description")
+                        or ""
                     ).strip()
+                    note = notes.get(note_id)
+                    evidence = (
+                        _traceable_content_evidence(note.content, name, evidence)
+                        if note is not None
+                        else ""
+                    )
                     normalized_name = normalize_concept_name(name)
                     if not _is_valid_topic_name(name, note_titles.get(note_id, "")):
                         continue
@@ -1530,6 +1622,7 @@ def _extract_entities_from_metadata(
         note.id: normalize_concept_name(note.title)
         for note in session.execute(select(NoteRecord)).scalars()
     }
+    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "entities":
@@ -1550,8 +1643,14 @@ def _extract_entities_from_metadata(
                         continue
                     name = str(ent.get("name") or "")
                     evidence = str(
-                        ent.get("description") or ent.get("evidence") or ""
+                        ent.get("evidence") or ent.get("description") or ""
                     ).strip()
+                    note = notes.get(note_id)
+                    evidence = (
+                        _traceable_content_evidence(note.content, name, evidence)
+                        if note is not None
+                        else ""
+                    )
                     normalized_name = normalize_concept_name(name)
                     if normalized_name == note_titles.get(note_id):
                         continue
@@ -1583,6 +1682,7 @@ def _extract_context_from_metadata(
 ) -> int:
     count = 0
     seen: set[tuple[int, str]] = set()
+    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "context":
@@ -1596,11 +1696,24 @@ def _extract_context_from_metadata(
                     continue
                 if isinstance(val, dict):
                     domain = val.get("domain", "")
+                    evidence = str(val.get("evidence") or domain or "")
                     if domain:
                         val = domain
+                else:
+                    evidence = str(val)
                 ctx_name = str(val).strip()
+                note = notes.get(note_id)
+                evidence = (
+                    _traceable_content_evidence(note.content, ctx_name, evidence)
+                    if note is not None
+                    else ""
+                )
                 seen_key = (note_id, normalize_concept_name(ctx_name))
-                if not _is_valid_context_name(ctx_name) or seen_key in seen:
+                if (
+                    not _is_valid_context_name(ctx_name)
+                    or not evidence
+                    or seen_key in seen
+                ):
                     continue
                 seen.add(seen_key)
                 node = _upsert_typed_node(
@@ -1612,7 +1725,7 @@ def _extract_context_from_metadata(
                     "metadata",
                     record.id,
                     [note_id],
-                    [ctx_name],
+                    [evidence],
                     "ai",
                     status="suggested",
                     model=record.model_used or "",

@@ -1308,7 +1308,7 @@ async def process_extract_concepts(
     content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
-    system = load_prompt("concept-extract.v1.md")
+    system = load_prompt("concept-extract.v2.md")
     prompt_text = f"Note content:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
@@ -1345,7 +1345,7 @@ async def process_extract_entities(
     content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
-    system = load_prompt("concept-extract.v1.md")
+    system = load_prompt("concept-extract.v2.md")
     prompt_text = f"Extract only entities (technologies, tools, people, organizations). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
@@ -1382,7 +1382,7 @@ async def process_detect_topics(
     content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
-    system = load_prompt("concept-extract.v1.md")
+    system = load_prompt("concept-extract.v2.md")
     prompt_text = f"Extract only topics (broad subject areas). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
@@ -1419,7 +1419,7 @@ async def process_extract_context(
     content_hash = payload.get("content_hash", "")
     note = await fetch_note(client, settings.api_url, note_path)
     model_used = effective_generation_model(settings.main_model)
-    system = load_prompt("concept-extract.v1.md")
+    system = load_prompt("concept-extract.v2.md")
     prompt_text = f"Extract only the context (domain, prerequisites, applications). Return generated labels in English:\n\n{note.get('content', '')[:3000]}"
 
     result = await ollama_call(
@@ -1593,6 +1593,48 @@ async def process_generate_graph_insights(
     graph_nodes = graph_data.get("nodes", []) if isinstance(graph_data, dict) else []
     graph_edges = graph_data.get("edges", []) if isinstance(graph_data, dict) else []
     notes = notes_data.get("notes", []) if isinstance(notes_data, dict) else []
+    scope_note_ids = {
+        int(value)
+        for value in payload.get("source_note_ids", [])
+        if str(value).isdigit()
+    }
+    scope_node_ids = {
+        int(value)
+        for value in payload.get("affected_node_ids", [])
+        if str(value).isdigit()
+    }
+    scoped_recalculation = bool(scope_note_ids or scope_node_ids)
+    if scoped_recalculation:
+        graph_nodes = [
+            node
+            for node in graph_nodes
+            if isinstance(node, dict)
+            and (
+                int(node.get("recordId") or 0) in scope_node_ids
+                or bool(
+                    scope_note_ids
+                    & {
+                        int(value)
+                        for value in node.get("sourceNoteIds", [])
+                        if str(value).isdigit()
+                    }
+                )
+            )
+        ]
+        selected_graph_ids = {str(node.get("id") or "") for node in graph_nodes}
+        graph_edges = [
+            edge
+            for edge in graph_edges
+            if isinstance(edge, dict)
+            and str(edge.get("source") or "") in selected_graph_ids
+            and str(edge.get("target") or "") in selected_graph_ids
+        ]
+        notes = [
+            note
+            for note in notes
+            if isinstance(note, dict) and int(note.get("id") or 0) in scope_note_ids
+        ]
+        cognitive_context = {}
     cognitive_evidence = (
         cognitive_context.get("evidence", [])
         if isinstance(cognitive_context, dict)
@@ -1683,6 +1725,12 @@ async def process_generate_graph_insights(
     prompt_text = json.dumps(
         {
             "task": "Generate real second-brain insights with context, conclusions, hypotheses, premises, assertions, and gaps.",
+            "scope": (
+                "Re-evaluate only the affected subgraph after a user deletion. Do not "
+                "recreate removed knowledge or infer beyond the supplied evidence."
+                if scoped_recalculation
+                else "Evaluate the active knowledge graph."
+            ),
             "rules": [
                 "Use only the provided notes, vertices, and connections.",
                 "Do not generate insights without concrete evidence.",
@@ -1756,8 +1804,6 @@ async def process_generate_graph_insights(
             json={"payload": result},
         )
         response.raise_for_status()
-        expand_response = await client.post(f"{settings.api_url}/api/v1/graph/expand")
-        expand_response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
 
 
@@ -1783,9 +1829,14 @@ async def process_generate_node_summary(
 async def process_update_graph_clusters(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
+    scope_node_ids = [
+        int(value)
+        for value in payload.get("scope_node_ids", [])
+        if str(value).isdigit()
+    ]
     preview_response = await client.post(
         f"{settings.api_url}/api/v1/graph/recluster",
-        json={"preview": True},
+        json={"preview": True, "scope_node_ids": scope_node_ids},
     )
     preview_response.raise_for_status()
     preview_token = preview_response.json().get("previewToken")
@@ -1793,7 +1844,11 @@ async def process_update_graph_clusters(
         raise ValueError("Graph recluster preview did not return a preview token")
     apply_response = await client.post(
         f"{settings.api_url}/api/v1/graph/recluster",
-        json={"preview": False, "preview_token": preview_token},
+        json={
+            "preview": False,
+            "preview_token": preview_token,
+            "scope_node_ids": scope_node_ids,
+        },
     )
     apply_response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))

@@ -231,10 +231,41 @@ function nodeRadius(node: GNode, degree: number) {
   return Math.max(16, Math.min(42, Math.max(textRadius, degreeRadius)));
 }
 
-function readableNodeTextColor(type: string, fallback: string) {
-  const value = normalizedNodeType(type);
-  if (["note", "insight", "gap", "entity", "context"].includes(value)) return "#fff";
-  return fallback || "#1D1B18";
+function parseHexColor(value: string): [number, number, number] | null {
+  const normalized = value.trim().replace(/^#/, "");
+  const expanded = normalized.length === 3
+    ? normalized.split("").map((character) => `${character}${character}`).join("")
+    : normalized;
+  if (!/^[0-9a-f]{6}$/i.test(expanded)) return null;
+  return [0, 2, 4].map((offset) => Number.parseInt(expanded.slice(offset, offset + 2), 16)) as [number, number, number];
+}
+
+function relativeLuminance(color: string): number | null {
+  const rgb = parseHexColor(color);
+  if (!rgb) return null;
+  const channels = rgb.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+export function nodeTextContrastRatio(background: string, foreground: string): number {
+  const backgroundLuminance = relativeLuminance(background);
+  const foregroundLuminance = relativeLuminance(foreground);
+  if (backgroundLuminance == null || foregroundLuminance == null) return 0;
+  const lighter = Math.max(backgroundLuminance, foregroundLuminance);
+  const darker = Math.min(backgroundLuminance, foregroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+export function readableNodeTextColor(fill: string, preferred: string) {
+  const candidates = [...new Set([preferred, "#1D1B18", "#FFFFFF"].filter(Boolean))];
+  return candidates.reduce((best, candidate) => (
+    nodeTextContrastRatio(fill, candidate) > nodeTextContrastRatio(fill, best)
+      ? candidate
+      : best
+  ), candidates[0] || "#1D1B18");
 }
 
 function drawInnerNodeLabel(
@@ -1117,7 +1148,7 @@ export function GraphCanvas({
             n.x,
             n.y,
             r,
-            readableNodeTextColor(n.node.type, colors.label),
+            readableNodeTextColor(colors.fill, colors.label),
             nodeLabelCacheRef.current,
           );
         }
@@ -1190,6 +1221,7 @@ export function GraphCanvas({
         data-collision-padding="11"
         data-node-label-max-lines="3"
         data-node-label-max-characters="58"
+        data-node-label-contrast="fill-aware-wcag"
         data-drag-open-threshold="5"
         data-selected-node={selectedId || ""}
         onMouseDown={e => {

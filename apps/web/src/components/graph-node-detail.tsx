@@ -47,6 +47,12 @@ type NodeDetail = {
   colorReason?: string;
   confidenceInterval?: ConfidenceInterval;
   ontology?: { class?: string; canonicalLabel?: string };
+  feedback?: {
+    action: string;
+    recordId: number;
+    suppresses: boolean;
+    scope: string;
+  } | null;
   notes?: { id: number; title: string; path: string }[];
   connections?: NodeConnection[];
 };
@@ -208,6 +214,13 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
       const response = await apiFetch(`${w.api}/api/v1/graph/nodes/${nodeId}`, { method: "DELETE" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Node deletion failed.");
+      sessionStorage.setItem("bb_graph_mutation_status", JSON.stringify({
+        operation: "node_deleted",
+        message: payload.message || "Node deleted. The affected subgraph is being recalculated.",
+        jobIds: Object.values(payload.jobs || {}).filter((value) => typeof value === "number"),
+        impact: payload.impact || {},
+        createdAt: Date.now(),
+      }));
       backToGraph("node-deleted");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Node deletion failed.");
@@ -282,6 +295,7 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
         <aside className="space-y-6 border-t border-border/60 pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
           <section><h2 className="mb-3 text-sm font-semibold text-foreground">Confidence</h2>{confidence?.sampleSize ? <><div className="text-2xl font-semibold text-foreground">{Math.round((confidence.score || 0) * 100)}%</div><div className="mt-1 text-xs text-muted">95% interval: {Math.round((confidence.lower || 0) * 100)}%–{Math.round((confidence.upper || 0) * 100)}%</div><div className="mt-2 text-[11px] text-muted">{confidence.method} · n={confidence.sampleSize}</div></> : <p className="text-xs text-muted">Unavailable until evidence is evaluated.</p>}</section>
           <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Ontology</h2><dl className="space-y-2 text-xs"><Row label="Class" value={node.ontology?.class || "Unmapped"} /><Row label="Canonical label" value={node.ontology?.canonicalLabel || node.label} /><Row label="Semantic status" value={node.semanticStatus || "active"} /><Row label="Cluster" value={node.colorReason || "Pending recalculation"} /></dl></section>
+          {node.feedback && <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Adaptive feedback</h2><dl className="space-y-2 text-xs"><Row label="Decision" value={humanStatus(node.feedback.action)} /><Row label="Scope" value="Matching source context" /><Row label="Policy record" value={`#${node.feedback.recordId}`} /></dl></section>}
           <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Analysis state</h2><p className="text-xs text-muted">{semanticAnalysis?.state || node.semanticState || "pending"}</p>{["failed", "stale", "not_configured", "needs_review"].includes(semanticAnalysis?.state || node.semanticState || "") && <><p className="mt-2 text-xs leading-5 text-muted">{semanticAnalysis?.state === "failed" ? "The last analysis failed." : "Semantic analysis requires attention."}</p><button className="bb-action mt-3 px-3 py-1.5 text-xs" onClick={retrySemanticAnalysis}>Retry analysis</button></>}</section>
           {feedback && <p className="border-t border-border/60 pt-5 text-xs leading-5 text-muted">{feedback}</p>}
         </aside>

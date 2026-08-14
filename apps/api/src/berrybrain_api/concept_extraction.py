@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from berrybrain_api.graph_ontology import validate_node_name
 from berrybrain_api.models import (
     GeneratedMetadataRecord,
     NoteRecord,
@@ -28,6 +29,7 @@ STOPWORDS = {
     "relationships",
     "see",
     "the",
+    "this",
     "to",
     "what",
     "which",
@@ -83,9 +85,23 @@ def _extract_note_concepts(
             normalized = normalize_concept_name(name)
             if not normalized or normalized == note_title_key or normalized in seen:
                 continue
-            if evidence and _is_valid_concept_name(name):
+            if not _is_valid_concept_name(name) or validate_node_name("concept", name):
                 seen.add(normalized)
-                concepts.append((name, evidence, record.model_used or ""))
+                concepts.append(
+                    (
+                        name,
+                        evidence
+                        or f'Generated concept metadata for "{note.title}": "{name}".',
+                        record.model_used or "",
+                    )
+                )
+                continue
+            traceable_evidence = _traceable_content_evidence(
+                note.content or "", name, evidence
+            )
+            if traceable_evidence:
+                seen.add(normalized)
+                concepts.append((name, traceable_evidence, record.model_used or ""))
     for name in _extract_content_concepts(note):
         normalized = normalize_concept_name(name)
         if not normalized or normalized == note_title_key or normalized in seen:
@@ -102,9 +118,49 @@ def _find_source_evidence(content: str, label: str) -> str:
         return ""
     for line in content.splitlines():
         clean = re.sub(r"^#{1,6}\s+", "", line).strip()
-        if normalized_label in normalize_concept_name(clean):
+        normalized_line = re.sub(r"[-_]+", " ", clean.casefold())
+        normalized_line = re.sub(r"\s+", " ", normalized_line).strip()
+        matches = (
+            normalized_label in normalized_line
+            if len(normalized_label.split()) > 1
+            else normalized_label
+            in re.findall(r"[\wÀ-ÿ]+", normalized_line, flags=re.UNICODE)
+        )
+        if matches and _is_content_bearing_line(clean):
             return clean[:280]
     return ""
+
+
+def _traceable_content_evidence(content: str, label: str, evidence: str) -> str:
+    source_line = _find_source_evidence(content, label)
+    if source_line:
+        return source_line
+    clean_evidence = " ".join(str(evidence or "").split())
+    if not clean_evidence or not _is_content_bearing_line(clean_evidence):
+        return ""
+    normalized_content = " ".join(content.split()).casefold()
+    if clean_evidence.casefold() not in normalized_content:
+        return ""
+    return clean_evidence[:280]
+
+
+def _is_content_bearing_line(value: str) -> bool:
+    clean = " ".join(str(value or "").strip().split())
+    words = re.findall(r"[\wÀ-ÿ'-]+", clean, flags=re.UNICODE)
+    if len(words) < 2:
+        return False
+    normalized = clean.casefold().strip(" .:!?")
+    if len(words) <= 7 and re.match(
+        r"^(skip|jump|go|back|return|continue)\s+to\b", normalized
+    ):
+        return False
+    return not (
+        len(words) <= 5
+        and re.fullmatch(
+            r"(open|close|show|hide)\s+(the\s+)?(menu|navigation|sidebar|dialog)",
+            normalized,
+        )
+    )
 
 
 def _is_valid_concept_name(name: str) -> bool:
@@ -242,7 +298,9 @@ def _clean_note_text_for_concepts(text: str) -> str:
     cleaned = re.sub(r"\[[^\]]+\]\([^)]+\)", " ", cleaned)
     cleaned = re.sub(r"`[^`]*`", " ", cleaned)
     cleaned = re.sub(r"https?://\S+", " ", cleaned)
-    return cleaned
+    return "\n".join(
+        line for line in cleaned.splitlines() if _is_content_bearing_line(line)
+    )
 
 
 def _extract_values(content: Any, keys: list[str]) -> list[Any]:

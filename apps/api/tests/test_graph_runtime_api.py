@@ -72,11 +72,11 @@ class GraphRuntimeApiTest(unittest.TestCase):
         with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
             delta = get_graph_delta(since_version=0)
 
-        self.assertEqual(len(delta["nodes"]), 4)
+        self.assertEqual(len(delta["nodes"]), 3)
         self.assertEqual(len(delta["edgeIds"]), 1)
         self.assertTrue(delta["requiresEdgeRefresh"])
         self.assertFalse(delta["requiresFullRefresh"])
-        self.assertEqual(delta["nodeCount"], 4)
+        self.assertEqual(delta["nodeCount"], 3)
         self.assertEqual(delta["edgeCount"], 1)
         self.assertGreater(delta["graphVersion"], 0)
 
@@ -93,6 +93,16 @@ class GraphRuntimeApiTest(unittest.TestCase):
             )
 
         self.assertTrue(applied["applied"])
+
+    def test_explicit_empty_recluster_scope_never_expands_to_the_full_graph(
+        self,
+    ) -> None:
+        with patch("berrybrain_api.routers.graph.SessionLocal", self.factory):
+            preview = recluster_graph(ReclusterRequest(preview=True, scope_node_ids=[]))
+
+        self.assertTrue(preview["scoped"])
+        self.assertEqual(preview["scopeNodeIds"], [])
+        self.assertEqual(preview["nodeCount"], 0)
 
     def test_delete_node_schedules_graph_recalculation(self) -> None:
         with self.factory() as session:
@@ -140,7 +150,10 @@ class GraphRuntimeApiTest(unittest.TestCase):
         self.assertEqual(result["status"], "deleted")
         self.assertIn(("UPDATE_GRAPH_STATS",), job_types)
         self.assertIn(("UPDATE_GRAPH_CLUSTERS",), job_types)
+        self.assertIn(("GENERATE_GRAPH_INSIGHTS",), job_types)
         self.assertIn(("SYNC_HIPPORAG_GRAPH",), job_types)
+        self.assertEqual(result["impact"]["scope"], "incident_subgraph")
+        self.assertIn("insights", result["jobs"])
         self.assertEqual(obsolete_statuses, {"superseded"})
 
 

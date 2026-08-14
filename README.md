@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.6-blue)
+![Version](https://img.shields.io/badge/version-1.4.7-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.6](#whats-new-in-146)
+- [What's New in 1.4.7](#whats-new-in-147)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,27 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.6
+## What's New in 1.4.7
+
+- **Persistent graph decisions**: confirm, ignore, correct, restore, and delete actions now write
+  contextual feedback. A deleted generated artifact is quarantined if extraction tries to recreate
+  it from the same or an overlapping source scope.
+- **Incident-only deletion repair**: deleting a non-note node synchronously removes incident edges,
+  expires dependent insights, removes their graph projections, and clears owned semantic profiles.
+  BerryBrain then queues cluster, insight, statistics, and HippoRAG work for the affected subgraph.
+- **Visible deletion progress**: the node page returns to Graph immediately; a persistent banner
+  tracks every repair job and reloads the graph when affected-subgraph recalculation finishes.
+- **Provider-aware Judge committee**: model discovery is followed by exact structured-response
+  probes against the active endpoint. Only compatible, distinct, non-generator models can be
+  assigned to faithfulness, relevance, and contradiction roles. Settings supports 2-5 judges and
+  editable model, role, and focus assignments.
+- **Correct committee aggregation**: unavailable judges remain in the audit trail but cannot vote or
+  lower the aggregate score. A decision requires at least two valid independent model verdicts.
+- **Graph relevance safeguards**: imported navigation boilerplate and weak single-token candidates
+  are rejected, ignored/quarantined relationships stay outside Graph and RAG reads, and node labels
+  select a foreground color from the actual rendered fill.
+
+### Included from 1.4.6
 
 - **Truthful Autopilot progress**: continuous cognitive maintenance no longer reports a historical
   completion percentage. Active maintenance shows an indeterminate state, remaining task count,
@@ -201,7 +221,7 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain v1.4.6 is locally validated for ontology-aware graph/RAG behavior, calculated
+BerryBrain v1.4.7 is locally validated for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
 
@@ -457,8 +477,8 @@ The router should record:
 
 The active configuration is exclusive: **Cloud XOR Local**. Generation, embeddings, Judge,
 and HippoRAG use explicit model slots. Provider presets resolve their base URL automatically;
-custom OpenAI-compatible endpoints remain supported. The Judge uses the configured Judge slot,
-not an automatic hidden ensemble. Committee mode is explicit and requires separate judges.
+custom OpenAI-compatible endpoints remain supported. Judge committee assignments are visible and
+editable in Settings; no hidden model is invoked.
 
 ---
 
@@ -539,6 +559,13 @@ Graph expansion is idempotent: unchanged semantic nodes preserve their IDs and a
 Metadata rows containing multiple topics or entities produce distinct canonical nodes. Enrichment
 and Judge work for deleted or version-stale artifacts becomes `superseded` instead of consuming
 retries or entering the dead-letter queue.
+
+Deleting a non-note graph node is a durable user decision. The mutation records a contextual
+feedback rule before physical deletion, expires incident and same-context insight projections,
+and removes incident edges and owned semantic state transactionally. Follow-up jobs recalculate
+only the former cluster neighborhood and affected source notes, then refresh retrieval. The graph
+shows this work until all returned jobs complete. A browser refresh reads only active artifacts;
+if a generator proposes the same identity from overlapping evidence, it remains quarantined.
 
 ---
 
@@ -839,8 +866,22 @@ supports three modes:
 The Judge resolves the explicit provider/model slot in configuration v2. In Local mode, choose
 an installed Ollama model for that slot. In Cloud mode, the slot reuses the configured provider
 endpoint/key and has its own model selection. `single_model` makes one Judge call and never
-silently adds other LLMs. Committee mode requires each judge explicitly, and the generator
-model cannot judge its own high-impact output.
+silently adds other LLMs.
+
+When a provider configuration is validated, BerryBrain ranks distinct models returned by that
+provider, excludes the generator and non-text categories, and sends a bounded structured-response
+probe through the same runtime path used by the Judge. A catalog entry alone is not evidence of
+compatibility: `404`, timeout, malformed JSON, and wrong-schema responses are rejected. The default
+roles are faithfulness, relevance, and contradiction; committees of four or five add source-quality
+and ontology-consistency roles. Settings exposes mode, count (2-5), model, role, and focus for every
+slot. Fixed provider model IDs are deliberately not embedded in source because provider catalogs
+and endpoint compatibility change. If fewer than two compatible models exist, mode remains
+`single_model` and BerryBrain never claims committee consensus.
+
+Committee calls are independent and preserve per-model provenance, rubric, reasoning, and latency.
+The generator model cannot judge its own high-impact output. Unavailable judges remain auditable
+but do not vote or contribute a zero to the aggregate; at least two valid verdicts are required.
+Human calibration remains authoritative for enforcement.
 
 ### HippoRAG
 
