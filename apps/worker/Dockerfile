@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BERRYBRAIN_PROMPT_DIR=/app/prompts
 
 WORKDIR /build
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY apps/worker/pyproject.toml /tmp/berrybrain-worker/pyproject.toml
 RUN mkdir -p /tmp/berrybrain-worker/src/berrybrain_worker \
     && touch /tmp/berrybrain-worker/src/berrybrain_worker/__init__.py \
