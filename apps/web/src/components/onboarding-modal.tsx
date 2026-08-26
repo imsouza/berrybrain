@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch, getApiUrl } from "@/contexts/workspace-context";
 
 type MeResponse = {
   user?: { email?: string; displayName?: string };
+};
+
+type BootstrapResponse = {
+  configurationGate?: { required?: boolean; valid?: boolean };
 };
 
 type TourStep = {
@@ -57,14 +61,60 @@ export function OnboardingModal({
   onOpenChange: (open: boolean) => void;
 }) {
   const [step, setStep] = useState(0);
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
+  const [configurationRequired, setConfigurationRequired] = useState(true);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [statusError, setStatusError] = useState("");
+
+  const loadStatus = useCallback(async (openWhenIncomplete: boolean) => {
+    if (demo) return;
+    setCheckingStatus(true);
+    setStatusError("");
+    try {
+      const meResponse = await apiFetch(`${getApiUrl()}/api/v1/auth/me`);
+      if (!meResponse.ok) return;
+      const me = await meResponse.json() as MeResponse;
+      if (!me.user) return;
+
+      const settingsResponse = await apiFetch(`${getApiUrl()}/api/v1/settings`);
+      if (!settingsResponse.ok) throw new Error("Onboarding status could not be loaded.");
+      const settingsPayload = await settingsResponse.json();
+      const completed = Boolean(settingsPayload?.settings?.some(
+        (setting: { key?: string; value?: string }) => (
+          setting.key === "onboarding_completed" && setting.value === "true"
+        ),
+      ));
+      setOnboardingCompleted(completed);
+      if (completed) return;
+
+      const bootstrapResponse = await apiFetch(`${getApiUrl()}/api/v1/bootstrap`);
+      if (!bootstrapResponse.ok) throw new Error("AI configuration status could not be loaded.");
+      const bootstrapPayload = await bootstrapResponse.json() as BootstrapResponse;
+      const gate = bootstrapPayload.configurationGate;
+      setConfigurationRequired(Boolean(gate?.required || !gate?.valid));
+      if (!completed && openWhenIncomplete) {
+        setStep(0);
+        onOpenChange(true);
+      }
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Onboarding status could not be loaded.");
+      setConfigurationRequired(true);
+      if (openWhenIncomplete) {
+        setStep(0);
+        onOpenChange(true);
+      }
+    } finally {
+      setCheckingStatus(false);
+    }
+  }, [demo, onOpenChange]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    let active = true;
 
     const openTour = () => {
       setStep(0);
       onOpenChange(true);
+      void loadStatus(false);
     };
     window.addEventListener("bb:open-tour", openTour);
 
@@ -74,35 +124,45 @@ export function OnboardingModal({
         openTour();
       }
     } else {
-      fetch(`${getApiUrl()}/api/v1/auth/me`, { credentials: "include" })
-        .then((response) => (response.ok ? response.json() : null))
-        .then(async (me: MeResponse | null) => {
-          if (!active || !me?.user) return;
-          const response = await fetch(`${getApiUrl()}/api/v1/settings`, {
-            credentials: "include",
-          });
-          if (!active || !response.ok) return;
-          const payload = await response.json();
-          const completed = payload?.settings?.some(
-            (setting: { key?: string; value?: string }) => (
-              setting.key === "onboarding_completed"
-              && setting.value === "true"
-            ),
-          );
-          if (!completed) openTour();
-        })
-        .catch(() => {});
+      void loadStatus(true);
     }
 
     return () => {
-      active = false;
       window.removeEventListener("bb:open-tour", openTour);
     };
-  }, [demo, onOpenChange]);
+  }, [demo, loadStatus, onOpenChange]);
 
-  function continueToAiSetup() {
-    onOpenChange(false);
-    window.dispatchEvent(new Event("bb:open-ai-setup"));
+  async function finishTour() {
+    if (checkingStatus) return;
+    if (statusError) {
+      await loadStatus(false);
+      return;
+    }
+    if (demo || onboardingCompleted) {
+      onOpenChange(false);
+      return;
+    }
+    if (configurationRequired) {
+      onOpenChange(false);
+      window.dispatchEvent(new Event("bb:open-ai-setup"));
+      return;
+    }
+
+    setCheckingStatus(true);
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/v1/settings/onboarding_completed`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: "true" }),
+      });
+      if (!response.ok) throw new Error("Tour completion could not be saved.");
+      setOnboardingCompleted(true);
+      onOpenChange(false);
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "Tour completion could not be saved.");
+    } finally {
+      setCheckingStatus(false);
+    }
   }
 
   if (!open) return null;
@@ -123,7 +183,7 @@ export function OnboardingModal({
               <p className="text-xs font-semibold uppercase text-accent">{current.eyebrow}</p>
               <h2 id="onboarding-title" className="mt-1 text-xl font-semibold">{current.title}</h2>
             </div>
-            <button type="button" className="bb-action px-3 py-1.5 text-sm" onClick={continueToAiSetup}>
+            <button type="button" className="bb-action px-3 py-1.5 text-sm" onClick={() => void finishTour()} disabled={checkingStatus}>
               Skip
             </button>
           </div>
@@ -136,6 +196,14 @@ export function OnboardingModal({
         </header>
 
         <div className="overflow-y-auto px-6 py-6">
+          {statusError && (
+            <div className="mb-5 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">
+              <p>{statusError}</p>
+              <button type="button" className="bb-action mt-3 px-3 py-1.5 text-xs" onClick={() => void loadStatus(false)} disabled={checkingStatus}>
+                {checkingStatus ? "Checking..." : "Retry status check"}
+              </button>
+            </div>
+          )}
           <p className="max-w-xl text-sm leading-6 text-muted">{current.body}</p>
           <ul className="mt-5 space-y-3">
             {current.bullets.map((item) => (
@@ -152,7 +220,7 @@ export function OnboardingModal({
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={step === 0}
+              disabled={step === 0 || checkingStatus}
               className="bb-action px-4 py-2 text-sm"
               onClick={() => setStep((currentStep) => Math.max(0, currentStep - 1))}
             >
@@ -161,13 +229,22 @@ export function OnboardingModal({
             <button
               type="button"
               className="bb-action px-4 py-2 text-sm font-medium"
+              disabled={checkingStatus}
               onClick={() => (
                 isLast
-                  ? continueToAiSetup()
+                  ? void finishTour()
                   : setStep((currentStep) => currentStep + 1)
               )}
             >
-              {isLast ? "Set up AI" : "Continue"}
+              {checkingStatus
+                ? "Checking..."
+                : isLast
+                  ? onboardingCompleted || demo
+                    ? "Finish"
+                    : configurationRequired
+                      ? "Set up AI"
+                      : "Finish"
+                  : "Continue"}
             </button>
           </div>
         </footer>

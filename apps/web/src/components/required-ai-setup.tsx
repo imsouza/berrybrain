@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getApiUrl } from "@/contexts/workspace-context";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, getApiUrl } from "@/contexts/workspace-context";
 
 type Mode = "cloud" | "local";
 type Provider = {
@@ -30,7 +30,12 @@ const STEPS = [
 
 export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   const apiUrl = getApiUrl();
-  const [gate, setGate] = useState<ConfigurationGate | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const [gate, setGate] = useState<ConfigurationGate>({
+    required: false,
+    valid: false,
+    reason: "checking_configuration",
+  });
   const [forcedOpen, setForcedOpen] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [mode, setMode] = useState<Mode>("local");
@@ -46,6 +51,8 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   });
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [initializationError, setInitializationError] = useState("");
   const [error, setError] = useState("");
   const [capabilities, setCapabilities] = useState<Record<string, unknown>>({});
 
@@ -54,43 +61,74 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     [mode, providers],
   );
   const activeProvider = providers.find((provider) => provider.id === providerId);
-  const required = Boolean(gate?.required);
+  const required = Boolean(gate.required);
   const open = !demo && (required || forcedOpen);
 
   const refreshGate = useCallback(async () => {
-    const response = await fetch(`${apiUrl}/api/v1/bootstrap`, {
-      credentials: "include",
-    });
-    if (!response.ok) return;
+    const response = await apiFetch(`${apiUrl}/api/v1/bootstrap`);
+    if (!response.ok) throw new Error("AI configuration status could not be loaded.");
     const payload = await response.json();
-    setGate(payload.configurationGate || null);
+    setGate(payload.configurationGate || {
+      required: true,
+      valid: false,
+      reason: "configuration_status_unavailable",
+    });
+  }, [apiUrl]);
+
+  const loadSetup = useCallback(async (includeProviders = false) => {
+    setInitializing(true);
+    setInitializationError("");
+    try {
+      const bootstrapResponse = await apiFetch(`${apiUrl}/api/v1/bootstrap`);
+      if (!bootstrapResponse.ok) {
+        throw new Error("AI configuration status could not be loaded.");
+      }
+      const bootstrapPayload = await bootstrapResponse.json();
+      const nextGate = bootstrapPayload.configurationGate || {
+        required: true,
+        valid: false,
+        reason: "configuration_status_unavailable",
+      };
+      setGate(nextGate);
+      if (nextGate.valid && !nextGate.required && !includeProviders) return;
+
+      const providerResponse = await apiFetch(`${apiUrl}/api/v1/ai/providers`);
+      if (!providerResponse.ok) {
+        throw new Error("AI providers could not be loaded.");
+      }
+      const providerPayload = await providerResponse.json();
+      const nextProviders = providerPayload.providers || [];
+      setProviders(nextProviders);
+      if (!nextProviders.length) throw new Error("No AI providers are available.");
+    } catch (caught) {
+      setInitializationError(
+        caught instanceof Error ? caught.message : "AI setup could not be loaded.",
+      );
+      setGate((current) => current.valid ? current : {
+        required: true,
+        valid: false,
+        reason: "configuration_status_unavailable",
+      });
+    } finally {
+      setInitializing(false);
+    }
   }, [apiUrl]);
 
   useEffect(() => {
-    let active = true;
-    Promise.all([
-      fetch(`${apiUrl}/api/v1/ai/providers`, { credentials: "include" }),
-      fetch(`${apiUrl}/api/v1/bootstrap`, { credentials: "include" }),
-    ])
-      .then(async ([providerResponse, bootstrapResponse]) => {
-        if (!active) return;
-        if (providerResponse.ok) {
-          const payload = await providerResponse.json();
-          setProviders(payload.providers || []);
-        }
-        if (bootstrapResponse.ok) {
-          const payload = await bootstrapResponse.json();
-          setGate(payload.configurationGate || null);
-        }
-      })
-      .catch(() => {});
-    const openSetup = () => setForcedOpen(true);
+    void loadSetup(false);
+    const openSetup = () => {
+      setForcedOpen(true);
+      void loadSetup(true);
+    };
     window.addEventListener("bb:open-ai-setup", openSetup);
     return () => {
-      active = false;
       window.removeEventListener("bb:open-ai-setup", openSetup);
     };
-  }, [apiUrl]);
+  }, [loadSetup]);
+
+  useEffect(() => {
+    if (open) dialogRef.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     const options = providers.filter((provider) => provider.mode === mode);
@@ -122,11 +160,10 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${apiUrl}/api/v1/ai/providers/${encodeURIComponent(providerId)}/models`,
         {
           method: "POST",
-          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             endpoint_url: endpointUrl.trim(),
@@ -179,9 +216,8 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/ai/configuration/validate`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/validate`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           configuration: configuration(),
@@ -203,9 +239,8 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/ai/configuration`, {
+      const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration`, {
         method: "PUT",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           configuration: {
@@ -229,7 +264,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   }
 
   function canContinue() {
-    if (step === 0) return true;
+    if (step === 0) return activeProviders.length > 0 && !initializationError;
     if (step === 1) {
       return Boolean(
         providerId &&
@@ -256,10 +291,13 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       }}
     >
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-border bg-panel shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-setup-title"
+        aria-busy={initializing || busy}
       >
         <header className="border-b border-border px-5 py-4">
           <div className="flex items-start justify-between gap-4">
@@ -298,6 +336,20 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {initializationError && (
+            <div className="mb-5 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="alert">
+              <p>{initializationError}</p>
+              <button type="button" className="bb-action mt-3 px-3 py-1.5 text-xs" onClick={() => void loadSetup(true)} disabled={initializing}>
+                {initializing ? "Checking..." : "Retry setup check"}
+              </button>
+            </div>
+          )}
+          {initializing && providers.length === 0 && !initializationError && (
+            <div className="flex items-center gap-3 py-8 text-sm text-muted" role="status">
+              <span className="size-5 animate-spin rounded-full border-2 border-border border-t-accent" />
+              Loading AI providers and configuration status...
+            </div>
+          )}
           {step === 0 && (
             <div className="grid gap-3 sm:grid-cols-2">
               {(["local", "cloud"] as Mode[]).map((item) => (
@@ -425,7 +477,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           <button
             type="button"
             onClick={() => setStep((current) => Math.max(0, current - 1))}
-            disabled={step === 0 || busy}
+            disabled={step === 0 || busy || initializing}
             className="rounded-md border border-border px-4 py-2 text-sm disabled:opacity-40"
           >
             Back
@@ -434,7 +486,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             <button
               type="button"
               onClick={() => setStep((current) => Math.min(7, current + 1))}
-              disabled={!canContinue() || busy}
+              disabled={!canContinue() || busy || initializing}
               className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
             >
               Continue
