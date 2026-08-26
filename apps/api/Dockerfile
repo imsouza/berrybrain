@@ -8,6 +8,7 @@ ARG BERRYBRAIN_PREFETCH_WHISPER_MODEL=false
 
 WORKDIR /build
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 COPY apps/api/pyproject.toml /tmp/berrybrain-api/pyproject.toml
