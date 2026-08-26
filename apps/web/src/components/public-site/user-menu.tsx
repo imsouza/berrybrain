@@ -3,6 +3,7 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { clearAuthenticatedSessionCache } from "@/lib/auth-session-cache";
 
 export type MeUser = {
   id: number;
@@ -65,6 +66,7 @@ export function UserMenu() {
     } catch {
       // The page navigation below is still the correct fallback.
     } finally {
+      clearAuthenticatedSessionCache();
       window.location.href = appPath("/");
     }
   }, [apiUrl]);
@@ -283,6 +285,7 @@ export const AccountSettingsDialog = forwardRef<HTMLDialogElement, DialogProps>(
             onClick={() =>
               guard(async () => {
                 await call("/logout-all", "POST", {});
+                clearAuthenticatedSessionCache();
                 window.location.href = appPath("/login");
               }, "Sessions closed.")
             }

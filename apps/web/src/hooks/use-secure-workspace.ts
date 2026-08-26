@@ -2,20 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { appPath, getApiUrl } from "@/contexts/workspace-context";
+import {
+  hasRecentAuthenticatedSession,
+  verifyAuthenticatedSession,
+} from "@/lib/auth-session-cache";
 
 export function useSecureWorkspace(nextRoute: string) {
   const apiUrl = getApiUrl();
-  const [allowed, setAllowed] = useState(false);
+  const [allowed, setAllowed] = useState(hasRecentAuthenticatedSession);
 
   useEffect(() => {
     let active = true;
     async function verify() {
       try {
-        const currentUser = await fetch(`${apiUrl}/api/v1/auth/me`, {
-          credentials: "include",
-        });
+        const authenticated = await verifyAuthenticatedSession(apiUrl);
         if (!active) return;
-        if (currentUser.ok) {
+        if (authenticated) {
           setAllowed(true);
           return;
         }

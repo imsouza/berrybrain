@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use BerryBrain, cite this software artifact and the accompanying article."
+title: "BerryBrain: Adaptive Personal Knowledge Management with Semantic Graphs and GraphRAG"
+type: software
+version: "1.4.8-research-artifact.20260825"
+date-released: 2026-08-25
+abstract: >-
+  BerryBrain is a self-hosted personal knowledge management system that transforms Markdown notes
+  into a governed semantic graph, combines lexical, dense, and structural retrieval through
+  GraphRAG, and incorporates provenance, confidence estimates, language-model judges, and
+  reversible human feedback.
+authors:
+  - family-names: "Souza"
+    given-names: "Mateus Almeida de"
+    affiliation: "Federal University of Espirito Santo, CEUNES"
+    orcid: "https://orcid.org/0009-0000-4701-1282"
+repository-code: "https://github.com/imsouza/berrybrain"
+url: "https://github.com/imsouza/berrybrain/releases/tag/jbcs-artifact-2026-08-25"
+keywords:
+  - personal knowledge management
+  - personal knowledge graph
+  - semantic graph
+  - GraphRAG
+  - information retrieval
+  - human feedback
+  - large language model judge

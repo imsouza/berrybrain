@@ -518,7 +518,23 @@ Notes are the source of truth; derived knowledge must follow their current state
 
 After deletion, BerryBrain queues graph expansion, insight reconciliation, cluster recalculation,
 graph statistics, and HippoRAG synchronization. These jobs repair global topology; they do not
-restore deleted content.`,
+restore deleted content.
+
+### Planned: searchable note references with \`@--\`
+
+This feature is documented for a future version and is **not available in the current release**.
+Typing \`@\` in the editor will open a searchable dropdown containing notes from the complete
+vault. Selecting a result will insert a readable \`@--Note title\` reference backed by the target
+note's stable identity.
+
+The explicit reference will create user-authored provenance for a typed \`references\` relationship,
+backlinks, retrieval seeding, and affected-scope reassimilation. It will be a strong correlation
+signal, not proof that two notes share a semantic context: ontology validation, evidence quality,
+feedback policy, and clustering thresholds must still prevent unrelated notes from being merged.
+
+The implementation plan covers keyboard navigation, title/path/alias search, duplicate-title
+disambiguation, rename and move stability, deleted-target handling, Markdown portability, parsing,
+graph invalidation, and performance for large vaults.`,
   },
   {
     id: "graph",
@@ -534,7 +550,8 @@ The graph is where notes, concepts, entities, topics, gaps, and insights become 
   calculated confidence, semantic state, provenance, path, and directed relationships.
 - **Edit a node** from that page. BerryBrain validates name/type against current evidence,
   invalidates old confidence, and queues Judge, enrichment, graph, cluster, and stats recalculation.
-- **Confidence is read-only** and shows its 95% evidence interval, sample size, method, and factors.
+- **Evidence support is read-only** and shows a nominal 95% bounded-signal interval, scored-signal
+  count, method, and factors. It is not a calibrated probability of factual correctness.
 - **Confirm** a suggested node (green) to validate it.
 - **Pending** artifacts use a neutral beige channel; status is never encoded by topic color alone.
 - Node enrichment runs automatically after changes and during agent monitoring.
@@ -629,8 +646,8 @@ cannot be applied safely, \`requiresFullRefresh\` tells the client to reload can
 Insights are discoveries: knowledge gaps, central concepts, possible contradictions, study
 paths, and suggested notes.
 
-- Each insight shows calculated confidence and a **95% evidence interval**; no sample means
-  confidence is unavailable.
+- Each insight shows calculated evidence support and a **nominal 95% bounded-signal interval**;
+  no scored signals means support is unavailable.
 - Suggested insights appear as rectangular graph nodes with description and evidence.
 - **Accept insight** confirms the proposal in the graph.
 - **Reject insight** removes the proposal from active graph retrieval.
@@ -648,10 +665,12 @@ Inspect confidence before relying on an insight, and create permanent notes from
 
 BerryBrain suggests connections automatically. They appear as directed, typed ontology edges.
 
-Knowledge confidence is calculated from distinct evidence/model signals and stored with its
-95% Wilson interval, sample size, method, factors, and timestamp. This contract covers concepts,
-note connections, graph nodes and edges, insights, cluster assignments, and graph inferences.
-An artifact without evidence reports confidence as unavailable; users cannot edit the value.
+Evidence support is calculated from distinct scored evidence, model, or user signals and stored
+with its nominal 95% empirical-Bernstein-style bounds, scored-signal count, method, factors, and
+timestamp. Provenance identifiers remain visible but do not inflate that count. This contract
+covers concepts, note connections, graph nodes and edges, insights, cluster assignments, and graph
+inferences. The interval is not a calibrated probability of truth. An artifact without scored
+signals reports support as unavailable; users cannot edit the value.
 
 - **Suggested** — proposed by the system, awaiting your decision.
 - **Confirm** — becomes an official connection.

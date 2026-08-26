@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { Route } from "next";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { VoicePromptButton } from "@/components/voice-prompt-button";
@@ -74,19 +76,32 @@ type ActivityItem = { id?: number; action: string; description: string; technica
 type ConnectionItem = { id: number; type: string; confidence: number; confidencePercent: number; reason: string; source?: NoteRef | null; target?: NoteRef | null; status?: string };
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
+type PipelineProgress = { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string };
+
+const HOME_CACHE_TTL_MS = 15_000;
+const homeCache = new Map<string, { summary: HomeSummary; pipeline: PipelineProgress[]; updatedAt: number }>();
 
 export function HomeView() {
   const w = useWorkspace();
-  const [summary, setSummary] = useState<HomeSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const cachedHome = homeCache.get(w.api);
+  const [summary, setSummary] = useState<HomeSummary | null>(() => cachedHome?.summary || null);
+  const [loading, setLoading] = useState(() => !cachedHome);
   const [error, setError] = useState(false);
   const [starterText, setStarterText] = useState("");
   const [askText, setAskText] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
-  const [pipelineProgress, setPipelineProgress] = useState<{ notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string }[]>([]);
+  const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress[]>(() => cachedHome?.pipeline || []);
 
-  const loadSummary = useCallback(() => {
-    setLoading(true);
+  const loadSummary = useCallback(async (force = false) => {
+    const cached = homeCache.get(w.api);
+    if (!force && cached && Date.now() - cached.updatedAt < HOME_CACHE_TTL_MS) {
+      setSummary(cached.summary);
+      setPipelineProgress(cached.pipeline);
+      setLoading(false);
+      return;
+    }
+    setLoading(!cached);
     setError(false);
     if (w.demo) {
       setSummary(null);
@@ -94,18 +109,23 @@ export function HomeView() {
       setLoading(false);
       return;
     }
-    fetch(`${w.api}/api/v1/home/summary`)
-      .then((r) => {
-        if (!r.ok) throw new Error("home-summary");
-        return r.json();
-      })
-      .then(setSummary)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-    fetch(`${w.api}/api/v1/jobs/pipeline-progress`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.notes) setPipelineProgress(d.notes); })
-      .catch(() => {});
+    try {
+      const [summaryResponse, pipelineResponse] = await Promise.all([
+        fetch(`${w.api}/api/v1/home/summary`),
+        fetch(`${w.api}/api/v1/jobs/pipeline-progress`),
+      ]);
+      if (!summaryResponse.ok) throw new Error("home-summary");
+      const nextSummary = await summaryResponse.json() as HomeSummary;
+      const pipelinePayload = pipelineResponse.ok ? await pipelineResponse.json() : null;
+      const nextPipeline = (pipelinePayload?.notes || []) as PipelineProgress[];
+      homeCache.set(w.api, { summary: nextSummary, pipeline: nextPipeline, updatedAt: Date.now() });
+      setSummary(nextSummary);
+      setPipelineProgress(nextPipeline);
+    } catch {
+      setError(!cached);
+    } finally {
+      setLoading(false);
+    }
   }, [w.api, w.demo]);
 
   const updateConnectionStatus = useCallback(
@@ -118,13 +138,13 @@ export function HomeView() {
         return;
       }
       w.toast(action === "confirm" ? "Connection confirmed." : "Connection ignored.", "success");
-      loadSummary();
+      void loadSummary(true);
     },
     [loadSummary, w],
   );
 
   useEffect(() => {
-    loadSummary();
+    void loadSummary();
   }, [loadSummary]);
 
   function updateStarterText(value: string) {
@@ -138,7 +158,7 @@ export function HomeView() {
       const created = await w.createDraft(content);
       if (created) {
         setStarterText("");
-        loadSummary();
+        void loadSummary(true);
       }
     } finally {
       setCreatingDraft(false);
@@ -158,7 +178,7 @@ export function HomeView() {
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="text-center">
           <div className="text-sm font-medium">{t("loadHomeFailed")}</div>
-          <button className="bb-action mt-3 h-9 px-4 text-xs font-medium" onClick={loadSummary}>{t("retry")}</button>
+          <button className="bb-action mt-3 h-9 px-4 text-xs font-medium" onClick={() => void loadSummary(true)}>{t("retry")}</button>
         </div>
       </div>
     );
@@ -171,15 +191,21 @@ export function HomeView() {
   return (
     <div className="bb-brain-view flex-1 overflow-y-auto">
       <div className="bb-page-shell px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <HomeHeader summary={summary} displayName={displayName} onGraph={() => w.setGraphOpen(true)} />
+        <HomeHeader
+          summary={summary}
+          displayName={displayName}
+          onActivity={() => router.push(appPath("/activity") as Route)}
+          onAsk={() => router.push(appPath("/ask") as Route)}
+          onGraph={() => w.setGraphOpen(true)}
+        />
         <HomeAskBar
           value={askText}
           onChange={setAskText}
           onSubmit={() => {
             if (!askText.trim()) return;
-            window.location.href = appPath(`/ask?q=${encodeURIComponent(askText.trim())}`);
+            router.push(appPath(`/ask?q=${encodeURIComponent(askText.trim())}`) as Route);
           }}
-          onOpenWorkspace={() => { window.location.href = appPath("/ask"); }}
+          onOpenWorkspace={() => router.push(appPath("/ask") as Route)}
         />
 
         <div className="mt-5 grid items-stretch gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
@@ -296,7 +322,19 @@ function FirstRunGuide({
   );
 }
 
-function HomeHeader({ summary, displayName, onGraph }: { summary: HomeSummary; displayName: string; onGraph: () => void }) {
+function HomeHeader({
+  summary,
+  displayName,
+  onActivity,
+  onAsk,
+  onGraph,
+}: {
+  summary: HomeSummary;
+  displayName: string;
+  onActivity: () => void;
+  onAsk: () => void;
+  onGraph: () => void;
+}) {
   const usingCloud = Boolean(summary.status.cloudProvider && summary.status.cloudProvider !== "local");
   const providerState = summary.status.cloudStatus;
   const providerStatus = usingCloud
@@ -314,8 +352,8 @@ function HomeHeader({ summary, displayName, onGraph }: { summary: HomeSummary; d
           <p className="mt-2 text-sm leading-6 text-muted/70">{t("keepWriting")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <HeaderLink onClick={() => (window.location.href = appPath("/activity"))}>{t("viewActivity")}</HeaderLink>
-          <HeaderLink onClick={() => (window.location.href = appPath("/ask"))}>Ask</HeaderLink>
+          <HeaderLink onClick={onActivity}>{t("viewActivity")}</HeaderLink>
+          <HeaderLink onClick={onAsk}>Ask</HeaderLink>
           <HeaderLink onClick={onGraph}>{t("viewGraph")}</HeaderLink>
         </div>
       </div>

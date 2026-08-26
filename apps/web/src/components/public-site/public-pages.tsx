@@ -368,12 +368,6 @@ const GithubIcon = ({ className = "size-4" }: { className?: string }) => (
   </svg>
 );
 
-const DockerIcon = ({ className = "size-5" }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-    <path d="M13.1 7.5h2.4v2.4h-2.4V7.5Zm-3.1 0h2.4v2.4H10V7.5Zm-3 0h2.4v2.4H7V7.5Zm-3.1 3h2.4v2.4H3.9v-2.4Zm3.1 0h2.4v2.4H7v-2.4Zm3 0h2.4v2.4H10v-2.4Zm3.1 0h2.4v2.4h-2.4v-2.4Zm3.1 0h2.4v2.4h-2.4v-2.4ZM2.1 13.6h19.7c-.4 1.9-1.3 3.4-2.8 4.5-1.5 1.2-3.5 1.8-6 1.8H9.2c-2.1 0-3.8-.6-5.1-1.7-1.2-1.1-1.9-2.6-2-4.6Zm20.2-2.4c-.4-.3-.9-.4-1.4-.4-.6 0-1.1.2-1.5.6-.3.3-.5.6-.6 1h3.9c0-.5-.2-.9-.4-1.2Z" />
-  </svg>
-);
-
 const DocsIcon = ({ className = "size-5" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <path d="M7 3.5h7l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 20V5A1.5 1.5 0 0 1 7.5 3.5Z" />
@@ -430,29 +424,29 @@ function LandingContent() {
   const primaryPath = accessState === "setup" ? "/setup" : "/brain";
   const primaryLabel = accessState === "setup" ? "Set up BerryBrain" : "Open BerryBrain";
   const featureCards = [
-    { title: "Your Markdown stays yours", body: "BerryBrain watches real files in your vault. Read, move, export, and back them up without a proprietary format.", icon: DocsIcon },
-    { title: "Connections explain themselves", body: "Graph edges retain a reason, source evidence, confidence, lifecycle status, provider, and model trace.", icon: GraphIcon },
-    { title: "One command, full stack", body: "Docker starts the web app, authenticated API, and cognitive worker on infrastructure you control.", icon: DockerIcon },
-    { title: "Attachments become evidence", body: "PDFs, images, audio, and video become searchable chunks with page or timestamp provenance.", icon: DocsIcon },
-    { title: "Autopilot you can inspect", body: "Leases, retries, recovery, and idempotency keep background processing resilient and visible in Monitor.", icon: GraphIcon },
-    { title: "A release you can verify", body: "API, worker, sidecar, browser E2E, scale benchmarks, security audits, container scans, and architecture gates back each release.", icon: GithubIcon },
+    { title: "A vault that stays coherent", body: "Create, edit, move, or delete Markdown notes while BerryBrain preserves stable identity and repairs only the affected knowledge neighborhood.", icon: DocsIcon },
+    { title: "An ontology, not a proximity map", body: "Typed nodes and directed predicates are validated by domain, range, provenance, lifecycle state, and supporting evidence.", icon: GraphIcon },
+    { title: "Ask the content or the graph", body: "Use grounded Ask to question source material, node types, relationships, clusters, and gaps with citations and explicit provider failure states.", icon: GraphIcon },
+    { title: "Uncertainty stays calculated", body: "Evidence support, interval, sample size, method, and factors are computed by the system and remain read-only in the interface.", icon: DocsIcon },
+    { title: "Feedback changes future decisions", body: "Confirm, correct, reject, or delete an artifact to create durable policy evidence for later extraction, Judge, retrieval, and graph work.", icon: GraphIcon },
+    { title: "Operations stay visible", body: "Activity, Monitor, queue estimates, retries, dead letters, notifications, and scoped repair status show what automation is doing.", icon: GithubIcon },
   ];
   const pipeline = [
-    ["Capture", "Write a note or attach a source. The original remains available in your vault."],
-    ["Understand", "Extract structure, concepts, context, entities, and evidence-bearing chunks."],
-    ["Retrieve", "Combine lexical, vector, and graph signals instead of relying on one model answer."],
-    ["Connect", "Create typed graph relations with reasons, confidence, and source evidence."],
-    ["Act", "Inspect gaps, apply insights, confirm suggestions, and choose the next study step."],
+    ["Capture", "Write Markdown or attach a source. The original file remains the source of truth."],
+    ["Reconcile", "Version the note, detach stale provenance, and limit new work to the affected scope."],
+    ["Validate", "Extract candidates, enforce ontology rules, apply feedback policy, and quarantine weak artifacts."],
+    ["Retrieve", "Fuse lexical, vector, and valid graph paths into evidence for Ask and research."],
+    ["Adapt", "Persist user decisions, refresh graph-first insights, and recalculate impacted knowledge."],
   ];
   const maturityItems = [
-    ["Hybrid memory", "Markdown chunks, lexical signals, vector stores, graph context, and optional HippoRAG work together during retrieval."],
-    ["Graph integrity", "Canonical nodes and edges carry source evidence, confidence, status, provider/model trace, and Judge evaluation where needed."],
-    ["Cognitive sources", "PDFs, documents, images, audio, and video become searchable evidence with page or timestamp provenance."],
-    ["Recoverable jobs", "Leases, heartbeats, idempotency, retries, dead-letter handling, and stale-job recovery protect the pipeline."],
-    ["Provider setup", "Cloud presets fill provider URLs automatically, model lists are normalized, and keys stay masked and encrypted at rest."],
-    ["Semantic graph", "Stable topic colors, distinct vault namespaces, progressive loading, canvas LOD, and explainable node details keep large graphs usable."],
-    ["Ask and research", "Grounded multi-turn Flow and graph-wide gap research retain evidence, cancellation, and provider provenance."],
-    ["Release gates", "The validated scope closes API, worker, sidecar, web, E2E, benchmark, security, container, and architecture checks."],
+    ["Lifecycle-safe vault", "Meaningful edits invalidate stale derivatives; moves retain identity; deletions remove owned evidence and recalculate shared artifacts."],
+    ["Semantic graph", "Geometry encodes ontology type, color encodes context, arrows encode predicate direction, and note roots keep Berry red."],
+    ["Graph-first insights", "Scheduled and note-triggered insight candidates appear in the graph with evidence and accept or reject actions."],
+    ["Grounded Ask", "Dynamic questions come from accepted graph data, answers cite retrieved evidence, and failed providers return retry and configuration actions."],
+    ["Provider-exclusive execution", "Cloud and Local are mutually exclusive modes with explicit generation, embedding, Judge, and graph retrieval assignments."],
+    ["Judge committee", "Compatible models can evaluate faithfulness, relevance, contradiction, source quality, and ontology consistency before admission."],
+    ["Feedback-guided adaptation", "User decisions update auditable policy and scoped suppression; BerryBrain does not claim to retrain model weights."],
+    ["Recoverable automation", "Leases, heartbeats, idempotency, retries, dead letters, cancellation, and stale-job recovery protect background work."],
   ];
   const comparisonColumns = [
     { label: "BerryBrain", note: "Source-available cognitive layer" },
@@ -461,17 +455,17 @@ function LandingContent() {
     { label: "Plain folders", note: "Raw files" },
   ];
   const comparisonRows = [
-    ["Local Markdown source", "Implemented", "Implemented", "Not native", "Implemented"],
-    ["First-party self-hostable web stack", "Implemented", "Not native", "Not native", "Not native"],
-    ["Knowledge graph", "Implemented", "Implemented", "Not native", "Not native"],
-    ["Explainable AI insights", "Implemented", "Not native", "Conditional", "Not native"],
-    ["Evidence per connection", "Implemented", "Not native", "Not native", "Not native"],
-    ["Retrieval / semantic search", "Implemented", "Not native", "Conditional", "Not native"],
-    ["RAG Judge / quality gate", "Implemented", "Not native", "Not native", "Not native"],
-    ["Optional HippoRAG multi-hop retrieval", "Implemented", "Not native", "Not native", "Not native"],
-    ["Provider/model trace", "Implemented", "Not native", "Not native", "Not native"],
-    ["Collaboration workspace", "Not native", "Conditional", "Implemented", "Not native"],
-    ["Local source files and data portability", "Implemented", "Implemented", "Conditional", "Implemented"],
+    ["Local Markdown is the live source", "Implemented", "Implemented", "Not native", "Implemented"],
+    ["First-party self-hosted web stack", "Implemented", "Not native", "Not native", "Not native"],
+    ["First-party graph visualization", "Implemented", "Implemented", "Not native", "Not native"],
+    ["Ontology-validated graph assertions", "Implemented", "Not native", "Not native", "Not native"],
+    ["Evidence and provenance per relationship", "Implemented", "Not native", "Not native", "Not native"],
+    ["Grounded workspace AI search", "Implemented", "Not native", "Conditional", "Not native"],
+    ["Configurable RAG Judge committee", "Implemented", "Not native", "Not native", "Not native"],
+    ["Bring your own local or cloud AI provider", "Implemented", "Not native", "Not native", "Not native"],
+    ["Feedback-guided graph adaptation", "Implemented", "Not native", "Not native", "Not native"],
+    ["First-party collaboration workspace", "Not native", "Conditional", "Implemented", "Conditional"],
+    ["Local data portability", "Implemented", "Implemented", "Conditional", "Implemented"],
   ];
   return (
     <>
@@ -494,13 +488,16 @@ function LandingContent() {
           <div>
             <span className="bb-landing-eyebrow inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium">
               <span className="size-1.5 rounded-full bg-accent" />
-              v{APP_VERSION} · Local-first · Evidence-backed
+              v{APP_VERSION} · Self-hosted · Evidence-backed
             </span>
             <h1 className="mt-6 max-w-[940px] text-4xl font-semibold leading-[1.05] sm:text-5xl md:text-[4.1rem]">
-              Turn the notes you already own into knowledge you can navigate.
+              BerryBrain
             </h1>
+            <p className="mt-4 max-w-2xl text-2xl font-semibold leading-tight sm:text-3xl">
+              Turn the Markdown you own into an explainable knowledge system.
+            </p>
             <p className="mt-6 max-w-2xl text-base leading-8 text-muted md:text-lg">
-              BerryBrain reads your Markdown vault, builds explainable connections, retrieves supporting context, and turns gaps into study actions. Your source files stay local and readable without BerryBrain.
+              Write in a portable vault while a recoverable pipeline builds a typed graph, validates relationships, retrieves grounded evidence, and adapts future decisions to your feedback. Choose one explicit Cloud or Local AI mode and keep every automated result inspectable.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
@@ -521,10 +518,10 @@ function LandingContent() {
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["Release", `v${APP_VERSION}`],
-                ["Gates", "Validated"],
-                ["Quality", "Full matrix"],
-                ["Models", "Local/cloud"],
+                ["Ownership", "Markdown vault"],
+                ["Retrieval", "Hybrid + graph"],
+                ["Automation", "Scoped jobs"],
+                ["AI routing", "Cloud XOR Local"],
               ].map(([label, value]) => (
                 <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
                   <div className="text-xs uppercase text-muted">{label}</div>
@@ -574,10 +571,10 @@ function LandingContent() {
           <div className="grid gap-5 md:grid-cols-[0.7fr_1.3fr] md:items-end">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">What it changes</p>
-              <h2 className="mt-3 text-3xl font-semibold">More than notes with an AI button.</h2>
+              <h2 className="mt-3 text-3xl font-semibold">Knowledge that can explain how it got there.</h2>
             </div>
             <p className="max-w-2xl text-sm leading-7 text-muted md:justify-self-end">
-              BerryBrain treats your vault as durable knowledge: sources remain portable, generated artifacts remain traceable, and every automated step stays observable.
+              BerryBrain separates source notes, generated candidates, accepted assertions, uncertainty, and user feedback. The graph can evolve without turning one model response into unquestioned memory.
             </p>
           </div>
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -604,9 +601,9 @@ function LandingContent() {
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Workflow</p>
-            <h2 className="mt-3 text-3xl font-semibold">From a raw note to a decision you can verify.</h2>
+            <h2 className="mt-3 text-3xl font-semibold">From source change to scoped knowledge repair.</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-muted">
-              Each stage adds structure without hiding the source. Generated concepts, connections, and insights carry enough provenance for you to confirm, ignore, or revisit them.
+              New notes, edits, moves, deletions, and graph decisions enter one lifecycle. Each stage preserves provenance, rejects invalid semantic combinations, and limits recalculation to affected evidence whenever possible.
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-5">
@@ -635,35 +632,35 @@ function LandingContent() {
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[1.08fr_0.92fr] md:px-6">
           <div className="bb-card bb-card--elevated p-5">
             <div className="grid gap-4 text-sm">
-              <DiagramBox title="Knowledge sources" body="Markdown, links, PDFs, images, audio, video" />
+              <DiagramBox title="Knowledge sources" body="Markdown notes, links, PDFs, images, audio, video" />
               <DiagramArrow />
               <div className="grid gap-3 sm:grid-cols-3">
-                <DiagramBox title="API" body="Auth, notes, settings" />
-                <DiagramBox title="Worker" body="Leased jobs, extraction, AI tasks" />
-                <DiagramBox title="Models" body="Ollama or cloud provider" />
+                <DiagramBox title="API" body="Auth, vault, graph, settings" />
+                <DiagramBox title="Worker" body="Leased jobs, scoped repair" />
+                <DiagramBox title="Model router" body="Cloud XOR Local" />
               </div>
               <DiagramArrow />
               <div className="grid gap-3 sm:grid-cols-3">
-                <DiagramBox title="Knowledge Base" body="Chunks, metadata, retrieval" />
-                <DiagramBox title="Knowledge Graph" body="Nodes, edges, evidence" />
-                <DiagramBox title="Semantic Layer" body="Clusters, Flow, Judge, HippoRAG" />
+                <DiagramBox title="Knowledge base" body="Chunks, embeddings, provenance" />
+                <DiagramBox title="Ontology graph" body="Typed nodes, predicates, evidence" />
+                <DiagramBox title="Policy layer" body="Judge, feedback, clusters, insights" />
               </div>
               <DiagramArrow />
-              <DiagramBox title="BerryBrain UI" body="Home, graph, insights, monitor" />
+              <DiagramBox title="BerryBrain UI" body="Home, editor, graph, Ask, Activity, Monitor" />
             </div>
           </div>
           <div className="flex flex-col justify-center">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Architecture</p>
-            <h2 className="mt-3 text-3xl font-semibold">A cognitive layer you can run, inspect, and replace piece by piece.</h2>
+            <h2 className="mt-3 text-3xl font-semibold">Separate sources, inference, policy, and presentation.</h2>
             <p className="mt-4 max-w-xl text-sm leading-7 text-muted">
-              Storage, retrieval, graph reasoning, model routing, and system diagnostics have separate responsibilities. No single model response becomes the whole product.
+              Storage, retrieval, ontology validation, model routing, feedback policy, and diagnostics have distinct responsibilities. This keeps provider failures recoverable and generated knowledge traceable to current source versions.
             </p>
             <div className="mt-7 space-y-5">
               {[
-                ["Next.js web", "Public project pages and the self-hosted workspace UI."],
-                ["FastAPI backend", "Notes, setup, jobs, graph, insights, settings, and authenticated maintenance APIs."],
-                ["Worker pipeline", "Recoverable parsing, enrichment, embeddings, graph expansion, Judge calls, and HippoRAG synchronization."],
-                ["Owner security", "One-time setup, configurable login alias, strong password, CSRF, rate limits, and lockout."],
+                ["Next.js web", "Public project pages plus the authenticated Home, editor, graph, Ask, Activity, Monitor, and settings surfaces."],
+                ["FastAPI backend", "Owner auth, vault lifecycle, typed graph, Ask, feedback, jobs, notifications, settings, and maintenance APIs."],
+                ["Worker pipeline", "Recoverable parsing, enrichment, embeddings, Judge evaluation, scoped graph repair, clustering, insights, and retrieval synchronization."],
+                ["Bounded AI routing", "One active provider mode, explicit capability models, compatibility probes, masked secrets, and visible provider provenance."],
               ].map(([title, body]) => (
                 <div key={title} className="border-t border-border pt-4">
                   <h3 className="text-sm font-semibold">{title}</h3>
@@ -679,9 +676,9 @@ function LandingContent() {
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:grid-cols-[0.72fr_1.28fr] md:px-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Trust and recovery</p>
-            <h2 className="mt-3 text-3xl font-semibold">Useful when AI succeeds. Recoverable when it does not.</h2>
+            <h2 className="mt-3 text-3xl font-semibold">Automation with evidence, limits, and a visible state.</h2>
             <p className="mt-4 max-w-md text-sm leading-7 text-muted">
-              Generated knowledge has provenance, lifecycle, and recovery paths. Provider failures stay visible, jobs can resume, and AI output never replaces your Markdown source.
+              Generated knowledge has provenance, lifecycle state, calculated support, and recovery paths. Provider failures withhold synthetic answers, jobs can resume, and AI output never replaces the Markdown source.
             </p>
             <a href={appPath("/docs")} className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-foreground underline-offset-4 hover:text-accent hover:underline">
               Read the technical documentation
@@ -706,10 +703,10 @@ function LandingContent() {
 
       <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-16 md:px-6">
         <div className="max-w-2xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Why it exists</p>
-          <h2 className="mt-3 text-3xl font-semibold">Choose the workflow, not just the feature list.</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Operating model</p>
+          <h2 className="mt-3 text-3xl font-semibold">Compare defaults, not plugin potential.</h2>
           <p className="mt-4 text-sm leading-7 text-muted">
-            Plain folders maximize portability. Obsidian centers local Markdown. Notion centers collaborative cloud work. BerryBrain focuses on a self-hosted cognitive pipeline with inspectable AI outputs.
+            Plain folders maximize file-level control. Obsidian centers a local Markdown knowledge app. Notion centers a collaborative cloud workspace with optional AI search. BerryBrain centers a self-hosted cognitive pipeline whose graph assertions and automated decisions remain inspectable.
           </p>
         </div>
         <div className="bb-card bb-card--elevated overflow-x-auto">
@@ -736,7 +733,7 @@ function LandingContent() {
           </div>
         </div>
         <p className="text-xs leading-5 text-muted">
-          Product-level comparison based on first-party behavior; community plugins are excluded. “Implemented” means the capability ships in the displayed BerryBrain version and is covered by its release validation. “Conditional” means availability depends on plan, configuration, or workflow.
+          Product-level comparison based on first-party behavior reviewed on August 18, 2026; community plugins are excluded. "Implemented" means the capability is native to the product's default operating model. "Conditional" means it depends on a paid plan, export, sync service, shared filesystem, or configuration. Sources: <a className="underline underline-offset-2 hover:text-foreground" href="https://obsidian.md/help/teams/sync" target="_blank" rel="noreferrer">Obsidian Sync</a>, <a className="underline underline-offset-2 hover:text-foreground" href="https://www.notion.com/help/enterprise-search" target="_blank" rel="noreferrer">Notion Enterprise Search</a>, and <a className="underline underline-offset-2 hover:text-foreground" href="https://www.notion.com/help/export-your-content" target="_blank" rel="noreferrer">Notion export</a>.
         </p>
       </section>
 
@@ -744,12 +741,12 @@ function LandingContent() {
         <div className="mx-auto grid w-full max-w-6xl gap-5 px-5 py-14 md:grid-cols-[1fr_auto] md:items-center md:px-6">
           <div>
             <h2 className="text-3xl font-semibold">
-              {accessState === "setup" ? "Create the owner account, then make the vault yours." : "Your second brain is ready when you are."}
+              {accessState === "setup" ? "Create the owner account, then connect the intelligence layer." : "Continue from the current state of your knowledge."}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
               {accessState === "setup"
-                ? "First run takes you through a one-time local owner setup, followed by model and provider configuration."
-                : "Open the workspace to continue writing, connecting, and reviewing. Deployment, security, and recovery details remain available in the docs."}
+                ? "First run creates one local owner, then requires a valid Cloud or Local provider configuration before cognitive jobs can execute."
+                : "Open the workspace to write, inspect processing, question the graph, and act on evidence-backed suggestions. Deployment, security, recovery, and evaluation details remain in the docs."}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row md:justify-end">

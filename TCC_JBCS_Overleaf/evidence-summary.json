@@ -1,0 +1,122 @@
+{
+  "generatedAt": "2026-08-25T14:24:16Z",
+  "integratedRunGeneratedAt": "2026-08-25T01:07:00.503208+00:00",
+  "classification": "exploratory",
+  "profile": "S",
+  "revision": "a81c566",
+  "passed": true,
+  "tests": {
+    "apiFunctionalPassed": 465,
+    "apiCoveragePassed": 464,
+    "apiCoverageSkipped": 1,
+    "workerPassed": 55,
+    "e2ePassed": 56,
+    "focusedPassed": 33,
+    "architectureChecksPassed": 12,
+    "securityChecksPassed": 9
+  },
+  "coverage": {
+    "apiStatements": 16334,
+    "apiCovered": 13425,
+    "apiPercent": 82.1905,
+    "workerStatements": 1416,
+    "workerCovered": 693,
+    "workerPercent": 48.9407
+  },
+  "retrievalAblation": {
+    "queries": 44,
+    "multiHop": 20,
+    "factual": 20,
+    "negative": 4,
+    "standardHybrid": {
+      "recallAt10": 0.5,
+      "mrr": 0.5,
+      "ndcgAt10": 0.5,
+      "p95Ms": 16.691
+    },
+    "graphHybrid": {
+      "recallAt10": 1.0,
+      "mrr": 0.75,
+      "ndcgAt10": 0.815465,
+      "p95Ms": 25.801
+    },
+    "multiHopRecallDifference": 1.0,
+    "bootstrap95": [1.0, 1.0],
+    "bootstrapResamples": 2000,
+    "seed": 20260812
+  },
+  "beirSciFactBm25": {
+    "corpusDocuments": 5183,
+    "queries": 300,
+    "recallAt10": 0.781611111111111,
+    "mrr": 0.6386100230185541,
+    "ndcgAt10": 0.6643898053153052,
+    "indexBuildMs": 1393.1168939452618,
+    "p50Ms": 309.78441110346466,
+    "p95Ms": 386.2050949013792,
+    "p99Ms": 406.3038282794877,
+    "runId": "20260814T045308Z-61842dc72de6976f",
+    "revision": "c297558",
+    "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165"
+  },
+  "judge": {
+    "evaluations": 100,
+    "syntheticReferenceReviews": 30,
+    "humanReviews": 0,
+    "matches": 29,
+    "weightedKappa": 0.9801,
+    "calibrated": false,
+    "status": "regression_only"
+  },
+  "performance": {
+    "graph5000P95Ms": 2739.551,
+    "graph5000PayloadBytes": 14153919,
+    "graph5000PeakMemoryBytes": 63961535,
+    "httpRequestsPerSecond": 62.017,
+    "httpP95Ms": 274.363,
+    "workerQueueP95Ms": 8736.561,
+    "workerQueueDuplicates": 0,
+    "faultsContained": 3,
+    "faultsInjected": 3,
+    "maxRecoveryMs": 9.3698,
+    "graph10000ColdFirstVisualMs": 2186.317794,
+    "graph10000WarmFirstVisualMs": 1018.287754,
+    "graph10000CompleteMs": 6349.916517,
+    "graph10000InteractionP95Ms": 33.5,
+    "graph10000UsedJsHeapBytes": 23100000
+  },
+  "browserPublicRoutes": {
+    "generatedAt": "2026-08-25T14:18:08.999Z",
+    "repetitionsPerRouteAndProfile": 5,
+    "observations": 30,
+    "errorCount": 0,
+    "maximumWallP95Ms": 2383.155503,
+    "maximumLcpP75Ms": 748,
+    "maximumClsP75": 0.0012995643144772377,
+    "maximumDesktopLongTaskP95Ms": 782.2,
+    "maximumMobileLongTaskP95Ms": 553.2
+  },
+  "provenance": {
+    "integratedManifest": {
+      "path": "reports/evaluation/evidence/20260825T010700Z-be80c3b51974adc5/manifest.json",
+      "sha256": "4b1398a6b4951599a544cff2d6f48fcca10ca4e9d00555a610ce98d5052e18c1"
+    },
+    "publicBrowserReport": {
+      "path": "reports/evaluation/browser-performance-public-v1.4.8.json",
+      "sha256": "079e0f8a3f891e7ad46957b0ce02c9a1d0003dbf77e4176f31f518b3735cee82"
+    },
+    "graph10000Report": {
+      "path": "reports/evaluation/graph-performance-10k-v1.4.8.json",
+      "sha256": "716ca64a1d95ccd8fa586ecc962c451e898f826ea5ea058970f4951fabf9c3f0"
+    }
+  },
+  "limitations": [
+    "No human Judge calibration",
+    "No longitudinal user study",
+    "Internal retrieval corpus is a deterministic regression fixture",
+    "BEIR BM25 was not run against BerryBrain on the same corpus",
+    "The evaluated worktree was not clean",
+    "The retained SciFact context run predates the integrated v1.4.8 run and is reported separately",
+    "Single ARM hardware profile"
+  ]
+}

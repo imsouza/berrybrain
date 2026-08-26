@@ -206,10 +206,11 @@ The system is designed around one rule:
   the node before opening its full page; the hover summary stays close and exposes useful context.
 - **Correct return routes**: **Back to Home** opens Brain home while **Back to graph** restores the
   complete graph view with the workspace shell intact.
-- **Complete confidence contract**: concepts, note connections, nodes, edges, insights, cluster
-  assignments, and graph inferences expose Jeffreys-smoothed point estimates with calculated
-  95% Wilson intervals. Missing evidence is unavailable, and migrated records are recalculated
-  idempotently.
+- **Complete evidence-support contract**: concepts, note connections, nodes, edges, insights,
+  cluster assignments, and graph inferences expose a read-only score plus a nominal 95%
+  empirical-Bernstein-style bounded interval over distinct scored signals. Missing scored evidence
+  is unavailable, and migrated records are recalculated idempotently. This interval is not a
+  calibrated probability of factual correctness.
 - **No fabricated production knowledge**: deterministic fallbacks derive their score from source
   occurrences, AI edges always reach Judge, and production self-check payloads are removed.
 
@@ -217,9 +218,11 @@ The system is designed around one rule:
   edges enforce canonical names, direction, symmetry, domain, and range.
 - **Semantic quality gate**: generic metadata labels, sentences posing as concepts, invalid
   endpoint combinations, and ambiguous generated artifacts enter quarantine outside graph/RAG.
-- **Calculated confidence**: graph nodes, edges, insights, and cluster assignments persist a
-  Jeffreys-smoothed point estimate, 95% Wilson interval, sample size, factors, method, and
-  timestamp. No evidence means unavailable, not an invented default. Users cannot edit confidence.
+- **Calculated evidence support**: graph nodes, edges, insights, and cluster assignments persist
+  the midpoint and bounds of the nominal 95% bounded-signal interval, scored-signal count, factors,
+  method, and timestamp. Provenance identifiers remain auditable factors but do not inflate the
+  sample count. No scored evidence means unavailable, not an invented default. Users cannot edit
+  the value; retrieval may rank by the lower bound.
 - **Context clustering**: deterministic medoids, silhouette selection, validated relationship
   signals, and a cohesion floor prevent unrelated nodes from being forced into the same color.
   Reprocessing preserves the last valid context color until a replacement is calculated.
@@ -252,7 +255,7 @@ voice Ask, persistent Ask Flow, global research, progressive rendering, and oper
 | Markdown lifecycle | Real files, watcher/scan, optimistic concurrency, autosave recovery, version-aware processing |
 | Job engine | Structured runs/dependencies, idempotency, leases, heartbeat, backoff, dead-letter, stale recovery |
 | Semantic memory | Chunked indexing, hybrid lexical/vector/graph retrieval, optional Qdrant or Chroma |
-| Knowledge graph | Validated ontology types/roles, source evidence, confidence intervals, quarantine, lifecycle actions, provenance |
+| Knowledge graph | Validated ontology types/roles, source evidence, evidence-support intervals, quarantine, lifecycle actions, provenance |
 | Graph scale | Bounded pages and deltas, deterministic extreme-scale layout, canvas LOD, medoid context clusters, provisional and vault colors |
 | Grounded interaction | Ask refusal without evidence, persistent Flow, cancellable turns, and explicit graph gap research |
 | Insight proposals | Knowledge-only insight policy, evidence-backed graph nodes, explicit accept/reject actions |
@@ -263,13 +266,15 @@ voice Ask, persistent Ask Flow, global research, progressive rendering, and oper
 | Delivery evidence | API, Worker, browser E2E, web build, security, architecture, benchmark, calibration, and dependency audit gates |
 
 Maturity is no longer represented by a static percentage. Maturity V3 awards Levels 0-5 per
-capability from current artifacts, rejects stale or missing evidence, and prevents synthetic CI
+capability from current artifacts, rejects stale or missing evidence, and prevents synthetic continuous-integration
 fixtures from awarding independent or field-validation levels. The latest exploratory S profile
 passed its composed engineering gate but remains `incomplete-evidence` because public external
 datasets, independent comparison, and approved participant/field evidence are not yet available.
 
 See [Maturity Model V3](docs/maturity-model.md), [latest benchmark results](docs/benchmark-results.md),
-and [limitations](docs/limitations.md).
+[evidence-support and uncertainty](docs/confidence-model.md), and [limitations](docs/limitations.md).
+The [documentation authenticity audit](docs/documentation-authenticity-audit-2026-08-25.md)
+records the claim-to-artifact cross-check, citation validation, and remaining publication blockers.
 
 ---
 
@@ -282,22 +287,23 @@ browser, memory, and error distributions. Paired effects include deterministic b
 intervals. Every measured runner emits revision/environment metadata, raw observations, summaries,
 and SHA-256 checksums.
 
-Latest executed exploratory S profile, generated 14 August 2026 at 04:48 UTC:
+Latest executed exploratory S profile, generated 25 August 2026 at 01:07 UTC from the dirty
+`v1.4.8` worktree based on revision `a81c566`:
 
 | Retrieval configuration | Recall@10 | MRR | NDCG@10 | p95 latency |
 | --- | ---: | ---: | ---: | ---: |
-| Lexical only | 0.050 | 0.017 | 0.025 | 10.22 ms |
-| Dense only | 0.500 | 0.500 | 0.500 | 10.85 ms |
-| Standard hybrid | 0.500 | 0.500 | 0.500 | 23.38 ms |
-| Graph lexical | 0.500 | 0.250 | 0.315 | 19.56 ms |
-| Graph hybrid | 1.000 | 0.750 | 0.815 | 31.47 ms |
+| Lexical only | 0.050 | 0.017 | 0.025 | 9.73 ms |
+| Dense only | 0.500 | 0.500 | 0.500 | 8.90 ms |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 16.69 ms |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 18.16 ms |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 25.80 ms |
 
 | Runtime workload | Measured result |
 | --- | ---: |
-| HTTP, 100 requests at concurrency 10 | 76.12 req/s; p50/p95/p99 119.26/224.55/257.96 ms; 0 errors |
-| Worker, 100 jobs | 11.92 jobs/s drain; p95 8,060.36 ms; 0 duplicate claims |
-| On-disk graph, 500 nodes and 1,000 edges | p50/p95 188.62/222.63 ms; 864,092 B payload |
-| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.59 ms containment |
+| HTTP, 100 requests at concurrency 10 | 62.02 req/s; p50/p95/p99 154.29/274.36/327.45 ms; 0 errors |
+| Worker, 100 jobs | 11.03 jobs/s drain; p95 8,736.56 ms; 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | p50/p95 183.97/201.07 ms; 864,092 B payload |
+| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.37 ms containment |
 | Judge synthetic regression | 100 evaluations; 30 synthetic references; kappa 0.9801; `calibrated=false` |
 | Public baseline context | BEIR SciFact BM25: 5,183 documents, 300 queries, Recall@10 0.7816; not a direct comparison |
 
@@ -306,19 +312,20 @@ machine-readable artifacts and remain exploratory because the revision was dirty
 corpus is controlled, the Judge labels are synthetic, and independent replication plus approved
 participant/field evidence remain unavailable.
 
-Release-candidate browser regression, executed 14 August 2026 against the local production image:
+Current retained browser measurements, executed 25 August 2026 against the local production build:
 
 | Browser workload | Measured result |
 | --- | ---: |
-| 10,000-node progressive graph | cold first visual 1,745.35 ms; warm 593.25 ms; complete 4,443.49 ms |
-| 10,000-node graph interaction | p95 33.60 ms; 23.10 MB used JS heap |
-| Public route navigation | 12 routes; maximum wall time 981.67 ms (`/docs`) |
-| Browser functional/accessibility gate | 50/50 passed without retries |
-| Authenticated route navigation | 6 routes; maximum wall time 2,335.46 ms (`/notifications`) |
-| Lazy workspace panels | Settings 244.74 ms; Graph 565.03 ms |
+| Synthetic 10,000-node progressive graph | cold first visual 2,186.32 ms; warm 1,018.29 ms; complete 6,349.92 ms |
+| Synthetic 10,000-node graph interaction | p95 33.50 ms; 23.10 MB used JS heap |
+| Public route navigation | 30 observations; maximum wall p95 2,383.16 ms; 0 recorded page/HTTP 5xx errors |
+| Public route rendering | maximum LCP p75 748 ms; maximum CLS p75 0.00130 |
+| Main-thread work | maximum long-task p95 782.20 ms desktop; 553.20 ms mobile |
 
-This smoke run is regression evidence from one machine and dirty worktree, not a capacity or
-cross-system superiority claim.
+These runs are regression evidence from one machine and a dirty worktree, not capacity or
+cross-system superiority claims. Raw reports are retained in
+`reports/evaluation/graph-performance-10k-v1.4.8.json` and
+`reports/evaluation/browser-performance-public-v1.4.8.json`.
 
 ```bash
 cd apps/api

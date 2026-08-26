@@ -4,8 +4,9 @@
 
 | Field | Value |
 | --- | --- |
-| Generated | 14 August 2026, 04:48:50 UTC |
+| Generated | 25 August 2026, 01:07:00 UTC |
 | Target version | 1.4.8 |
+| Recorded revision | `a81c566` (`v1.4.8`), dirty worktree |
 | Classification | Exploratory engineering evidence |
 | Internal profile | S, pull-request regression |
 | Shared seed | 20260812 |
@@ -25,11 +26,11 @@ configurations used the same query and relevance sets, producing 220 query-level
 
 | Configuration | Recall@10 | MRR | NDCG@10 | p50 (ms) | p95 (ms) | p99 (ms) | Negative rejection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Lexical only | 0.050 | 0.017 | 0.025 | 7.72 | 10.22 | 12.59 | 1.000 |
-| Dense only | 0.500 | 0.500 | 0.500 | 8.34 | 10.85 | 14.57 | 1.000 |
-| Standard hybrid | 0.500 | 0.500 | 0.500 | 19.44 | 23.38 | 24.82 | 1.000 |
-| Graph lexical | 0.500 | 0.250 | 0.315 | 15.97 | 19.56 | 24.73 | 1.000 |
-| Graph hybrid | 1.000 | 0.750 | 0.815 | 22.69 | 31.47 | 34.95 | 1.000 |
+| Lexical only | 0.050 | 0.017 | 0.025 | 7.75 | 9.73 | 12.35 | 1.000 |
+| Dense only | 0.500 | 0.500 | 0.500 | 7.27 | 8.90 | 10.69 | 1.000 |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 14.94 | 16.69 | 18.52 | 1.000 |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 15.10 | 18.16 | 21.67 | 1.000 |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 21.54 | 25.80 | 28.63 | 1.000 |
 
 | Paired result | Standard hybrid | Graph hybrid | Difference |
 | --- | ---: | ---: | ---: |
@@ -62,11 +63,11 @@ claim requires BerryBrain and every baseline to run on the same public corpus wi
 
 | Subsystem | Workload | Throughput | p50 | p95 | p99 | Integrity |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| HTTP health | 100 requests, concurrency 10 | 76.12 req/s | 119.26 ms | 224.55 ms | 257.96 ms | 0 errors |
-| Worker queue | 100 jobs | 49.15 enqueue/s; 11.92 drain/s | 5,452.56 ms | 8,060.36 ms | 8,326.85 ms | 0 duplicate claims |
-| On-disk graph | 500 nodes, 1,000 edges, 7 samples | - | 188.62 ms | 222.63 ms | - | Gate passed |
-| Release-gate graph | 5,000 nodes, 20,000 edges, 7 samples | - | 2,733.77 ms | 2,824.20 ms | - | Gate passed |
-| Semantic retrieval | 100 notes, 45 queries | - | 32.56 ms | 64.33 ms | - | 0 stale evidence |
+| HTTP health | 100 requests, concurrency 10 | 62.02 req/s | 154.29 ms | 274.36 ms | 327.45 ms | 0 errors |
+| Worker queue | 100 jobs | 49.24 enqueue/s; 11.03 drain/s | 6,021.58 ms | 8,736.56 ms | 8,997.23 ms | 0 duplicate claims |
+| On-disk graph | 500 nodes, 1,000 edges, 7 samples | - | 183.97 ms | 201.07 ms | - | Gate passed |
+| Release-gate graph | 5,000 nodes, 20,000 edges, 7 samples | - | 2,687.21 ms | 2,739.55 ms | - | Gate passed |
+| Semantic retrieval | 100 notes, 45 queries | - | 32.28 ms | 45.85 ms | - | 0 stale evidence |
 
 | Resource measurement | Actual | Budget | Utilization |
 | --- | ---: | ---: | ---: |
@@ -77,9 +78,25 @@ claim requires BerryBrain and every baseline to run on the same public corpus wi
 | Metrics recorder absolute overhead | 0.003884 ms/op | Report-only | - |
 | Metrics overhead 95% bootstrap CI | [0.003526, 0.004281] ms/op | Report-only | - |
 
-The metrics-overhead relative ratio is 1.077 because the disabled operation is only 0.003605 ms;
-the absolute difference is the meaningful quantity. Runtime values are host-specific observations,
-not supported production capacity.
+The instrumentation-overhead row comes from its separately retained August 14 paired run; it was
+not silently relabeled as part of the August 25 integrated bundle. Its relative ratio is 1.077
+because the disabled operation is only 0.003605 ms; the absolute difference is the meaningful
+quantity. Runtime values are host-specific observations, not supported production capacity.
+
+### Browser Runtime
+
+| Workload | Samples | Cold/desktop result | Warm/mobile result | Integrity |
+| --- | ---: | ---: | ---: | --- |
+| Synthetic graph, 10,000 nodes and 40,000 edges | 1 scenario, 8 interactions | 2,186.32 ms first visual; 6,349.92 ms complete | 1,018.29 ms warm first visual; 33.50 ms interaction p95 | passed; 23.10 MB heap |
+| Public `/` | 5 per profile | 1,815.16/2,383.16 ms wall p50/p95; 596 ms LCP p75 | 1,654.57/1,907.27 ms wall p50/p95; 360 ms LCP p75 | 0 errors |
+| Public `/docs` | 5 per profile | 1,402.57/1,574.19 ms; 748 ms LCP p75 | 1,245.69/1,267.05 ms; 456 ms LCP p75 | 0 errors |
+| Public `/faq` | 5 per profile | 1,271.30/1,572.63 ms; 440 ms LCP p75 | 1,206.66/1,537.90 ms; 336 ms LCP p75 | 0 errors |
+
+The graph test uses mocked pagination to isolate renderer behavior and is not a real-vault scale
+study. The public-route run contains 30 observations. Maximum CLS p75 was 0.00130. Maximum p95
+long-task duration was 782.20 ms on desktop and 553.20 ms on mobile, so main-thread optimization
+remains open. Both reports were collected from the current local production build on a dirty
+worktree and remain exploratory.
 
 ## Quality And Reliability
 
@@ -90,7 +107,7 @@ not supported production capacity.
 | Cognitive extraction | 6 controlled notes | Precision 1.000; recall 1.000 | Regression passed |
 | Graph connections | 6 controlled notes | Precision 1.000; recall 1.000 | Regression passed |
 | Grounded insights | 12 fixtures | Precision 1.000; recall 1.000 | Regression passed |
-| Fault injection | 3 isolated faults | 3/3 contained; 3/3 prior state preserved | Maximum synchronous containment 9.59 ms |
+| Fault injection | 3 isolated faults | 3/3 contained; 3/3 prior state preserved | Maximum synchronous containment 9.37 ms |
 
 The Judge report has `classification=synthetic-regression`, `total_human_reviews=0`,
 `calibrated=false`, and `status=regression_only`. Strict human-calibration claims require at least
@@ -140,3 +157,5 @@ comparison, approved human evidence, or longitudinal field evidence; fixtures ca
 - `reports/evaluation/thesis-table.md`: generated publication table.
 - `reports/evaluation/retrieval-chart.vl.json`: generated Vega-Lite chart specification.
 - `reports/evaluation/maturity-v3.json`: evidence-based capability assessment.
+- `reports/evaluation/browser-performance-public-v1.4.8.json`: 30 public-route observations.
+- `reports/evaluation/graph-performance-10k-v1.4.8.json`: synthetic 10k graph browser scenario.

@@ -1,4 +1,4 @@
-const CACHE_NAME = "berrybrain-static-v6";
+const CACHE_NAME = "berrybrain-static-v7";
 const BASE = new URL(self.location.href).pathname.replace(/\/sw\.js$/, "") || "";
 const SHELL_ASSETS = [
   BASE + "/manifest.webmanifest",
@@ -54,10 +54,23 @@ self.addEventListener("fetch", (event) => {
 
   if (!staticAsset) return;
 
-  const codeAsset =
-    url.pathname.startsWith(BASE + "/_next/static/") ||
-    url.pathname.endsWith(".css") ||
-    url.pathname.endsWith(".js");
+  const immutableNextAsset = url.pathname.startsWith(BASE + "/_next/static/");
+
+  if (immutableNextAsset) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  const codeAsset = url.pathname.endsWith(".css") || url.pathname.endsWith(".js");
 
   if (codeAsset) {
     event.respondWith(
