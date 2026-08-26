@@ -328,6 +328,14 @@ textarea::placeholder { color: var(--color-muted); opacity: 0.4; }
   justify-content: flex-end;
 }
 
+.bb-graph-toolbar.is-ask-only {
+  grid-template-columns: 1fr;
+}
+
+.bb-graph-toolbar.is-ask-only .bb-graph-toolbar__left {
+  justify-content: flex-start;
+}
+
 .bb-toolbar-menu {
   display: inline-flex;
   height: 2rem;

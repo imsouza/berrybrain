@@ -32,6 +32,13 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.route("**/api/v1/auth/me", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: 1 } }) }),
     );
+    await page.route("**/api/v1/bootstrap", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ configurationGate: { required: false, valid: true } }),
+      }),
+    );
     await page.route("**/api/v1/settings", (route) =>
       route.fulfill({
         status: 200,

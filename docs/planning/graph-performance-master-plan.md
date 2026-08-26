@@ -3,7 +3,7 @@
 ## Status
 
 This historical master plan is complete and has been consolidated into the active
-[v1.4.1 release plan](planning-v1-4-1.md). The active plan is the source of truth for
+[v1.4.1 release plan](v1-4-1-graph-ontology-confidence.md). The active plan is the source of truth for
 implementation evidence, release checks, migration results, and final test counts.
 
 ## Product Invariants
@@ -115,8 +115,8 @@ implementation evidence, release checks, migration results, and final test count
 
 ## References
 
-- [Active v1.4.1 plan](planning-v1-4-1.md)
-- [Design system](../DESIGN.md)
+- [Active v1.4.1 plan](v1-4-1-graph-ontology-confidence.md)
+- [Design system](../info/DESIGN.md)
 - [Design fix plan](design-fix-plan.md)
-- [Architecture](../ARCHITECTURE.md)
+- [Architecture](../architecture.md)
 - [Operations](../../OPERATIONS.md)

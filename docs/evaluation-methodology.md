@@ -87,6 +87,12 @@ runs. Report absolute effect, relative effect where meaningful, 95% confidence i
 count, exclusions, and raw observations. Multiple primary hypotheses require a preregistered family
 and Holm correction. Latency reports distributions and percentiles rather than only means.
 
+This experimental bootstrap is separate from the runtime graph-artifact interval. Runtime evidence
+support uses `empirical-bernstein-bounded-signals-v1` at a nominal 95% construction level. Because
+its heterogeneous signals have not been validated as independent observations of a common mean,
+the runtime bounds are descriptive and must not be reported as calibrated correctness coverage.
+See [Confidence Model](confidence-model.md).
+
 Model-backed runs pin provider, model identifier, temperature, prompt version, context limit, and
 cache policy. Repeat nondeterministic cells and report variance. A result is not confirmatory when
 the revision is dirty, a dataset checksum is absent, or the analysis changed after outcomes were
