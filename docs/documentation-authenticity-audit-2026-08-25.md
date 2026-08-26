@@ -82,7 +82,7 @@ The audit used six checks:
 | Synthetic 10k graph report | `716ca64a1d95ccd8fa586ecc962c451e898f826ea5ea058970f4951fabf9c3f0` |
 | SciFact source archive | `536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165` |
 | Current JBCS package PDF | `f16f6b336adfb621bc943cfcdc1ce701a3a4301fab236f57e206a5a2a0df0759` |
-| Current Overleaf ZIP | `807220513d83dc77b6649cf21b74201cd963f10a276d410107bf7c3f9ddf6244` |
+| Current Overleaf ZIP | `200a539cfcf9bc3b105e45e1de5590e9f4f0d6d9982e662e11da53b2f012c6c6` |
 
 ## Confidence Finding
 
