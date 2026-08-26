@@ -109,22 +109,22 @@ def _judge_source_context(session, artifact: object, artifact_type: str) -> dict
     from berrybrain_api.learning import build_learning_guidance
 
     source_note_ids = {
-        int(value)
+        int(str(value))
         for value in _parse_json_list(getattr(artifact, "source_note_ids", "[]"))
         if str(value).isdigit()
     }
     if artifact_type == "connection":
         source_note_ids.update(
-            int(value)
+            int(str(value or 0))
             for value in (
                 getattr(artifact, "source_note_id", 0),
                 getattr(artifact, "target_note_id", 0),
             )
-            if int(value or 0) > 0
+            if int(str(value or 0)) > 0
         )
     if artifact_type == "insight":
         source_note_ids.update(
-            int(value)
+            int(str(value))
             for value in _parse_json_list(getattr(artifact, "related_notes", "[]"))
             if str(value).isdigit()
         )

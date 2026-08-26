@@ -9,6 +9,10 @@
 - **Independent replication:** evaluator chooses a separate environment, follows the frozen protocol,
   records deviations, and compares effect directions and confidence intervals.
 
+Experimental intervals refer to retained query- or run-level observations. Runtime graph
+evidence-support bounds are a different construction and must be evaluated for calibration before
+being interpreted statistically; see [Confidence Model](confidence-model.md).
+
 ## Environment Record
 
 Retain revision and dirty state, Docker image digests, lockfiles, environment-variable names with

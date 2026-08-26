@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Route } from "next";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { formatEvidenceLabel } from "./graph-formatters";
 import { t } from "@/i18n";
@@ -21,7 +22,7 @@ import {
   LayoutDashboard,
   Lightbulb,
   List,
-  Maximize2,
+  MessageSquareText,
   Network,
   RefreshCw,
   Settings,
@@ -368,6 +369,7 @@ export function GraphScreen({
   onOpenHome?: () => void;
   onOpenSettings?: () => void;
 }) {
+  const router = useRouter();
   const { data, error, reload } = useGraphData(apiUrl);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -993,9 +995,9 @@ export function GraphScreen({
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className={`bb-graph-toolbar relative z-40 shrink-0 border-b border-border bg-panel px-3 py-2 text-xs lg:px-4 ${askOnly ? "is-ask-only" : ""}`}>
         <div className="bb-graph-toolbar__left">
-          <button className="bb-icon-button" onClick={askOnly ? (onOpenHome || onClose) : onClose} aria-label={askOnly ? "Back to Home" : "Back"} title={askOnly ? "Back to Home" : "Back"}>
+          {!askOnly && <button className="bb-icon-button" onClick={onClose} aria-label="Back" title="Back">
             <ArrowLeft className="size-4" />
-          </button>
+          </button>}
           {!askOnly && <div className="mr-2 min-w-0">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Network className="size-4 text-accent" />{t("graphTitle")}</h2>
             {graphData && (
@@ -1004,9 +1006,9 @@ export function GraphScreen({
               </div>
             )}
           </div>}
-          {askOnly && <div className="flex items-center gap-1">
-            <button className="bb-action h-8 gap-1.5 px-2.5 text-[11px]" onClick={onOpenHome || onClose}><Home className="size-3.5" />Home</button>
-            <button className="bb-action h-8 gap-1.5 px-2.5 text-[11px]" onClick={onOpenGraph || (() => { window.location.href = appPath("/brain?graph=open"); })}><Network className="size-3.5" />Graph</button>
+          {askOnly && <div className="flex flex-nowrap items-center gap-2">
+            <button className="bb-action inline-flex h-8 items-center gap-1.5 whitespace-nowrap px-2.5 text-[11px]" onClick={onOpenHome || onClose}><Home className="size-3.5 shrink-0" /><span>Home</span></button>
+            <button className="bb-action inline-flex h-8 items-center gap-1.5 whitespace-nowrap px-2.5 text-[11px]" onClick={onOpenGraph || (() => router.push(appPath("/brain?graph=open") as Route))}><Network className="size-3.5 shrink-0" /><span>Graph</span></button>
           </div>}
         </div>
         {!askOnly && <form
@@ -1035,8 +1037,8 @@ export function GraphScreen({
             className="bb-action grid h-9 w-9 shrink-0 place-items-center text-base"
             aria-label="Open Ask workspace"
             title="Open Ask workspace"
-            onClick={() => { window.location.href = appPath(`/ask${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`); }}
-          ><Maximize2 className="size-4" /></button>}
+            onClick={() => router.push(appPath(`/ask${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`) as Route)}
+          ><MessageSquareText className="size-4" /></button>}
           <button
             type="submit"
             className="bb-action h-9 min-w-16 shrink-0 px-3 text-xs font-semibold"
@@ -1112,7 +1114,7 @@ export function GraphScreen({
             {graphPipeline.active > 0 ? `${graphPipeline.active} note${graphPipeline.active === 1 ? "" : "s"} enriching` : "Graph enrichment needs attention"}
           </span>
           {graphPipeline.estimatedRemainingSeconds != null && <span className="text-muted">{formatGraphEtaRange(graphPipeline.estimatedRemainingSeconds, graphPipeline.estimatedRemainingSecondsP95)}</span>}
-          {graphPipeline.degraded > 0 && <button className="bb-action bb-action--danger ml-auto h-7 px-2.5 text-[10px]" onClick={() => { window.location.href = appPath("/activity"); }}>{graphPipeline.degraded} failed pipeline{graphPipeline.degraded === 1 ? "" : "s"}</button>}
+          {graphPipeline.degraded > 0 && <button className="bb-action bb-action--danger ml-auto h-7 px-2.5 text-[10px]" onClick={() => router.push(appPath("/activity") as Route)}>{graphPipeline.degraded} failed pipeline{graphPipeline.degraded === 1 ? "" : "s"}</button>}
         </div>
       )}
 

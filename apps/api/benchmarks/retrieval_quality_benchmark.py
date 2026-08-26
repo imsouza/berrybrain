@@ -246,7 +246,7 @@ def _rank_fusion(candidates: list[list[dict]], limit: int = 10) -> list[dict]:
             note_id = int(item["id"])
             scores[note_id] = scores.get(note_id, 0.0) + 1.0 / (60 + rank)
             records.setdefault(note_id, item)
-    ranked = sorted(scores, key=scores.get, reverse=True)[:limit]
+    ranked = sorted(scores, key=lambda note_id: scores[note_id], reverse=True)[:limit]
     return [{**records[note_id], "evidence": []} for note_id in ranked]
 
 
