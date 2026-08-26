@@ -370,6 +370,152 @@ test.describe("Authenticated workspace quality", () => {
     expect(savedConfiguration.judge?.model_id).toBe("nvidia/e2e-model-a");
   });
 
+  test("fails closed when setup metadata is unavailable and recovers with retry", async ({
+    page,
+    context,
+  }) => {
+    const csrf = await authenticate(context);
+    const completed = await context.request.put("/api/v1/settings/onboarding_completed", {
+      data: { value: "true" },
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(completed.ok(), await completed.text()).toBeTruthy();
+
+    let providerRequests = 0;
+    await page.route("**/api/v1/bootstrap", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configurationGate: { required: true, valid: false } }),
+    }));
+    await page.route("**/api/v1/ai/providers", (route) => {
+      providerRequests += 1;
+      if (providerRequests === 1) {
+        return route.fulfill({ status: 503, body: "{}" });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          providers: [{ id: "ollama", label: "Ollama", mode: "local", url: "http://ollama:11434" }],
+        }),
+      });
+    });
+
+    await page.goto("/brain");
+    await expect(page.getByText("AI providers could not be loaded.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+    await page.getByRole("button", { name: "Retry setup check" }).click();
+    await expect(page.getByRole("button", { name: "Local / Ollama" })).toBeVisible();
+    await expect(page.getByText("AI providers could not be loaded.")).toHaveCount(0);
+  });
+
+  test("finishes a reopened tour without reopening valid AI setup", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    await page.evaluate(() => window.dispatchEvent(new Event("bb:open-tour")));
+    await expect(page.getByRole("heading", { name: "Capture first, organize later." })).toBeVisible();
+    const skip = page.getByRole("button", { name: "Skip" });
+    await expect(skip).toBeEnabled();
+    await skip.click();
+    await expect(page.getByRole("heading", { name: "Capture first, organize later." })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Mode" })).toHaveCount(0);
+  });
+
+  test("does not flash AI setup while validating an existing configuration", async ({
+    page,
+    context,
+  }) => {
+    const csrf = await authenticate(context);
+    const completed = await context.request.put("/api/v1/settings/onboarding_completed", {
+      data: { value: "true" },
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(completed.ok(), await completed.text()).toBeTruthy();
+
+    let providerRequests = 0;
+    await page.route("**/api/v1/bootstrap", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          configurationGate: { required: false, valid: true, mode: "cloud" },
+        }),
+      });
+    });
+    await page.route("**/api/v1/ai/providers", async (route) => {
+      providerRequests += 1;
+      await route.fulfill({ status: 500, body: "{}" });
+    });
+
+    await page.goto("/brain");
+    await page.waitForTimeout(100);
+    await expect(page.getByRole("heading", { name: "Mode" })).toHaveCount(0);
+    await expect(page.getByText("AI setup could not be loaded.")).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Navigation" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Ask", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/ask$/, { timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Mode" })).toHaveCount(0);
+    expect(providerRequests).toBe(0);
+  });
+
+  test("uses client navigation and keeps Ask navigation labels on one line", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    await page.evaluate(() => {
+      (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation = "retained";
+    });
+
+    await page.getByRole("button", { name: "Ask", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/ask$/);
+    await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
+    expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");
+
+    for (const label of ["Home", "Graph"]) {
+      const button = page.getByRole("button", { name: label, exact: true });
+      const icon = button.locator("svg");
+      const text = button.locator("span");
+      const [iconBox, textBox] = await Promise.all([icon.boundingBox(), text.boundingBox()]);
+      expect(iconBox).not.toBeNull();
+      expect(textBox).not.toBeNull();
+      expect(Math.abs((iconBox!.y + iconBox!.height / 2) - (textBox!.y + textBox!.height / 2))).toBeLessThan(2);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const label of ["Home", "Graph"]) {
+      const button = page.getByRole("button", { name: label, exact: true });
+      const [iconBox, textBox] = await Promise.all([
+        button.locator("svg").boundingBox(),
+        button.locator("span").boundingBox(),
+      ]);
+      expect(iconBox).not.toBeNull();
+      expect(textBox).not.toBeNull();
+      expect(Math.abs((iconBox!.y + iconBox!.height / 2) - (textBox!.y + textBox!.height / 2))).toBeLessThan(2);
+    }
+
+    await page.getByRole("button", { name: "Graph", exact: true }).click();
+    await expect(page).toHaveURL(/\/brain\?graph=open$/);
+    await expect(page.getByRole("button", { name: "Open Ask workspace" })).toBeVisible();
+    expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");
+  });
+
+  test("renders the activity workspace with live controls and cached client navigation", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    await page.evaluate(() => {
+      (window as Window & { __berrybrainActivityNavigation?: string }).__berrybrainActivityNavigation = "retained";
+    });
+    await page.getByRole("button", { name: "View activity", exact: true }).click();
+    await expect(page).toHaveURL(/\/activity$/);
+    await expect(page.getByRole("heading", { name: "Automatic Activity", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+    await expect(page.getByText("Technical details", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Activity overview")).toBeVisible();
+    expect(await page.evaluate(() => (window as Window & { __berrybrainActivityNavigation?: string }).__berrybrainActivityNavigation)).toBe("retained");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test("opens the dedicated Ask workspace from Home and answers there", async ({ page, context }) => {
     await page.route("**/api/v1/ask/suggestions?*", (route) => route.fulfill({
       status: 200,

@@ -8,7 +8,7 @@ not software defects and must not be marked complete without the named artifact.
 | EXT-001 | Final thesis theme and primary outcome | Supervisor-approved research proposal | Student and supervisor | Open |
 | EXT-002 | Confirmatory preregistration | Timestamped protocol with frozen hypotheses, exclusions, and analysis | Research team | Open |
 | EXT-003 | Ethics/LGPD approval or exemption | Institutional decision and approved consent/privacy materials | Institution | Open |
-| EXT-004 | BEIR payload | Verified files, per-subset license, split, and SHA-256 | Upstream dataset/operator | Not installed |
+| EXT-004 | BEIR payload | Verified files, per-subset license, split, and SHA-256 | Upstream dataset/operator | SciFact executed from verified temporary files; payload not retained |
 | EXT-005 | HotpotQA payload | Verified official data and sampled-subset manifest | Upstream dataset/operator | Not installed |
 | EXT-006 | MuSiQue payload | Verified official data and sampled-subset manifest | Upstream dataset/operator | Not installed |
 | EXT-007 | Curated personal-knowledge set | Consented, de-identified corpus with qrels and gold graph | Reviewers and participants | Open |

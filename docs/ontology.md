@@ -58,6 +58,10 @@ dependent insights, then schedules scoped cluster, retrieval, statistics, and in
 - Edge line style and arrow direction encode predicate role and state.
 - Confidence is displayed numerically as a calculated support interval, not as color.
 
+The support interval has a nominal 95% construction level and is not a calibrated probability of
+truth. Its assumptions and runtime/benchmark distinction are specified in
+[Confidence Model](confidence-model.md).
+
 These channels are independent. Two concepts in different contexts keep the same diamond shape but
 different colors. A note and concept in the same context keep different shapes but may share a
 cluster color, except for the mandatory note-parent red override.

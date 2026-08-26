@@ -20,7 +20,9 @@ study measuring reliability, accepted insights, corrections, and task reuse over
 - H2: Judge/provenance gating reduces unsupported promoted claims.
 - H3: full BerryBrain improves task success and evidence coverage relative to search-only.
 - H4: graph and continuous-agent benefits have measurable latency/cost overhead.
-- H5: confidence lower bounds are positively calibrated with human correctness labels.
+- H5: a preregistered calibration model fitted on separate human labels reduces held-out Brier
+  score and expected calibration error relative to the raw evidence-support midpoint, while
+  empirical interval coverage is reported without assuming nominal coverage.
 - H6: feedback-guided adaptation reduces recurrence of previously rejected artifacts within the
   same source context without increasing false suppression in unrelated contexts.
 

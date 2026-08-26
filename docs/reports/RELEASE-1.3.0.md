@@ -6,7 +6,7 @@
 **Validated SHA:** `e9109cc277d40fafbd6a624b2ed68d4a756c14cd`
 
 This report is historical. The current release evidence is maintained in the
-[v1.4.1 release plan](../planning/planning-v1-4-1.md).
+[v1.4.1 release plan](../planning/v1-4-1-graph-ontology-confidence.md).
 
 ## Root Causes And Fixes
 

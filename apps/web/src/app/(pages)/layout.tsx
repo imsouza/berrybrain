@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Route } from "next";
 import dynamic from "next/dynamic";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-context";
 import { WorkspaceSidebar } from "@/components/sidebar/workspace-sidebar";
 import { ResizeHandle } from "@/components/sidebar/resize-handle";
 import { RequiredAiSetup } from "@/components/required-ai-setup";
+import {
+  hasRecentAuthenticatedSession,
+  verifyAuthenticatedSession,
+} from "@/lib/auth-session-cache";
 
 const CommandPalette = dynamic(() => import("@/components/command-palette").then((module) => module.CommandPalette));
 const ObservabilityPanel = dynamic(() => import("@/components/observability-panel").then((module) => module.ObservabilityPanel));
@@ -14,8 +19,9 @@ const NotificationsPopover = dynamic(() => import("@/components/notifications-po
 const SettingsPanel = dynamic(() => import("@/components/settings-panel").then((module) => module.SettingsPanel));
 const OnboardingModal = dynamic(() => import("@/components/onboarding-modal").then((module) => module.OnboardingModal));
 const GuidePanel = dynamic(() => import("@/components/guide-panel").then((module) => module.GuidePanel));
+const loadGraphScreen = () => import("@/components/graph-screen").then((module) => module.GraphScreen);
 const GraphScreen = dynamic(
-  () => import("@/components/graph-screen").then((module) => module.GraphScreen),
+  loadGraphScreen,
   {
     ssr: false,
     loading: () => <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted">Loading graph...</div>,
@@ -24,9 +30,12 @@ const GraphScreen = dynamic(
 
 function Shell({ children }: { children: React.ReactNode }) {
   const w = useWorkspace();
+  const router = useRouter();
   const pathname = usePathname();
   const prevActive = useRef(w.active);
-  const [authState, setAuthState] = useState<"checking" | "allowed">("checking");
+  const [authState, setAuthState] = useState<"checking" | "allowed">(
+    hasRecentAuthenticatedSession() ? "allowed" : "checking",
+  );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   // ponytail: basePath-aware return-to-login link (strip basePath so safeNext can re-apply it)
@@ -35,10 +44,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    fetch(`${w.api}/api/v1/auth/me`, { credentials: "include" })
-      .then((response) => {
+    verifyAuthenticatedSession(w.api)
+      .then((authenticated) => {
         if (!alive) return;
-        if (response.ok) setAuthState("allowed");
+        if (authenticated) setAuthState("allowed");
         else window.location.href = loginHref();
       })
       .catch(() => {
@@ -52,10 +61,22 @@ function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (authState !== "allowed") return;
     if (w.active && w.active !== prevActive.current) {
-      window.location.href = appPath(`/brain?note=${encodeURIComponent(w.active.path)}`);
+      router.push(appPath(`/brain?note=${encodeURIComponent(w.active.path)}`) as Route);
     }
     prevActive.current = w.active;
-  }, [authState, w.active]);
+  }, [authState, router, w.active]);
+
+  useEffect(() => {
+    router.prefetch(appPath("/brain") as Route);
+    router.prefetch(appPath("/ask") as Route);
+    const preloadGraph = () => { void loadGraphScreen(); };
+    const idleId = window.requestIdleCallback?.(preloadGraph, { timeout: 2500 });
+    const timeoutId = idleId === undefined ? window.setTimeout(preloadGraph, 1200) : undefined;
+    return () => {
+      if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [router]);
 
   if (authState !== "allowed") {
     return (
@@ -93,7 +114,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 className="rounded-lg px-2 py-1 text-xs text-muted hover:bg-surface hover:text-foreground"
                 onClick={() => {
                   w.setGraphOpen(false);
-                  window.location.href = appPath("/brain");
+                  router.push(appPath("/brain") as Route);
                 }}
               >
                 Back to Home

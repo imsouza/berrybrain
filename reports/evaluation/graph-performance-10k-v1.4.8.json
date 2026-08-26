@@ -1,0 +1,126 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/mnt/HDD_1/Antigravity/berrybrain/apps/web/node_modules/.bin/playwright",
+      "test",
+      "e2e/graph-performance.spec.ts",
+      "--project=chromium",
+      "--reporter=json"
+    ],
+    "configFile": "/mnt/HDD_1/Antigravity/berrybrain/apps/web/playwright.config.ts",
+    "rootDir": "/mnt/HDD_1/Antigravity/berrybrain/apps/web/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/mnt/HDD_1/Antigravity/berrybrain/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/mnt/HDD_1/Antigravity/berrybrain/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "graph-performance.spec.ts",
+      "file": "graph-performance.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "renders and interacts with a 10k-node progressive graph inside runtime budgets",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 10098,
+                  "errors": [],
+                  "stdout": [
+                    {
+                      "text": "[graph-interaction-samples] [11,32.799999952316284,33.300000071525574,33.39999997615814,33.5,33.39999997615814,33.200000047683716,33.299999952316284]\n"
+                    },
+                    {
+                      "text": "[graph-runtime-budget] {\"coldFirstVisualMs\":2186.3177940000005,\"warmFirstVisualMs\":1018.287753999999,\"completeLoadMs\":6349.916517000001,\"interactionP95\":33.5,\"width\":996,\"height\":561,\"usedJSHeapBytes\":23100000}\n"
+                    }
+                  ],
+                  "stderr": [
+                    {
+                      "text": "(node:2846454) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+                    }
+                  ],
+                  "retry": 0,
+                  "startTime": "2026-08-25T14:23:04.394Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580badd0dd640f593e35-7f22d6322bd4740fce56",
+          "file": "graph-performance.spec.ts",
+          "line": 6,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-25T14:23:02.064Z",
+    "duration": 13375.686,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

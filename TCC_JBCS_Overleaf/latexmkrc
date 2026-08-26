@@ -1,0 +1,3 @@
+# The JBCS class loads fontspec and therefore requires XeLaTeX.
+# Override latexmk's pdfLaTeX command so imported Overleaf projects compile immediately.
+$pdflatex = 'xelatex -synctex=1 -interaction=nonstopmode %O %S';

@@ -15,9 +15,11 @@ vault/*
 coverage.json
 build/
 dist/
-docs/
+/docs/
 apps/web/test-results/
 apps/web/playwright-report/
+/.tmp/
+/Journal_of_the_Brazilian_Computer_Society__JBCS__Template.zip
 
 # build artifacts
 *.tsbuildinfo

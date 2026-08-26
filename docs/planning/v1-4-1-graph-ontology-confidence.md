@@ -1,5 +1,9 @@
 # BerryBrain v1.4.1 Graph, Ontology, and Confidence Plan
 
+> Historical implementation record. The runtime confidence model was replaced after this plan.
+> Use [Evidence-Support And Statistical Uncertainty](../confidence-model.md) for the current method
+> and terminology; Wilson claims below describe the implementation evaluated at that time.
+
 Status: complete; release evidence consolidated in the v1.4.2 plan.
 
 ## Canonical Ontology

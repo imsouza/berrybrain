@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getApiUrl, appPath } from "@/contexts/workspace-context";
+import { clearAuthenticatedSessionCache } from "@/lib/auth-session-cache";
 import {
   AccountSettingsDialog,
   readCsrf,
@@ -50,6 +51,7 @@ export function AccountMenu() {
       } catch {
         // Navigation still moves the user to the expected account boundary.
       } finally {
+        clearAuthenticatedSessionCache();
         window.location.href = appPath(dest);
       }
     },

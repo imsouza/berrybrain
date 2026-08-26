@@ -376,6 +376,10 @@ type GraphData = {
   palette?: Record<string, GraphPaletteColor>;
 };
 
+// Private graph data stays in memory for the current tab only. Route changes can
+// revalidate by graph version without downloading the full graph again.
+const graphDataCache = new Map<string, GraphData>();
+
 async function fetchGraphResource(
   input: string,
   timeoutMs = 2_500,
@@ -390,8 +394,9 @@ async function fetchGraphResource(
 }
 
 export function useGraphData(apiUrl: string) {
-  const [data, setData] = useState<GraphData | null>(null);
-  const dataRef = useRef<GraphData | null>(null);
+  const initialData = apiUrl === "__demo__" ? null : graphDataCache.get(apiUrl) || null;
+  const [data, setData] = useState<GraphData | null>(initialData);
+  const dataRef = useRef<GraphData | null>(initialData);
   const [error, setError] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
   useEffect(() => {
@@ -405,6 +410,7 @@ export function useGraphData(apiUrl: string) {
     function publish(next: GraphData) {
       if (cancelled) return;
       dataRef.current = next;
+      graphDataCache.set(apiUrl, next);
       setData(next);
     }
     async function loadMetadata() {
@@ -496,7 +502,7 @@ export function useGraphData(apiUrl: string) {
       setError(false);
       try {
         const previous = dataRef.current;
-        const updatedByDelta = reloadVersion > 0 && previous
+        const updatedByDelta = previous
           ? await loadDelta(previous).catch(() => false)
           : false;
         if (!updatedByDelta) await loadFullGraph();

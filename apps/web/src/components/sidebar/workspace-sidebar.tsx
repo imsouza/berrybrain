@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import packageMetadata from "../../../package.json";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
@@ -31,6 +32,7 @@ type WorkspaceSidebarProps = {
 
 export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: WorkspaceSidebarProps = {}) {
   const w = useWorkspace();
+  const router = useRouter();
   const notes = w.notes;
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
@@ -194,7 +196,26 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       w.createDraft();
       return;
     }
-    window.location.href = appPath("/brain?newNote=1");
+    router.push(appPath("/brain?newNote=1") as Route);
+  }
+
+  function openGraphFromSidebar() {
+    onMobileClose?.();
+    if (pathname === "/brain" || pathname.endsWith("/brain") || pathname === "/demo" || pathname.endsWith("/demo")) {
+      w.setGraphOpen(true);
+      return;
+    }
+    router.push(appPath("/brain?graph=open") as Route);
+  }
+
+  function openNoteFromSidebar(path: string) {
+    onMobileClose?.();
+    if (pathname === "/brain" || pathname.endsWith("/brain") || pathname === "/demo" || pathname.endsWith("/demo")) {
+      w.setGraphOpen(false);
+      void w.openNote(path);
+      return;
+    }
+    router.push(appPath(`/brain?note=${encodeURIComponent(path)}`) as Route);
   }
 
   function persistFolderOrder(paths: string[]) {
@@ -315,7 +336,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-xl transition-opacity hover:opacity-80" onClick={() => { onMobileClose?.(); window.location.href = appPath("/brain"); }} priority />
+        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-xl transition-opacity hover:opacity-80" onClick={() => { onMobileClose?.(); router.push(appPath("/brain") as Route); }} priority />
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v{appVersion}</div>
 
@@ -332,7 +353,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
         </button>
         <button
           className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
-          onClick={() => { onMobileClose?.(); w.setGraphOpen(true); }}
+          onClick={openGraphFromSidebar}
         >
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 7h.01M12 17h.01M7 7l5 10m5-10-5 10m-5-10h10" /></svg>
           <span className="flex-1 text-left">Knowledge graph</span>
@@ -406,7 +427,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                             setDragOverNote("");
                             reorderNote(sourceNote, n.path);
                           }}
-                          onClick={() => { onMobileClose?.(); w.setGraphOpen(false); w.openNote(n.path); }}
+                          onClick={() => openNoteFromSidebar(n.path)}
                         >
                           <span className="grid size-5 shrink-0 place-items-center rounded text-[10px] font-medium bg-surface text-muted">{n.title[0]?.toUpperCase()}</span>
                           <span className="truncate">{n.title}</span>
