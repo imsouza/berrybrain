@@ -8,7 +8,8 @@ import { HomeView } from "./home/home-view";
 import { RightPanel } from "./panel/right-panel";
 import { ResizeHandle } from "./sidebar/resize-handle";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import type { Route } from "next";
+import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 
 const CommandPalette = dynamic(() => import("./command-palette").then((module) => module.CommandPalette));
@@ -45,6 +46,7 @@ const GraphScreen = dynamic(
 
 function Shell() {
   const w = useWorkspace();
+  const router = useRouter();
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const isAskPage = pathname === "/ask" || pathname.endsWith("/ask");
@@ -83,8 +85,18 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    void Promise.all([loadGraphScreen(), loadSettingsPanel()]);
-  }, []);
+    router.prefetch(appPath("/ask") as Route);
+    router.prefetch(appPath("/activity") as Route);
+    const preloadWorkspaceTools = () => {
+      void Promise.all([loadGraphScreen(), loadSettingsPanel()]);
+    };
+    const idleId = window.requestIdleCallback?.(preloadWorkspaceTools, { timeout: 2500 });
+    const timeoutId = idleId === undefined ? window.setTimeout(preloadWorkspaceTools, 1200) : undefined;
+    return () => {
+      if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [router]);
   return (
     <main className="bb-workspace flex h-[100dvh] overflow-hidden bg-background text-foreground">
       {w.cmdOpen && <CommandPalette open onClose={() => w.setCmdOpen(false)} onNavigate={w.openNote} onCreateNote={() => w.createDraft()} onScanVault={w.scanVault} onCreateDraft={() => w.createDraft()} apiUrl={w.api} />}
@@ -122,9 +134,9 @@ function Shell() {
             autoFocusAsk
             autoSubmitAsk={Boolean(askInitialQuery)}
             initialAskQuery={askInitialQuery}
-            onClose={() => { window.location.href = appPath("/brain"); }}
-            onOpenHome={() => { window.location.href = appPath("/brain"); }}
-            onOpenGraph={() => { window.location.href = appPath("/brain?graph=open"); }}
+            onClose={() => router.push(appPath("/brain") as Route)}
+            onOpenHome={() => router.push(appPath("/brain") as Route)}
+            onOpenGraph={() => router.push(appPath("/brain?graph=open") as Route)}
             onOpenSettings={() => w.setSettingsOpen(true)}
             onNavigate={(path) => { void w.openNote(path); }}
           />

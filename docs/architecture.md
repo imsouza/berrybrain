@@ -9,11 +9,20 @@ BerryBrain is a local-first knowledge system with four runtime services:
 
 ## Data Ownership
 
-Markdown files in the vault are user-owned source records. SQLite stores indexed state, generated metadata, graph records, jobs, notifications, and settings. Generated fields never overwrite user-authored content without an explicit write action.
+Markdown files in the vault are user-owned canonical content. SQLite combines authoritative
+operational control state (stable identities, provenance, feedback policies, settings, jobs, and
+notifications) with generated metadata and graph records. Lexical/vector indexes, generated graph
+artifacts, the HippoRAG projection, and caches are rebuildable; user decisions and operational
+control state are not disposable projections. Generated fields never overwrite user-authored
+content without an explicit write action.
 
 ## Graph Contract
 
-Nodes use canonical English ontology types. Edges are directed, named relationships with validated endpoint domains and ranges. Confidence is system-calculated from evidence and provenance; clients cannot write it.
+Nodes use canonical English ontology types. Edges are directed, named relationships with validated
+endpoint domains and ranges. Evidence support is system-calculated and read-only. The nominal 95%
+bounded-signal interval is inspired by an empirical Bernstein radius; it is not a calibrated
+probability of correctness. Provenance identifies supporting sources but does not by itself count
+as an independent scored observation. See [Confidence Model](confidence-model.md).
 
 ### User-decision feedback
 

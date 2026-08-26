@@ -1,5 +1,9 @@
 # BerryBrain v1.4.2 Graph Interaction and Confidence Plan
 
+> Historical implementation record. The runtime confidence model was replaced after this plan.
+> Use [Evidence-Support And Statistical Uncertainty](../confidence-model.md) for the current method
+> and terminology; Wilson claims below describe the implementation evaluated at that time.
+
 Status: implementation and validation complete; publication paused for requested corrections.
 
 ## Voice Input

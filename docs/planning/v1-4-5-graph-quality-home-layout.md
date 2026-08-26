@@ -1,5 +1,9 @@
 # v1.4.5 Graph Quality and Workspace Layout
 
+> Historical implementation record. The Jeffreys/Wilson method documented below was superseded.
+> Use [Evidence-Support And Statistical Uncertainty](../confidence-model.md) for the current runtime
+> method and publication terminology.
+
 Status: validated release candidate; publication authorized.
 
 ## Scope
