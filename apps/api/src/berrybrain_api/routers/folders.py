@@ -2,8 +2,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from berrybrain_api.config import get_settings
+from berrybrain_api.database import SessionLocal
+from berrybrain_api.filesystem import serialized_vault
+from berrybrain_api.jobs import PENDING, RUNNING, SUPERSEDED, enqueue_note_changed_jobs
+from berrybrain_api.models import JobRecord, NoteAttachmentRecord, NoteRecord
+from berrybrain_api.sync import sync_note_record
 
 router = APIRouter(prefix="/api/v1/folders", tags=["folders"])
 
@@ -65,6 +71,7 @@ def list_folders() -> dict:
 
 
 @router.post("", status_code=201)
+@serialized_vault
 def create_folder(payload: CreateFolderRequest) -> dict:
     settings = get_settings()
     vault_path = settings.vault_path
@@ -93,9 +100,13 @@ def create_folder(payload: CreateFolderRequest) -> dict:
 
 
 @router.put("/{folder_path:path}")
+@serialized_vault
 def rename_folder(folder_path: str, payload: dict) -> dict:
     settings = get_settings()
     full_path = _resolve_folder(settings.vault_path, folder_path)
+    root = settings.vault_path.resolve()
+    if full_path == root:
+        raise HTTPException(status_code=400, detail="Cannot rename the vault root")
 
     if not full_path.exists() or not full_path.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -104,20 +115,70 @@ def rename_folder(folder_path: str, payload: dict) -> dict:
     if not new_name or "/" in new_name or "\\" in new_name or new_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="New name required")
 
-    new_path = full_path.parent / new_name
+    new_path = (full_path.parent / new_name).resolve()
+    if root not in new_path.parents:
+        raise HTTPException(status_code=400, detail="Invalid target folder")
     if new_path.exists():
         raise HTTPException(
             status_code=400, detail="Folder with new name already exists"
         )
 
-    full_path.rename(new_path)
-    return {"name": new_name, "path": str(new_path.relative_to(settings.vault_path))}
+    old_prefix = full_path.relative_to(root).as_posix() + "/"
+    new_prefix = new_path.relative_to(root).as_posix() + "/"
+    with SessionLocal() as session:
+        records = [
+            row
+            for row in session.scalars(select(NoteRecord))
+            if row.path.startswith(old_prefix)
+        ]
+        moves = {row.path: new_prefix + row.path[len(old_prefix) :] for row in records}
+        moved_ids = {row.id for row in records}
+        full_path.rename(new_path)
+        try:
+            for row in records:
+                row.path = moves[row.path]
+            for attachment in session.scalars(
+                select(NoteAttachmentRecord).where(
+                    NoteAttachmentRecord.note_id.in_(moved_ids)
+                )
+            ):
+                if attachment.note_path in moves:
+                    attachment.note_path = moves[attachment.note_path]
+            for job in session.scalars(
+                select(JobRecord).where(
+                    JobRecord.note_id.in_(moved_ids),
+                    JobRecord.status.in_([PENDING, RUNNING]),
+                )
+            ):
+                job.status = SUPERSEDED
+                job.error_message = "Superseded by folder rename"
+                job.claim_token = ""
+                job.claimed_by = ""
+                job.lease_expires_at = None
+            # Commit the entire identity mapping before a scan can observe it.
+            session.commit()
+        except Exception:
+            session.rollback()
+            new_path.rename(full_path)
+            raise
+        from berrybrain_api.routers.notes import _update_internal_links
+
+        for old_note_path, new_note_path in moves.items():
+            record = sync_note_record(session, root, new_note_path)
+            enqueue_note_changed_jobs(
+                session, record.path, "NOTE_MOVED", record.content_hash
+            )
+            _update_internal_links(session, old_note_path, new_note_path)
+    return {"name": new_name, "path": new_path.relative_to(root).as_posix()}
 
 
 @router.delete("/{folder_path:path}")
+@serialized_vault
 def delete_folder(folder_path: str) -> dict:
     settings = get_settings()
     full_path = _resolve_folder(settings.vault_path, folder_path)
+    if full_path == settings.vault_path.resolve():
+        raise HTTPException(status_code=400, detail="Cannot delete the vault root")
 
     if not full_path.exists() or not full_path.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")

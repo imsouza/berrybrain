@@ -10,6 +10,40 @@ const GITHUB_URL = "https://github.com/imsouza/berrybrain";
 
 const DOC_SECTIONS: DocSection[] = [
   {
+    id: "api-integration",
+    title: "API & external applications",
+    md: `## API & external applications
+
+BerryBrain is a reusable architecture. The web interface is one client of its
+versioned HTTP API; editors, study apps, and trusted automations can use the same
+note, graph, retrieval, and asynchronous processing workflows.
+
+- Discovery: **GET /api/v1**.
+- Machine-readable contract: **GET /api/v1/openapi.json**.
+- Interactive documentation: **GET /api/v1/docs**.
+- Through the web proxy, prepend your mount (for example **/berrybrain**).
+
+Use an independent, expiring **Bearer service token** on your application's
+backend. The owner issues it with **POST /api/v1/security/service-tokens** using
+an authenticated browser session and its CSRF header. Issuing a token does not
+rotate the worker token. Never put a service token in a public browser bundle.
+
+Create/read notes through **/notes**, then update with **base_content_hash** to
+detect conflicting edits (HTTP 409). Poll **/notes/{path}/status** for processing.
+Use **/search**, paginated **/graph/nodes** and **/graph/edges**, and
+**POST /graph/infer** for evidence-grounded questions. Paths are relative to
+**/api/v1**. Inspect Ask status and citations: HTTP 200 is not proof of truth.
+
+This is one owner-managed **shared workspace**, not a multi-tenant platform.
+Tokens do not isolate vaults; administrative actions still require the owner.
+Some response schemas remain generic. No general webhook or idempotency-key
+contract is promised.
+
+See the [complete integration guide](${GITHUB_URL}/blob/main/docs/api.md) and
+[Python client example](${GITHUB_URL}/blob/main/examples/berrybrain_client.py)
+for authentication, pagination, errors, limits, and deployment details.`,
+  },
+  {
     id: "introduction",
     title: "Introduction",
     md: `## Introduction

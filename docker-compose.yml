@@ -113,7 +113,7 @@ services:
       - full
     restart: unless-stopped
     ports:
-      - "${BERRYBRAIN_OLLAMA_PORT:-11434}:11434"
+      - "${BERRYBRAIN_OLLAMA_BIND:-127.0.0.1}:${BERRYBRAIN_OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_models:/root/.ollama
     environment:
@@ -127,7 +127,7 @@ services:
       - full
     restart: unless-stopped
     ports:
-      - "${BERRYBRAIN_QDRANT_PORT:-6333}:6333"
+      - "${BERRYBRAIN_QDRANT_BIND:-127.0.0.1}:${BERRYBRAIN_QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -143,11 +143,11 @@ services:
       - full
     restart: unless-stopped
     ports:
-      - "${BERRYBRAIN_CHROMA_PORT:-8001}:8000"
+      - "${BERRYBRAIN_CHROMA_BIND:-127.0.0.1}:${BERRYBRAIN_CHROMA_PORT:-8001}:8000"
     volumes:
       - chroma_data:/chroma/chroma
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/heartbeat').read()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v2/heartbeat').read()"]
       interval: 30s
       timeout: 5s
       retries: 3

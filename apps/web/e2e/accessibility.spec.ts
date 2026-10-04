@@ -34,6 +34,21 @@ test.describe("WCAG 2.2 AA automated gate", () => {
     await expectNoWcagViolations(page);
   });
 
+  test("auth-loading skeleton exposes an accessible status", async ({ page }) => {
+    await page.route("**/api/v1/auth/me", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Not authenticated" }),
+      });
+    });
+
+    await page.goto("/");
+
+    await expect(page.getByRole("status", { name: "Checking access" })).toBeVisible();
+  });
+
   test("keyboard focus is visible and reduced motion disables long animation", async ({
     page,
   }) => {

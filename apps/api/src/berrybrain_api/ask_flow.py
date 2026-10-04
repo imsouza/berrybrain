@@ -102,13 +102,8 @@ async def append_ask_turn(
     try:
         result = await answer_cognitive_query(
             session,
-            (
-                "Use BerryBrain's knowledge graph as queryable data when the "
-                "turn asks about nodes, node types, connections, graph areas, "
-                "or clusters. Inspect graph entities and relationships before "
-                "falling back to note text search.\n\n"
-                f"Flow conversation context:\n{context}\n\nCurrent question:\n{question}"
-            ),
+            question,
+            conversation_context=context,
         )
     except Exception:
         user_turn.status = "failed"
@@ -344,10 +339,10 @@ def _evidence_ids(value: object) -> list[str]:
     for item in value:
         if isinstance(item, dict):
             identity = (
-                item.get("id")
-                or item.get("noteId")
+                item.get("noteId")
                 or item.get("nodeId")
                 or item.get("path")
+                or item.get("id")
             )
             if identity is not None:
                 result.append(str(identity))

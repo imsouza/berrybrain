@@ -156,11 +156,14 @@ def timeout_for_job(settings: WorkerSettings, job_type: str) -> int:
         "EXPAND_KNOWLEDGE_GRAPH",
         "PROCESS_ATTACHMENT",
     }
-    quick = {"UPDATE_GRAPH_STATS", "UPDATE_GRAPH_CLUSTERS"}
     if job_type in long_running:
         return max(ai_job_timeout, 300)
-    if job_type in quick:
-        return 60
+    if job_type == "UPDATE_GRAPH_CLUSTERS":
+        # Reclustering performs a preview and a guarded apply. Both are CPU-bound
+        # and can exceed a minute on the low-cost hardware BerryBrain supports.
+        return 660
+    if job_type == "UPDATE_GRAPH_STATS":
+        return 120
     return ai_job_timeout
 
 

@@ -10,6 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,12 +20,14 @@ from berrybrain_api.ai_gateway import (
     GraphAIUnavailable,
     generate_query_embedding,
 )
-from berrybrain_api.cognitive_layer import cognitive_config
+from berrybrain_api.cognitive_state import cognitive_config
+from berrybrain_api.filesystem import serialized_vault
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
     EmbeddingRecord,
     NoteAttachmentRecord,
     NoteRecord,
+    SettingRecord,
 )
 
 TOKEN_RE = re.compile(r"[a-zA-ZÀ-ÿ0-9][a-zA-ZÀ-ÿ0-9_-]{2,}")
@@ -40,10 +43,24 @@ class RetrievalEvidence:
     metadata: dict[str, Any]
 
 
+@serialized_vault
 def index_knowledge_base(session: Session) -> dict[str, Any]:
+    from berrybrain_api.vector_cleanup import drain_vector_cleanup, register_collection
+
+    cleanup = drain_vector_cleanup(session)
+    if cleanup["pending"]:
+        return {
+            "status": "failed",
+            "reason": "pending_vector_cleanup",
+            "cleanup": cleanup,
+        }
     cognitive = cognitive_config(session)
     cognitive.update(embedding_execution_configuration(session))
     chunk_size = _int_setting(cognitive["kb_chunk_size"], 900, 300, 4000)
+    overlap = _int_setting(
+        cognitive.get("kb_chunk_overlap", "120"), 120, 0, chunk_size - 1
+    )
+    cognitive["kb_chunk_overlap"] = str(overlap)
     notes = list(session.execute(select(NoteRecord)).scalars())
     processable_notes = [note for note in notes if (note.content or "").strip()]
     attachment_chunks = _attachment_chunks(session, chunk_size, cognitive)
@@ -54,18 +71,52 @@ def index_knowledge_base(session: Session) -> dict[str, Any]:
         _knowledge_chunks(processable_notes, chunk_size, cognitive) + attachment_chunks
     )
     chunk_count = len(chunk_records)
+    store = cognitive["kb_vector_store"]
+    collection_key = f"internal.vector_collection.{store}"
+    previous_collection = session.scalar(
+        select(SettingRecord).where(SettingRecord.key == collection_key)
+    )
+    if (
+        not chunk_records
+        and previous_collection is not None
+        and not cognitive.get(f"{store}_collection")
+    ):
+        cognitive[f"{store}_collection"] = previous_collection.value
+    if store in {"qdrant", "chroma"} and cognitive.get(f"{store}_url"):
+        dimension = (
+            len(chunk_records[0]["vector"]) if chunk_records else VECTOR_DIMENSIONS
+        )
+        register_collection(
+            session,
+            store,
+            cognitive[f"{store}_url"],
+            _collection_name(cognitive, store, dimension),
+        )
+        # Remember partial external writes too, so a failed sync remains cleanable.
+        session.commit()
     external_sync = sync_external_vector_store(cognitive, chunk_records)
+    if external_sync.get("status") == "synced" and external_sync.get("collection"):
+        register_collection(
+            session, store, cognitive[f"{store}_url"], external_sync["collection"]
+        )
+        if previous_collection is None:
+            session.add(
+                SettingRecord(key=collection_key, value=external_sync["collection"])
+            )
+        else:
+            previous_collection.value = external_sync["collection"]
+        session.commit()
     missing_embeddings = [
         note.path for note in processable_notes if note.id not in embeddings
     ]
     skipped_empty = [note.path for note in notes if not (note.content or "").strip()]
     return {
-        "status": "indexed",
+        "status": "failed" if external_sync.get("status") == "failed" else "indexed",
         "store": cognitive["kb_vector_store"],
         "qdrant": "configured" if cognitive["qdrant_url"] else "not_configured",
         "chroma": "configured" if cognitive["chroma_url"] else "not_configured",
         "chunkSize": chunk_size,
-        "chunkOverlap": _int_setting(cognitive["kb_chunk_overlap"], 120, 0, 1000),
+        "chunkOverlap": overlap,
         "embeddingProvider": cognitive["kb_embedding_provider"],
         "embeddingModel": cognitive["kb_embedding_model"],
         "notes": len(notes),
@@ -112,7 +163,11 @@ def sync_external_vector_store(
     return {"status": "skipped", "store": "sqlite", "reason": "local_fallback"}
 
 
-def chunk_markdown(content: str, max_chars: int = 900) -> list[str]:
+def chunk_markdown(content: str, max_chars: int = 900, overlap: int = 0) -> list[str]:
+    if max_chars < 1 or overlap < 0 or overlap >= max_chars:
+        raise ValueError(
+            "Chunk size must be positive and overlap smaller than chunk size"
+        )
     parts = re.split(r"\n(?=#{1,6}\s)", content or "")
     chunks: list[str] = []
     for part in parts:
@@ -124,17 +179,22 @@ def chunk_markdown(content: str, max_chars: int = 900) -> list[str]:
             if cut < max_chars // 2:
                 cut = max_chars
             chunks.append(text[:cut].strip())
-            text = text[cut:].strip()
+            text = text[max(1, cut - min(overlap, cut - 1)) :].strip()
         if text:
             chunks.append(text)
     return chunks or ([content.strip()] if content and content.strip() else [])
 
 
 def _generate_chunk_embedding(
-    cognitive: dict[str, str], text: str
+    cognitive: dict[str, str], text: str, *, input_type: str = "passage"
 ) -> tuple[list[float], str]:
     try:
-        vector = generate_query_embedding(cognitive, text)
+        vector = generate_query_embedding(
+            cognitive,
+            text,
+            input_type=input_type,
+            prompt_version=f"embedding-{input_type}.v1",
+        )
         provider = cognitive.get("embedding_provider") or cognitive.get("provider")
         if provider not in {"cloud", "local"}:
             raise GraphAIUnavailable("Embedding provider is not configured")
@@ -160,7 +220,12 @@ def _knowledge_chunks(
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for note in notes:
-        for index, chunk in enumerate(chunk_markdown(note.content, chunk_size)):
+        overlap = _int_setting(
+            cognitive.get("kb_chunk_overlap", "120"), 120, 0, chunk_size - 1
+        )
+        for index, chunk in enumerate(
+            chunk_markdown(note.content, chunk_size, overlap)
+        ):
             vector, embedding_type = _generate_chunk_embedding(
                 cognitive, " ".join([note.title or "", chunk])
             )
@@ -178,6 +243,8 @@ def _knowledge_chunks(
                         "source": "berrybrain",
                         "kind": "note_chunk",
                         "note_id": note.id,
+                        "note_stable_id": note.stable_id,
+                        "content_hash": note.content_hash,
                         "path": note.path,
                         "title": note.title,
                         "chunk": index,
@@ -194,7 +261,13 @@ def _attachment_chunks(
     records: list[dict[str, Any]] = []
     for attachment, extraction, note in _extracted_attachments(session):
         for index, chunk in enumerate(
-            chunk_markdown(extraction.extracted_text, chunk_size)
+            chunk_markdown(
+                extraction.extracted_text,
+                chunk_size,
+                _int_setting(
+                    cognitive.get("kb_chunk_overlap", "120"), 120, 0, chunk_size - 1
+                ),
+            )
         ):
             vector, embedding_type = _generate_chunk_embedding(
                 cognitive,
@@ -216,6 +289,12 @@ def _attachment_chunks(
                         "kind": "attachment_text",
                         "note_id": note.id,
                         "attachment_id": attachment.id,
+                        "note_stable_id": note.stable_id,
+                        "content_hash": note.content_hash,
+                        "attachment_checksum": attachment.checksum,
+                        "extraction_hash": hashlib.sha256(
+                            extraction.extracted_text.encode()
+                        ).hexdigest(),
                         "path": attachment.stored_path,
                         "note_path": note.path,
                         "title": attachment.filename,
@@ -247,7 +326,9 @@ def _extracted_attachments(
 
 
 def _stable_attachment_chunk_id(attachment_id: int, index: int) -> str:
-    return hashlib.sha1(f"attachment:{attachment_id}:{index}".encode()).hexdigest()
+    return str(
+        uuid5(NAMESPACE_URL, f"berrybrain:attachment:{attachment_id}:chunk:{index}")
+    )
 
 
 def _stable_chunk_id(note_id: int, chunk_index: int) -> int:
@@ -276,7 +357,7 @@ def _collection_name(cognitive: dict[str, str], prefix: str, dimension: int) -> 
     model = cognitive.get("kb_embedding_model", "hash")
     chunk_size = cognitive.get("kb_chunk_size", "900")
     fingerprint = hashlib.sha1(
-        f"{provider}:{model}:{chunk_size}:{dimension}".encode()
+        f"{provider}:{model}:{chunk_size}:{dimension}:{cognitive.get('kb_chunk_overlap', '120')}:passage-v2".encode()
     ).hexdigest()[:8]
     return f"berrybrain_{fingerprint}"
 
@@ -319,18 +400,63 @@ def _sync_qdrant(
     for batch in _batches(points, 64):
         _http_json(
             "PUT",
-            f"{collection_url}/points",
+            f"{collection_url}/points?wait=true",
             {"points": batch},
             ok_statuses={200, 201},
         )
         upserted += len(batch)
+    live_ids = {str(item["id"]) for item in records}
+    stale_ids: list[Any] = []
+    offset = None
+    while True:
+        payload: dict[str, Any] = {
+            "filter": {"must": [{"key": "source", "match": {"value": "berrybrain"}}]},
+            "limit": 256,
+            "with_payload": False,
+            "with_vector": False,
+        }
+        if offset is not None:
+            payload["offset"] = offset
+        page = _http_json(
+            "POST", f"{collection_url}/points/scroll", payload, {200}
+        ).get("result", {})
+        stale_ids.extend(
+            point["id"]
+            for point in page.get("points", [])
+            if str(point["id"]) not in live_ids
+        )
+        next_offset = page.get("next_page_offset")
+        if next_offset is None or next_offset == offset:
+            break
+        offset = next_offset
+    for batch in _batches(stale_ids, 256):
+        _http_json(
+            "POST",
+            f"{collection_url}/points/delete?wait=true",
+            {"points": batch},
+            {200},
+        )
     return {
         "status": "synced",
         "store": "qdrant",
         "collection": collection,
         "chunks": upserted,
+        "removedChunks": len(stale_ids),
         "vectorSize": dimension,
     }
+
+
+def _chroma_collections_url(cognitive: dict[str, str]) -> str:
+    from urllib.parse import quote
+
+    base = cognitive["chroma_url"].rstrip("/")
+    # Explicit /api/v1 keeps older, operator-pinned installations usable.
+    if base.endswith("/api/v1"):
+        return f"{base}/collections"
+    base = base.removesuffix("/api/v2")
+    tenant = quote(cognitive.get("chroma_tenant", "default_tenant"), safe="")
+    database = quote(cognitive.get("chroma_database", "default_database"), safe="")
+    return f"{base}/api/v2/tenants/{tenant}/databases/{database}/collections"
 
 
 def _sync_chroma(
@@ -341,11 +467,11 @@ def _sync_chroma(
         if records and records[0].get("vector")
         else VECTOR_DIMENSIONS
     )
-    base_url = cognitive["chroma_url"].rstrip("/")
+    collections_url = _chroma_collections_url(cognitive)
     collection = _collection_name(cognitive, "chroma", dimension)
     created = _http_json(
         "POST",
-        f"{base_url}/api/v1/collections",
+        collections_url,
         {
             "name": collection,
             "metadata": {"source": "berrybrain"},
@@ -358,7 +484,7 @@ def _sync_chroma(
     for batch in _batches(records, 64):
         _http_json(
             "POST",
-            f"{base_url}/api/v1/collections/{collection_id}/upsert",
+            f"{collections_url}/{collection_id}/upsert",
             {
                 "ids": [item["documentId"] for item in batch],
                 "embeddings": [item["vector"] for item in batch],
@@ -368,11 +494,36 @@ def _sync_chroma(
             ok_statuses={200, 201},
         )
         upserted += len(batch)
+    live_ids = {item["documentId"] for item in records}
+    stale_ids = []
+    offset = 0
+    while True:
+        page = _http_json(
+            "POST",
+            f"{collections_url}/{collection_id}/get",
+            {
+                "where": {"source": "berrybrain"},
+                "include": [],
+                "limit": 256,
+                "offset": offset,
+            },
+            {200},
+        )
+        ids = page.get("ids", [])
+        stale_ids.extend(identity for identity in ids if identity not in live_ids)
+        if len(ids) < 256:
+            break
+        offset += len(ids)
+    for batch in _batches(stale_ids, 256):
+        _http_json(
+            "POST", f"{collections_url}/{collection_id}/delete", {"ids": batch}, {200}
+        )
     return {
         "status": "synced",
         "store": "chroma",
         "collection": collection,
         "chunks": upserted,
+        "removedChunks": len(stale_ids),
         "vectorSize": dimension,
     }
 
@@ -380,7 +531,7 @@ def _sync_chroma(
 def _retrieve_qdrant(
     cognitive: dict[str, str], query: str, limit: int
 ) -> list[RetrievalEvidence]:
-    vector, _ = _generate_chunk_embedding(cognitive, query)
+    vector, _ = _generate_chunk_embedding(cognitive, query, input_type="query")
     dimension = len(vector)
     base_url = cognitive["qdrant_url"].rstrip("/")
     collection = _collection_name(cognitive, "qdrant", dimension)
@@ -418,6 +569,11 @@ def _retrieve_qdrant(
                     "store": "qdrant",
                     "collection": collection,
                     "noteId": payload.get("note_id"),
+                    "noteStableId": payload.get("note_stable_id"),
+                    "contentHash": payload.get("content_hash"),
+                    "attachmentId": payload.get("attachment_id"),
+                    "attachmentChecksum": payload.get("attachment_checksum"),
+                    "extractionHash": payload.get("extraction_hash"),
                     "path": payload.get("path"),
                     "chunk": payload.get("chunk"),
                     "documentId": payload.get("document_id"),
@@ -430,13 +586,13 @@ def _retrieve_qdrant(
 def _retrieve_chroma(
     cognitive: dict[str, str], query: str, limit: int
 ) -> list[RetrievalEvidence]:
-    vector, _ = _generate_chunk_embedding(cognitive, query)
+    vector, _ = _generate_chunk_embedding(cognitive, query, input_type="query")
     dimension = len(vector)
-    base_url = cognitive["chroma_url"].rstrip("/")
+    collections_url = _chroma_collections_url(cognitive)
     collection = _collection_name(cognitive, "chroma", dimension)
     created = _http_json(
         "POST",
-        f"{base_url}/api/v1/collections",
+        collections_url,
         {
             "name": collection,
             "metadata": {"source": "berrybrain"},
@@ -447,7 +603,7 @@ def _retrieve_chroma(
     collection_id = created.get("id") or created.get("name") or collection
     result = _http_json(
         "POST",
-        f"{base_url}/api/v1/collections/{collection_id}/query",
+        f"{collections_url}/{collection_id}/query",
         {
             "query_embeddings": [vector],
             "n_results": limit,
@@ -484,6 +640,11 @@ def _retrieve_chroma(
                     "store": "chroma",
                     "collection": collection,
                     "noteId": metadata.get("note_id"),
+                    "noteStableId": metadata.get("note_stable_id"),
+                    "contentHash": metadata.get("content_hash"),
+                    "attachmentId": metadata.get("attachment_id"),
+                    "attachmentChecksum": metadata.get("attachment_checksum"),
+                    "extractionHash": metadata.get("extraction_hash"),
                     "path": metadata.get("path"),
                     "chunk": metadata.get("chunk"),
                 },
@@ -501,7 +662,7 @@ def _http_json(
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         url,
-        data=data,
+        data=None if method == "GET" else data,
         method=method,
         headers={"Content-Type": "application/json"},
     )
@@ -516,6 +677,84 @@ def _http_json(
         if exc.code in ok_statuses:
             return json.loads(body) if body.strip() else {}
         raise RuntimeError(f"HTTP {exc.code}: {body[:240]}") from exc
+
+
+def validate_external_evidence(
+    session: Session, items: list[RetrievalEvidence]
+) -> list[RetrievalEvidence]:
+    """Old/unknown index schemas fail closed until an explicit reindex.
+
+    A vector score is never sufficient authority to resurrect a deleted or
+    edited source. Check the current database identity AND canonical file.
+    """
+    from berrybrain_api.config import get_settings
+    from berrybrain_api.vault import read_note
+
+    valid: list[RetrievalEvidence] = []
+    for item in items:
+        metadata = item.metadata
+        try:
+            note = session.get(
+                NoteRecord, int(metadata.get("noteId")), populate_existing=True
+            )
+            if note is None or metadata.get("noteStableId") != note.stable_id:
+                continue
+            if (
+                not metadata.get("contentHash")
+                or metadata["contentHash"] != note.content_hash
+            ):
+                continue
+            current = read_note(get_settings().vault_path, note.path)
+            if current["content_hash"] != note.content_hash:
+                continue
+            attachment_id = metadata.get("attachmentId")
+            if attachment_id is not None:
+                attachment = session.get(
+                    NoteAttachmentRecord, int(attachment_id), populate_existing=True
+                )
+                extraction = session.scalar(
+                    select(AttachmentExtractionRecord)
+                    .where(
+                        AttachmentExtractionRecord.attachment_id == int(attachment_id)
+                    )
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    attachment is None
+                    or attachment.note_id != note.id
+                    or extraction is None
+                    or extraction.status != "completed"
+                ):
+                    continue
+                if metadata.get("attachmentChecksum") != attachment.checksum:
+                    continue
+                if (
+                    metadata.get("extractionHash")
+                    != hashlib.sha256(extraction.extracted_text.encode()).hexdigest()
+                ):
+                    continue
+                if item.text not in extraction.extracted_text:
+                    continue
+                metadata = {
+                    **metadata,
+                    "path": attachment.stored_path,
+                    "notePath": note.path,
+                }
+            else:
+                if item.text not in str(current["content"]):
+                    continue
+                metadata = {**metadata, "path": note.path}
+            valid.append(
+                RetrievalEvidence(
+                    item.source, item.title, item.text, item.score, metadata
+                )
+            )
+        except (ValueError, TypeError, OSError):
+            continue
+        except Exception as exc:
+            # Missing/malformed sources must not downgrade to trusting the index.
+            logging.debug("External evidence rejected: %s", type(exc).__name__)
+    return valid
 
 
 def _batches(items: list[Any], size: int) -> list[list[Any]]:
