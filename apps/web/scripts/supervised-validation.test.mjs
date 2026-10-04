@@ -32,6 +32,14 @@ test("URLs and diagnostic text are sanitized before persistence", () => {
   assert.match(redacted, /REDACTED/);
 });
 
+test("report text escapes both backslashes and Markdown pipes", () => {
+  const report = renderReport({
+    environment: { operatorId: "writer\\|next\nline" },
+    results: [],
+  });
+  assert.ok(report.includes("writer" + "\\".repeat(3) + "|next line"));
+});
+
 test("backend summaries retain only configured cloud-provider evidence", () => {
   const summary = summarizeBackendLog(
     "Provider=openai model=gpt-test request completed\nUnrelated worker line\n",

@@ -1,4 +1,5 @@
-from pathlib import Path
+import os
+from pathlib import Path, PureWindowsPath
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -20,19 +21,27 @@ class CreateFolderRequest(BaseModel):
 
 
 def _safe_relative_path(path: str) -> Path:
-    candidate = Path(path.strip("/"))
-    if candidate.is_absolute() or ".." in candidate.parts:
+    candidate = Path(path)
+    if (
+        candidate.is_absolute()
+        or PureWindowsPath(path).drive
+        or ".." in candidate.parts
+        or "\\" in path
+        or "\x00" in path
+    ):
         raise HTTPException(status_code=400, detail="Invalid folder path")
     return candidate
 
 
 def _resolve_folder(vault_path: Path, folder_path: str) -> Path:
     relative = _safe_relative_path(folder_path)
-    full_path = (vault_path / relative).resolve()
-    vault_root = vault_path.resolve()
-    if vault_root not in full_path.parents and full_path != vault_root:
+    vault_root = os.path.realpath(vault_path)
+    full_path = os.path.realpath(os.path.join(vault_root, relative))
+    # Include the separator: /vault-other is not a descendant of /vault.
+    # realpath also resolves symlinks before this containment check.
+    if full_path != vault_root and not full_path.startswith(vault_root + os.sep):
         raise HTTPException(status_code=400, detail="Invalid folder path")
-    return full_path
+    return Path(full_path)
 
 
 def _folder_payload(vault_path: Path, item: Path) -> dict:
@@ -74,7 +83,7 @@ def list_folders() -> dict:
 @serialized_vault
 def create_folder(payload: CreateFolderRequest) -> dict:
     settings = get_settings()
-    vault_path = settings.vault_path
+    vault_path = settings.vault_path.resolve()
     parent = (
         _resolve_folder(vault_path, payload.parent_path)
         if payload.parent_path
@@ -90,7 +99,9 @@ def create_folder(payload: CreateFolderRequest) -> dict:
         or folder_name in {".", ".."}
     ):
         raise HTTPException(status_code=400, detail="Invalid folder name")
-    folder_path = parent / folder_name
+    folder_path = _resolve_folder(
+        vault_path, str(parent.relative_to(vault_path) / folder_name)
+    )
 
     if folder_path.exists():
         raise HTTPException(status_code=400, detail="Folder already exists")
@@ -115,9 +126,7 @@ def rename_folder(folder_path: str, payload: dict) -> dict:
     if not new_name or "/" in new_name or "\\" in new_name or new_name in {".", ".."}:
         raise HTTPException(status_code=400, detail="New name required")
 
-    new_path = (full_path.parent / new_name).resolve()
-    if root not in new_path.parents:
-        raise HTTPException(status_code=400, detail="Invalid target folder")
+    new_path = _resolve_folder(root, str(full_path.parent.relative_to(root) / new_name))
     if new_path.exists():
         raise HTTPException(
             status_code=400, detail="Folder with new name already exists"

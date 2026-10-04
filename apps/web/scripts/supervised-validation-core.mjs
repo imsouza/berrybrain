@@ -443,7 +443,7 @@ function markdownValue(value) {
   if (value === null || value === undefined || value === "") return "not recorded";
   if (Array.isArray(value)) return value.map(markdownValue).join(", ");
   if (typeof value === "object") return `\`${redactText(JSON.stringify(value), 1_000).replace(/`/g, "'")}\``;
-  return String(value).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return String(value).replace(/[\\|]/g, "\\$&").replace(/\r?\n/g, " ");
 }
 
 export function renderProtocolMarkdown() {

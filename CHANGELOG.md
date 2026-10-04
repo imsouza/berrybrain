@@ -34,6 +34,8 @@ All notable BerryBrain changes are documented here.
   event without retrying work or calling a model.
 - Exact public-route allowlist, real streamed body-size limits, redacted validation
   errors, locked-user session rejection, and no reactivation of expired tokens.
+- Require patched AnyIO, harden folder path containment, preserve token-digest
+  compatibility through the explicit HMAC API, and escape Markdown backslashes.
 - Automatic note organization preserves identity and attachments; graph/search
   responses respect artifact admission, and transient lease-renewal errors retry.
 

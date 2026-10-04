@@ -19,6 +19,12 @@ registra o build e a publicação **locais**, não uma release remota.
   explicitamente, e hashes de fontes foram representados como pares caminho/SHA-256;
   nenhuma regra global foi desativada.
 - [x] Ruff 0.6.9, versão usada no CI, aprovado nos 88 arquivos Python da mudança.
+- [x] Cópia limpa do primeiro commit: 694 verificações Python em 85 módulos,
+  sem falhas ou skips. ESLint completo da interface também aprovado.
+- [x] [PR #26](https://github.com/imsouza/berrybrain/pull/26) publicado. A primeira
+  rodada de CI aprovou worker e testes isolados, mas encontrou erros de tipagem,
+  alertas CodeQL, dependência vulnerável e falhas no smoke de navegador.
+- [ ] Corrigir e validar todos os bloqueios do CI; não desabilitar proteções.
 - [ ] Publicar PR, acompanhar checks e incorporar à `main`.
 - [ ] Publicar tag/release `v1.4.9` e confirmar `docs/api.md` na `main`.
 
@@ -43,3 +49,19 @@ forçar a limpeza. A documentação do Docker descreve
 [live restore](https://docs.docker.com/engine/daemon/live-restore/) como proteção
 para manter contêineres executando durante indisponibilidade do daemon; habilitá-lo
 e validar sua configuração exige manutenção administrativa do host.
+
+## Correções adicionais exigidas pelo CI
+
+- AnyIO: elevar o mínimo para 4.14.2, que contém as correções apontadas pelo
+  pip-audit/Trivy; a versão 4.9.0 estava presa pelo limite antigo `<4.10`.
+- Tipagem: explicitar o resultado de atualização SQLAlchemy e as tuplas das
+  arestas usadas no resumo do grafo.
+- Pastas: normalizar caminhos reais, validar prefixo com separador, rejeitar
+  caminhos absolutos/Windows, bytes nulos e symlinks que escapam do vault.
+- Markdown do relatório operacional: escapar também barras invertidas.
+- Hashes de tokens: usar a API HMAC explícita, preservando o digest já armazenado.
+  O fluxo do alerta CodeQL partia de `settings.api_token`, não de senhas de usuário;
+  senhas continuam com Argon2id/PBKDF2. A compatibilidade tem teste de regressão.
+
+Referências: [correção AnyIO/TLS](https://github.com/agronholm/anyio/security/advisories/GHSA-82r6-8w77-94w6),
+[contenção de caminhos](https://codeql.github.com/codeql-query-help/python/py-path-injection/).

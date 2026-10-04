@@ -1218,7 +1218,9 @@ def summarize_graph(
                     GraphEdgeRecord.source_node_id.in_(accepted_node_ids),
                     GraphEdgeRecord.target_node_id.in_(accepted_node_ids),
                 )
-            ).all()
+            )
+            .tuples()
+            .all()
         )
         if node_ids
         else []
