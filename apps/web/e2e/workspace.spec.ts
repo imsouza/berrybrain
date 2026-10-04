@@ -146,9 +146,10 @@ test.describe("Public owner entry", () => {
 
 test.describe("Authenticated workspace quality", () => {
   test("does not report a recently active worker as offline", async ({ page, context }) => {
-    await authenticate(context);
+    const csrf = await authenticate(context);
     const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
       data: { jobs_processed: 0, errors: 0, ollama_healthy: true },
+      headers: { "X-CSRF-Token": csrf },
     });
     expect(heartbeat.ok(), await heartbeat.text()).toBeTruthy();
 
