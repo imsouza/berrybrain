@@ -12,8 +12,13 @@ registra o build e a publicação **locais**, não uma release remota.
   serão preservadas, sem force-push ou bypass administrativo.
 - [x] Inventariadas 496 alterações/arquivos locais. Arquivos do TCC, resultados de
   pesquisa, bancos, vault e credenciais não serão adicionados a esta release.
-- [ ] Separar e conferir o conteúdo exato do commit do sistema.
-- [ ] Verificar ausência de segredos antes do push.
+- [x] Separados 142 arquivos do sistema; README com staging parcial para preservar
+  as alterações acadêmicas locais sem publicá-las nesta release.
+- [x] Gitleaks 8.30.1 aprovado antes do push, sem achados. O executável oficial foi
+  conferido pelo checksum publicado. Um literal fictício de teste foi marcado
+  explicitamente, e hashes de fontes foram representados como pares caminho/SHA-256;
+  nenhuma regra global foi desativada.
+- [x] Ruff 0.6.9, versão usada no CI, aprovado nos 88 arquivos Python da mudança.
 - [ ] Publicar PR, acompanhar checks e incorporar à `main`.
 - [ ] Publicar tag/release `v1.4.9` e confirmar `docs/api.md` na `main`.
 
