@@ -6,6 +6,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from berrybrain_api.config import get_settings
+from berrybrain_api.runtime_guard import install_database_guard
 
 
 class Base(DeclarativeBase):
@@ -39,7 +40,19 @@ _connect_args = (
     else {}
 )
 engine = create_engine(settings.database_url, connect_args=_connect_args)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+install_database_guard(engine)
+
+
+class GuardedSession(Session):
+    def get_bind(self, *args, **kwargs):
+        bind = super().get_bind(*args, **kwargs)
+        install_database_guard(getattr(bind, "engine", bind))
+        return bind
+
+
+SessionLocal = sessionmaker(
+    bind=engine, class_=GuardedSession, autoflush=False, autocommit=False
+)
 
 
 def _configure_sqlite_connection(dbapi_connection, _connection_record=None) -> None:

@@ -1,4 +1,5 @@
 import unittest
+from math import log
 
 from pydantic import ValidationError
 
@@ -41,6 +42,43 @@ class GraphOntologyConfidenceTest(unittest.TestCase):
         self.assertAlmostEqual(estimate.score or 0, 0.5)
         self.assertLess(estimate.lower or 0, estimate.score or 0)
         self.assertEqual(estimate.upper, 1.0)
+
+    def test_single_scored_signal_exposes_total_uncertainty(self) -> None:
+        estimate = estimate_confidence([ConfidenceSignal(0.99, "judge:1")])
+
+        self.assertEqual(estimate.sample_size, 1)
+        self.assertEqual(estimate.lower, 0.0)
+        self.assertEqual(estimate.upper, 1.0)
+        self.assertEqual(estimate.score, 0.5)
+
+    def test_provenance_is_traceable_but_not_counted_as_an_observation(self) -> None:
+        estimate = estimate_confidence(
+            [
+                ConfidenceSignal(1.0, "source-note:1"),
+                ConfidenceSignal(1.0, "node-evidence:1"),
+            ]
+        )
+
+        self.assertEqual(estimate.sample_size, 0)
+        self.assertIsNone(estimate.score)
+        self.assertEqual(
+            estimate.factors,
+            ("source-note:1", "node-evidence:1"),
+        )
+
+    def test_empirical_bernstein_radius_matches_the_documented_formula(self) -> None:
+        estimate = estimate_confidence(
+            [ConfidenceSignal(0.9, f"judge:{index}") for index in range(100)]
+        )
+        expected_radius = 3.0 * log(3.0 / 0.05) / 100
+
+        self.assertEqual(estimate.sample_size, 100)
+        self.assertAlmostEqual(estimate.lower or 0, 0.9 - expected_radius, places=6)
+        self.assertEqual(estimate.upper, 1.0)
+
+    def test_invalid_nominal_level_is_rejected_even_without_signals(self) -> None:
+        with self.assertRaisesRegex(ValueError, "between 0 and 1"):
+            estimate_confidence([], level=1.0)
 
     def test_name_validator_rejects_metadata_and_sentences(self) -> None:
         self.assertTrue(validate_node_name("concept", "markdown content"))

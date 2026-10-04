@@ -13,11 +13,8 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from berrybrain_api.ai_configuration import (
-    PROVIDERS,
-    configuration_gate,
-    load_configuration,
-)
+from berrybrain_api.ai_configuration import configuration_gate, load_configuration
+from berrybrain_api.ai_status import saved_test_status
 from berrybrain_api.config import get_settings as get_app_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import (
@@ -67,7 +64,11 @@ from berrybrain_api.settings_store import (
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
-SECRET_KEYS = {"ai_api_key", "graph_ai_api_key"}
+SECRET_KEYS = {
+    "ai_api_key",
+    "ai_provider_credentials_v1",
+    "graph_ai_api_key",
+}
 
 
 def _safe_int(value: str | None) -> int | None:
@@ -79,6 +80,8 @@ def _safe_int(value: str | None) -> int | None:
 
 def _provider_name(api_url: str) -> str:
     host = (urllib.parse.urlparse(api_url).hostname or "").lower()
+    if host == "opencode.ai":
+        return "opencode-zen"
     if "nvidia" in host:
         return "nvidia-nim"
     if "openai" in host:
@@ -305,15 +308,21 @@ def get_ai_config(request: Request) -> dict:
         configuration = load_configuration(session)
         gate = configuration_gate(session)
         endpoint = ""
+        main_api_key = ""
         legacy_mode = _get("ai_provider")
         if configuration is not None:
-            provider = PROVIDERS[configuration.main.provider_id]
-            endpoint = configuration.endpoint_url or str(provider["url"])
+            from berrybrain_api.ai_configuration import (
+                provider_api_key,
+                provider_endpoint,
+            )
+
+            endpoint = provider_endpoint(configuration, configuration.main.provider_id)
+            main_api_key = provider_api_key(session, configuration.main.provider_id)
         elif legacy_mode == "cloud":
             endpoint = _get("ai_api_url") or _get("ai_custom_url")
         elif legacy_mode == "local":
             endpoint = _get("ollama_base_url")
-        return {
+        result = {
             "configuration_valid": bool(gate["valid"]),
             "configuration_fingerprint": (
                 configuration.configuration_fingerprint if configuration else ""
@@ -330,6 +339,8 @@ def get_ai_config(request: Request) -> dict:
                 if hide_secrets
                 or (configuration is not None and configuration.mode != "cloud")
                 or (configuration is None and legacy_mode != "cloud")
+                else main_api_key
+                if configuration is not None
                 else _get("ai_api_key")
             ),
             "cloud_model": (
@@ -387,6 +398,26 @@ def get_ai_config(request: Request) -> dict:
                 "true" if configuration and configuration.mode == "cloud" else "false"
             ),
         }
+        if configuration is not None and configuration.mode == "cloud":
+            from berrybrain_api.ai_configuration import (
+                provider_api_key,
+                provider_endpoint,
+            )
+
+            slot_routes = {
+                "embedding": configuration.embedding,
+                "judge": configuration.judge,
+                "hipporag": configuration.hipporag,
+            }
+            for name, slot in slot_routes.items():
+                result[f"{name}_cloud_provider"] = slot.provider_id
+                result[f"{name}_cloud_api_url"] = provider_endpoint(
+                    configuration, slot.provider_id
+                )
+                result[f"{name}_cloud_api_key"] = (
+                    "" if hide_secrets else provider_api_key(session, slot.provider_id)
+                )
+        return result
 
 
 @router.get("/graph/config", dependencies=[Depends(_require_settings_reader)])
@@ -566,6 +597,7 @@ def get_ai_status(request: Request) -> dict:
             row.key: decode_setting_value(row.key, row.value)
             for row in session.execute(select(SettingRecord)).scalars()
         }
+        last_test, tested_at = saved_test_status(session, values)
     provider = values.get("ai_provider") or "local"
     api_url = values.get("ai_api_url") or values.get("ai_custom_url") or ""
     key_configured = bool(values.get("ai_api_key"))
@@ -578,18 +610,6 @@ def get_ai_status(request: Request) -> dict:
         values.get("graph_ai_model") or values.get("ai_model")
     )
     consent = values.get("remote_content_consent", "false").lower() == "true"
-    last_test = values.get("ai_last_test_status") or "untested"
-    tested_model = values.get("ai_last_test_model", "")
-    model_matches = not tested_model or tested_model == values.get("ai_model", "")
-    tested_configuration_matches = (
-        values.get("ai_last_test_url", "").rstrip("/") == api_url.rstrip("/")
-        and values.get("ai_last_test_key_revision", "")
-        == values.get("ai_key_revision", "")
-        and model_matches
-        and values.get("ai_last_test_method") == "chat_completions"
-    )
-    if not tested_configuration_matches:
-        last_test = "untested"
     if provider != "cloud":
         state = "local"
     elif not api_url or not key_configured or not model_configured:
@@ -615,7 +635,7 @@ def get_ai_status(request: Request) -> dict:
         "graphModel": values.get("graph_ai_model") or values.get("ai_model") or "",
         "remoteContentConsent": consent,
         "lastTestStatus": last_test,
-        "lastTestAt": values.get("ai_last_test_at") or None,
+        "lastTestAt": tested_at or None,
         "lastTestLatencyMs": _safe_int(values.get("ai_last_test_latency_ms")),
         "lastError": values.get("ai_last_test_error") or "",
     }
@@ -631,14 +651,17 @@ def update_settings_batch(payload: BatchUpdateSettingsRequest) -> dict:
         raise HTTPException(status_code=400, detail="Invalid setting key")
 
     with SessionLocal() as session:
-        try:
-            values = {
-                key: validate_public_setting(key, value)
-                for key, value in payload.values.items()
-                if key not in SECRET_KEYS or bool(value.strip())
-            }
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        values: dict[str, str] = {}
+        for key, value in payload.values.items():
+            if key in SECRET_KEYS and not value.strip():
+                continue
+            try:
+                values[key] = validate_public_setting(key, value)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{key}: {exc}",
+                ) from exc
         if "ai_api_key" in values:
             requested_revision = payload.aiTestRevision.strip()
             tested_revision = _setting_value(session, "ai_last_test_key_revision")
@@ -660,6 +683,7 @@ def clear_ai_key() -> dict:
             session,
             {
                 "ai_api_key": "",
+                "ai_provider_credentials_v1": "",
                 "graph_ai_api_key": "",
                 "ai_last_test_status": "untested",
                 "ai_last_test_at": "",

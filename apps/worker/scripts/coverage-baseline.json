@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "berrybrain-coverage-baseline.v1",
+  "measuredAt": "2026-08-27",
+  "revision": "b14eee8+working-tree",
+  "scope": "src/berrybrain_worker/",
+  "allowedDropPercentagePoints": 0.1,
+  "statements": 1416,
+  "coveredStatements": 693,
+  "linePercent": 48.940678,
+  "branches": 424,
+  "coveredBranches": 149,
+  "branchPercent": 35.141509,
+  "combinedPercent": 45.76087
+}

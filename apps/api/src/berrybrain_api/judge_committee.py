@@ -186,17 +186,25 @@ def eligible_committee_slots(
 ) -> list[dict[str, str]]:
     generator = (generator_model or "").strip().casefold()
     seen: set[tuple[str, str]] = set()
+    seen_slots: set[str] = set()
     eligible: list[dict[str, str]] = []
     for item in committee:
         provider = str(item.get("provider") or "").strip()
         model = str(item.get("model") or "").strip()
         slot = str(item.get("slot") or "").strip()
         identity = (provider.casefold(), model.casefold())
-        if not provider or not model or not slot or identity in seen:
+        if (
+            not provider
+            or not model
+            or not slot
+            or identity in seen
+            or slot in seen_slots
+        ):
             continue
         if generator and model.casefold() == generator:
             continue
         seen.add(identity)
+        seen_slots.add(slot)
         eligible.append(
             {
                 "slot": slot,

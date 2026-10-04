@@ -230,13 +230,19 @@ def finish_job_attempt(
     return attempt
 
 
-def canonical_job_counts(session: Session) -> dict[str, int]:
-    rows = dict(
-        session.execute(
-            select(JobRecord.status, func.count(JobRecord.id)).group_by(
-                JobRecord.status
-            )
-        ).all()
+def canonical_job_counts(
+    session: Session, *, status_counts: dict[str, int] | None = None
+) -> dict[str, int]:
+    rows = (
+        status_counts
+        if status_counts is not None
+        else dict(
+            session.execute(
+                select(JobRecord.status, func.count(JobRecord.id)).group_by(
+                    JobRecord.status
+                )
+            ).all()
+        )
     )
     attempt_errors = session.scalar(
         select(func.count(JobAttemptRecord.id)).where(JobAttemptRecord.error_code != "")
@@ -253,7 +259,8 @@ def canonical_job_counts(session: Session) -> dict[str, int]:
     return {
         "total_jobs": sum(int(value) for value in rows.values()),
         "pending": int(rows.get("pending", 0)),
-        "active": int(rows.get("running", 0)),
+        "active": int(rows.get("running", 0)) + int(rows.get("cancel_requested", 0)),
+        "cancel_requested": int(rows.get("cancel_requested", 0)),
         "completed": int(rows.get("completed", 0)),
         "failed_retryable": int(rows.get("failed", 0)),
         "failed_permanent": 0,
