@@ -95,7 +95,8 @@ def verify_password(password: str, stored: str, secret: str) -> bool:
 
 
 def token_hash(token: str, secret: str) -> str:
-    return hmac.new(secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+    """Keyed lookup digest for tokens; user passwords use hash_password instead."""
+    return hmac.digest(secret.encode(), token.encode(), "sha256").hex()
 
 
 def verify_service_token(session: Session, settings: Settings, raw_token: str) -> bool:

@@ -1194,16 +1194,19 @@ def lock_worker_claim(
     from sqlalchemy import update
 
     _validate_claim_token(job, claim_token)
-    changed = session.execute(
-        update(JobRecord)
-        .where(
-            JobRecord.id == job.id,
-            JobRecord.status.in_(allowed_statuses),
-            JobRecord.claim_token == claim_token,
-            JobRecord.attempts == job.attempts,
-        )
-        .values(status=JobRecord.status)
-        .execution_options(synchronize_session=False)
+    changed = cast(
+        CursorResult,
+        session.execute(
+            update(JobRecord)
+            .where(
+                JobRecord.id == job.id,
+                JobRecord.status.in_(allowed_statuses),
+                JobRecord.claim_token == claim_token,
+                JobRecord.attempts == job.attempts,
+            )
+            .values(status=JobRecord.status)
+            .execution_options(synchronize_session=False)
+        ),
     )
     if changed.rowcount != 1:
         raise HTTPException(
