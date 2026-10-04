@@ -260,7 +260,11 @@ export function PublicShell({
           </nav>
           <div className="flex items-center gap-2">
             {accessState === "checking" ? (
-              <span className="h-8 w-24 animate-pulse rounded-md bg-surface" aria-label="Checking access" />
+              <span
+                className="h-8 w-24 animate-pulse rounded-md bg-surface"
+                role="status"
+                aria-label="Checking access"
+              />
             ) : accessState === "setup" ? (
               <a href={appPath("/setup")} className="bb-action inline-flex px-3 py-2 text-xs font-semibold">
                 Setup
@@ -784,6 +788,29 @@ function passwordErrors(p: string): string[] {
   return errs;
 }
 
+type AuthApiResponse = {
+  challengeId?: string;
+  detail?: string;
+  email?: string;
+  status?: string;
+};
+
+async function readAuthApiResponse(response: Response): Promise<AuthApiResponse> {
+  const body = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+  if (!body.trim() || !contentType.toLowerCase().includes("application/json")) {
+    if (response.status >= 500) {
+      throw new Error("BerryBrain is temporarily unavailable. Retry in a moment.");
+    }
+    throw new Error(`BerryBrain returned an invalid response (${response.status}).`);
+  }
+  try {
+    return JSON.parse(body) as AuthApiResponse;
+  } catch {
+    throw new Error("BerryBrain returned an invalid response. Retry in a moment.");
+  }
+}
+
 export function AuthPage() {
   const isSignup = false;
   const apiUrl = getApiUrl();
@@ -814,7 +841,7 @@ export function AuthPage() {
         credentials: "include",
         body: JSON.stringify({ email, password, remember_me: keepSignedIn }),
       });
-      const data = await response.json();
+      const data = await readAuthApiResponse(response);
       if (!response.ok) throw new Error(data.detail || "Authentication failed");
       if (data.status === "authenticated") {
         window.location.href = safeNext();
@@ -846,7 +873,7 @@ export function AuthPage() {
           { email, code: otp, challenge_id: challengeId, remember_me: keepSignedIn }
         ),
       });
-      const data = await response.json();
+      const data = await readAuthApiResponse(response);
       if (!response.ok) throw new Error(data.detail || "Invalid code");
       if (!isSignup && !keepSignedIn) {
         sessionStorage.setItem("bb_session_mode", "session-only");
@@ -871,7 +898,7 @@ export function AuthPage() {
         credentials: "include",
         body: JSON.stringify({ email: normalized }),
       });
-      const data = await response.json().catch(() => ({}));
+      const data = await readAuthApiResponse(response);
       if (!response.ok) throw new Error(data.detail || "Could not start account recovery.");
       setView("forgot-confirm");
       setStatus("If the account exists, a recovery code was sent to that email.");
@@ -898,7 +925,7 @@ export function AuthPage() {
         credentials: "include",
         body: JSON.stringify({ email: normalized, code: otp, password: newPassword }),
       });
-      const data = await response.json().catch(() => ({}));
+      const data = await readAuthApiResponse(response);
       if (!response.ok) throw new Error(data.detail || "Could not reset password.");
       window.location.href = appPath("/login?reset=1");
     } catch (error) {

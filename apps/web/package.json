@@ -1,6 +1,6 @@
 {
   "name": "@berrybrain/web",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:supervised-runner": "node --test scripts/supervised-validation.test.mjs",
+    "validate:supervised": "node scripts/supervised-validation.mjs",
     "benchmark:browser": "node scripts/browser-benchmark.mjs",
     "clean": "rm -rf .next"
   },

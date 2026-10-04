@@ -601,6 +601,34 @@ class SecondBrainPhase1Test(unittest.TestCase):
             )
         )
 
+    def test_graph_summary_counts_components_from_scalar_projection(self) -> None:
+        nodes = [
+            GraphNodeRecord(type="note", label="A", status="confirmed"),
+            GraphNodeRecord(type="concept", label="B", status="confirmed"),
+            GraphNodeRecord(type="entity", label="C", status="suggested"),
+        ]
+        self.session.add_all(nodes)
+        self.session.flush()
+        self.session.add(
+            GraphEdgeRecord(
+                source_node_id=nodes[0].id,
+                target_node_id=nodes[1].id,
+                type="mentions",
+                status="confirmed",
+            )
+        )
+        self.session.commit()
+
+        from berrybrain_api.second_brain import summarize_graph
+
+        summary = summarize_graph(self.session, include_provisional=True)
+
+        self.assertEqual(summary["nodes"], 3)
+        self.assertEqual(summary["edges"], 1)
+        self.assertEqual(summary["orphans"], 1)
+        self.assertEqual(summary["clusters"], 2)
+        self.assertEqual(summary["centralNotes"][0]["degree"], 1)
+
     def test_legacy_ai_edges_recover_chunk_evidence_or_become_stale(self) -> None:
         notes = [
             NoteRecord(

@@ -81,6 +81,16 @@ type PipelineProgress = { notePath: string; completed: number; total: number; pe
 const HOME_CACHE_TTL_MS = 15_000;
 const homeCache = new Map<string, { summary: HomeSummary; pipeline: PipelineProgress[]; updatedAt: number }>();
 
+async function fetchHomeResource(input: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export function HomeView() {
   const w = useWorkspace();
   const router = useRouter();
@@ -110,16 +120,23 @@ export function HomeView() {
       return;
     }
     try {
-      const [summaryResponse, pipelineResponse] = await Promise.all([
-        fetch(`${w.api}/api/v1/home/summary`),
-        fetch(`${w.api}/api/v1/jobs/pipeline-progress`),
-      ]);
+      // Pipeline progress is supplementary; it must never hold the main summary
+      // spinner open when a worker endpoint is slow or unavailable.
+      const pipelinePromise = fetchHomeResource(
+        `${w.api}/api/v1/jobs/pipeline-progress`,
+        5_000,
+      ).catch(() => null);
+      const summaryResponse = await fetchHomeResource(`${w.api}/api/v1/home/summary`, 8_000);
       if (!summaryResponse.ok) throw new Error("home-summary");
       const nextSummary = await summaryResponse.json() as HomeSummary;
-      const pipelinePayload = pipelineResponse.ok ? await pipelineResponse.json() : null;
-      const nextPipeline = (pipelinePayload?.notes || []) as PipelineProgress[];
-      homeCache.set(w.api, { summary: nextSummary, pipeline: nextPipeline, updatedAt: Date.now() });
       setSummary(nextSummary);
+      setLoading(false);
+      const pipelineResponse = await pipelinePromise;
+      const pipelinePayload = pipelineResponse?.ok ? await pipelineResponse.json() : null;
+      const nextPipeline = pipelinePayload
+        ? (pipelinePayload.notes || []) as PipelineProgress[]
+        : cached?.pipeline || [];
+      homeCache.set(w.api, { summary: nextSummary, pipeline: nextPipeline, updatedAt: Date.now() });
       setPipelineProgress(nextPipeline);
     } catch {
       setError(!cached);
@@ -145,6 +162,12 @@ export function HomeView() {
 
   useEffect(() => {
     void loadSummary();
+  }, [loadSummary]);
+
+  useEffect(() => {
+    const refresh = () => { void loadSummary(true); };
+    window.addEventListener("bb:ai-configuration-changed", refresh);
+    return () => window.removeEventListener("bb:ai-configuration-changed", refresh);
   }, [loadSummary]);
 
   function updateStarterText(value: string) {
@@ -703,6 +726,7 @@ function normalizeStatus(status: string): StatusKind {
 }
 
 function providerLabel(provider: string) {
+  if (provider === "opencode-zen") return "OpenCode Zen";
   if (provider === "nvidia-nim") return "NVIDIA NIM";
   if (provider === "cloud") return "Cloud";
   if (provider === "local") return "Local";

@@ -1114,6 +1114,7 @@ def admin_lock_user(user_id: int, payload: AdminUserAction, request: Request) ->
             raise HTTPException(status_code=400, detail="Cannot lock the admin account")
         user.locked_until = datetime.now(UTC) + timedelta(days=3650)
         user.updated_at = datetime.now(UTC)
+        revoke_sessions(session, user.id, autocommit=False)
         session.add(
             SecurityAuditRecord(
                 actor_user_id=admin.id,

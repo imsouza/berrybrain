@@ -267,7 +267,10 @@ class IntegrationTest(unittest.TestCase):
         self.assertIsNotNone(job)
         self.assertEqual(job["status"], "running")
 
-        resp2 = self.client.post(f"/api/v1/jobs/{job['id']}/complete")
+        resp2 = self.client.post(
+            f"/api/v1/jobs/{job['id']}/complete",
+            headers={"X-BerryBrain-Claim-Token": job["claim_token"]},
+        )
         self.assertEqual(resp2.status_code, 200)
         self.assertEqual(resp2.json()["job"]["status"], "completed")
 
@@ -288,12 +291,13 @@ class IntegrationTest(unittest.TestCase):
 
         state = self.client.get(f"/api/v1/jobs/{job_id}/cancellation")
         self.assertEqual(state.status_code, 200)
-        self.assertFalse(state.json()["cancelRequested"])
+        self.assertTrue(state.json()["cancelRequested"])
         self.assertEqual(state.json()["status"], "cancelled")
 
         completion = self.client.post(f"/api/v1/jobs/{job_id}/complete")
-        self.assertEqual(completion.status_code, 200)
-        self.assertEqual(completion.json()["job"]["status"], "cancelled")
+        self.assertEqual(
+            completion.status_code, 422
+        )  # No worker claim may complete this job.
 
     def test_06_job_fail_with_retry(self):
         resp = self.client.post("/api/v1/jobs/claim")
@@ -303,6 +307,7 @@ class IntegrationTest(unittest.TestCase):
         resp2 = self.client.post(
             f"/api/v1/jobs/{job['id']}/fail",
             json={"error_message": "test error"},
+            headers={"X-BerryBrain-Claim-Token": job["claim_token"]},
         )
         self.assertEqual(resp2.status_code, 200)
         failed_job = resp2.json()["job"]
@@ -1454,6 +1459,7 @@ class IntegrationTest(unittest.TestCase):
                     label="Retrieval Systems",
                     source_note_ids=json.dumps([record.id for record in records]),
                     confidence=0.91,
+                    quality_gate_status="passed",
                 )
             )
             session.commit()

@@ -1,5 +1,6 @@
 import json
 import re
+from urllib.parse import urlparse
 
 import httpx
 
@@ -30,6 +31,12 @@ async def cloud_generate(
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
+        if urlparse(
+            api_url
+        ).hostname == "integrate.api.nvidia.com" and model.startswith(
+            "nvidia/nemotron-3"
+        ):
+            body["chat_template_kwargs"] = {"enable_thinking": False}
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

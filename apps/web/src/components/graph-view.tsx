@@ -2,17 +2,10 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceX,
-  forceY,
   select,
   zoom as d3Zoom,
   zoomIdentity,
   zoomTransform,
-  type Simulation,
   type SimulationNodeDatum,
   type ZoomBehavior,
 } from "d3";
@@ -215,20 +208,11 @@ function shortNodeLabel(label: string) {
   return (label || "").trim();
 }
 
-type NodeLabelLayout = {
-  signature: string;
-  lines: string[];
-  maxWidth: number;
-  size: number;
-};
-
 function nodeRadius(node: GNode, degree: number) {
-  const label = shortNodeLabel(node.label || node.title || "");
-  const visibleLength = Math.min(54, label.length);
-  const longestWord = Math.min(18, Math.max(0, ...label.split(/\s+/).map((word) => word.length)));
-  const textRadius = 15 + Math.min(20, visibleLength * 0.37) + Math.min(6, longestWord * 0.32);
-  const degreeRadius = 13 + Math.sqrt(Math.max(0, degree)) * 3.1 + (node.type === "note" ? 2 : 0);
-  return Math.max(16, Math.min(42, Math.max(textRadius, degreeRadius)));
+  // Network-visualization sizing: compact, degree-aware and independent from
+  // label length. Labels are disclosed on demand instead of inflating nodes.
+  const base = node.type === "note" ? 4.8 : 4.2;
+  return Math.max(4, Math.min(11, base + Math.log2(Math.max(1, degree + 1)) * 1.05));
 }
 
 function parseHexColor(value: string): [number, number, number] | null {
@@ -268,84 +252,27 @@ export function readableNodeTextColor(fill: string, preferred: string) {
   ), candidates[0] || "#1D1B18");
 }
 
-function drawInnerNodeLabel(
+function drawNetworkNodeLabel(
   ctx: CanvasRenderingContext2D,
   node: GNode,
   x: number,
   y: number,
   r: number,
-  color: string,
-  cache: Map<string, NodeLabelLayout>,
+  emphasized: boolean,
 ) {
-  const label = shortNodeLabel(node.label || node.title || "");
-  if (!label) return;
-  const shape = nodeShape(node.type);
-  const widthFactor = ["rect", "pill", "stack"].includes(shape)
-    ? 2.18
-    : shape === "parallelogram"
-      ? 1.88
-      : shape === "diamond"
-        ? 1.82
-        : 1.58;
-  const maxWidth = Math.max(26, r * widthFactor);
-  const maxCharacters = Math.max(20, Math.min(58, Math.floor(r * 1.75)));
-  const visibleLabel = label.length > maxCharacters
-    ? `${label.slice(0, maxCharacters - 3).trimEnd()}...`
-    : label;
-  const signature = `${visibleLabel}|${node.type}|${r.toFixed(2)}|${maxWidth.toFixed(2)}`;
-  const cached = cache.get(node.id);
-  if (cached?.signature === signature) {
-    ctx.save();
-    ctx.font = `600 ${cached.size}px Inter, system-ui, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = color;
-    const lineHeight = cached.size * 1.08;
-    cached.lines.forEach((line, index) => {
-      const offset = (index - (cached.lines.length - 1) / 2) * lineHeight;
-      ctx.fillText(line, x, y + offset, cached.maxWidth);
-    });
-    ctx.restore();
-    return;
-  }
-  let size = Math.max(8, Math.min(11, 7.5 + r * 0.1));
-  const words = visibleLabel.split(/\s+/).filter(Boolean);
+  const rawLabel = shortNodeLabel(node.label || node.title || "");
+  if (!rawLabel) return;
+  const label = rawLabel.length > 44 ? `${rawLabel.slice(0, 41).trimEnd()}...` : rawLabel;
   ctx.save();
-  ctx.font = `600 ${size}px Inter, system-ui, sans-serif`;
-  ctx.textAlign = "center";
+  ctx.font = `${emphasized ? 650 : 550} ${emphasized ? 10.5 : 9.5}px Inter, system-ui, sans-serif`;
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const lines: string[] = [];
-  for (const word of words) {
-    if (!lines.length) {
-      lines.push(word);
-      continue;
-    }
-    const candidate = `${lines[lines.length - 1]} ${word}`;
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      lines[lines.length - 1] = candidate;
-    } else if (lines.length < 3) {
-      lines.push(word);
-    } else {
-      let finalLine = `${lines[2]} ${word}`;
-      while (finalLine.length > 3 && ctx.measureText(`${finalLine}...`).width > maxWidth) {
-        finalLine = finalLine.slice(0, -1).trimEnd();
-      }
-      lines[2] = `${finalLine.replace(/\.{3}$/, "")}...`;
-      break;
-    }
-  }
-  const widest = Math.max(...lines.map((line) => ctx.measureText(line).width), 1);
-  if (widest > maxWidth) {
-    size = Math.max(8, size * (maxWidth / widest));
-    ctx.font = `600 ${size}px Inter, system-ui, sans-serif`;
-  }
-  cache.set(node.id, { signature, lines, maxWidth, size });
-  ctx.fillStyle = color;
-  const lineHeight = size * 1.08;
-  lines.forEach((line, index) => {
-    const offset = (index - (lines.length - 1) / 2) * lineHeight;
-    ctx.fillText(line, x, y + offset, maxWidth);
-  });
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = "rgba(255,255,255,0.92)";
+  ctx.strokeText(label, x + r + 4, y, 220);
+  ctx.fillStyle = "#292620";
+  ctx.fillText(label, x + r + 4, y, 220);
   ctx.restore();
 }
 
@@ -366,6 +293,9 @@ type GraphPaletteColor = {
   border: string;
   text: string;
   namespace: "semantic" | "vault" | "pending";
+  label?: string;
+  nodeCount?: number;
+  active?: boolean;
 };
 
 type GraphData = {
@@ -382,15 +312,22 @@ const graphDataCache = new Map<string, GraphData>();
 
 async function fetchGraphResource(
   input: string,
-  timeoutMs = 2_500,
+  timeoutMs = 8_000,
+  retries = 1,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { signal: controller.signal });
-  } finally {
-    window.clearTimeout(timer);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { signal: controller.signal });
+    } catch (error) {
+      lastError = error;
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error("Graph request failed");
 }
 
 export function useGraphData(apiUrl: string) {
@@ -414,17 +351,22 @@ export function useGraphData(apiUrl: string) {
       setData(next);
     }
     async function loadMetadata() {
-      const [summaryResponse, paletteResponse] = await Promise.all([
-        fetchGraphResource(`${apiUrl}/api/v1/graph/summary?includeProvisional=true`),
-        fetchGraphResource(`${apiUrl}/api/v1/graph/palette`),
-      ]);
+      const summaryResponse = await fetchGraphResource(
+        `${apiUrl}/api/v1/graph/summary?includeProvisional=true`,
+        10_000,
+      );
       if (!summaryResponse.ok) throw new Error("Graph summary unavailable");
       const summary = await summaryResponse.json();
       const stats = {
         ...summary,
         orphan_count: summary.orphan_count ?? summary.orphans ?? 0,
       };
-      const palettePayload = paletteResponse.ok ? await paletteResponse.json() : { colors: [] };
+      const paletteResponse = await fetchGraphResource(
+        `${apiUrl}/api/v1/graph/palette`,
+        4_000,
+        0,
+      ).catch(() => null);
+      const palettePayload = paletteResponse?.ok ? await paletteResponse.json() : { colors: [] };
       const palette = Object.fromEntries(
         (palettePayload.colors || []).map((color: GraphPaletteColor) => [color.colorId, color]),
       );
@@ -439,6 +381,7 @@ export function useGraphData(apiUrl: string) {
           const limit = publishedInitialNodes ? 2_000 : 500;
           const response = await fetchGraphResource(
             `${apiUrl}/api/v1/graph/nodes?cursor=${nodeCursor}&limit=${limit}&includeProvisional=true`,
+            12_000,
           );
           if (!response.ok) throw new Error("Graph nodes unavailable");
           const page: { nodes?: GNode[]; nextCursor: number | null; graphVersion?: number } = await response.json();
@@ -455,6 +398,7 @@ export function useGraphData(apiUrl: string) {
         while (edgeCursor !== null && !cancelled) {
           const response = await fetchGraphResource(
             `${apiUrl}/api/v1/graph/edges?cursor=${edgeCursor}&limit=5000&includeProvisional=true`,
+            15_000,
           );
           if (!response.ok) throw new Error("Graph edges unavailable");
           const page: { edges?: GEdge[]; nextCursor: number | null; graphVersion?: number } = await response.json();
@@ -470,6 +414,8 @@ export function useGraphData(apiUrl: string) {
       if (previous.graphVersion === undefined) return false;
       const response = await fetchGraphResource(
         `${apiUrl}/api/v1/graph/delta?since_version=${previous.graphVersion}&includeProvisional=true`,
+        3_000,
+        0,
       );
       if (!response.ok) return false;
       const delta: {
@@ -510,13 +456,13 @@ export function useGraphData(apiUrl: string) {
         try {
           const legacyResponse = await fetchGraphResource(
             `${apiUrl}/api/v1/graph?includeProvisional=true`,
-            5_000,
+            15_000,
           );
           if (!legacyResponse.ok) throw new Error("Legacy graph endpoint unavailable");
           const legacy = await legacyResponse.json();
           publish(legacy);
         } catch {
-          if (!cancelled) setError(true);
+          if (!cancelled && !dataRef.current?.nodes.length) setError(true);
         }
       }
     }
@@ -540,19 +486,19 @@ function tooltipCtx(g: { nodes: GNode[]; edges: GEdge[] }) {
     if (s) {
       s.degree++;
       if (!s.edgeTypes.includes(e.type)) s.edgeTypes.push(e.type);
-      s.relations.push({ direction: "out", type: e.type, peer: t?.label || e.target, reason: e.reason, confidence: e.confidenceInterval?.lower ?? e.confidence });
+      if (s.relations.length < 3) s.relations.push({ direction: "out", type: e.type, peer: t?.label || e.target, reason: e.reason, confidence: e.confidenceInterval?.lower ?? e.confidence });
     }
     if (t) {
       t.degree++;
       if (!t.edgeTypes.includes(e.type)) t.edgeTypes.push(e.type);
-      t.relations.push({ direction: "in", type: e.type, peer: s?.label || e.source, reason: e.reason, confidence: e.confidenceInterval?.lower ?? e.confidence });
+      if (t.relations.length < 3) t.relations.push({ direction: "in", type: e.type, peer: s?.label || e.source, reason: e.reason, confidence: e.confidenceInterval?.lower ?? e.confidence });
     }
   }
   return info;
 }
 
 export function GraphCanvas({
-  data, onNavigate, onSelect, onOpen, selectedId, highlightedIds = [], zoom, setZoom, pan, setPan, layoutMode = "brain",
+  data, onNavigate, onSelect, onOpen, selectedId, highlightedIds = [], showFilteredLabels = false, zoom, setZoom, pan, setPan, layoutMode = "brain",
 }: {
   data: {
     nodes: GNode[];
@@ -565,6 +511,7 @@ export function GraphCanvas({
   onOpen?: (id: string) => void;
   selectedId: string | null;
   highlightedIds?: string[];
+  showFilteredLabels?: boolean;
   zoom: number; setZoom: (z: number) => void;
   pan: { x: number; y: number }; setPan: (p: { x: number; y: number }) => void;
   layoutMode?: GraphLayoutMode;
@@ -574,10 +521,10 @@ export function GraphCanvas({
   const layoutRef = useRef<LN[]>([]);
   const layoutByIdRef = useRef<Map<string, LN>>(new Map());
   const spatialIndexRef = useRef<Map<string, LN[]>>(new Map());
-  const nodeLabelCacheRef = useRef<Map<string, NodeLabelLayout>>(new Map());
   const dragRef = useRef({ active: false, moved: false, startX: 0, startY: 0, nodeIdx: -1, vx: 0, vy: 0, lastT: 0 });
   const suppressClickUntilRef = useRef(0);
-  const simulationRef = useRef<Simulation<LN, undefined> | null>(null);
+  const layoutWorkerRef = useRef<Worker | null>(null);
+  const initialWorkerSettledRef = useRef(false);
   const zoomBehaviorRef = useRef<ZoomBehavior<HTMLCanvasElement, unknown> | null>(null);
   const fitGraphRef = useRef<((duration?: number) => void) | null>(null);
   const userMovedCameraRef = useRef(false);
@@ -760,7 +707,7 @@ export function GraphCanvas({
       const r = nodeRadius(n, degree);
       const stored = storedPositions.get(n.id);
       if (stored && stored.every(Number.isFinite)) {
-        if (layoutMode !== "brain" || reduceMotion) {
+        if (layoutMode !== "brain" || reduceMotion || data.nodes.length >= 8_000) {
           return { x: stored[0], y: stored[1], vx: 0, vy: 0, r, node: n };
         }
         return {
@@ -776,19 +723,21 @@ export function GraphCanvas({
         const col = typeIndex.get(n.type) || 0;
         const group = byType.get(n.type) || [];
         const pos = typeRanks.get(n.type)?.get(n.id) || 0;
-        const x = W / 2 - ((typeOrder.length - 1) * 360) / 2 + col * 360;
-        const y = H / 2 - ((group.length - 1) * 86) / 2 + pos * 86;
+        const x = W / 2 - ((typeOrder.length - 1) * 180) / 2 + col * 180;
+        const y = H / 2 - ((group.length - 1) * 34) / 2 + pos * 34;
         return { x, y, vx: 0, vy: 0, r, node: n };
       }
       if (layoutMode === "connections") {
         const nodeRank = rank.get(n.id) || 0;
-        const radius = nodeRank < 5 ? 160 : 420 + Math.floor(nodeRank / 18) * 260;
+        const radius = nodeRank < 5 ? 90 : 220 + Math.floor(nodeRank / 24) * 120;
         const localAngle = (2 * Math.PI * nodeRank) / Math.max(6, data.nodes.length);
         return { x: W / 2 + radius * Math.cos(localAngle), y: H / 2 + radius * Math.sin(localAngle), vx: 0, vy: 0, r, node: n };
       }
       const radius = layoutMode === "radial"
-        ? 950
-        : Math.min(180, 26 + Math.sqrt(i + 1) * 15);
+        ? Math.max(180, Math.sqrt(data.nodes.length) * 24)
+        : data.nodes.length >= 8_000
+          ? 18 + Math.sqrt(i + 1) * 9
+          : Math.min(110, 18 + Math.sqrt(i + 1) * 9);
       const layoutAngle = layoutMode === "radial" ? radialAngle : angle;
       return { x: W / 2 + radius * Math.cos(layoutAngle), y: H / 2 + radius * (layoutMode === "radial" ? 1 : 0.72) * Math.sin(layoutAngle), vx: 0, vy: 0, r, node: n };
     });
@@ -867,7 +816,7 @@ export function GraphCanvas({
       const padding = Math.min(96, Math.max(40, Math.min(viewport.width, viewport.height) * 0.1));
       const fittedScale = Math.max(
         0.08,
-        Math.min(2.2, (viewport.width - padding * 2) / graphWidth, (viewport.height - padding * 2) / graphHeight),
+        Math.min(1.4, (viewport.width - padding * 2) / graphWidth, (viewport.height - padding * 2) / graphHeight),
       );
       const centerX = (bounds.minX + bounds.maxX) / 2;
       const centerY = (bounds.minY + bounds.maxY) / 2;
@@ -911,7 +860,9 @@ export function GraphCanvas({
   }, [pan, zoom]);
 
   useEffect(() => {
-    simulationRef.current?.stop();
+    layoutWorkerRef.current?.terminate();
+    layoutWorkerRef.current = null;
+    initialWorkerSettledRef.current = false;
     userMovedCameraRef.current = false;
     if (layoutMode !== "brain" || !layoutRef.current.length) {
       setRenderRevision((value) => value + 1);
@@ -936,58 +887,52 @@ export function GraphCanvas({
       .filter((edge) => ids.has(edge.source) && ids.has(edge.target))
       .map((edge) => ({ source: edge.source, target: edge.target }));
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const fitTimers = [window.setTimeout(() => {
+      if (!userMovedCameraRef.current) fitGraphRef.current?.(reduceMotion ? 0 : 280);
+    }, 80)];
+    setRenderRevision((value) => value + 1);
 
-    let renderFrame = 0;
-    const simulation = forceSimulation<LN>(nodes)
-      .alpha(1)
-      .alphaMin(0.006)
-      .alphaDecay(0.022)
-      // D3's decay value is friction: 0.15 keeps the graph slippery and organic.
-      .velocityDecay(0.15)
-      .force("charge", forceManyBody<LN>().strength(-42).distanceMin(18).distanceMax(520))
-      .force(
-        "link",
-        forceLink<LN, { source: string | LN; target: string | LN }>(links)
-          .id((node) => node.node.id)
-          .distance(74)
-          .strength(0.11),
-      )
-      .force(
-        "collide",
-        forceCollide<LN>().radius((node) => node.r + 11).strength(0.94).iterations(nodes.length > 1_000 ? 1 : 2),
-      )
-      .force("x", forceX<LN>(W / 2).strength(0.018))
-      .force("y", forceY<LN>(H / 2).strength(0.018))
-      .on("tick", () => {
-        if (renderFrame) return;
-        renderFrame = requestAnimationFrame(() => {
-          renderFrame = 0;
-          setRenderRevision((value) => value + 1);
-        });
-      })
-      .on("end", () => {
-        setRenderRevision((value) => value + 1);
-        persistLayout();
-      });
-
-    simulationRef.current = simulation;
-    const fitTimers = reduceMotion
-      ? [window.setTimeout(() => fitGraphRef.current?.(0), 0)]
-      : [450, 1_250, 2_400].map((delay) => window.setTimeout(() => {
-          if (!userMovedCameraRef.current) fitGraphRef.current?.(520);
-        }, delay));
-
-    if (reduceMotion) {
-      simulation.stop();
-      simulation.tick(Math.min(80, Math.max(20, nodes.length)));
-      setRenderRevision((value) => value + 1);
-      persistLayout();
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./graph-layout.worker.ts", import.meta.url), { type: "module" });
+    } catch {
+      return () => fitTimers.forEach(window.clearTimeout);
     }
+    layoutWorkerRef.current = worker;
+    worker.onmessage = (event: MessageEvent<{
+      done: boolean;
+      positions: Array<{ id: string; x: number; y: number }>;
+    }>) => {
+      for (const position of event.data.positions) {
+        const node = layoutByIdRef.current.get(position.id);
+        if (!node || node.fx !== undefined || node.fy !== undefined) continue;
+        node.x = position.x;
+        node.y = position.y;
+      }
+      setRenderRevision((value) => value + 1);
+      if (event.data.done) {
+        persistLayout();
+        if (!initialWorkerSettledRef.current) {
+          initialWorkerSettledRef.current = true;
+          if (!userMovedCameraRef.current) fitGraphRef.current?.(reduceMotion ? 0 : 320);
+        }
+      }
+    };
+    worker.onerror = () => {
+      worker.terminate();
+      if (layoutWorkerRef.current === worker) layoutWorkerRef.current = null;
+    };
+    worker.postMessage({
+      nodes: nodes.map((node) => ({ id: node.node.id, x: node.x, y: node.y, vx: 0, vy: 0, r: node.r })),
+      edges: links,
+      width: W,
+      height: H,
+      iterations: reduceMotion ? 36 : nodes.length > 3_000 ? 40 : nodes.length > 1_000 ? 60 : 90,
+    });
 
     return () => {
-      simulation.stop();
-      simulationRef.current = null;
-      if (renderFrame) cancelAnimationFrame(renderFrame);
+      worker.terminate();
+      if (layoutWorkerRef.current === worker) layoutWorkerRef.current = null;
       fitTimers.forEach(window.clearTimeout);
     };
   }, [data, layoutMode, persistLayout]);
@@ -1003,7 +948,7 @@ export function GraphCanvas({
       const rect = containerRef.current?.getBoundingClientRect();
       const width = Math.max(1, Math.floor(rect?.width || 1));
       const height = Math.max(1, Math.floor(rect?.height || 1));
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const pixelWidth = Math.floor(width * dpr);
       const pixelHeight = Math.floor(height * dpr);
       if (canvasEl.width !== pixelWidth || canvasEl.height !== pixelHeight) {
@@ -1041,7 +986,7 @@ export function GraphCanvas({
       const largeGraph = data.nodes.length >= 5_000;
       const nodeBudget = largeGraph
         ? renderZoom < 0.25 ? 80 : renderZoom < 0.65 ? 160 : 320
-        : renderZoom < 0.5 ? 400 : renderZoom < 1.5 ? 500 : 2_000;
+        : Number.POSITIVE_INFINITY;
       const sampleStride = Math.max(1, Math.ceil(visibleCandidates.length / nodeBudget));
       const visibleNodes = visibleCandidates.filter(
         (node, index) => (
@@ -1058,12 +1003,7 @@ export function GraphCanvas({
       spatialIndexRef.current = spatialIndex;
       const visibleIds = new Set(visibleNodes.map((node) => node.node.id));
 
-      const edgeBudget = largeGraph
-        ? renderZoom < 0.25 ? 120 : renderZoom < 0.65 ? 260 : 600
-        : renderZoom < 0.5 ? 800 : renderZoom < 1.5 ? 900 : 5_000;
-      let renderedEdges = 0;
       for (const e of data.edges) {
-        if (renderedEdges >= edgeBudget) break;
         const s = nodeIndex.get(e.source);
         const t = nodeIndex.get(e.target);
         if (!s || !t || (!visibleIds.has(e.source) && !visibleIds.has(e.target))) continue;
@@ -1075,17 +1015,17 @@ export function GraphCanvas({
         ct.beginPath();
         ct.moveTo(s.x, s.y);
         ct.lineTo(t.x, t.y);
-        ct.globalAlpha = focusId && !isFocusedEdge ? 0.08 : isHighlightedEdge ? 0.82 : 0.28;
+        ct.globalAlpha = focusId && !isFocusedEdge ? 0.12 : isHighlightedEdge ? 0.84 : 0.32;
         ct.strokeStyle = isHighlightedEdge ? COLORS.selected.fill : edgeColor(e.type);
         const edgeConfidence = e.confidenceInterval?.lower ?? e.confidence ?? 0;
-        ct.lineWidth = isHighlightedEdge ? 1.8 : Math.max(0.65, edgeConfidence * 1.35);
+        ct.lineWidth = isHighlightedEdge ? 1.35 : Math.max(0.55, edgeConfidence * 0.95);
         ct.stroke();
         if (!SYMMETRIC_EDGES.has(e.type)) {
           const angle = Math.atan2(t.y - s.y, t.x - s.x);
           const targetRadius = t.r + 2;
           const tipX = t.x - Math.cos(angle) * targetRadius;
           const tipY = t.y - Math.sin(angle) * targetRadius;
-          const arrowSize = isHighlightedEdge ? 6 : 4.5;
+          const arrowSize = isHighlightedEdge ? 4 : 2.8;
           ct.beginPath();
           ct.moveTo(tipX, tipY);
           ct.lineTo(tipX - Math.cos(angle - Math.PI / 6) * arrowSize, tipY - Math.sin(angle - Math.PI / 6) * arrowSize);
@@ -1095,7 +1035,6 @@ export function GraphCanvas({
           ct.fill();
         }
         ct.globalAlpha = 1;
-        renderedEdges += 1;
       }
 
       let hasActivePulse = false;
@@ -1104,7 +1043,6 @@ export function GraphCanvas({
         const isHovered = n.node.id === hoveredId;
         const isHighlighted = isHovered || highlighted.has(n.node.id);
         const isDimmed = Boolean(focusId) && !focusedIds.has(n.node.id);
-        const isOrphan = (tctx.current.get(n.node.id)?.degree || 0) === 0;
         const nodeType = n.node.type as NodeColorKey;
         const semanticColor = data.palette?.[n.node.colorId || ""];
         const configuredColors = COLORS[nodeType];
@@ -1139,24 +1077,13 @@ export function GraphCanvas({
           ct.fill();
         }
 
-        ct.setLineDash(isOrphan ? [5, 3] : []);
         pathNodeShape(ct, n.x, n.y, r, shape);
         ct.fillStyle = colors.fill; ct.fill();
-        ct.strokeStyle = isHighlighted ? COLORS.selected.fill : colors.border;
-        ct.lineWidth = isHighlighted ? 2.4 : 1.25;
-        ct.stroke();
-        ct.setLineDash([]);
-        const labelIsReadable = !largeGraph || renderZoom >= 0.4 || isSel || isHighlighted;
+        const labelIsReadable = isSel
+          || isHighlighted
+          || (showFilteredLabels && renderZoom >= 0.7);
         if (labelIsReadable) {
-          drawInnerNodeLabel(
-            ct,
-            n.node,
-            n.x,
-            n.y,
-            r,
-            readableNodeTextColor(colors.fill, colors.label),
-            nodeLabelCacheRef.current,
-          );
+          drawNetworkNodeLabel(ct, n.node, n.x, n.y, r, isSel || isHighlighted);
         }
 
         ct.globalAlpha = 1;
@@ -1171,7 +1098,7 @@ export function GraphCanvas({
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [data, zoom, pan, selectedId, hoveredId, focusId, focusRoots, focusedIds, highlighted, renderRevision]);
+  }, [data, zoom, pan, selectedId, hoveredId, focusId, focusRoots, focusedIds, highlighted, renderRevision, showFilteredLabels]);
 
   const toWorld = (cx: number, cy: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };
@@ -1191,7 +1118,7 @@ export function GraphCanvas({
       for (let y = cellY - 1; y <= cellY + 1; y += 1) {
         const candidates = spatialIndexRef.current.get(`${x}:${y}`) || [];
         const hit = candidates.find(
-          (node) => Math.hypot(world.x - node.x, world.y - node.y) < node.r,
+          (node) => Math.hypot(world.x - node.x, world.y - node.y) < Math.max(node.r, 12 / Math.max(viewRef.current.zoom, 0.08)),
         );
         if (hit) return hit;
       }
@@ -1202,16 +1129,17 @@ export function GraphCanvas({
   const releaseDrag = () => {
     const drag = dragRef.current;
     const node = drag.nodeIdx >= 0 ? layoutRef.current[drag.nodeIdx] : undefined;
-    if (drag.moved) suppressClickUntilRef.current = performance.now() + 300;
+    const moved = drag.moved;
+    if (moved) suppressClickUntilRef.current = performance.now() + 300;
     drag.active = false;
     drag.moved = false;
     drag.nodeIdx = -1;
     if (!node) return;
-    node.fx = node.x;
-    node.fy = node.y;
+    node.fx = undefined;
+    node.fy = undefined;
     node.vx = 0;
     node.vy = 0;
-    simulationRef.current?.alphaTarget(0);
+    if (moved) layoutWorkerRef.current?.postMessage({ type: "release", id: node.node.id });
     persistLayout();
   };
 
@@ -1222,12 +1150,14 @@ export function GraphCanvas({
         className="absolute"
         role="img"
         aria-label={`Knowledge graph with ${data.nodes.length} nodes and ${data.edges.length} connections`}
-        data-layout-engine="d3-force-v7"
-        data-velocity-decay="0.15"
-        data-collision-padding="11"
-        data-node-label-max-lines="3"
-        data-node-label-max-characters="58"
-        data-node-label-contrast="fill-aware-wcag"
+        data-layout-engine="d3-force-v7-worker"
+        data-velocity-decay="0.32"
+        data-collision-padding="5"
+        data-node-radius-range="4-11"
+        data-node-border="none"
+        data-edge-policy="all-visible"
+        data-drag-physics="linked-neighbors"
+        data-node-label-policy="hover-selection-filter"
         data-drag-open-threshold="5"
         data-selected-node={selectedId || ""}
         onMouseDown={e => {
@@ -1237,7 +1167,6 @@ export function GraphCanvas({
           const node = layoutRef.current[hit];
           node.fx = node.x;
           node.fy = node.y;
-          simulationRef.current?.alphaTarget(0.3).restart();
           dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY, nodeIdx: hit, vx: 0, vy: 0, lastT: performance.now() };
         }}
         onMouseMove={e => {
@@ -1263,6 +1192,7 @@ export function GraphCanvas({
               n.fy = w.y;
               n.x = w.x;
               n.y = w.y;
+              layoutWorkerRef.current?.postMessage({ type: "drag", id: n.node.id, x: w.x, y: w.y });
               setRenderRevision((value) => value + 1);
             }
             return;

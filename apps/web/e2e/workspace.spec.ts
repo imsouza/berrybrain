@@ -347,7 +347,7 @@ test.describe("Authenticated workspace quality", () => {
     ).toBeVisible({ timeout: 10_000 });
     await page.getByRole("button", { name: "Skip" }).click();
     await page.getByRole("button", {
-      name: "Cloud Models run through one cloud provider.",
+      name: "Cloud Each AI role can use its own cloud provider.",
       exact: true,
     }).click();
     await page.getByRole("button", { name: "Continue" }).click();
@@ -358,7 +358,9 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByText("2 models available.")).toBeVisible();
     await page.getByRole("button", { name: "Continue" }).click();
     for (const label of ["Main model", "Embeddings", "Judge", "HippoRAG"]) {
-      await page.getByRole("combobox", { name: label, exact: true }).fill("nvidia/e2e-model-a");
+      await page
+        .getByRole("combobox", { name: `${label} model`, exact: true })
+        .fill("nvidia/e2e-model-a");
       await page.getByRole("button", { name: "Continue" }).click();
     }
     await page.getByRole("button", { name: "Run compatibility tests" }).click();

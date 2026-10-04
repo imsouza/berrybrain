@@ -571,6 +571,7 @@ def enqueue_note_changed_jobs(
         old_job.status = SUPERSEDED
         old_job.error_message = "Superseded by newer note content"
         old_job.claimed_by = ""
+        old_job.claim_token = ""
         old_job.lease_expires_at = None
 
     for job_type, max_attempts in pipeline:
@@ -711,6 +712,11 @@ def claim_next_job(
     references_changed = False
     for candidate in candidates:
         reference_status = canonicalize_job_note_reference(session, candidate)
+        if reference_status == "duplicate_reference":
+            candidate.status = SUPERSEDED
+            candidate.error_message = "Superseded by an existing job for the moved note"
+            references_changed = True
+            continue
         if reference_status in {"note_missing", "content_changed"}:
             candidate.status = SUPERSEDED
             candidate.error_message = (
@@ -791,7 +797,26 @@ def canonicalize_job_note_reference(session: Session, job: JobRecord) -> str:
         f"{job.type}:{old_path}:{content_hash}" if old_path and content_hash else ""
     )
     if old_default_key and job.idempotency_key == old_default_key:
-        job.idempotency_key = f"{job.type}:{note.path}:{content_hash}"
+        new_key = f"{job.type}:{note.path}:{content_hash}"
+        # A move can enqueue work for the new path before the old queue is
+        # canonicalized. Keep the existing unique job instead of colliding.
+        with session.no_autoflush:
+            duplicate = session.scalar(
+                select(JobRecord.id)
+                .where(
+                    JobRecord.idempotency_key == new_key,
+                    JobRecord.id != job.id,
+                )
+                .limit(1)
+            )
+        if duplicate is not None or any(
+            isinstance(other, JobRecord)
+            and other is not job
+            and other.idempotency_key == new_key
+            for other in session.identity_map.values()
+        ):
+            return "duplicate_reference"
+        job.idempotency_key = new_key
     return "refreshed"
 
 
@@ -901,9 +926,7 @@ def renew_job_lease(
     claim_token: str = "",
 ) -> JobRecord:
     job = get_job_or_404(session, job_id)
-    _validate_claim_token(job, claim_token)
-    if job.status != RUNNING:
-        raise HTTPException(status_code=409, detail="Job is not running")
+    lock_worker_claim(session, job, claim_token)
     job.lease_expires_at = utc_now() + timedelta(minutes=lease_minutes)
     session.commit()
     session.refresh(job)
@@ -945,7 +968,7 @@ def acknowledge_job_cancellation(
     session: Session, job_id: int, claim_token: str = ""
 ) -> JobRecord:
     job = get_job_or_404(session, job_id)
-    if job.status == CANCELLED:
+    if job.status in {CANCELLED, SUPERSEDED}:
         return job
     if job.status != CANCEL_REQUESTED:
         raise HTTPException(
@@ -953,7 +976,7 @@ def acknowledge_job_cancellation(
         )
     if worker_message_processed(session, job, "cancelled", claim_token):
         return job
-    _validate_claim_token(job, claim_token)
+    lock_worker_claim(session, job, claim_token, allowed_statuses=(CANCEL_REQUESTED,))
     if not consume_worker_message(session, job, "cancelled", claim_token):
         return job
     job.status = CANCELLED
@@ -986,7 +1009,7 @@ def complete_job(session: Session, job_id: int, claim_token: str = "") -> JobRec
         return job
     if worker_message_processed(session, job, "complete", claim_token):
         return job
-    _validate_claim_token(job, claim_token)
+    lock_worker_claim(session, job, claim_token)
     if not consume_worker_message(session, job, "complete", claim_token):
         return job
     job.status = COMPLETED
@@ -1017,7 +1040,7 @@ def fail_job(
         return acknowledge_job_cancellation(session, job_id, claim_token)
     if worker_message_processed(session, job, "fail", claim_token):
         return job
-    _validate_claim_token(job, claim_token)
+    lock_worker_claim(session, job, claim_token)
     if not consume_worker_message(session, job, "fail", claim_token):
         return job
     job.error_message = redact_text(error_message)[:4000]
@@ -1152,8 +1175,51 @@ def get_job_or_404(session: Session, job_id: int) -> JobRecord:
 
 
 def _validate_claim_token(job: JobRecord, claim_token: str) -> None:
-    if claim_token and claim_token != job.claim_token:
+    if not claim_token or not job.claim_token or claim_token != job.claim_token:
         raise HTTPException(status_code=409, detail="Job claim token is stale")
+
+
+def lock_worker_claim(
+    session: Session,
+    job: JobRecord,
+    claim_token: str,
+    *,
+    allowed_statuses: tuple[str, ...] = (RUNNING,),
+) -> None:
+    """Acquire the SQLite writer lock using a conditional state/token update.
+
+    Checking the ORM snapshot alone is insufficient: supersession or recovery
+    may have committed between the initial SELECT and this transition.
+    """
+    from sqlalchemy import update
+
+    _validate_claim_token(job, claim_token)
+    changed = session.execute(
+        update(JobRecord)
+        .where(
+            JobRecord.id == job.id,
+            JobRecord.status.in_(allowed_statuses),
+            JobRecord.claim_token == claim_token,
+            JobRecord.attempts == job.attempts,
+        )
+        .values(status=JobRecord.status)
+        .execution_options(synchronize_session=False)
+    )
+    if changed.rowcount != 1:
+        raise HTTPException(
+            status_code=409, detail="Job is not running with this claim"
+        )
+    session.refresh(job)
+    if job.lease_expires_at and normalize_utc(job.lease_expires_at) <= utc_now():
+        raise HTTPException(status_code=409, detail="Job claim lease expired")
+    if job.note_id and job.content_hash and RUNNING in allowed_statuses:
+        note = session.get(NoteRecord, job.note_id, populate_existing=True)
+        if (
+            note is None
+            or note.content_hash != job.content_hash
+            or note.path != job.note_path
+        ):
+            raise HTTPException(status_code=409, detail="Job source version is stale")
 
 
 def compact_json(value: object) -> str:

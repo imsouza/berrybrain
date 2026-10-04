@@ -1,0 +1,25 @@
+name: Isolated system and integration contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  product-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install product test dependencies
+        run: python -m pip install -e apps/api -e apps/worker 'pytest>=8,<10'
+      - name: Product checks (temporary storage, network disabled, no research runs)
+        run: python scripts/check-system.py --report /tmp/berrybrain-system-checks.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-system-checks
+          path: /tmp/berrybrain-system-checks.json

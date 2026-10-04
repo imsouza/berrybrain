@@ -111,6 +111,17 @@ class SemanticClusteringTest(unittest.TestCase):
         self.assertIn("pending", {item["namespace"] for item in palette["colors"]})
         self.assertIn("vault", {item["namespace"] for item in palette["colors"]})
         self.assertEqual(palette["vaults"][0]["vaultId"], "default")
+        semantic_color = next(
+            item for item in palette["colors"] if item["namespace"] == "semantic"
+        )
+        self.assertEqual(semantic_color["nodeCount"], 2)
+        self.assertTrue(semantic_color["active"])
+        self.assertNotIn("semantic-", semantic_color["label"])
+        self.assertFalse(
+            next(item for item in palette["colors"] if item["namespace"] == "vault")[
+                "active"
+            ]
+        )
 
         reapplied = apply_cluster_preview(self.session, preview)
         self.assertEqual(reapplied["assignmentsUpdated"], 0)

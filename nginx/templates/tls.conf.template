@@ -1,0 +1,20 @@
+server {
+    listen 80;
+    server_name __DOMAIN__;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+    location / {
+        return 308 https://__DOMAIN__$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name __DOMAIN__;
+    ssl_certificate __CERT_DIR__/fullchain.pem;
+    ssl_certificate_key __CERT_DIR__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    include /etc/nginx/berrybrain-locations.conf;
+}

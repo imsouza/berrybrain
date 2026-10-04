@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -116,6 +117,11 @@ class AttachmentExtractionRecord(Base):
 
 class JobRecord(Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_status_type_completed", "status", "type", "completed_at"),
+        Index("ix_jobs_status_completed", "status", "completed_at"),
+        Index("ix_jobs_status_created", "status", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     type: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -146,6 +152,10 @@ class JobRecord(Base):
 
 class JobAttemptRecord(Base):
     __tablename__ = "job_attempts"
+    __table_args__ = (
+        Index("ix_job_attempts_error_code", "error_code"),
+        Index("ix_job_attempts_model_call_started", "model_call_started"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     job_id: Mapped[int] = mapped_column(

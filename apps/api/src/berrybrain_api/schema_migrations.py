@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 14
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 IDENTITY_NAMESPACE = UUID("a5f2308d-83a5-4cba-a14a-12942a074af7")
 
@@ -103,6 +103,19 @@ MIGRATIONS = (
             "semantic child cleanup, endpoint guards, and scoped delete cascades."
         ),
     ),
+    SchemaMigration(
+        version=13,
+        name="normalize-interface-font-settings",
+        description=(
+            "Normalizes unsupported legacy interface-font values to the current "
+            "BerryBrain design-system default."
+        ),
+    ),
+    SchemaMigration(
+        version=14,
+        name="indexed-job-health-and-home-history",
+        description="Adds covering indexes for job counters, recent history and attempt diagnostics.",
+    ),
 )
 
 
@@ -161,6 +174,36 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
 
 
 def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 14:
+        from berrybrain_api.models import JobAttemptRecord, JobRecord
+
+        inspector = inspect(connection)
+        tables = set(inspector.get_table_names())
+        names = {
+            "ix_jobs_status_type_completed",
+            "ix_jobs_status_completed",
+            "ix_jobs_status_created",
+            "ix_job_attempts_error_code",
+            "ix_job_attempts_model_call_started",
+        }
+        for model in (JobRecord, JobAttemptRecord):
+            if model.__tablename__ not in tables:
+                continue
+            columns = {c["name"] for c in inspector.get_columns(model.__tablename__)}
+            for index in model.__table__.indexes:
+                if index.name in names and set(index.columns.keys()) <= columns:
+                    index.create(bind=connection, checkfirst=True)
+        return
+    if version == 13:
+        if "settings" in inspect(connection).get_table_names():
+            connection.execute(
+                text(
+                    "UPDATE settings SET value = 'inter' "
+                    "WHERE key = 'ui_font' "
+                    "AND LOWER(TRIM(value)) NOT IN ('inter', 'system')"
+                )
+            )
+        return
     if version == 12:
         from berrybrain_api.models import LearningEventRecord
 

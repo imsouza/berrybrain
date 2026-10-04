@@ -1,5 +1,4 @@
 import json
-import os
 import shutil
 import tempfile
 import unittest
@@ -113,7 +112,8 @@ class BackupPortabilityTest(unittest.TestCase):
             attachment_path.write_text("Traceable evidence", encoding="utf-8")
             (vault / "source.md").write_text("# Source", encoding="utf-8")
 
-            engine = create_engine("sqlite:///:memory:")
+            database_path = root_path / "berrybrain.db"
+            engine = create_engine(f"sqlite:///{database_path}")
             Base.metadata.create_all(engine)
             session_factory = sessionmaker(bind=engine)
             with session_factory() as session:
@@ -163,7 +163,7 @@ class BackupPortabilityTest(unittest.TestCase):
             settings = SimpleNamespace(
                 vault_path=vault,
                 backup_path=backup_path,
-                database_url="sqlite:///missing.db",
+                database_url=f"sqlite:///{database_path}",
             )
             with (
                 patch("berrybrain_api.backup.SessionLocal", session_factory),
@@ -377,7 +377,7 @@ class BackupPortabilityTest(unittest.TestCase):
             ):
                 backup = create_backup()
                 (vault / "live-only.md").write_text("# Keep me", encoding="utf-8")
-                real_replace = os.replace
+                from berrybrain_api.backup import _copy_sqlite_snapshot
 
                 def fail_database_swap(source, destination):
                     if (
@@ -385,11 +385,11 @@ class BackupPortabilityTest(unittest.TestCase):
                         and ".restore-" in Path(source).name
                     ):
                         raise OSError("simulated database swap failure")
-                    return real_replace(source, destination)
+                    return _copy_sqlite_snapshot(source, destination)
 
                 with (
                     patch(
-                        "berrybrain_api.backup.os.replace",
+                        "berrybrain_api.backup._copy_sqlite_snapshot",
                         side_effect=fail_database_swap,
                     ),
                     self.assertRaisesRegex(OSError, "simulated"),

@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
@@ -25,12 +25,14 @@ from berrybrain_api.models import (
     NoteRecord,
 )
 from berrybrain_api.second_brain import expand_knowledge_graph
+from berrybrain_api.security import require_admin
 from berrybrain_api.vault_scan import scan_vault
 
 # ponytail: destructive system-wide ops, admin only
 router = APIRouter(
     prefix="/api/v1/maintenance",
     tags=["maintenance"],
+    dependencies=[Depends(require_admin)],
 )
 
 TECHNICAL_TERMS = (

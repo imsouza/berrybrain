@@ -57,3 +57,4 @@ jobs:
           coverage report --fail-under=78.5
           coverage json -o coverage.json
           python scripts/check_critical_coverage.py coverage.json
+          python scripts/check_coverage_regression.py coverage.json

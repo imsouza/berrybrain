@@ -1,5 +1,21 @@
 # BerryBrain Architecture
 
+## Integration boundary
+
+The versioned HTTP API is the reusable boundary of this architecture. The Next.js
+application is one client; external editors, study tools, and automations can use
+the same note, retrieval, graph, and job workflows without importing the frontend
+or writing SQLite directly. See the [API integration contract](api.md), live
+`/api/v1/openapi.json`, and [reference Python client](../examples/berrybrain_client.py).
+
+Service credentials are independently issued and revocable, with explicit expiry.
+They grant trusted application access to a shared workspace, not tenant isolation.
+Owner-only configuration and recovery use browser-session/CSRF authorization.
+Note updates use a content-hash precondition; derived processing is asynchronous;
+graph pagination carries a version so clients can detect inconsistent snapshots.
+Public HTTP availability does not imply a fully typed SDK, fine-grained scopes,
+high availability, or proof of answer correctness. Those limits are documented.
+
 BerryBrain is a local-first knowledge system with four runtime services:
 
 - `web`: Next.js user interface.

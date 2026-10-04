@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from berrybrain_api.backup import (
     create_backup,
@@ -43,4 +44,20 @@ def restore_backup_endpoint(backup_id: str) -> dict:
 
 @router.get("/export")
 def export_backup():
-    return export_full()
+    archive = export_full()
+
+    def chunks():
+        try:
+            while chunk := archive.read(64 * 1024):
+                yield chunk
+        finally:
+            archive.close()
+
+    return StreamingResponse(
+        chunks(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="berrybrain-export.zip"',
+            "Cache-Control": "no-store",
+        },
+    )

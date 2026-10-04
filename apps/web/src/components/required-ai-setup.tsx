@@ -9,6 +9,7 @@ type Provider = {
   label: string;
   mode: Mode;
   url: string;
+  capabilities?: string[];
 };
 type ModelSlot = "main" | "embedding" | "judge" | "hipporag";
 type ConfigurationGate = {
@@ -42,7 +43,15 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   const [providerId, setProviderId] = useState("");
   const [endpointUrl, setEndpointUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [models, setModels] = useState<string[]>([]);
+  const [modelsByProvider, setModelsByProvider] = useState<Record<string, string[]>>({});
+  const [slotProviders, setSlotProviders] = useState<Record<ModelSlot, string>>({
+    main: "",
+    embedding: "",
+    judge: "",
+    hipporag: "",
+  });
   const [slots, setSlots] = useState<Record<ModelSlot, string>>({
     main: "",
     embedding: "",
@@ -143,7 +152,17 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   function selectProvider(provider: Provider) {
     setProviderId(provider.id);
     setEndpointUrl(provider.url);
+    setApiKey(apiKeys[provider.id] || "");
     setModels([]);
+    setModelsByProvider({});
+    setSlotProviders({
+      main: provider.id,
+      embedding: provider.capabilities?.includes("embeddings") === false
+        ? providers.find((item) => item.mode === provider.mode && item.capabilities?.includes("embeddings") !== false)?.id || ""
+        : provider.id,
+      judge: provider.id,
+      hipporag: provider.id,
+    });
     setSlots({ main: "", embedding: "", judge: "", hipporag: "" });
     setCapabilities({});
     setError("");
@@ -155,19 +174,35 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     setError("");
   }
 
-  async function loadModels() {
-    if (!providerId || !endpointUrl.trim()) return;
+  function setSlotProvider(slot: ModelSlot, nextProviderId: string) {
+    setSlotProviders((current) => ({ ...current, [slot]: nextProviderId }));
+    setSlot(slot, "");
+  }
+
+  function setProviderKey(nextProviderId: string, value: string) {
+    setApiKeys((current) => ({ ...current, [nextProviderId]: value }));
+    if (nextProviderId === providerId) setApiKey(value);
+  }
+
+  async function loadModels(targetProviderId = providerId, slot?: ModelSlot) {
+    const targetProvider = providers.find((provider) => provider.id === targetProviderId);
+    const targetEndpoint = targetProviderId === providerId
+      ? endpointUrl.trim()
+      : String(targetProvider?.url || "").trim();
+    if (!targetProviderId || !targetEndpoint) return;
+    const cacheKey = slot ? `${targetProviderId}:${slot}` : targetProviderId;
     setBusy(true);
     setError("");
     try {
       const response = await apiFetch(
-        `${apiUrl}/api/v1/ai/providers/${encodeURIComponent(providerId)}/models`,
+        `${apiUrl}/api/v1/ai/providers/${encodeURIComponent(targetProviderId)}/models`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            endpoint_url: endpointUrl.trim(),
-            api_key: apiKey.trim(),
+            endpoint_url: targetEndpoint,
+            api_key: String(apiKeys[targetProviderId] || (targetProviderId === providerId ? apiKey : "")).trim(),
+            capability: slot === "embedding" ? "embeddings" : undefined,
           }),
         },
       );
@@ -180,10 +215,18 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             .filter(Boolean),
         ),
       );
-      setModels(ids);
-      if (!ids.length) throw new Error("The provider returned no models.");
+      setModelsByProvider((current) => ({ ...current, [cacheKey]: ids }));
+      if (!slot && targetProviderId === providerId) setModels(ids);
+      if (!ids.length) {
+        throw new Error(
+          slot === "embedding"
+            ? "The provider returned no models that passed the embeddings API probe."
+            : "The provider returned no models.",
+        );
+      }
     } catch (caught) {
-      setModels([]);
+      setModelsByProvider((current) => ({ ...current, [cacheKey]: [] }));
+      if (!slot && targetProviderId === providerId) setModels([]);
       setError(caught instanceof Error ? caught.message : "Models could not be loaded.");
     } finally {
       setBusy(false);
@@ -195,17 +238,17 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       schema_version: 2,
       mode,
       endpoint_url: endpointUrl.trim(),
-      main: { provider_id: providerId, model_id: slots.main.trim() },
-      embedding: { provider_id: providerId, model_id: slots.embedding.trim() },
+      main: { provider_id: slotProviders.main, model_id: slots.main.trim() },
+      embedding: { provider_id: slotProviders.embedding, model_id: slots.embedding.trim() },
       judge: {
         enabled: true,
         mode: "single_model",
-        provider_id: providerId,
+        provider_id: slotProviders.judge,
         model_id: slots.judge.trim(),
       },
       hipporag: {
         enabled: true,
-        provider_id: providerId,
+        provider_id: slotProviders.hipporag,
         model_id: slots.hipporag.trim(),
       },
       capability_snapshot: capabilities,
@@ -222,6 +265,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
         body: JSON.stringify({
           configuration: configuration(),
           api_key: apiKey.trim(),
+          api_keys: apiKeys,
         }),
       });
       const payload = await response.json();
@@ -248,6 +292,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             capability_snapshot: capabilities,
           },
           api_key: apiKey.trim(),
+          api_keys: apiKeys,
         }),
       });
       const payload = await response.json();
@@ -255,7 +300,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       setGate(payload.configurationGate || { required: false, valid: true });
       setForcedOpen(false);
       setApiKey("");
+      setApiKeys({});
       await refreshGate();
+      window.dispatchEvent(new Event("bb:ai-configuration-changed"));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Configuration could not be saved.");
     } finally {
@@ -269,7 +316,6 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       return Boolean(
         providerId &&
           endpointUrl.trim() &&
-          (mode === "local" || apiKey.trim()) &&
           models.length,
       );
     }
@@ -369,7 +415,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                   <span className="mt-1 block text-sm text-muted">
                     {item === "local"
                       ? "Models run on this network."
-                      : "Models run through one cloud provider."}
+                      : "Each AI role can use its own cloud provider."}
                   </span>
                 </button>
               ))}
@@ -410,15 +456,18 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                     type="password"
                     value={apiKey}
                     autoComplete="off"
-                    onChange={(event) => setApiKey(event.target.value)}
+                    onChange={(event) => setProviderKey(providerId, event.target.value)}
                     className="w-full rounded-md border border-border bg-background px-3 py-2"
                   />
+                  <span className="mt-1 block text-xs text-muted">
+                    Leave blank to reuse a saved key for this provider.
+                  </span>
                 </Field>
               )}
               <button
                 type="button"
-                onClick={loadModels}
-                disabled={busy || !endpointUrl.trim() || (mode === "cloud" && !apiKey.trim())}
+                onClick={() => void loadModels()}
+                disabled={busy || !endpointUrl.trim()}
                 className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 {busy ? "Testing..." : "Load models"}
@@ -429,23 +478,32 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             </div>
           )}
 
-          {step >= 2 && step <= 5 && (
-            <ModelPicker
-              label={STEPS[step]}
-              value={slots[(["main", "embedding", "judge", "hipporag"] as ModelSlot[])[step - 2]]}
-              models={models}
-              onChange={(value) =>
-                setSlot(
-                  (["main", "embedding", "judge", "hipporag"] as ModelSlot[])[step - 2],
-                  value,
-                )
-              }
-            />
-          )}
+          {step >= 2 && step <= 5 && (() => {
+            const slot = (["main", "embedding", "judge", "hipporag"] as ModelSlot[])[step - 2];
+            const selectedProvider = slotProviders[slot] || providerId;
+            return (
+              <SlotModelPicker
+                label={STEPS[step]}
+                slot={slot}
+                mode={mode}
+                providerId={selectedProvider}
+                providers={slot === "embedding" ? activeProviders.filter((provider) => provider.capabilities?.includes("embeddings") !== false) : activeProviders}
+                apiKey={apiKeys[selectedProvider] || ""}
+                value={slots[slot]}
+                models={modelsByProvider[`${selectedProvider}:${slot}`] || (slot === "embedding" ? [] : selectedProvider === providerId ? models : [])}
+                busy={busy}
+                lockProvider={slot === "main"}
+                onProviderChange={(value) => setSlotProvider(slot, value)}
+                onApiKeyChange={(value) => setProviderKey(selectedProvider, value)}
+                onLoadModels={() => void loadModels(selectedProvider, slot)}
+                onChange={(value) => setSlot(slot, value)}
+              />
+            );
+          })()}
 
           {step === 6 && (
             <div className="space-y-4">
-              <Summary mode={mode} provider={activeProvider?.label || providerId} slots={slots} />
+              <Summary mode={mode} providers={slotProviders} slots={slots} />
               <button
                 type="button"
                 onClick={validateConfiguration}
@@ -459,7 +517,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
 
           {step === 7 && (
             <div className="space-y-4">
-              <Summary mode={mode} provider={activeProvider?.label || providerId} slots={slots} />
+              <Summary mode={mode} providers={slotProviders} slots={slots} />
               <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
                 Provider and model compatibility verified.
               </p>
@@ -517,53 +575,117 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ModelPicker({
+function SlotModelPicker({
   label,
+  slot,
+  mode,
+  providerId,
+  providers,
+  apiKey,
   value,
   models,
+  busy,
+  lockProvider,
+  onProviderChange,
+  onApiKeyChange,
+  onLoadModels,
   onChange,
 }: {
   label: string;
+  slot: ModelSlot;
+  mode: Mode;
+  providerId: string;
+  providers: Provider[];
+  apiKey: string;
   value: string;
   models: string[];
+  busy: boolean;
+  lockProvider: boolean;
+  onProviderChange: (value: string) => void;
+  onApiKeyChange: (value: string) => void;
+  onLoadModels: () => void;
   onChange: (value: string) => void;
 }) {
   const listId = `models-${label.toLowerCase().replace(/\s+/g, "-")}`;
   return (
-    <Field label={label}>
-      <input
-        list={listId}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Select a model"
-        className="w-full rounded-md border border-border bg-background px-3 py-2"
-      />
-      <datalist id={listId}>
-        {models.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
-    </Field>
+    <div className="space-y-4">
+      <Field label={`${label} provider`}>
+        <select
+          value={providerId}
+          disabled={lockProvider}
+          onChange={(event) => onProviderChange(event.target.value)}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 disabled:text-muted"
+        >
+          {providers.map((provider) => (
+            <option key={provider.id} value={provider.id}>{provider.label}</option>
+          ))}
+        </select>
+      </Field>
+      {providerId === "opencode-zen" && (
+        <p className="text-xs leading-5 text-muted">
+          OpenCode Zen: only Chat Completions-compatible models are supported here.
+          For embeddings, select another cloud provider and its API key in the embeddings step.
+        </p>
+      )}
+      {mode === "cloud" && (
+        <Field label={`${label} provider API key`}>
+          <input
+            type="password"
+            value={apiKey}
+            autoComplete="off"
+            onChange={(event) => onApiKeyChange(event.target.value)}
+            placeholder="Leave blank to reuse a saved key"
+            className="w-full rounded-md border border-border bg-background px-3 py-2"
+          />
+        </Field>
+      )}
+      <button
+        type="button"
+        onClick={onLoadModels}
+        disabled={busy || !providerId}
+        className="bb-action px-3 py-2 text-sm disabled:opacity-50"
+      >
+        {busy ? "Loading models..." : `Load ${label.toLowerCase()} models`}
+      </button>
+      <Field label={`${label} model`}>
+        <input
+          list={listId}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={slot === "embedding" ? "Select an embeddings-capable model" : "Select a chat model"}
+          className="w-full rounded-md border border-border bg-background px-3 py-2"
+        />
+        <datalist id={listId}>
+          {models.map((model) => (
+            <option key={model} value={model} />
+          ))}
+        </datalist>
+      </Field>
+      {slot === "embedding" && (
+        <p className="text-xs leading-5 text-muted">
+          Changing this model requires a full vector reindex. Indexing and queries must use the same embeddings model.
+        </p>
+      )}
+    </div>
   );
 }
 
 function Summary({
   mode,
-  provider,
+  providers,
   slots,
 }: {
   mode: Mode;
-  provider: string;
+  providers: Record<ModelSlot, string>;
   slots: Record<ModelSlot, string>;
 }) {
   return (
     <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-2 rounded-md border border-border bg-background p-4 text-sm">
       <dt className="text-muted">Mode</dt><dd>{mode}</dd>
-      <dt className="text-muted">Provider</dt><dd>{provider}</dd>
-      <dt className="text-muted">Main</dt><dd className="break-all">{slots.main}</dd>
-      <dt className="text-muted">Embeddings</dt><dd className="break-all">{slots.embedding}</dd>
-      <dt className="text-muted">Judge</dt><dd className="break-all">{slots.judge}</dd>
-      <dt className="text-muted">HippoRAG</dt><dd className="break-all">{slots.hipporag}</dd>
+      <dt className="text-muted">Main</dt><dd className="break-all">{providers.main} / {slots.main}</dd>
+      <dt className="text-muted">Embeddings</dt><dd className="break-all">{providers.embedding} / {slots.embedding}</dd>
+      <dt className="text-muted">Judge</dt><dd className="break-all">{providers.judge} / {slots.judge}</dd>
+      <dt className="text-muted">HippoRAG</dt><dd className="break-all">{providers.hipporag} / {slots.hipporag}</dd>
     </dl>
   );
 }
@@ -574,9 +696,33 @@ function readError(payload: unknown): string {
   if (typeof value.error === "string") return value.error;
   if (typeof value.detail === "string") return value.detail;
   if (value.detail && typeof value.detail === "object") {
-    const detail = value.detail as { code?: unknown; models?: unknown };
+    const detail = value.detail as { code?: unknown; models?: unknown; failures?: unknown; provider?: unknown };
     if (detail.code === "models_unavailable" && Array.isArray(detail.models)) {
-      return `Models unavailable: ${detail.models.join(", ")}`;
+      const models = detail.models.map((item) => {
+        if (!item || typeof item !== "object") return String(item);
+        const missing = item as Record<string, unknown>;
+        return `${String(missing.slot || "slot")}: ${String(missing.provider || "provider")} / ${String(missing.model || "model")}`;
+      });
+      return `Models unavailable: ${models.join(", ")}`;
+    }
+    if (detail.code === "provider_key_required") {
+      return `An API key is required for ${String(detail.provider || "the selected provider")}.`;
+    }
+    if (detail.code === "provider_compatibility_failed") {
+      return `${String(detail.provider || "Provider")} compatibility test failed.`;
+    }
+    if (detail.code === "model_capability_mismatch" && Array.isArray(detail.failures)) {
+      const failures = detail.failures
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+        .map((item) => {
+          const slot = String(item.slot || "model");
+          const model = String(item.model || "unknown");
+          const capability = String(item.capability || "requested capability");
+          const status = item.status ? `, HTTP ${String(item.status)}` : "";
+          const reason = typeof item.reason === "string" ? item.reason : "Check the provider configuration and retry.";
+          return `${slot}: ${model} — ${capability} validation failed${status}. ${reason}`;
+        });
+      if (failures.length) return failures.join("; ");
     }
   }
   return "Request failed.";

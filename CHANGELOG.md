@@ -4,6 +4,46 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.4.9 - 2026-10-03
+
+### Added
+
+- External REST API guide, independent Python client, service-token issuance,
+  discovery and versioned OpenAPI/Swagger routes with explicit authentication.
+- Isolated product-check runner and CI workflow; no new thesis benchmarks.
+- OpenCode Zen capability-aware setup, independent provider configuration for
+  generation and embeddings, grounded study-guide answers, and Markdown rendering.
+- Smaller graph nodes with ontology shapes retained, contextual labels, visible
+  edges and interactive movement improvements.
+- Non-destructive schema migration 14: indexes for job history, queue counts
+  and attempt diagnostics. Existing jobs, notes and evidence are preserved.
+
+### Fixed
+
+- Home no longer reads every historical job payload. Lifetime totals remain exact
+  SQL aggregates; recent completions are limited to eight, and ETA uses at most
+  200 recent successful durations per active job type (not a scientific benchmark).
+- Home includes dead letters in failure counts and cancellation requests in active
+  work. Connection counts no longer mix today's legacy links with graph totals.
+- Queue health respects renewed leases, detects expired leases even on recently
+  started jobs, and applies the advertised 30-minute pending threshold.
+- Assimilation resolves renamed notes by stable database identity and current
+  content hash, with guarded compatibility for legacy JSON payloads.
+- Targeted administrator tool reconciles legacy pending jobs with exhausted
+  attempts. Dry-run is the default; applying preserves history and adds an audit
+  event without retrying work or calling a model.
+- Exact public-route allowlist, real streamed body-size limits, redacted validation
+  errors, locked-user session rejection, and no reactivation of expired tokens.
+- Automatic note organization preserves identity and attachments; graph/search
+  responses respect artifact admission, and transient lease-renewal errors retry.
+
+### Limits
+
+- This is a product maintenance release, not proof of bug-free operation or a new
+  academic evaluation. API consumers still share a trusted workspace; per-token
+  scopes and per-vault isolation remain pending. Host Docker/cgroup limitations
+  are tracked separately from application fixes.
+
 ## 1.4.8 - 2026-08-14
 
 ### Added

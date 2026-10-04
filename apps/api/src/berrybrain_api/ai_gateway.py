@@ -15,7 +15,12 @@ from typing import Any, ParamSpec, TypeVar
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from berrybrain_api.ai_configuration import load_configuration
+from berrybrain_api.ai_configuration import (
+    load_configuration,
+    provider_api_key,
+    provider_endpoint,
+)
+from berrybrain_api.cloud_compat import cloud_chat_options
 from berrybrain_api.model_invocation_service import (
     finish_model_invocation,
     start_model_invocation,
@@ -64,27 +69,62 @@ def get_ai_config(session: Session) -> dict[str, str]:
     values = settings_values(list(rows))
     configuration = load_configuration(session)
     if configuration is not None:
-        endpoint = configuration.endpoint_url
+        main_endpoint = provider_endpoint(configuration, configuration.main.provider_id)
+        embedding_endpoint = provider_endpoint(
+            configuration, configuration.embedding.provider_id
+        )
+        judge_endpoint = provider_endpoint(
+            configuration, configuration.judge.provider_id
+        )
+        hipporag_endpoint = provider_endpoint(
+            configuration, configuration.hipporag.provider_id
+        )
         return {
             "provider": configuration.mode,
-            "cloud_api_url": endpoint if configuration.mode == "cloud" else "",
-            "cloud_api_key": values.get("graph_ai_api_key")
-            or values.get("ai_api_key", ""),
+            "cloud_api_url": (main_endpoint if configuration.mode == "cloud" else ""),
+            "cloud_api_key": (
+                provider_api_key(session, configuration.main.provider_id)
+                if configuration.mode == "cloud"
+                else ""
+            ),
             "cloud_model": (
                 configuration.main.model_id if configuration.mode == "cloud" else ""
             ),
             "cloud_provider": (
-                configuration.embedding.provider_id
-                if configuration.mode == "cloud"
-                else ""
+                configuration.main.provider_id if configuration.mode == "cloud" else ""
             ),
             "embedding_provider": configuration.mode,
             "embedding_model": configuration.embedding.model_id,
-            "judge_provider": configuration.mode,
+            "embedding_cloud_provider": configuration.embedding.provider_id,
+            "embedding_cloud_api_url": (
+                embedding_endpoint if configuration.mode == "cloud" else ""
+            ),
+            "embedding_cloud_api_key": (
+                provider_api_key(session, configuration.embedding.provider_id)
+                if configuration.mode == "cloud"
+                else ""
+            ),
+            "judge_provider": configuration.judge.provider_id,
             "judge_model": configuration.judge.model_id,
-            "hipporag_provider": configuration.mode,
+            "judge_cloud_api_url": (
+                judge_endpoint if configuration.mode == "cloud" else ""
+            ),
+            "judge_cloud_api_key": (
+                provider_api_key(session, configuration.judge.provider_id)
+                if configuration.mode == "cloud"
+                else ""
+            ),
+            "hipporag_provider": configuration.hipporag.provider_id,
             "hipporag_model": configuration.hipporag.model_id,
-            "ollama_base_url": endpoint if configuration.mode == "local" else "",
+            "hipporag_cloud_api_url": (
+                hipporag_endpoint if configuration.mode == "cloud" else ""
+            ),
+            "hipporag_cloud_api_key": (
+                provider_api_key(session, configuration.hipporag.provider_id)
+                if configuration.mode == "cloud"
+                else ""
+            ),
+            "ollama_base_url": (main_endpoint if configuration.mode == "local" else ""),
             "ollama_model": (
                 configuration.main.model_id if configuration.mode == "local" else ""
             ),
@@ -234,7 +274,11 @@ def generate_query_embedding(
     session: Session | None = None,
     prompt_version: str = "embedding-query.v1",
     correlation_id: str = "",
+    input_type: str = "query",
 ) -> list[float]:
+    if input_type not in {"query", "passage"}:
+        raise ValueError("Embedding input_type must be query or passage")
+    config = {**config, "embedding_input_type": input_type}
     started = perf_counter()
     try:
         decision = _route(config, ModelCapability.EMBEDDING, embedding=True)
@@ -521,9 +565,22 @@ def check_router_status(config: dict[str, str]) -> dict[str, Any]:
                 if provider == "cloud"
                 else route_config.get("ollama_model")
             )
-            route_config["provider"] = provider or "local"
-            if route_config["provider"] == "cloud":
+            provider_mode = (
+                "cloud"
+                if provider and provider not in {"cloud", "local", "ollama"}
+                else "local"
+                if provider == "ollama"
+                else provider or "local"
+            )
+            route_config["provider"] = provider_mode
+            if provider_mode == "cloud":
                 route_config["cloud_model"] = model or ""
+                route_config["cloud_api_url"] = route_config.get(
+                    "judge_cloud_api_url", route_config.get("cloud_api_url", "")
+                )
+                route_config["cloud_api_key"] = route_config.get(
+                    "judge_cloud_api_key", route_config.get("cloud_api_key", "")
+                )
             else:
                 route_config["ollama_model"] = model or ""
         elif name == "hipporag":
@@ -535,9 +592,22 @@ def check_router_status(config: dict[str, str]) -> dict[str, Any]:
                 if provider == "cloud"
                 else route_config.get("ollama_model")
             )
-            route_config["provider"] = provider or "local"
-            if route_config["provider"] == "cloud":
+            provider_mode = (
+                "cloud"
+                if provider and provider not in {"cloud", "local", "ollama"}
+                else "local"
+                if provider == "ollama"
+                else provider or "local"
+            )
+            route_config["provider"] = provider_mode
+            if provider_mode == "cloud":
                 route_config["cloud_model"] = model or ""
+                route_config["cloud_api_url"] = route_config.get(
+                    "hipporag_cloud_api_url", route_config.get("cloud_api_url", "")
+                )
+                route_config["cloud_api_key"] = route_config.get(
+                    "hipporag_cloud_api_key", route_config.get("cloud_api_key", "")
+                )
             else:
                 route_config["ollama_model"] = model or ""
         try:
@@ -563,15 +633,20 @@ def check_router_status(config: dict[str, str]) -> dict[str, Any]:
 def _cloud_embedding(
     config: dict[str, str], model: str, text: str, timeout: int
 ) -> list[float]:
-    api_url = config.get("cloud_api_url", "").rstrip("/")
-    api_key = config.get("cloud_api_key", "")
+    api_url = (
+        config.get("embedding_cloud_api_url") or config.get("cloud_api_url", "")
+    ).rstrip("/")
+    api_key = config.get("embedding_cloud_api_key") or config.get("cloud_api_key", "")
     if not api_url or not api_key or not model:
         raise GraphAIUnavailable("Cloud embedding provider is not configured")
     body: dict[str, Any] = {"model": model, "input": text}
-    if config.get("cloud_provider", "").strip().lower().startswith("nvidia"):
+    embedding_cloud_provider = config.get(
+        "embedding_cloud_provider", config.get("cloud_provider", "")
+    )
+    if embedding_cloud_provider.strip().lower().startswith("nvidia"):
         body.update(
             {
-                "input_type": "query",
+                "input_type": config.get("embedding_input_type", "query"),
                 "encoding_format": "float",
                 "truncate": "END",
             }
@@ -641,11 +716,13 @@ def _cloud_json(
                 "response_format": {"type": "json_object"},
                 "temperature": 0,
                 "max_tokens": max_tokens,
+                **cloud_chat_options(api_url, model),
             }
         ).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "BerryBrain/1.4.8",
         },
         method="POST",
     )

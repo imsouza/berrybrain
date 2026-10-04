@@ -1,0 +1,708 @@
+{
+  "date": "2026-10-03",
+  "scope": "Isolated product checks; latest execution per module, including targeted reruns after fixes; no academic benchmarks",
+  "command": "apps/api/.venv/bin/python scripts/check-system.py --report /tmp/berrybrain-system-checks.json",
+  "pythonModules": 83,
+  "pythonTests": 676,
+  "failedModules": 0,
+  "skipped": 0,
+  "webProductTests": {
+    "passed": 14,
+    "failed": 0
+  },
+  "typescript": "passed",
+  "eslintSrc": "passed",
+  "browserDocumentationTests": {"passed": 2, "failed": 0, "file": "apps/web/e2e/api-docs.spec.ts"},
+  "runtime": {
+    "date": "2026-10-03",
+    "services": {"api": "healthy", "web": "healthy", "worker": "healthy", "hipporag": "healthy"},
+    "currentImagesConfirmed": ["api", "web", "worker"],
+    "imageSourceHashComparison": {"apiFiles": 7, "workerFiles": 2, "differences": 0},
+    "schemaVersion": 13,
+    "openApiOperations": 237,
+    "operationsWithDeclaredSecurity": 237,
+    "responseSchemas": 84,
+    "httpSmoke": [
+      {"path": "/health", "status": 200},
+      {"path": "/api/v1", "status": 200},
+      {"path": "/api/v1/openapi.json", "status": 200},
+      {"path": "/api/v1/graph/nodes?limit=2", "status": 200},
+      {"path": "/api/v1/graph/edges?limit=2", "status": 200},
+      {"path": "/api/v1/home/summary", "status": 200, "observedMs": 24440},
+      {"path": "/api/v1/jobs/health", "status": 200, "observedMs": 26704},
+      {"path": "/api/v1/judge/mode", "authenticated": false, "status": 401}
+    ],
+    "notes": "Read-only smoke after deployment; individual latencies are not a load benchmark or SLO. API, web and worker run the built images despite a residual Compose error for old missing container IDs."
+  },
+  "infrastructureWarnings": [
+    "Compose exits 1 referencing removed container IDs 259dec67c8c7 and 4a0c3f5d3f80; current services and image IDs were verified independently.",
+    "Docker reports unavailable kernel/cgroup memory-limit capabilities; configured memory limits are discarded.",
+    "Existing stopped container berrybrain-web-before-ai-setup-20260909 was preserved."
+  ],
+  "checks": [
+    {
+      "file": "apps/api/tests/test_agent_monitor.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_ai_configuration_v2.py",
+      "exit": 0,
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_ai_content_safety.py",
+      "exit": 0,
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_architecture_boundaries.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_artifact_state.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_ask_flow.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_ask_suggestions.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_attachment_processing.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_attachment_security.py",
+      "exit": 0,
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_automation_logs.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_backup_portability.py",
+      "exit": 0,
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_cognitive_query_resilience.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_cognitive_vector_store.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_critical_coverage.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_database_runtime.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_evidence_selection.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_extractor_sandbox.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_faster_whisper_extractor.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_feedback.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_inference_domain.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_inference_transactions.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_invalidation.py",
+      "exit": 0,
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_ontology_confidence.py",
+      "exit": 0,
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_quality.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_research.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_runtime_api.py",
+      "exit": 0,
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_graph_write_service.py",
+      "exit": 0,
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_hipporag_defaults.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_hipporag_security.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_home_lists.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_home_summary.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_insight_filters.py",
+      "exit": 0,
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_insight_quality.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_integration.py",
+      "exit": 0,
+      "tests": 42,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_job_contracts.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_jobs.py",
+      "exit": 0,
+      "tests": 44,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_judge_committee.py",
+      "exit": 0,
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_judge_prompt.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_learning.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_maintenance.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_maturation_regressions.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_model_invocation_ledger.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_model_router_domain.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_ontology_service.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_operational_runbook.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_performance_metrics.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_queue_slo.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_runtime_content_contract.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_schema.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_schema_migrations.py",
+      "exit": 0,
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_second_brain_phase1.py",
+      "exit": 0,
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_security_auth.py",
+      "exit": 0,
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_security_redaction.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_semantic_clustering.py",
+      "exit": 0,
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_semantic_enrichment.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_semantic_graph_maintenance.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_service_token_rotation.py",
+      "exit": 0,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_settings.py",
+      "exit": 0,
+      "tests": 38,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_settings_registry.py",
+      "exit": 0,
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_vault_graph_service.py",
+      "exit": 0,
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_vault_metadata.py",
+      "exit": 0,
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_vault_scan.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_vault_watcher.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/tests/test_vector_store_docker_profiles.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_content_fallbacks.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_prompt_loader.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_cancellation.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_enrichment.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_flashcards.py",
+      "exit": 0,
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_hipporag.py",
+      "exit": 0,
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_integration.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_judge.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_lease_recovery.py",
+      "exit": 0,
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_parity.py",
+      "exit": 0,
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_pipeline_fallbacks.py",
+      "exit": 0,
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/worker/tests/test_worker_resilience.py",
+      "exit": 0,
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_ai_setup_fixes.py",
+      "exit": 0,
+      "tests": 31,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_ask_current_evidence.py",
+      "exit": 0,
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_review_fixes.py",
+      "exit": 0,
+      "tests": 30,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_system_api_review.py",
+      "exit": 0,
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_external_api_client.py",
+      "exit": 0,
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/hipporag/tests/test_sidecar.py",
+      "exit": 0,
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "file": "apps/api/regression_tests/test_service_token_lifecycle.py",
+      "exit": 0,
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

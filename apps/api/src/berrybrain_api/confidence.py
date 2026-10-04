@@ -65,6 +65,8 @@ def estimate_confidence(
     they never increase confidence by themselves. Scored observations are interpreted
     as independent bounded measurements; callers must not pass duplicate sources.
     """
+    if not 0 < level < 1:
+        raise ValueError("Confidence level must be between 0 and 1")
     observations: list[ConfidenceSignal] = []
     factors: list[str] = []
     seen_sources: set[str] = set()
@@ -85,8 +87,6 @@ def estimate_confidence(
 
     sample_size = len(observations)
     observed_mean = sum(item.score for item in observations) / sample_size
-    if not 0 < level < 1:
-        raise ValueError("Confidence level must be between 0 and 1")
     if sample_size == 1:
         lower, upper = 0.0, 1.0
     else:

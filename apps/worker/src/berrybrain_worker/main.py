@@ -293,7 +293,27 @@ async def run_loop(
                     with suppress(asyncio.CancelledError):
                         await cancellation_task
 
-        await asyncio.gather(*(handle(j) for j in jobs))
+        async def heartbeat_during_batch(batch_provider_ok: bool = provider_ok):
+            while True:
+                try:
+                    await send_heartbeat(
+                        client,
+                        settings.api_url,
+                        jobs_processed,
+                        errors,
+                        batch_provider_ok,
+                    )
+                except httpx.HTTPError as exc:
+                    print(f"could not send worker heartbeat: {exc}")
+                await asyncio.sleep(30)
+
+        heartbeat_task = asyncio.create_task(heartbeat_during_batch())
+        try:
+            await asyncio.gather(*(handle(j) for j in jobs))
+        finally:
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
         provider_ok = await active_provider_health(settings)
         await send_heartbeat(
             client, settings.api_url, jobs_processed, errors, provider_ok
@@ -544,6 +564,8 @@ def effective_generation_provider() -> str:
     ):
         url = str(cfg.get("cloud_api_url") or "").lower()
         model = str(cfg.get("cloud_model") or "").lower()
+        if url.rstrip("/") == "https://opencode.ai/zen/v1":
+            return "opencode-zen"
         if "nvidia" in url or "nvidia" in model or "nemotron" in model:
             return "nvidia-nim"
         return "cloud"
@@ -779,8 +801,8 @@ async def process_generate_embedding(
     use_cloud_embeddings = (
         configured_embedding_provider == "cloud"
         and str(cfg.get("remote_content_consent", "false")).lower() == "true"
-        and cfg.get("cloud_api_url")
-        and cfg.get("cloud_api_key")
+        and (cfg.get("embedding_cloud_api_url") or cfg.get("cloud_api_url"))
+        and (cfg.get("embedding_cloud_api_key") or cfg.get("cloud_api_key"))
         and cloud_embedding_model
     )
     ollama_embedding_available = False
@@ -798,12 +820,16 @@ async def process_generate_embedding(
         text = chunk["text"][:4000]
         if use_cloud_embeddings:
             vec = await cloud_generate_embedding(
-                cfg["cloud_api_url"],
-                cfg["cloud_api_key"],
+                cfg.get("embedding_cloud_api_url") or cfg["cloud_api_url"],
+                cfg.get("embedding_cloud_api_key") or cfg["cloud_api_key"],
                 cloud_embedding_model,
                 text,
                 settings.ollama_timeout,
-                provider=str(cfg.get("cloud_provider") or ""),
+                provider=str(
+                    cfg.get("embedding_cloud_provider")
+                    or cfg.get("cloud_provider")
+                    or ""
+                ),
                 input_type="passage",
             )
         else:
@@ -1889,6 +1915,7 @@ async def process_update_graph_clusters(
     preview_response = await client.post(
         f"{settings.api_url}/api/v1/graph/recluster",
         json=preview_payload,
+        timeout=300,
     )
     preview_response.raise_for_status()
     preview_token = preview_response.json().get("previewToken")
@@ -1903,6 +1930,7 @@ async def process_update_graph_clusters(
     apply_response = await client.post(
         f"{settings.api_url}/api/v1/graph/recluster",
         json=apply_payload,
+        timeout=300,
     )
     apply_response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
@@ -1917,9 +1945,12 @@ async def process_update_graph_stats(
     recalculate = await client.post(
         f"{settings.api_url}/api/v1/graph/confidence/recalculate",
         json={"nodeIds": affected_node_ids},
+        timeout=60,
     )
     recalculate.raise_for_status()
-    response = await client.get(f"{settings.api_url}/api/v1/graph/quality-report")
+    response = await client.get(
+        f"{settings.api_url}/api/v1/graph/quality-report", timeout=60
+    )
     response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
 

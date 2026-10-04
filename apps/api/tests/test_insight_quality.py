@@ -13,12 +13,13 @@ from berrybrain_api.services import create_insight, get_active_insights
 
 class InsightQualityTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite://")
-        Base.metadata.create_all(engine)
-        self.session = sessionmaker(bind=engine)()
+        self.engine = create_engine("sqlite://")
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(bind=self.engine)()
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
 
     def create_strong(self, title: str, evidence: list[str]):
         return create_insight(

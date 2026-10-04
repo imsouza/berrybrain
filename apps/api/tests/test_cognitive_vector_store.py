@@ -1,13 +1,17 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.cognitive_layer import index_knowledge_base, retrieve_kb
+from berrybrain_api.config import Settings
 from berrybrain_api.database import Base
 from berrybrain_api.models import NoteRecord, SettingRecord
+from berrybrain_api.vault import create_note
 
 
 class FakeResponse:
@@ -27,10 +31,25 @@ class FakeResponse:
 
 class CognitiveVectorStoreTest(unittest.TestCase):
     def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        settings = Settings(_env_file=None, vault_path=Path(temporary.name) / "vault")
+        configuration = patch(
+            "berrybrain_api.config.get_settings", return_value=settings
+        )
+        configuration.start()
+        self.addCleanup(configuration.stop)
+        source = create_note(
+            settings.vault_path,
+            "Docker",
+            "inbox",
+            "# Docker\n\nContainers isolate applications and images.",
+        )
         engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False}
         )
         Base.metadata.create_all(bind=engine)
+        self.addCleanup(engine.dispose)
         self.session = sessionmaker(bind=engine)()
         self.session.add(
             NoteRecord(
@@ -38,7 +57,7 @@ class CognitiveVectorStoreTest(unittest.TestCase):
                 slug="docker-essentials",
                 path="inbox/docker.md",
                 content="# Docker\n\nContainers isolate applications and images.",
-                content_hash="abc",
+                content_hash=source["content_hash"],
             )
         )
         self.session.add_all(
@@ -50,6 +69,7 @@ class CognitiveVectorStoreTest(unittest.TestCase):
             ]
         )
         self.session.commit()
+        self.note = self.session.query(NoteRecord).one()
         self.embedding_patch = patch(
             "berrybrain_api.vector_store._generate_chunk_embedding",
             return_value=([0.1] * 64, "fixture/embedding"),
@@ -94,9 +114,15 @@ class CognitiveVectorStoreTest(unittest.TestCase):
         self.assertEqual(result["externalVectorStore"]["store"], "qdrant")
         self.assertEqual(calls[0][0], "PUT")
         self.assertTrue(calls[0][1].endswith("/collections/berrybrain"))
-        self.assertTrue(calls[1][1].endswith("/collections/berrybrain/points"))
-        self.assertEqual(len(calls[1][2]["points"]), 1)
-        self.assertEqual(len(calls[1][2]["points"][0]["vector"]), 64)
+        # Wait for writes, then reconcile stale vectors against the full snapshot.
+        upsert = next(
+            call
+            for call in calls
+            if call[0] == "PUT"
+            and call[1].endswith("/collections/berrybrain/points?wait=true")
+        )
+        self.assertEqual(len(upsert[2]["points"]), 1)
+        self.assertEqual(len(upsert[2]["points"][0]["vector"]), 64)
 
     def test_qdrant_retrieval_uses_vector_search_payload(self) -> None:
         self.set_setting("kb_vector_store", "qdrant")
@@ -116,6 +142,8 @@ class CognitiveVectorStoreTest(unittest.TestCase):
                                 "path": "inbox/docker.md",
                                 "text": "Containers isolate applications and images.",
                                 "note_id": 1,
+                                "note_stable_id": self.note.stable_id,
+                                "content_hash": self.note.content_hash,
                                 "chunk": 0,
                                 "document_id": "note:1:chunk:0",
                             },
@@ -143,7 +171,7 @@ class CognitiveVectorStoreTest(unittest.TestCase):
         def fake_urlopen(request, timeout=0):
             payload = json.loads(request.data.decode("utf-8"))
             calls.append((request.get_method(), request.full_url, payload))
-            if request.full_url.endswith("/api/v1/collections"):
+            if request.full_url.endswith("/collections"):
                 return FakeResponse(body={"id": "collection-id"})
             return FakeResponse(
                 body={
@@ -154,6 +182,9 @@ class CognitiveVectorStoreTest(unittest.TestCase):
                                 "title": "Docker Essentials",
                                 "path": "inbox/docker.md",
                                 "chunk": 0,
+                                "note_id": self.note.id,
+                                "note_stable_id": self.note.stable_id,
+                                "content_hash": self.note.content_hash,
                             }
                         ]
                     ],
@@ -166,7 +197,11 @@ class CognitiveVectorStoreTest(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].metadata["retrieval"], "chroma_vector")
-        self.assertTrue(calls[1][1].endswith("/api/v1/collections/collection-id/query"))
+        self.assertTrue(
+            calls[1][1].endswith(
+                "/api/v2/tenants/default_tenant/databases/default_database/collections/collection-id/query"
+            )
+        )
         self.assertEqual(len(calls[1][2]["query_embeddings"][0]), 64)
         self.assertEqual(calls[1][2]["n_results"], 2)
 

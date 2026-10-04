@@ -1,126 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/deploy-common.sh"
 
-DOMAIN="${BERRYBRAIN_DOMAIN:-berrybrain.local}"
-EMAIL="${BERRYBRAIN_LETSENCRYPT_EMAIL:-admin@berrybrain.local}"
+EMAIL="${BERRYBRAIN_LETSENCRYPT_EMAIL:-}"
 DNS_PROVIDER="${BERRYBRAIN_DNS_PROVIDER:-cloudflare}"
-CF_CREDENTIALS="${BERRYBRAIN_CF_CREDENTIALS:-./data/certbot/cloudflare.ini}"
-CERTBOT_CONF="./data/certbot/conf"
-CERTBOT_WWW="./data/certbot/www"
-NGINX_CONF="./nginx/nginx.conf"
-PID_FILE="./data/certbot/certbot.pid"
-
-echo "=== BerryBrain SSL Setup ==="
-echo "Domain: $DOMAIN"
-echo "DNS Provider: $DNS_PROVIDER"
-
-mkdir -p "$CERTBOT_CONF" "$CERTBOT_WWW" ./data/certbot/logs
-
-if [ -d "$CERTBOT_CONF/live/$DOMAIN" ]; then
-    echo "Certificate already exists for $DOMAIN"
-    echo "To renew manually: docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew"
-    exit 0
-fi
-
-# --- DNS Challenge ---
-# Cloudflare
-if [ "$DNS_PROVIDER" = "cloudflare" ]; then
-    if [ ! -f "$CF_CREDENTIALS" ]; then
-        echo "ERROR: Cloudflare credentials not found at $CF_CREDENTIALS"
-        echo "Create it with:"
-        echo "  mkdir -p ./data/certbot"
-        echo "  echo 'dns_cloudflare_api_token = YOUR_CLOUDFLARE_API_TOKEN' > $CF_CREDENTIALS"
-        echo "  chmod 600 $CF_CREDENTIALS"
-        exit 1
-    fi
-
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
-        -v "$(pwd)/$CF_CREDENTIALS:/root/.cloudflare.ini:ro" \
-        certbot \
-        certonly \
-        --dns-cloudflare \
-        --dns-cloudflare-credentials /root/.cloudflare.ini \
-        --dns-cloudflare-propagation-seconds 30 \
-        --non-interactive \
-        --agree-tos \
-        --email "$EMAIL" \
-        -d "$DOMAIN" \
-        --config-dir /etc/letsencrypt \
-        --work-dir /var/lib/letsencrypt \
-        --logs-dir /var/log/letsencrypt
-
-# Route53 (AWS)
-elif [ "$DNS_PROVIDER" = "route53" ]; then
-    if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
-        echo "ERROR: Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
-        exit 1
-    fi
-
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
-        -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
-        certbot \
-        certonly \
-        --dns-route53 \
-        --non-interactive \
-        --agree-tos \
-        --email "$EMAIL" \
-        -d "$DOMAIN" \
-        --config-dir /etc/letsencrypt \
-        --work-dir /var/lib/letsencrypt \
-        --logs-dir /var/log/letsencrypt
-
-# DigitalOcean
-elif [ "$DNS_PROVIDER" = "digitalocean" ]; then
-    if [ -z "${DO_AUTH_TOKEN:-}" ]; then
-        echo "ERROR: Set DO_AUTH_TOKEN environment variable"
-        exit 1
-    fi
-
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
-        -e DO_AUTH_TOKEN \
-        certbot \
-        certonly \
-        --dns-digitalocean \
-        --dns-digitalocean-propagation-seconds 30 \
-        --non-interactive \
-        --agree-tos \
-        --email "$EMAIL" \
-        -d "$DOMAIN" \
-        --config-dir /etc/letsencrypt \
-        --work-dir /var/lib/letsencrypt \
-        --logs-dir /var/log/letsencrypt
-
-# Manual / generic
-elif [ "$DNS_PROVIDER" = "manual" ]; then
-    echo "Running certbot in manual DNS mode. You'll need to add a TXT record."
-    docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm \
-        certbot \
-        certonly \
-        --manual \
-        --preferred-challenges dns \
-        --agree-tos \
-        --email "$EMAIL" \
-        -d "$DOMAIN" \
-        --config-dir /etc/letsencrypt \
-        --work-dir /var/lib/letsencrypt \
-        --logs-dir /var/log/letsencrypt
-
-else
-    echo "ERROR: Unknown DNS provider: $DNS_PROVIDER"
-    echo "Supported: cloudflare, route53, digitalocean, manual"
+if [[ "$DOMAIN" != *.* || "$DOMAIN" == *.local || -z "$EMAIL" ]]; then
+    echo "Set a public BERRYBRAIN_DOMAIN and BERRYBRAIN_LETSENCRYPT_EMAIL." >&2
     exit 1
 fi
 
-# Update nginx config with real domain
-if [ "$DOMAIN" != "berrybrain.local" ]; then
-    echo "Updating nginx config with domain: $DOMAIN"
-    sed -i "s|/etc/letsencrypt/live/berrybrain/|/etc/letsencrypt/live/$DOMAIN/|g" "$NGINX_CONF"
-fi
+run_options=()
+plugin_options=()
+case "$DNS_PROVIDER" in
+    cloudflare|digitalocean)
+        if [[ "$DNS_PROVIDER" == cloudflare ]]; then
+            credentials="${BERRYBRAIN_CF_CREDENTIALS:-./data/certbot/cloudflare.ini}"
+        else
+            credentials="${BERRYBRAIN_DO_CREDENTIALS:-./data/certbot/digitalocean.ini}"
+        fi
+        [[ -f "$credentials" ]] || { echo "Missing DNS credentials file: $credentials" >&2; exit 1; }
+        credentials="$(realpath "$credentials")"
+        run_options+=(-v "$credentials:/root/.$DNS_PROVIDER.ini:ro")
+        plugin_options+=("--dns-$DNS_PROVIDER" "--dns-$DNS_PROVIDER-credentials" "/root/.$DNS_PROVIDER.ini")
+        export BERRYBRAIN_CERTBOT_IMAGE="certbot/dns-$DNS_PROVIDER:${BERRYBRAIN_CERTBOT_VERSION:-latest}"
+        ;;
+    route53)
+        : "${AWS_ACCESS_KEY_ID:?Set AWS_ACCESS_KEY_ID}"
+        : "${AWS_SECRET_ACCESS_KEY:?Set AWS_SECRET_ACCESS_KEY}"
+        run_options+=(-e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY)
+        [[ -z "${AWS_SESSION_TOKEN:-}" ]] || run_options+=(-e AWS_SESSION_TOKEN)
+        plugin_options+=(--dns-route53)
+        export BERRYBRAIN_CERTBOT_IMAGE="certbot/dns-route53:${BERRYBRAIN_CERTBOT_VERSION:-latest}"
+        ;;
+    manual)
+        plugin_options+=(--manual --preferred-challenges dns)
+        export BERRYBRAIN_CERTBOT_IMAGE="certbot/certbot:${BERRYBRAIN_CERTBOT_VERSION:-latest}"
+        ;;
+    *) echo "Unsupported DNS provider: $DNS_PROVIDER" >&2; exit 1 ;;
+esac
 
-echo ""
-echo "=== DONE ==="
-echo "Restart nginx to pick up certs:"
-echo "  docker compose -f docker-compose.yml -f docker-compose.prod.yml restart nginx"
-echo ""
-echo "Setup auto-renewal (cron):"
-echo "  0 3 * * 0 cd $(pwd) && docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm certbot renew && docker compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -s reload"
+mkdir -p ./data/certbot/conf ./data/certbot/www ./data/certbot/logs
+case "${1:-issue}" in
+    issue)
+        issue_options=(certonly --cert-name berrybrain --keep-until-expiring
+            --agree-tos --email "$EMAIL" -d "$DOMAIN")
+        [[ "$DNS_PROVIDER" == manual ]] || issue_options+=(--non-interactive)
+        "${COMPOSE[@]}" run --rm --no-deps "${run_options[@]}" certbot \
+            "${issue_options[@]}" "${plugin_options[@]}"
+        ;;
+    renew)
+        [[ "$DNS_PROVIDER" != manual ]] || { echo "Manual DNS requires interactive issuance; unattended renewal is unavailable." >&2; exit 1; }
+        "${COMPOSE[@]}" run --rm --no-deps "${run_options[@]}" certbot \
+            renew --cert-name berrybrain --non-interactive "${plugin_options[@]}"
+        ;;
+    *) echo "Usage: $0 [issue|renew]" >&2; exit 1 ;;
+esac
+
+[[ -s ./data/certbot/conf/live/berrybrain/privkey.pem ]]
+openssl x509 -in ./data/certbot/conf/live/berrybrain/fullchain.pem -noout -checkend 0 >/dev/null
+configure_proxy
+echo "Certificate checked. Use deploy.sh ssl [issue|renew] to validate and reload nginx."

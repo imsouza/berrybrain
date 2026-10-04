@@ -10,10 +10,10 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.8-blue)
+![Version](https://img.shields.io/badge/version-1.4.9-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
-![FastAPI](https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi)
+![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
 ![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker)
 ![Local-first](https://img.shields.io/badge/local--first-yes-3C8F5A)
 ![Source Available](https://img.shields.io/badge/source--available-yes-3C8F5A)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.8](#whats-new-in-148)
+- [What's New in 1.4.9](#whats-new-in-149)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,19 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.8
+## What's New in 1.4.9
+
+External applications can use the [documented REST API](docs/api.md), independent
+service tokens and [Python client](examples/berrybrain_client.py). This patch also
+fixes authentication, note organization, graph admission and worker lease handling.
+Home and Monitor now use indexed job statistics, bounded history projections,
+consistent failure counts and lease-aware health checks. Migration 14 only adds
+indexes; it does not remove notes, jobs or evidence.
+
+See the [release checklist](docs/reviews/2026-10-03-release-1.4.9.md) for product
+verification and deployment status. Thesis artifacts and results are unchanged.
+
+### What's New in 1.4.8
 
 - **Feedback-guided adaptation**: note, graph, insight, and Ask decisions create append-only,
   provenance-aware learning events. Every Worker AI job, subagent, Ask path, and Judge receives the
@@ -246,9 +258,11 @@ The system is designed around one rule:
 
 ## Current Maturity
 
-BerryBrain v1.4.8 is locally validated for ontology-aware graph/RAG behavior, calculated
+The architecture introduced through v1.4.8 has local verification for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
+Version 1.4.9 adds the product/API corrections and checks linked above; it does not
+extend the historical academic evidence or establish multi-tenant readiness.
 
 | Foundation | Current state |
 | --- | --- |
@@ -728,6 +742,15 @@ This avoids showing `0%` when the graph already contains real knowledge artifact
 
 The API is versioned under `/api/v1`.
 
+Other applications can use the architecture independently of the web UI. See the
+[external API integration guide](docs/api.md) and [Python client example](examples/berrybrain_client.py)
+for independent expiring service tokens, note editing with hash conflicts,
+asynchronous processing, graph pagination, and evidence-grounded Ask.
+The live contract is at `/api/v1/openapi.json`, interactive documentation at
+`/api/v1/docs`, and discovery at `/api/v1`. A `/berrybrain` proxy mount is supported.
+This is one owner-managed shared workspace, not a multi-tenant or per-vault
+authorization API. Administrative actions remain owner-session-only.
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/home/summary` | Home state: status, progress, stats, insights, graph summary |
@@ -836,6 +859,9 @@ npm --prefix apps/web run build
 # API-backed browser E2E
 E2E_BASE_URL=http://localhost:3000/berrybrain npm --prefix apps/web run test:e2e
 
+# Human-supervised acceptance evidence
+npm --prefix apps/web run validate:supervised -- --base-url http://localhost:3000/berrybrain
+
 # Release-candidate evidence reports
 ./scripts/benchmarks/retrieval-benchmark.sh
 ./scripts/benchmarks/judge-calibration-report.sh
@@ -874,11 +900,11 @@ Configuration lives in `.env`, Settings UI, and persisted settings.
 
 | Provider | Use |
 | --- | --- |
-| NVIDIA NIM | Cloud reasoning, graph inference, high-quality insights |
+| NVIDIA NIM | Cloud generation and embeddings when the selected model exposes the required endpoint |
 | OpenAI | General OpenAI-compatible cloud route |
 | OpenRouter | Multi-provider OpenAI-compatible cloud route |
 | Groq | Low-latency OpenAI-compatible cloud route |
-| DeepSeek | Reasoning and analysis route |
+| DeepSeek | Chat generation, reasoning, Judge, and other supported generation routes |
 | Ollama | Local-first inference where available |
 | Custom OpenAI-compatible API | Any compatible provider with a reachable base URL |
 
@@ -893,6 +919,13 @@ Provider keys are stored server-side, encrypted at rest, masked in client respon
 not persisted in browser `localStorage`. Docker deployments reach a host Ollama instance
 through `http://host.docker.internal:11434` by default; both API and Worker include the Linux
 `host-gateway` mapping.
+
+Cloud slots can use different providers and credentials. For example, the main model and
+Judge can use DeepSeek while embeddings use an embeddings-capable NVIDIA NIM model. Each slot
+is validated against its own provider model catalog, endpoint, credential, and required
+capability. A chat model cannot pass the embeddings capability probe. Changing the embedding
+provider or model invalidates existing vectors and automatically queues every non-empty note
+for reindexing; retrieval does not mix vectors produced by different embedding spaces.
 
 ### RAG Judge
 
@@ -1198,6 +1231,11 @@ Before merging significant changes:
 - Frontend typecheck/build pass when dependencies are installed.
 - No hardcoded secrets.
 - No raw JSON or internal job names in primary knowledge UI.
+
+The interactive acceptance runner records the 12 product-validation scenarios with explicit human
+decisions, structured observations, screenshots, sanitized browser telemetry, and checksums. Its
+output is author-supervised acceptance evidence, not an independent user study. See
+[`docs/human-supervised-validation.md`](docs/human-supervised-validation.md).
 
 ### Repository Governance
 
