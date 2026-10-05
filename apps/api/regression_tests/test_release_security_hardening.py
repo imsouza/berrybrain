@@ -28,6 +28,16 @@ class FolderBoundaryTests(unittest.TestCase):
             self.vault / "Ciência" / "Notas",
         )
 
+    def test_empty_path_resolves_to_canonical_vault_root(self):
+        self.assertEqual(folders._resolve_folder(self.vault, ""), self.vault)
+
+    def test_filesystem_root_uses_single_separator(self):
+        root = Path(self.vault.anchor)
+        self.assertEqual(
+            folders._resolve_folder(root, self.vault.relative_to(root).as_posix()),
+            self.vault,
+        )
+
     def test_absolute_traversal_windows_and_nul_paths_are_rejected(self):
         for value in (
             "../vault-other",
