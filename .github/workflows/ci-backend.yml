@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install coverage mypy==1.18.2 ruff==0.6.9
+          pip install coverage mypy==1.18.2 ruff==0.6.9 'pytest>=8,<10'
       - name: Ruff check
         run: ruff check src tests scripts benchmarks
       - name: Ruff format check
@@ -50,11 +50,22 @@ jobs:
           src/berrybrain_api/graph_inference_service.py
       - name: API tests
         run: PYTHONPATH=src coverage run --branch --source=src/berrybrain_api -m unittest discover tests
+      - name: Isolated regression coverage
+        run: |
+          python ../../scripts/check-system.py --suite regressions \
+            --coverage-dir "$RUNNER_TEMP/berrybrain-regression-coverage" \
+            --report "$RUNNER_TEMP/berrybrain-regression-checks.json"
+          coverage combine --append --keep "$RUNNER_TEMP/berrybrain-regression-coverage"
       - name: Cognitive maturity release gate
         run: PYTHONPATH=src python -m benchmarks.maturity_release_gate
       - name: API coverage
         run: |
-          coverage report --fail-under=78.5
           coverage json -o coverage.json
+          coverage report --fail-under=78.5
           python scripts/check_critical_coverage.py coverage.json
           python scripts/check_coverage_regression.py coverage.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage-report
+          path: apps/api/coverage.json

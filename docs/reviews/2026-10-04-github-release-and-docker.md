@@ -29,6 +29,10 @@ registra o build e a publicação **locais**, não uma release remota.
   sem falhas ou skips; sem acesso à rede, ao banco real ou a provedores de IA.
 - [x] Alerta CodeQL 67 triado como falso positivo com justificativa específica;
   regra e proteções de branch permanecem ativas.
+- [x] Terceira rodada: segurança, CodeQL, web, worker e testes isolados aprovados.
+  O backend passou nos testes, mas a cobertura ficou abaixo do mínimo de 78,5%.
+- [ ] Incluir a cobertura dos testes de regressão isolados na medição do backend
+  e validar novamente os limites total, crítico e de regressão, sem reduzi-los.
 - [ ] Publicar PR, acompanhar checks e incorporar à `main`.
 - [ ] Publicar tag/release `v1.4.9` e confirmar `docs/api.md` na `main`.
 
