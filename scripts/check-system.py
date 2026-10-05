@@ -51,6 +51,14 @@ socket.socket.connect = blocked_connect
 sys.path[:0] = [str(root / 'apps' / 'api' / 'src'), str(root / 'apps' / 'worker' / 'src'), str(root / 'apps' / 'api'), str(test_file.parent)]
 if test_file.parent.parent.name == 'hipporag':
     sys.path.insert(0, str(test_file.parent.parent))
+coverage_run = None
+if len(sys.argv) > 4:
+    import coverage
+    coverage_run = coverage.Coverage(
+        data_file=sys.argv[4], branch=True, config_file=False,
+        source=[str(root / 'apps' / 'api' / 'src' / 'berrybrain_api')],
+    )
+    coverage_run.start()
 import pytest
 class Results:
     def __init__(self):
@@ -66,7 +74,12 @@ class Results:
     def pytest_collectreport(self, report):
         self.result['errors'] += int(report.failed)
 results = Results()
-status = pytest.main([str(test_file), '-q', '--tb=short', '-p', 'no:cacheprovider'], plugins=[results])
+try:
+    status = pytest.main([str(test_file), '-q', '--tb=short', '-p', 'no:cacheprovider'], plugins=[results])
+finally:
+    if coverage_run is not None:
+        coverage_run.stop()
+        coverage_run.save()
 print('PRODUCT_RESULT ' + __import__('json').dumps(results.result))
 sys.exit(int(status))
 """
@@ -84,7 +97,17 @@ def main():
     parser.add_argument(
         "--report", type=Path, help="Optional machine-readable product-check report"
     )
+    parser.add_argument(
+        "--coverage-dir",
+        type=Path,
+        help="Empty directory for per-process API branch coverage (requires coverage)",
+    )
     args = parser.parse_args()
+    if args.coverage_dir:
+        args.coverage_dir = args.coverage_dir.resolve()
+        args.coverage_dir.mkdir(parents=True, exist_ok=True)
+        if any(args.coverage_dir.iterdir()):
+            parser.error("--coverage-dir must be empty; use a fresh directory")
     selected = []
     for group, directory in [
         ("api", "apps/api/tests"),
@@ -103,7 +126,7 @@ def main():
                 continue
             selected.append(path)
     results = []
-    for path in selected:
+    for index, path in enumerate(selected):
         with tempfile.TemporaryDirectory(
             prefix="berrybrain-system-check-"
         ) as temporary:
@@ -113,9 +136,12 @@ def main():
                 if not key.startswith(("BERRYBRAIN_", "SMTP_"))
             }
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            command = [sys.executable, "-c", BOOTSTRAP, str(ROOT), str(path), temporary]
+            if args.coverage_dir:
+                command.append(str(args.coverage_dir / f".coverage.{index}"))
             try:
                 run = subprocess.run(
-                    [sys.executable, "-c", BOOTSTRAP, str(ROOT), str(path), temporary],
+                    command,
                     cwd=ROOT,
                     env=environment,
                     capture_output=True,
