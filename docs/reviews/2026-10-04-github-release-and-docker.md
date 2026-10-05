@@ -25,6 +25,10 @@ registra o build e a publicação **locais**, não uma release remota.
   rodada de CI aprovou worker e testes isolados, mas encontrou erros de tipagem,
   alertas CodeQL, dependência vulnerável e falhas no smoke de navegador.
 - [ ] Corrigir e validar todos os bloqueios do CI; não desabilitar proteções.
+- [x] Segunda correção local: 73 verificações em seis módulos isolados passaram,
+  sem falhas ou skips; sem acesso à rede, ao banco real ou a provedores de IA.
+- [x] Alerta CodeQL 67 triado como falso positivo com justificativa específica;
+  regra e proteções de branch permanecem ativas.
 - [ ] Publicar PR, acompanhar checks e incorporar à `main`.
 - [ ] Publicar tag/release `v1.4.9` e confirmar `docs/api.md` na `main`.
 
@@ -62,6 +66,48 @@ e validar sua configuração exige manutenção administrativa do host.
 - Hashes de tokens: usar a API HMAC explícita, preservando o digest já armazenado.
   O fluxo do alerta CodeQL partia de `settings.api_token`, não de senhas de usuário;
   senhas continuam com Argon2id/PBKDF2. A compatibilidade tem teste de regressão.
+- Dependências web: atualizar Next.js e eslint-config-next para a linha corrigida
+  15.5.27 e exigir Sharp >= 0.35.4. A segunda rodada de CI identificou RCE na
+  otimização de imagens e problemas na dependência nativa anterior; o audit Python
+  já passou com o novo limite do AnyIO.
+- Executor de testes: converter os quatro testes unitários de seleção de trechos
+  para `unittest`, o executor do CI backend. Antes, o import de pytest falhava
+  nesse job; simplesmente instalar pytest não faria suas funções serem executadas
+  pelo discovery de unittest.
+- Contenção de pastas: separar o retorno da raiz canônica da verificação de
+  descendentes. A checagem agora também trata corretamente o separador da raiz do
+  sistema de arquivos; os casos de raiz vazia e caminhos aninhados têm regressões.
+
+### Revisão do alerta CodeQL de hash de tokens
+
+O [alerta 67](https://github.com/imsouza/berrybrain/security/code-scanning/67)
+classifica o token de serviço legado como senha. O SARIF da análise Python
+1890514415 mostra quatro fluxos: as duas migrações de `settings.api_token` em
+`security.py` e duas chamadas nos testes de ciclo de vida de tokens. Nenhum
+fluxo parte da senha de login. O destino é HMAC-SHA256 com chave separada
+`session_secret`, usado para comparar identificadores opacos sem armazenar o
+token em claro. Tokens novos usam 48 bytes aleatórios; senhas de usuário seguem
+Argon2id ou PBKDF2-HMAC-SHA256 com 600.000 iterações.
+
+A classificação de algoritmo rápido para **senha** é um falso positivo nesse
+fluxo de token. A triagem deve limitar-se a esse alerta, com justificativa
+registrada no GitHub; não desabilita a regra nem aceita outros achados. Manter o
+digest evita invalidar silenciosamente sessões e integrações existentes. O token
+legado configurado pelo operador deve ser forte e pode ser substituído pelos
+tokens gerenciados aleatórios documentados na API.
+
+### Pendência da cadeia de desenvolvimento
+
+- [x] Atualizações compatíveis adicionais corrigiram avisos de brace-expansion,
+  browserslist, js-yaml e baseline-browser-mapping no lockfile.
+- [ ] Acompanhar correção upstream de `braces` (GHSA-vfj7-8cjw-p6xm) ou planejar
+  migração compatível da cadeia Tailwind/ESLint. O audit completo ainda aponta
+  sete pacotes de desenvolvimento afetados pela mesma dependência sem versão
+  corrigida. Não foi aplicado `npm audit fix --force`, que propõe mudanças
+  incompatíveis de ferramentas. Não executar build/lint de código ou configuração
+  não confiáveis. Este alerta não deve ser apresentado como corrigido.
 
 Referências: [correção AnyIO/TLS](https://github.com/agronholm/anyio/security/advisories/GHSA-82r6-8w77-94w6),
-[contenção de caminhos](https://codeql.github.com/codeql-query-help/python/py-path-injection/).
+[contenção de caminhos](https://codeql.github.com/codeql-query-help/python/py-path-injection/),
+[correção Next.js](https://github.com/advisories/GHSA-2xp9-vwfh-vxw4),
+[correção Sharp](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).

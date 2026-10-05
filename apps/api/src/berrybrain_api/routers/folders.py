@@ -37,9 +37,11 @@ def _resolve_folder(vault_path: Path, folder_path: str) -> Path:
     relative = _safe_relative_path(folder_path)
     vault_root = os.path.realpath(vault_path)
     full_path = os.path.realpath(os.path.join(vault_root, relative))
+    if full_path == vault_root:
+        return Path(vault_root)
     # Include the separator: /vault-other is not a descendant of /vault.
     # realpath also resolves symlinks before this containment check.
-    if full_path != vault_root and not full_path.startswith(vault_root + os.sep):
+    if not full_path.startswith(os.path.join(vault_root, "")):
         raise HTTPException(status_code=400, detail="Invalid folder path")
     return Path(full_path)
 
