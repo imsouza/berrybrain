@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.9-blue)
+![Version](https://img.shields.io/badge/version-1.4.10-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.9](#whats-new-in-149)
+- [What's New in 1.4.10](#whats-new-in-1410)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,11 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.9
+## What's New in 1.4.10
+
+This release includes the product changes prepared for 1.4.9 and the corrected
+source-map-js dependency. The existing 1.4.9 tag is preserved; its image/release
+publication was cancelled after a new security audit finding.
 
 External applications can use the [documented REST API](docs/api.md), independent
 service tokens and [Python client](examples/berrybrain_client.py). This patch also
@@ -102,8 +106,9 @@ Home and Monitor now use indexed job statistics, bounded history projections,
 consistent failure counts and lease-aware health checks. Migration 14 only adds
 indexes; it does not remove notes, jobs or evidence.
 
-See the [release checklist](docs/reviews/2026-10-03-release-1.4.9.md) for product
-verification and deployment status. Thesis artifacts and results are unchanged.
+See the [release notes](docs/releases/v1.4.10.md) and
+[publication checklist](docs/reviews/2026-10-07-release-1.4.10.md).
+Thesis artifacts and results are unchanged.
 
 ### What's New in 1.4.8
 
@@ -261,7 +266,7 @@ verification and deployment status. Thesis artifacts and results are unchanged.
 The architecture introduced through v1.4.8 has local verification for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
-Version 1.4.9 adds the product/API corrections and checks linked above; it does not
+Versions 1.4.9–1.4.10 add the product/API corrections and checks linked above; they do not
 extend the historical academic evidence or establish multi-tenant readiness.
 
 | Foundation | Current state |
