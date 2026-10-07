@@ -6,7 +6,7 @@ registra o build e a publicação **locais**, não uma release remota.
 
 ## Publicação do sistema
 
-- [x] Confirmado: `main` remota em `b14eee8a6efc4d2523a3d0000f2c7f44a57639e7`;
+- [x] Verificação inicial em 04/10: `main` remota em `b14eee8a6efc4d2523a3d0000f2c7f44a57639e7`;
   `docs/api.md` ainda não estava publicado; tag `v1.4.9` ausente.
 - [x] Permissões de publicação verificadas. `main` exige PR e checks; as proteções
   serão preservadas, sem force-push ou bypass administrativo.
@@ -24,17 +24,42 @@ registra o build e a publicação **locais**, não uma release remota.
 - [x] [PR #26](https://github.com/imsouza/berrybrain/pull/26) publicado. A primeira
   rodada de CI aprovou worker e testes isolados, mas encontrou erros de tipagem,
   alertas CodeQL, dependência vulnerável e falhas no smoke de navegador.
-- [ ] Corrigir e validar todos os bloqueios do CI; não desabilitar proteções.
+- [x] Corrigidos os bloqueios originais do CI no commit `50bc7a0`; todos os nove
+  checks do PR #26 aprovados em 05/10, sem desabilitar proteções.
 - [x] Segunda correção local: 73 verificações em seis módulos isolados passaram,
   sem falhas ou skips; sem acesso à rede, ao banco real ou a provedores de IA.
 - [x] Alerta CodeQL 67 triado como falso positivo com justificativa específica;
   regra e proteções de branch permanecem ativas.
 - [x] Terceira rodada: segurança, CodeQL, web, worker e testes isolados aprovados.
   O backend passou nos testes, mas a cobertura ficou abaixo do mínimo de 78,5%.
-- [ ] Incluir a cobertura dos testes de regressão isolados na medição do backend
+- [x] Incluir a cobertura dos testes de regressão isolados na medição do backend
   e validar novamente os limites total, crítico e de regressão, sem reduzi-los.
-- [ ] Publicar PR, acompanhar checks e incorporar à `main`.
-- [ ] Publicar tag/release `v1.4.9` e confirmar `docs/api.md` na `main`.
+  Resultado: 80,62% de cobertura combinada, 90,49% em jobs e 100% nos endpoints
+  de tokens. A suíte principal executou 486 testes; nove módulos de regressão
+  executaram 129 verificações. A suíte global isolada executou 709 verificações
+  em 86 módulos, sem falhas ou skips. As suítes se sobrepõem: não somar contagens.
+- [x] PR #26 incorporado à `main` em 07/10/2026, commit
+  `30cca75ed72d6cf3b5efb031814a6d87a65d0a33`.
+- [x] [docs/api.md publicado na main](https://github.com/imsouza/berrybrain/blob/main/docs/api.md),
+  verificado pela API do GitHub: 12.452 bytes.
+- [x] Tag `v1.4.9` criada no commit do merge; a GitHub Release ainda não foi publicada.
+- [ ] Concluir correção de segurança identificada no novo audit de 07/10 e decidir
+  o destino da tag antes de retomar imagens, assinaturas e GitHub Release.
+
+### Validação adicional em 07/10/2026
+
+O [audit da main](https://github.com/imsouza/berrybrain/actions/runs/37610832325)
+encontrou GHSA-68fv-2mgg-jv7q em `source-map-js` 1.2.1. O aviso foi revisado em
+05/10, depois do audit anterior; a versão corrigida é 1.2.2. O pacote entra pela
+cadeia PostCSS. O override e o lockfile foram atualizados para impedir instalar a
+versão vulnerável, sem atualização incompatível de framework.
+
+- [x] [Pipeline de release 37610960174](https://github.com/imsouza/berrybrain/actions/runs/37610960174)
+  cancelado antes da publicação da GitHub Release; não substituiu os serviços locais.
+- [ ] Validar e incorporar a correção adicional por PR com os checks obrigatórios.
+- [ ] Obter a escolha do responsável: recriar apenas a tag recém-criada e ainda
+  sem release, ou preservar a tag e publicar a correção como uma nova versão.
+  Não foi feito force-push nem removida qualquer tag.
 
 ## Docker do host
 
@@ -114,4 +139,5 @@ tokens gerenciados aleatórios documentados na API.
 Referências: [correção AnyIO/TLS](https://github.com/agronholm/anyio/security/advisories/GHSA-82r6-8w77-94w6),
 [contenção de caminhos](https://codeql.github.com/codeql-query-help/python/py-path-injection/),
 [correção Next.js](https://github.com/advisories/GHSA-2xp9-vwfh-vxw4),
-[correção Sharp](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+[correção Sharp](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c),
+[correção source-map-js](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
