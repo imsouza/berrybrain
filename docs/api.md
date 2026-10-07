@@ -150,7 +150,7 @@ acknowledgement. Failed counts include jobs that exhausted their attempts (`dead
 the separate `dead_letter` count is a subset, not an additional failure count.
 The Home can finish current work while still showing historical failures.
 
-Release 1.4.9 uses database schema 14. Its additive index migration preserves
+Releases 1.4.9 and 1.4.10 use database schema 14. The additive index migration preserves
 history; the HTTP API remains `/api/v1`. Older binaries enforce schema
 compatibility, so an image-only rollback after migration is not sufficient.
 
