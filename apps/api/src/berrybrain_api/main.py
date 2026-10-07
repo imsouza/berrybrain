@@ -2,21 +2,32 @@ import logging
 import time
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from berrybrain_api import __version__
 from berrybrain_api.ai_gateway import generate_query_embedding, get_ai_config
+from berrybrain_api.api_contract import (
+    PUBLIC_OPERATIONS,
+    PageLimit,
+    SearchLimit,
+    SearchResponse,
+    install_openapi_contract,
+)
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, init_database
 from berrybrain_api.home_summary import build_home_summary
 from berrybrain_api.jobs import serialize_datetime
 from berrybrain_api.models import JobRecord, NoteRecord
 from berrybrain_api.performance_metrics import begin_request, record_request
+from berrybrain_api.request_limits import RequestSizeLimitMiddleware
 from berrybrain_api.routers import (
     ai_configuration,
     ask,
@@ -47,6 +58,7 @@ from berrybrain_api.routers import (
 )
 from berrybrain_api.search import hybrid_search
 from berrybrain_api.security import (
+    assert_csrf,
     get_session_user,
     require_admin,
     verify_service_token,
@@ -77,6 +89,14 @@ async def lifespan(app: FastAPI):
         if problems:
             raise RuntimeError("Unsafe production auth config: " + "; ".join(problems))
     init_database()
+    from berrybrain_api.attachment_cleanup import drain_attachment_cleanup
+
+    with SessionLocal() as cleanup_session:
+        drain_attachment_cleanup(cleanup_session, cfg.vault_path)
+    from berrybrain_api.cleanup_worker import CleanupWorker
+
+    cleanup_worker = CleanupWorker(SessionLocal, cfg.vault_path)
+    cleanup_worker.start()
     watcher: VaultWatcher | None = None
     if cfg.vault_watcher_enabled:
         watcher = VaultWatcher(
@@ -89,6 +109,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        cleanup_worker.stop()
         if watcher:
             watcher.stop()
 
@@ -109,16 +130,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Correlation-ID", "Server-Timing", "Retry-After", "Location"],
 )
-
-TOKEN_EXEMPT = {
-    "/health",
-    "/api/v1/setup",
-    "/api/v1/auth",
-    "/api/v1/admin",
-    "/api/v1/judge/mode",
-    "/api/v1/judge/scorecard",
-}
+app.add_middleware(
+    RequestSizeLimitMiddleware, maximum=lambda: settings.max_request_body_bytes
+)
+install_openapi_contract(app, settings)
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -135,7 +152,7 @@ async def auth_middleware(request: Request, call_next):
     # or a valid browser session. An empty api_token no longer disables auth.
     if request.method == "OPTIONS":
         return await call_next(request)
-    is_exempt = any(request.url.path.startswith(p) for p in TOKEN_EXEMPT)
+    is_exempt = (request.method, request.url.path) in PUBLIC_OPERATIONS
     if is_exempt:
         return await call_next(request)
     authorization = request.headers.get("Authorization", "")
@@ -144,29 +161,41 @@ async def auth_middleware(request: Request, call_next):
         if authorization.startswith("Bearer ")
         else ""
     )
-    authorized = False
-    if bearer:
-        with SessionLocal() as session:
-            authorized = verify_service_token(session, settings, bearer)
-    if not authorized and request.cookies.get(settings.session_cookie_name):
-        with SessionLocal() as session:
-            authorized = get_session_user(session, settings, request) is not None
+
+    def authorize() -> bool:
+        if bearer:
+            with SessionLocal() as session:
+                if verify_service_token(session, settings, bearer):
+                    return True
+        if request.cookies.get(settings.session_cookie_name):
+            with SessionLocal() as session:
+                identity = get_session_user(session, settings, request)
+                if identity is not None:
+                    assert_csrf(settings, request, identity[1])
+                    return True
+        return False
+
+    try:
+        authorized = await run_in_threadpool(authorize)
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
     if not authorized:
-        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return await call_next(request)
 
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
-    content_length = request.headers.get("content-length")
-    if (
-        content_length
-        and content_length.isdigit()
-        and int(content_length) > settings.max_request_body_bytes
-    ):
-        return JSONResponse(
-            status_code=413, content={"detail": "Request body too large"}
-        )
+    # RequestSizeLimitMiddleware validates declared and streamed byte lengths,
+    # including malformed/overlong integer headers, before the route executes.
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         origin = request.headers.get("origin")
         if origin and "*" not in origins and origin not in origins:
@@ -176,6 +205,15 @@ async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    if request.url.path in {"/docs", "/redoc", "/docs/oauth2-redirect", "/api/v1/docs"}:
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://fastapi.tiangolo.com"
+        )
     if request.url.scheme == "https":
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
@@ -202,6 +240,21 @@ async def performance_metrics_middleware(request: Request, call_next):
 
 
 # --- Routers ---
+
+
+@app.middleware("http")
+async def database_maintenance_middleware(request: Request, call_next):
+    from berrybrain_api.runtime_guard import MaintenanceUnavailable
+
+    try:
+        return await call_next(request)
+    except MaintenanceUnavailable as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
+
 
 app.include_router(notes.router)
 app.include_router(auth.router)
@@ -233,6 +286,44 @@ app.include_router(observability.router)
 
 class ResetRequest(BaseModel):
     confirm: str = ""
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(request: Request, exc: RequestValidationError):
+    # Validation diagnostics must not echo submitted passwords, keys or note bodies.
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"type": error["type"], "loc": list(error["loc"]), "msg": error["msg"]}
+                for error in exc.errors()
+            ],
+        },
+    )
+
+
+@app.get("/api/v1", tags=["integration"])
+def api_discovery() -> dict:
+    return {
+        "name": "BerryBrain",
+        "version": __version__,
+        "apiVersion": "v1",
+        "workspaceModel": "single-owner-shared-workspace",
+        "authentication": ["service-bearer", "browser-session-csrf"],
+        "openapi": "/api/v1/openapi.json",
+        "docs": "/api/v1/docs",
+    }
+
+
+@app.get("/api/v1/openapi.json", include_in_schema=False)
+def integration_schema():
+    # Relative to this document, ../.. preserves a proxy mount such as /berrybrain.
+    return {**app.openapi(), "servers": [{"url": "../.."}]}
+
+
+@app.get("/api/v1/docs", include_in_schema=False)
+def integration_docs():
+    return get_swagger_ui_html(openapi_url="./openapi.json", title="BerryBrain API v1")
 
 
 @app.get("/health")
@@ -277,8 +368,8 @@ def model_router_capabilities():
         return {"capabilities": list(status.keys())}
 
 
-@app.get("/api/v1/search")
-def search(q: str, limit: int = 10):
+@app.get("/api/v1/search", response_model=SearchResponse, tags=["search"])
+def search(q: str = Query(min_length=1, max_length=4000), limit: SearchLimit = 10):
     with SessionLocal() as session:
         query_vector = None
         with suppress(Exception):
@@ -292,8 +383,10 @@ def home_summary():
         return build_home_summary(session)
 
 
-@app.get("/api/v1/metadata/{generation_type}")
-def get_metadata(generation_type: str, note_path: str | None = None, limit: int = 10):
+@app.get("/api/v1/metadata/{generation_type:path}")
+def get_metadata(
+    generation_type: str, note_path: str | None = None, limit: PageLimit = 10
+):
     from berrybrain_api.generated_metadata import (
         get_generated_metadata,
         resolve_note_id,
@@ -303,12 +396,12 @@ def get_metadata(generation_type: str, note_path: str | None = None, limit: int 
     with SessionLocal() as session:
         note_id = resolve_note_id(session, note_path) if note_path else None
         metadata = get_generated_metadata(
-            session, note_id=note_id, generation_type=generation_type
+            session, note_id=note_id, generation_type=generation_type, limit=limit
         )
         return {"metadata": [serialize_generated_metadata(m) for m in metadata]}
 
 
-@app.put("/api/v1/metadata/{generation_type}")
+@app.put("/api/v1/metadata/{generation_type:path}")
 def upsert_metadata(generation_type: str, note_path: str, payload: dict):
     from berrybrain_api.generated_metadata import (
         resolve_note_id,
@@ -329,7 +422,7 @@ def upsert_metadata(generation_type: str, note_path: str, payload: dict):
         return {"metadata": serialize_generated_metadata(metadata)}
 
 
-@app.delete("/api/v1/metadata/{generation_type}")
+@app.delete("/api/v1/metadata/{generation_type:path}")
 def delete_metadata(generation_type: str, note_path: str):
     from berrybrain_api.generated_metadata import (
         delete_generated_metadata,
@@ -345,7 +438,7 @@ def delete_metadata(generation_type: str, note_path: str):
 
 
 @app.get("/api/v1/metadata")
-def list_metadata_endpoint(note_path: str | None = None, limit: int = 20):
+def list_metadata_endpoint(note_path: str | None = None, limit: PageLimit = 20):
     from berrybrain_api.generated_metadata import (
         get_generated_metadata,
         resolve_note_id,
@@ -355,12 +448,16 @@ def list_metadata_endpoint(note_path: str | None = None, limit: int = 20):
     with SessionLocal() as session:
         note_id = resolve_note_id(session, note_path) if note_path else None
         if note_id:
-            metadata = get_generated_metadata(session, note_id=note_id)
+            metadata = get_generated_metadata(session, note_id=note_id, limit=limit)
         else:
             from berrybrain_api.models import GeneratedMetadataRecord
 
             metadata = list(
-                session.execute(select(GeneratedMetadataRecord).limit(limit)).scalars()
+                session.execute(
+                    select(GeneratedMetadataRecord)
+                    .order_by(GeneratedMetadataRecord.id.desc())
+                    .limit(limit)
+                ).scalars()
             )
         return {"metadata": [serialize_generated_metadata(m) for m in metadata]}
 
@@ -418,7 +515,7 @@ def audit_system():
         by_type = Counter()
         by_reason = Counter()
         for job in failed_rows:
-            by_type[job.job_type] += 1
+            by_type[job.type] += 1
             error = job.error_message or "unknown"
             tag = error.split(":")[0].split("\n")[0][:80]
             by_reason[tag] += 1
@@ -438,7 +535,7 @@ def audit_system():
 
 
 @app.get("/api/v1/activity")
-def list_activity(limit: int = 50) -> dict:
+def list_activity(limit: PageLimit = 50) -> dict:
     from berrybrain_api.automation_logs import (
         list_automation_logs,
     )

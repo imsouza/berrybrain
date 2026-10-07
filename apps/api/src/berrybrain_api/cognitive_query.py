@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ from berrybrain_api.ai_gateway import (
     get_ai_config,
 )
 from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
+from berrybrain_api.evidence_selection import query_aware_excerpt
 from berrybrain_api.learning import build_learning_guidance
 from berrybrain_api.models import (
     GraphEdgeRecord,
@@ -83,13 +86,120 @@ def _tokens(text: str) -> set[str]:
     return _vector_store()._tokens(text)
 
 
-async def answer_cognitive_query(session: Session, question: str) -> dict[str, Any]:
+def _search_tokens(text: str) -> set[str]:
+    normalized = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
+    )
+    return _tokens(normalized)
+
+
+def _query_tokens(question: str) -> set[str]:
+    # Output instructions are not the subject being retrieved. Keep this separate
+    # from embedding tokenization; no existing vector index changes are needed.
+    boilerplate = {
+        "crie",
+        "criar",
+        "faca",
+        "montar",
+        "elabore",
+        "explique",
+        "explique-me",
+        "sobre",
+        "para",
+        "com",
+        "uma",
+        "um",
+        "que",
+        "quais",
+        "como",
+        "por",
+        "das",
+        "dos",
+        "nas",
+        "nos",
+        "meu",
+        "meus",
+        "minha",
+        "minhas",
+        "suas",
+        "seus",
+        "notas",
+        "segundo",
+        "contexto",
+        "responda",
+        "portugues",
+        "guia",
+        "estudo",
+        "plano",
+        "roteiro",
+        "create",
+        "make",
+        "write",
+        "explain",
+        "about",
+        "from",
+        "with",
+        "the",
+        "and",
+        "for",
+        "what",
+        "which",
+        "how",
+        "my",
+        "notes",
+        "please",
+        "study",
+        "guide",
+        "plan",
+        "according",
+        "based",
+        "context",
+        "answer",
+    }
+    tokens = _search_tokens(question)
+    return tokens - boilerplate or tokens
+
+
+def _retrieval_question(question: str, conversation_context: str) -> str:
+    tokens = _search_tokens(question)
+    if len(tokens) > 8 or not tokens & {
+        "isso",
+        "isto",
+        "esse",
+        "essa",
+        "esses",
+        "essas",
+        "continue",
+        "continuar",
+        "melhor",
+        "mais",
+        "it",
+        "this",
+        "that",
+        "those",
+        "more",
+        "expand",
+    }:
+        return question
+    previous_questions = re.findall(r"^user: (.+)$", conversation_context, re.MULTILINE)
+    for previous in reversed(previous_questions):
+        if previous.strip() != question.strip():
+            return f"{previous}\n{question}"
+    return question
+
+
+async def answer_cognitive_query(
+    session: Session, question: str, *, conversation_context: str = ""
+) -> dict[str, Any]:
     facade = sys.modules.get("berrybrain_api.cognitive_layer")
     orchestrate_fn = getattr(facade, "orchestrate_retrieval", orchestrate_retrieval)
     get_config_fn = getattr(facade, "get_ai_config", get_ai_config)
     generate_fn = getattr(facade, "generate_graph_answer", generate_graph_answer)
 
-    orchestrated = orchestrate_fn(session, question)
+    retrieval_question = _retrieval_question(question, conversation_context)
+    orchestrated = orchestrate_fn(session, retrieval_question)
     evidence = orchestrated["evidence"]
     if not evidence:
         return {
@@ -104,11 +214,40 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
 
     config = get_config_fn(session)
     system = (
-        "You are BerryBrain Cognitive Layer. Answer only from provided evidence. "
+        "You are BerryBrain's assistant. Respond in the user's language and fulfill "
+        "the user's actual request using the supplied note content and verified graph evidence. "
+        "You may synthesize explanations, study guides, outlines and learning activities "
+        "from that content; a ready-made answer need not exist in a note. "
+        "Label proposed activities and inferred connections as suggestions, not source facts. "
+        "Do not invent factual claims absent from the evidence. If only part of the request "
+        "is supported, answer that part and state the limits. Inspect graph labels, types "
+        "and relationships when the user asks about the graph, not for every request. "
         "Return JSON with status, answer, evidence, relatedNodes, suggestions, "
-        "confidence. If evidence is weak, status must be insufficient_evidence."
+        "confidence. Use status answered when you can provide a grounded response; "
+        "use insufficient_evidence only when the supplied content cannot support the request. "
+        "Return evidence IDs before the answer field and keep the JSON complete."
     )
-    prompt_evidence = _bounded_query_evidence(evidence)
+    # Optional indexes can lag behind the canonical vault. One stale result must
+    # not veto current evidence from the other retrievers. Filter before bounding
+    # so an invalid result cannot consume the prompt's evidence budget.
+    current_evidence = [
+        item
+        for item in evidence
+        if _evidence_source_snapshot(session, [item]) is not None
+    ]
+    if not current_evidence:
+        return _unsupported_answer(
+            question, orchestrated, "No retrieved source could be verified as current."
+        )
+    orchestrated = {**orchestrated, "evidence": current_evidence}
+    prompt_evidence = _bounded_query_evidence(
+        current_evidence, question=retrieval_question
+    )
+    source_snapshot = _evidence_source_snapshot(session, prompt_evidence)
+    if source_snapshot is None:
+        return _unsupported_answer(
+            question, orchestrated, "A retrieved source is no longer current."
+        )
     source_note_ids = sorted(
         {
             int(metadata["noteId"])
@@ -120,6 +259,7 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
     prompt = json.dumps(
         {
             "question": question,
+            "conversationContext": conversation_context,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
             "evidence": prompt_evidence,
@@ -130,20 +270,58 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
             ),
             "rules": [
                 "Do not invent facts.",
-                "Cite concrete note/node/edge/job evidence.",
+                "Cite only the supplied evidenceId values.",
+                "Return evidence as a list of objects containing evidenceId. Do not invent IDs or quotes.",
+                "For study guides, provide a practical ordered guide with topics and proposed exercises grounded in the notes, not just instructions to consult a map.",
+                "Use complementary evidence when the question requires multiple hops.",
                 "Keep the answer useful for learning and graph navigation.",
             ],
         },
         ensure_ascii=False,
     )
+    max_tokens = (
+        3072
+        if _search_tokens(question)
+        & {
+            "guia",
+            "plano",
+            "roteiro",
+            "guide",
+            "plan",
+            "tutorial",
+            "detalhado",
+            "detalhada",
+            "detailed",
+        }
+        else 1024
+    )
+    started = time.monotonic()
     try:
-        result = await generate_fn(
-            config,
-            prompt,
-            system,
-            timeout=80,
-            max_tokens=1024,
-        )
+        for attempt in range(2):
+            remaining = 80 - int(time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError
+            result = await generate_fn(
+                config,
+                prompt,
+                system,
+                timeout=remaining,
+                max_tokens=max_tokens,
+            )
+            if _validated_citations(result.get("evidence"), prompt_evidence):
+                break
+            if attempt == 0:
+                # One bounded regeneration can repair the model's citation
+                # formatting. Never attach sources to an unverified draft.
+                retry_prompt = json.loads(prompt)
+                retry_prompt["citationValidationFeedback"] = {
+                    "error": "Your response did not contain valid citations. Regenerate a complete grounded answer.",
+                    "allowedEvidenceIds": [
+                        item["evidenceId"] for item in prompt_evidence
+                    ],
+                    "format": "evidence must be a list of objects with evidenceId; omit quotes and other source fields.",
+                }
+                prompt = json.dumps(retry_prompt, ensure_ascii=False)
     except TimeoutError:
         return _fallback_answer(
             question,
@@ -175,20 +353,25 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
         )
 
     answer_text = str(result.get("answer") or "").strip()
-    returned_evidence = result.get("evidence")
-    if not isinstance(returned_evidence, list) or not returned_evidence:
-        # ponytail: model answered but skipped the strict evidence list -> use retrieved evidence
-        if not answer_text:
-            return _fallback_answer(
-                question, orchestrated, "AI returned no answer.", config
-            )
-        returned_evidence = orchestrated["evidence"][:8]
+    returned_evidence = _validated_citations(result.get("evidence"), prompt_evidence)
+    if not returned_evidence:
+        return _unsupported_answer(
+            question, orchestrated, "The model did not return verifiable citations."
+        )
+    if _evidence_source_snapshot(session, prompt_evidence) != source_snapshot:
+        return _unsupported_answer(
+            question,
+            orchestrated,
+            "Source evidence changed while the answer was being generated.",
+        )
     if not answer_text:
         return _fallback_answer(
             question, orchestrated, "AI returned no answer.", config
         )
     return {
-        "status": str(result.get("status") or "answered"),
+        "status": "insufficient_evidence"
+        if result.get("status") == "insufficient_evidence"
+        else "answered",
         "question": question,
         "answer": answer_text,
         "routes": orchestrated["routes"],
@@ -209,16 +392,77 @@ async def answer_cognitive_query(session: Session, question: str) -> dict[str, A
     }
 
 
+def _canonical_evidence_key(item: RetrievalEvidence) -> str:
+    metadata = item.metadata
+    document_id = str(metadata.get("documentId") or "").strip()
+    if document_id:
+        return f"document:{document_id}"
+    chunk = str(metadata.get("chunk") if metadata.get("chunk") is not None else "")
+    attachment_id = str(metadata.get("attachmentId") or "").strip()
+    if attachment_id:
+        return f"attachment:{attachment_id}:chunk:{chunk}"
+    note_id = str(metadata.get("noteId") or "").strip()
+    if note_id:
+        return f"note:{note_id}:chunk:{chunk}"
+    edge_id = str(metadata.get("edgeId") or "").strip()
+    if edge_id:
+        return f"edge:{edge_id}"
+    node_id = str(metadata.get("nodeId") or "").strip()
+    if node_id:
+        return f"node:{node_id}"
+    path = str(metadata.get("path") or metadata.get("notePath") or "").strip()
+    if path:
+        return f"path:{path}:chunk:{chunk}"
+    normalized = " ".join(sorted(_tokens(f"{item.title} {item.text}")))
+    return f"content:{hashlib.sha256(normalized.encode()).hexdigest()}"
+
+
+def _retrieval_route(item: RetrievalEvidence) -> str:
+    return str(item.metadata.get("retrieval") or item.source).strip() or "unknown"
+
+
 def _rrf(*lists: list[RetrievalEvidence], k: int = 60) -> list[RetrievalEvidence]:
+    if k < 1:
+        raise ValueError("RRF k must be positive")
     scores: dict[str, float] = {}
     items: dict[str, RetrievalEvidence] = {}
+    best_original_scores: dict[str, float] = {}
+    seen_routes: set[tuple[str, str]] = set()
     for lst in lists:
         for rank, item in enumerate(lst):
-            meta = item.metadata
-            key = f"{item.source}:{item.title}:{meta.get('noteId')}:{meta.get('chunk')}:{meta.get('nodeId')}:{meta.get('attachmentId')}"
+            key = _canonical_evidence_key(item)
+            route = _retrieval_route(item)
+            if (key, route) in seen_routes:
+                continue
+            seen_routes.add((key, route))
             scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
             if key not in items:
-                items[key] = item
+                metadata = dict(item.metadata)
+                metadata["retrievalRoutes"] = [route]
+                metadata["retrievalScores"] = {route: round(float(item.score), 6)}
+                metadata["evidenceKey"] = key
+                items[key] = RetrievalEvidence(
+                    source=item.source,
+                    title=item.title,
+                    text=item.text,
+                    score=item.score,
+                    metadata=metadata,
+                )
+                best_original_scores[key] = float(item.score)
+                continue
+            merged = items[key]
+            routes = list(merged.metadata.get("retrievalRoutes") or [])
+            if route not in routes:
+                routes.append(route)
+            merged.metadata["retrievalRoutes"] = routes
+            route_scores = dict(merged.metadata.get("retrievalScores") or {})
+            route_scores[route] = round(float(item.score), 6)
+            merged.metadata["retrievalScores"] = route_scores
+            if float(item.score) > best_original_scores[key]:
+                merged.source = item.source
+                merged.title = item.title
+                merged.text = item.text
+                best_original_scores[key] = float(item.score)
     for key, score in scores.items():
         items[key].score = round(score, 6)
     return sorted(items.values(), key=lambda x: x.score, reverse=True)
@@ -335,20 +579,36 @@ def retrieve_hipporag(
 def _retrieve_lexical_kb(
     session: Session, query: str, limit: int = 8
 ) -> list[RetrievalEvidence]:
-    query_tokens = _tokens(query)
+    from berrybrain_api.vault import parse_markdown_note
+
+    query_tokens = _query_tokens(query)
     notes = list(session.execute(select(NoteRecord)).scalars())
     results: list[RetrievalEvidence] = []
     for note in notes:
-        chunks = chunk_markdown(note.content)
+        folder_tokens = (
+            _search_tokens(note.path.rsplit("/", 1)[0]) if "/" in note.path else set()
+        )
+        folder_match = bool(query_tokens & folder_tokens)
+        # Topic-wide requests need each note's explanation, not just its YAML
+        # header or a generic map paragraph. All text still comes from the note.
+        chunks = (
+            [query_aware_excerpt(parse_markdown_note(note.content).body, query, 1200)]
+            if folder_match
+            else chunk_markdown(note.content)
+        )
         for index, chunk in enumerate(chunks):
-            score = _token_score(query_tokens, _tokens(chunk + " " + note.title))
+            score = _token_score(query_tokens, _search_tokens(chunk + " " + note.title))
+            # A folder is a user-controlled topic signal (e.g. Computacao),
+            # including when the question uses accents (computação).
+            if folder_match:
+                score += 0.5 * len(query_tokens & folder_tokens) / len(query_tokens)
             if score <= 0:
                 continue
             results.append(
                 RetrievalEvidence(
                     source="knowledge_base",
                     title=note.title,
-                    text=chunk[:900],
+                    text=chunk[:1200],
                     score=score,
                     metadata={
                         "noteId": note.id,
@@ -364,7 +624,7 @@ def _retrieve_lexical_kb(
         for index, chunk in enumerate(chunks):
             score = _token_score(
                 query_tokens,
-                _tokens(chunk + " " + attachment.filename + " " + note.title),
+                _search_tokens(chunk + " " + attachment.filename + " " + note.title),
             )
             if score <= 0:
                 continue
@@ -386,7 +646,20 @@ def _retrieve_lexical_kb(
                 )
             )
     results.sort(key=lambda item: item.score, reverse=True)
-    return results[:limit]
+    # Broad-topic requests need several notes, not every chunk of one map.
+    grouped: dict[tuple[Any, Any], list[RetrievalEvidence]] = {}
+    for item in results:
+        key = (item.metadata.get("noteId"), item.metadata.get("attachmentId"))
+        grouped.setdefault(key, []).append(item)
+    diversified: list[RetrievalEvidence] = []
+    depth = 0
+    while len(diversified) < limit:
+        layer = [items[depth] for items in grouped.values() if len(items) > depth]
+        if not layer:
+            break
+        diversified.extend(layer[: limit - len(diversified)])
+        depth += 1
+    return diversified
 
 
 def retrieve_kb(
@@ -409,12 +682,16 @@ def retrieve_external_kb(
     store = cognitive["kb_vector_store"]
     if store == "qdrant" and cognitive["qdrant_url"]:
         try:
-            return _retrieve_qdrant(cognitive, query, limit)
+            return _vector_store().validate_external_evidence(
+                session, _retrieve_qdrant(cognitive, query, limit)
+            )
         except Exception:
             return []
     if store == "chroma" and cognitive["chroma_url"]:
         try:
-            return _retrieve_chroma(cognitive, query, limit)
+            return _vector_store().validate_external_evidence(
+                session, _retrieve_chroma(cognitive, query, limit)
+            )
         except Exception:
             return []
     return []
@@ -423,7 +700,7 @@ def retrieve_external_kb(
 def retrieve_graph(
     session: Session, query: str, limit: int = 10
 ) -> tuple[list[RetrievalEvidence], list[str]]:
-    query_tokens = _tokens(query)
+    query_tokens = _query_tokens(query)
     nodes = list(
         session.execute(select(GraphNodeRecord).where(accepted_node_clause())).scalars()
     )
@@ -446,7 +723,7 @@ def retrieve_graph(
                 node.aliases_json or "",
             ]
         )
-        score = _token_score(query_tokens, _tokens(body))
+        score = _token_score(query_tokens, _search_tokens(body))
         if score <= 0:
             continue
         confidence_floor = (
@@ -491,7 +768,7 @@ def retrieve_graph(
                 target.label if target else "",
             ]
         )
-        score = _token_score(query_tokens, _tokens(body))
+        score = _token_score(query_tokens, _search_tokens(body))
         source_seed = seed_scores.get(edge.source_node_id, 0.0)
         target_seed = seed_scores.get(edge.target_node_id, 0.0)
         confidence_floor = (
@@ -572,21 +849,255 @@ def _fallback_answer(
 def _bounded_query_evidence(
     evidence: list[dict[str, Any]],
     *,
+    question: str = "",
     limit: int = 12,
     max_text_chars: int = 1200,
     max_total_chars: int = 9000,
 ) -> list[dict[str, Any]]:
+    if limit < 1 or max_text_chars < 1 or max_total_chars < 1:
+        raise ValueError("Evidence limits must be positive")
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    group_order: list[str] = []
+    seen_items: set[str] = set()
+    for item in evidence:
+        metadata = (
+            item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        )
+        source_note_ids = metadata.get("sourceNoteIds")
+        if isinstance(source_note_ids, list) and source_note_ids:
+            source_key = "notes:" + ",".join(
+                sorted(str(value) for value in source_note_ids)
+            )
+        elif metadata.get("attachmentId") is not None:
+            source_key = f"attachment:{metadata['attachmentId']}"
+        elif metadata.get("noteId") is not None:
+            source_key = f"note:{metadata['noteId']}"
+        elif metadata.get("nodeId") is not None:
+            source_key = f"node:{metadata['nodeId']}"
+        elif metadata.get("edgeId") is not None:
+            source_key = f"edge:{metadata['edgeId']}"
+        else:
+            source_key = str(item.get("source") or item.get("title") or "unknown")
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "source": source_key,
+                    "title": item.get("title"),
+                    "text": item.get("text"),
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        if fingerprint in seen_items:
+            continue
+        seen_items.add(fingerprint)
+        if source_key not in grouped:
+            grouped[source_key] = []
+            group_order.append(source_key)
+        grouped[source_key].append(item)
+
+    diversified: list[dict[str, Any]] = []
+    depth = 0
+    while len(diversified) < limit:
+        added = False
+        for source_key in group_order:
+            rows = grouped[source_key]
+            if depth < len(rows):
+                diversified.append(rows[depth])
+                added = True
+                if len(diversified) == limit:
+                    break
+        if not added:
+            break
+        depth += 1
+
     bounded: list[dict[str, Any]] = []
     total = 0
-    for item in evidence[:limit]:
+    question_tokens = _tokens(question)
+    for item in diversified:
         text = str(item.get("text") or "").strip()
         remaining = max_total_chars - total
         if remaining <= 0:
             break
-        text = text[: min(max_text_chars, remaining)]
-        bounded.append({**item, "text": text})
+        text = query_aware_excerpt(
+            text,
+            question,
+            min(max_text_chars, remaining),
+        )
+        metadata = (
+            item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        )
+        stable_source = str(
+            metadata.get("evidenceKey")
+            or metadata.get("documentId")
+            or metadata.get("noteId")
+            or metadata.get("nodeId")
+            or metadata.get("edgeId")
+            or item.get("title")
+            or item.get("source")
+            or len(bounded)
+        )
+        evidence_id = (
+            "evidence-"
+            + hashlib.sha256(f"{stable_source}:{text}".encode()).hexdigest()[:12]
+        )
+        bounded.append(
+            {
+                **item,
+                "text": text,
+                "evidenceId": evidence_id,
+                "queryTokenOverlap": len(question_tokens & _tokens(text)),
+            }
+        )
         total += len(text)
     return bounded
+
+
+def _validated_citations(
+    returned: Any, supplied: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if not isinstance(returned, list) or not returned:
+        return []
+    allowed = {item["evidenceId"]: item for item in supplied}
+    resolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for citation in returned:
+        identity = (
+            citation
+            if isinstance(citation, str)
+            else citation.get("evidenceId")
+            if isinstance(citation, dict)
+            else None
+        )
+        if not isinstance(identity, str) or identity not in allowed:
+            return []
+        source = allowed[identity]
+        if (
+            isinstance(citation, dict)
+            and citation.get("quote")
+            and " ".join(str(citation["quote"]).split())
+            not in " ".join(str(source["text"]).split())
+        ):
+            return []
+        if identity not in seen:
+            metadata = source.get("metadata") or {}
+            resolved.append(
+                {
+                    **source,
+                    "id": identity,
+                    "evidenceId": identity,
+                    **{
+                        key: metadata[key]
+                        for key in ("noteId", "nodeId", "edgeId", "path")
+                        if key in metadata
+                    },
+                    "citationStatus": "source_verified",
+                }
+            )
+            seen.add(identity)
+    return resolved
+
+
+def _evidence_source_snapshot(
+    session: Session, evidence: list[dict[str, Any]]
+) -> dict[str, str] | None:
+    from berrybrain_api.config import get_settings
+    from berrybrain_api.models import AttachmentExtractionRecord, NoteAttachmentRecord
+    from berrybrain_api.vault import read_note
+
+    snapshot: dict[str, str] = {}
+    try:
+        for item in evidence:
+            metadata = item.get("metadata") or {}
+            note_ids = list(metadata.get("sourceNoteIds") or [])
+            if metadata.get("noteId") is not None:
+                note_ids.append(metadata["noteId"])
+            if (
+                item.get("source") != "semantic_data"
+                and not note_ids
+                and not any(
+                    metadata.get(key) is not None
+                    for key in ("nodeId", "edgeId", "attachmentId")
+                )
+            ):
+                return None
+            for raw_id in note_ids:
+                identity = int(raw_id)
+                note = session.get(NoteRecord, identity, populate_existing=True)
+                if note is None:
+                    return None
+                current = read_note(get_settings().vault_path, note.path)
+                if current["content_hash"] != note.content_hash:
+                    return None
+                snapshot[f"note:{identity}"] = (
+                    f"{note.stable_id}:{note.content_hash}:{note.path}"
+                )
+            if metadata.get("attachmentId") is not None:
+                attachment_id = int(metadata["attachmentId"])
+                attachment = session.get(
+                    NoteAttachmentRecord, attachment_id, populate_existing=True
+                )
+                extraction = session.scalar(
+                    select(AttachmentExtractionRecord)
+                    .where(AttachmentExtractionRecord.attachment_id == attachment_id)
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    attachment is None
+                    or extraction is None
+                    or extraction.status != "completed"
+                ):
+                    return None
+                root = get_settings().vault_path.resolve()
+                binary = (root / attachment.stored_path).resolve()
+                if root not in binary.parents or not binary.is_file():
+                    return None
+                with binary.open("rb") as stream:
+                    if (
+                        hashlib.file_digest(stream, "sha256").hexdigest()
+                        != attachment.checksum
+                    ):
+                        return None
+                snapshot[f"attachment:{attachment_id}"] = (
+                    f"{attachment.checksum}:{hashlib.sha256(extraction.extracted_text.encode()).hexdigest()}"
+                )
+            for field, model, clause in (
+                ("nodeId", GraphNodeRecord, accepted_node_clause()),
+                ("edgeId", GraphEdgeRecord, accepted_edge_clause()),
+            ):
+                if metadata.get(field) is None:
+                    continue
+                identity = int(metadata[field])
+                record = session.scalar(
+                    select(model)
+                    .where(model.id == identity, clause)
+                    .execution_options(populate_existing=True)
+                )
+                if record is None:
+                    return None
+                snapshot[f"{field}:{identity}"] = str(getattr(record, "updated_at", ""))
+        return snapshot
+    except Exception:
+        return None
+
+
+def _unsupported_answer(
+    question: str, orchestrated: dict[str, Any], reason: str
+) -> dict[str, Any]:
+    return {
+        "status": "insufficient_evidence",
+        "question": question,
+        "answer": "There is not enough verified, current evidence to return this answer.",
+        "evidence": [],
+        "relatedNodes": [],
+        "routes": orchestrated.get("routes", []),
+        "reason": reason,
+        "confidence": 0.0,
+        "judge_status": "not_evaluated",
+        "suggestions": ["Review the source notes and retry the question."],
+    }
 
 
 def _safe_confidence(value: Any) -> float:

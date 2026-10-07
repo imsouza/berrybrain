@@ -14,6 +14,7 @@ from berrybrain_api.ai_gateway import (
     generate_graph_answer,
     get_ai_config,
 )
+from berrybrain_api.api_contract import GraphEdgePage, GraphInference, GraphNodePage
 from berrybrain_api.artifact_state import (
     accepted_edge_clause,
     accepted_node_clause,
@@ -85,7 +86,7 @@ logger = logging.getLogger(__name__)
 
 
 class GraphInferRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=16000)
 
 
 class InferenceFeedbackRequest(BaseModel):
@@ -302,7 +303,7 @@ def get_graph_summary(
         }
 
 
-@router.get("/nodes")
+@router.get("/nodes", response_model=GraphNodePage)
 def get_graph_nodes_page(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=250, ge=1, le=2000),
@@ -332,7 +333,7 @@ def get_graph_nodes_page(
         }
 
 
-@router.get("/edges")
+@router.get("/edges", response_model=GraphEdgePage)
 def get_graph_edges_page(
     cursor: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=5000),
@@ -340,11 +341,16 @@ def get_graph_edges_page(
     include_provisional: bool = Query(False, alias="includeProvisional"),
 ) -> dict:
     with SessionLocal() as session:
+        visible_nodes = select(GraphNodeRecord.id).where(
+            accepted_node_clause(include_provisional=include_provisional)
+        )
         query = (
             select(GraphEdgeRecord)
             .where(
                 GraphEdgeRecord.id > cursor,
                 accepted_edge_clause(include_provisional=include_provisional),
+                GraphEdgeRecord.source_node_id.in_(visible_nodes),
+                GraphEdgeRecord.target_node_id.in_(visible_nodes),
             )
             .order_by(GraphEdgeRecord.id)
             .limit(limit + 1)
@@ -551,7 +557,7 @@ def rebuild_graph(dry_run: bool = True) -> dict:
         return {"dryRun": False, **result}
 
 
-@router.post("/infer")
+@router.post("/infer", response_model=GraphInference)
 async def infer_graph(
     payload: GraphInferRequest,
     session: Session = Depends(get_session),
@@ -559,15 +565,8 @@ async def infer_graph(
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=422, detail="Question is required")
-    graph_question = (
-        "Use BerryBrain's knowledge graph as queryable data. If the user asks "
-        "which nodes, node types, connections, graph areas, or clusters mention "
-        "a subject, inspect graph nodes and edges and answer with matching "
-        "labels, types, and evidence instead of doing only note text search.\n\n"
-        f"Question: {question}"
-    )
     try:
-        result = await answer_cognitive_query(session, graph_question)
+        result = await answer_cognitive_query(session, question)
     except GraphAIUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

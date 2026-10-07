@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
@@ -10,6 +10,7 @@ from berrybrain_api.models import ServiceTokenRecord
 from berrybrain_api.security import (
     assert_csrf,
     audit_event,
+    issue_service_token,
     normalize_email,
     require_session_user,
     revoke_service_token,
@@ -22,6 +23,38 @@ router = APIRouter(prefix="/api/v1/security/service-tokens", tags=["security"])
 class RotateServiceTokenRequest(BaseModel):
     name: str = Field(default="worker", min_length=1, max_length=120)
     grace_seconds: int = Field(default=900, ge=60, le=3600)
+
+
+class IssueServiceTokenRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120, pattern=r".*\S.*")
+    expires_in_days: int = Field(default=90, ge=1, le=365)
+
+
+@router.post("", status_code=201)
+def issue_token(payload: IssueServiceTokenRequest, request: Request) -> dict:
+    settings = get_settings()
+    with SessionLocal() as session:
+        owner = _require_owner(session, request, require_csrf=True)
+        raw_token, record = issue_service_token(
+            session,
+            settings,
+            name=payload.name,
+            expires_in_days=payload.expires_in_days,
+        )
+        audit_event(
+            session,
+            request,
+            "SERVICE_TOKEN_ISSUED",
+            owner,
+            "service_token",
+            str(record.id),
+            {"name": record.name},
+        )
+        return {
+            "token": raw_token,
+            "record": _serialize_token(record),
+            "warning": "This token is shown once. Store it on a trusted server. It grants access to this shared workspace.",
+        }
 
 
 @router.get("")
@@ -78,11 +111,15 @@ def revoke_token(token_id: int, request: Request) -> dict:
                     select(ServiceTokenRecord).where(
                         ServiceTokenRecord.status == "active",
                         ServiceTokenRecord.revoked_at.is_(None),
+                        or_(
+                            ServiceTokenRecord.expires_at.is_(None),
+                            ServiceTokenRecord.expires_at > datetime.now(UTC),
+                        ),
                     )
                 ).scalars()
             )
         )
-        if record.status == "active" and active_count <= 1:
+        if _serialize_token(record)["status"] == "active" and active_count <= 1:
             raise HTTPException(
                 status_code=409,
                 detail="Rotate the active token before revoking it.",
@@ -115,7 +152,11 @@ def _serialize_token(record: ServiceTokenRecord) -> dict[str, object]:
     if expires_at and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     effective_status = record.status
-    if expires_at and expires_at < datetime.now(UTC) and record.status == "grace":
+    if (
+        expires_at
+        and expires_at < datetime.now(UTC)
+        and record.status in {"active", "grace"}
+    ):
         effective_status = "expired"
     return {
         "id": record.id,

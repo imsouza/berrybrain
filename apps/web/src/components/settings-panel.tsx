@@ -10,6 +10,7 @@ import {
 } from "react";
 import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
+import { judgeSelectionIssues } from "../lib/judge-selection";
 
 type ThemeKind = "light" | "dark";
 
@@ -146,6 +147,15 @@ type AiProviderStatus = {
   lastTestAt?: string | null;
   lastTestLatencyMs?: number | null;
   lastError?: string;
+};
+
+type ActiveAiConfiguration = {
+  mode: "cloud" | "local";
+  main: { provider_id: string; model_id: string };
+  embedding: { provider_id: string; model_id: string };
+  judge: { provider_id: string; model_id: string };
+  hipporag: { provider_id: string; model_id: string };
+  validated_at?: string | null;
 };
 
 type StaleRunningJob = {
@@ -384,11 +394,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [saveStatus, setSaveStatus] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [providerStatus, setProviderStatus] = useState<AiProviderStatus | null>(null);
+  const [activeAiConfiguration, setActiveAiConfiguration] = useState<ActiveAiConfiguration | null>(null);
   const [judgeConfiguration, setJudgeConfiguration] = useState<JudgeConfiguration>(DEFAULT_JUDGE_CONFIGURATION);
   const [judgeModels, setJudgeModels] = useState<string[]>([]);
   const [judgeProvider, setJudgeProvider] = useState("");
   const [generatorModel, setGeneratorModel] = useState("");
   const [primaryJudgeModel, setPrimaryJudgeModel] = useState("");
+  const [aiConfigurationRevision, setAiConfigurationRevision] = useState(0);
   const [judgeStatus, setJudgeStatus] = useState("");
   const [judgeDirty, setJudgeDirty] = useState(false);
   const [maintenanceStatus, setMaintenanceStatus] = useState("");
@@ -399,6 +411,15 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [activeArea, setActiveAreaState] = useState<SettingsArea>("General");
   const [settingsQuery, setSettingsQuery] = useState("");
   const [dirtyAreas, setDirtyAreas] = useState<Set<SettingsArea>>(new Set());
+  const committeeIssues = judgeConfiguration.mode === "committee"
+    ? judgeSelectionIssues(judgeConfiguration.committee, judgeConfiguration.committee_size, judgeProvider, generatorModel)
+    : [];
+
+  useEffect(() => {
+    const reload = () => setAiConfigurationRevision((revision) => revision + 1);
+    window.addEventListener("bb:ai-configuration-changed", reload);
+    return () => window.removeEventListener("bb:ai-configuration-changed", reload);
+  }, []);
 
   const setupItems = useMemo(() => {
     return [
@@ -438,6 +459,10 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       setActiveAreaState(areaFromHash as SettingsArea);
     }
     setSaveStatus("");
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     if (apiUrl === "__demo__") {
       setIsAdmin(false);
       return;
@@ -476,11 +501,13 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             }
             if (aiResponse.ok && !cancelled) {
               const ai = await aiResponse.json();
-              const configuration = ai.configuration;
+              const configuration = ai.configuration as ActiveAiConfiguration | null;
+              setActiveAiConfiguration(configuration);
               const provider = String(configuration?.judge?.provider_id || "");
               setJudgeProvider(provider);
               setGeneratorModel(String(configuration?.main?.model_id || ""));
               setPrimaryJudgeModel(String(configuration?.judge?.model_id || ""));
+              setJudgeModels([]);
               if (provider) {
                 const modelResponse = await fetch(
                   `${apiUrl}/api/v1/ai/providers/${encodeURIComponent(provider)}/models`,
@@ -503,7 +530,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     return () => {
       cancelled = true;
     };
-  }, [open, apiUrl]);
+  }, [open, apiUrl, aiConfigurationRevision]);
 
   useEffect(() => {
     if (!open) return;
@@ -582,6 +609,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
   async function persistJudgeConfiguration() {
     if (!judgeDirty || !isAdmin || apiUrl === "__demo__") return;
+    if (committeeIssues.length) throw new Error(committeeIssues.join(" "));
     const response = await fetch(`${apiUrl}/api/v1/judge/mode`, {
       method: "POST",
       credentials: "include",
@@ -620,13 +648,20 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       credentials: "include",
       body: JSON.stringify({ values, aiTestRevision: "" }),
     });
-    if (!response.ok) throw new Error("Settings could not be saved.");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const detail = typeof payload.detail === "string" ? payload.detail : "Settings could not be saved.";
+      throw new Error(detail);
+    }
   }
 
   async function save() {
     setSaving(true);
     setSaveStatus("");
     try {
+      if (judgeDirty && isAdmin && apiUrl !== "__demo__" && committeeIssues.length) {
+        throw new Error(committeeIssues.join(" "));
+      }
       await persist(s);
       await persistJudgeConfiguration();
       applyTheme(s);
@@ -927,6 +962,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
           <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
             <ReadOnlyValue value={providerStatus ? `${providerStatus.providerMode === "cloud" ? "Cloud" : "Local"} · ${providerStatus.provider} · ${providerStatus.state}` : "Loading configuration status..."} />
+            <ActiveModelStack configuration={activeAiConfiguration} />
             <button
               className="bb-action h-9 px-4 text-xs font-semibold"
               onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
@@ -1111,6 +1147,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                           value={slot.model}
                           onChange={(event) => updateJudgeSlot(index, { model: event.target.value })}
                           placeholder="Select an available model"
+                          aria-label={`Judge ${index + 1} model`}
                           className="h-9 w-full rounded-md border border-border bg-background px-3 text-xs text-foreground outline-none focus:border-accent"
                         />
                       </Field>
@@ -1126,14 +1163,19 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
                   );
                 })}
                 <datalist id="judge-provider-models">
-                  {judgeModels.map((model) => <option key={model} value={model} />)}
+                  {judgeModels.filter((model) => model.trim().toLowerCase() !== generatorModel.trim().toLowerCase()).map((model) => <option key={model} value={model} />)}
                 </datalist>
               </div>
             )}
 
+            {committeeIssues.length > 0 && (
+              <ul role="alert" className="space-y-1 text-xs text-danger">
+                {committeeIssues.map((issue) => <li key={issue}>{issue}</li>)}
+              </ul>
+            )}
             <ReadOnlyValue value={judgeStatus || (
               judgeConfiguration.mode === "committee"
-                ? `${judgeConfiguration.committee.filter((slot) => slot.model && slot.model !== generatorModel).length} eligible independent models configured.`
+                ? (committeeIssues.length ? `Complete ${judgeConfiguration.committee_size} distinct non-generator models from ${judgeProvider || "the active provider"}.` : `${judgeConfiguration.committee_size} distinct models selected. Compatibility is checked by Apply provider defaults.`)
                 : "Committee assignments are retained when another mode is selected."
             )} />
           </Section>
@@ -1334,6 +1376,37 @@ function Range({ value, min, max, onChange }: { value: string; min: string; max:
 
 function ReadOnlyValue({ value }: { value: string }) {
   return <div className="rounded-xl bg-panel px-3 py-2 text-sm text-foreground ring-1 ring-border/45">{value}</div>;
+}
+
+function ActiveModelStack({ configuration }: { configuration: ActiveAiConfiguration | null }) {
+  if (!configuration) {
+    return <ReadOnlyValue value="No validated AI model stack is active." />;
+  }
+  const rows = [
+    ["Main", configuration.main],
+    ["Embeddings", configuration.embedding],
+    ["Judge", configuration.judge],
+    ["HippoRAG", configuration.hipporag],
+  ] as const;
+  return (
+    <div className="border-y border-border py-2">
+      <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+        <span className="font-semibold text-foreground">Active model stack</span>
+        <span className="text-muted">{configuration.mode === "cloud" ? "Cloud" : "Local"}</span>
+      </div>
+      <dl className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-x-4 gap-y-2 text-xs">
+        {rows.map(([label, slot]) => (
+          <div className="contents" key={label}>
+            <dt className="text-muted">{label}</dt>
+            <dd className="min-w-0 break-all text-foreground">
+              {slot.model_id}
+              <span className="ml-2 text-muted">({slot.provider_id})</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
 }
 
 function ProviderConnectionStatus({ status, loading }: { status: AiProviderStatus | null; loading: boolean }) {

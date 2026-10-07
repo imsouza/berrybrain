@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.ai_status import saved_test_status
 from berrybrain_api.artifact_state import (
     accepted_edge_clause,
     processable_node_clause,
@@ -17,8 +18,11 @@ from berrybrain_api.confidence import (
     serialize_confidence,
     serialize_percentage_confidence,
 )
+from berrybrain_api.job_summary import home_job_snapshot, recent_duration_samples
 from berrybrain_api.jobs import (
+    CANCEL_REQUESTED,
     COMPLETED,
+    DEAD_LETTER,
     FAILED,
     PENDING,
     RUNNING,
@@ -86,36 +90,53 @@ def build_home_summary(session: Session) -> dict[str, Any]:
 
     notes = list(session.execute(select(NoteRecord)).scalars())
     note_by_path = {note.path: note for note in notes}
-    jobs = list(
-        session.execute(
-            select(JobRecord).order_by(JobRecord.created_at.desc(), JobRecord.id.desc())
-        ).scalars()
-    )
+    job_snapshot = home_job_snapshot(session, now)
     worker = session.execute(
         select(WorkerStatus).order_by(WorkerStatus.id.desc()).limit(1)
     ).scalar_one_or_none()
 
-    pending_jobs = [job for job in jobs if job.status == PENDING]
-    running_jobs = [job for job in jobs if job.status == RUNNING]
-    completed_jobs = [job for job in jobs if job.status == COMPLETED]
-    failed_jobs = [job for job in jobs if job.status == FAILED]
+    pending_jobs = job_snapshot.pending
+    running_jobs = job_snapshot.running
+    completed_jobs = job_snapshot.recent_completed
+    counts = job_snapshot.status_counts
+    pending_count = counts[PENDING]
+    running_count = counts[RUNNING] + counts[CANCEL_REQUESTED]
+    failed_count = counts[FAILED] + counts[DEAD_LETTER]
     maintenance_backlog = _maintenance_backlog_counts(
-        session, running_jobs, pending_jobs
+        session, job_snapshot.active_by_type
     )
     remaining_tasks = sum(maintenance_backlog.values())
     maintenance_active = bool(remaining_tasks)
     progress_percent = 0 if maintenance_active else 100
+    duration_samples = recent_duration_samples(session, maintenance_backlog)
     estimated_remaining_seconds = _maintenance_eta_seconds(
-        jobs, running_jobs, now, maintenance_backlog
+        duration_samples, running_jobs, now, maintenance_backlog
     )
     estimated_remaining_seconds_p95 = _maintenance_eta_seconds(
-        jobs, running_jobs, now, maintenance_backlog, quantile=0.95
+        duration_samples, running_jobs, now, maintenance_backlog, quantile=0.95
     )
 
     ai_config = _ai_config(session)
-    connections = list(session.execute(select(ConnectionRecord)).scalars())
+    connections = list(
+        session.execute(
+            select(
+                ConnectionRecord.source_note_id,
+                ConnectionRecord.target_note_id,
+                ConnectionRecord.confidence,
+                ConnectionRecord.created_at,
+            )
+        ).all()
+    )
     graph_edges = list(
-        session.execute(select(GraphEdgeRecord).where(accepted_edge_clause())).scalars()
+        session.execute(
+            select(
+                GraphEdgeRecord.source_node_id,
+                GraphEdgeRecord.target_node_id,
+                GraphEdgeRecord.status,
+                GraphEdgeRecord.confidence,
+                GraphEdgeRecord.created_at,
+            ).where(accepted_edge_clause())
+        ).all()
     )
     concepts = list(session.execute(select(ConceptRecord)).scalars())
     raw_insights = list(
@@ -156,24 +177,29 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     ]
     recent_connections = list_recent_connections(session, limit=5)
 
-    graph_summary = _graph_summary(session, notes, connections)
-    assimilation = note_assimilation_map(session, notes, jobs)
+    graph_summary = _graph_summary(session, notes, connections, graph_edges)
+    assimilation = note_assimilation_map(session, notes)
     unassimilated = [
         note for note in notes if not assimilation.get(note.id, {}).get("assimilated")
     ]
     needs_attention = _needs_attention(
         worker=worker,
-        failed_jobs=failed_jobs,
+        failed_count=failed_count,
         unassimilated=unassimilated,
         insights=insights,
         ai_config=ai_config,
         now=now,
     )
 
-    progress_state = _progress_state(worker, running_jobs, pending_jobs, failed_jobs)
+    progress_state = _progress_state(worker, running_count, pending_count)
     if remaining_tasks and progress_state == "completed":
         progress_state = "queued"
-    current_step = _current_step(running_jobs, pending_jobs, completed_jobs)
+    current_step = _current_step(
+        running_jobs,
+        pending_jobs,
+        job_snapshot.completed_by_type,
+        job_snapshot.active_by_type,
+    )
 
     summary = {
         "status": {
@@ -188,17 +214,19 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             "cloudConfigured": bool(ai_config.get("cloud_key_configured")),
             "cloudLastTestAt": ai_config.get("last_test_at") or None,
             "remoteContentConsent": ai_config.get("remote_content_consent") == "true",
-            "pendingJobs": len(pending_jobs),
-            "activeJobs": len(running_jobs),
-            "lastProcessingAt": serialize_datetime(_last_processing_at(jobs, notes)),
+            "pendingJobs": pending_count,
+            "activeJobs": running_count,
+            "lastProcessingAt": serialize_datetime(
+                _last_processing_at(job_snapshot.last_completed_at, notes)
+            ),
         },
         "progress": {
             "mode": "indeterminate" if maintenance_active else "determinate",
             "percent": progress_percent,
-            "active": len(running_jobs),
-            "pending": len(pending_jobs),
-            "completed": len(completed_jobs),
-            "failed": len(failed_jobs),
+            "active": running_count,
+            "pending": pending_count,
+            "completed": counts[COMPLETED],
+            "failed": failed_count,
             "currentStep": current_step,
             "lastResult": _last_result(
                 recently_completed, recent_connections, insights
@@ -222,7 +250,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 "createdToday": sum(
                     1 for e in graph_edges if _same_day(e.created_at, today)
                 )
-                or sum(1 for c in connections if _same_day(c.created_at, today)),
+                if graph_edges
+                else sum(1 for c in connections if _same_day(c.created_at, today)),
                 "averageConfidence": _average_confidence_edges(graph_edges)
                 if graph_edges
                 else _average_confidence(connections),
@@ -241,15 +270,11 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 ),
             },
             "jobs": {
-                "pending": len(pending_jobs),
-                "active": len(running_jobs),
-                "failed": len(failed_jobs),
-                "completedToday": sum(
-                    1
-                    for job in completed_jobs
-                    if job.completed_at and _same_day(job.completed_at, today)
-                ),
-                "total": len(jobs),
+                "pending": pending_count,
+                "active": running_count,
+                "failed": failed_count,
+                "completedToday": job_snapshot.completed_today,
+                "total": sum(counts.values()),
             },
             "ai": {
                 "provider": _cloud_provider(ai_config),
@@ -271,7 +296,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         "needsAttention": needs_attention,
         "jobsByType": {
             JOB_LABELS.get(job_type, job_type.replace("_", " ").title()): count
-            for job_type, count in Counter(job.type for job in jobs).items()
+            for job_type, count in job_snapshot.type_counts.items()
         },
     }
 
@@ -282,8 +307,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         "ollama": worker.ollama_healthy if worker else False,
         "processed": worker.jobs_processed if worker else 0,
         "errors": worker.errors if worker else 0,
-        "pending": len(pending_jobs),
-        "running": len(running_jobs),
+        "pending": pending_count,
+        "running": running_count,
         "activity": [
             {
                 "action": item["action"],
@@ -296,9 +321,9 @@ def build_home_summary(session: Session) -> dict[str, Any]:
     summary["legacyStats"] = {
         "notes": len(notes),
         "connections": len(connections),
-        "pendingJobs": len(pending_jobs),
-        "runningJobs": len(running_jobs),
-        "failedJobs": len(failed_jobs),
+        "pendingJobs": pending_count,
+        "runningJobs": running_count,
+        "failedJobs": failed_count,
         "noteTypes": note_types,
     }
     return summary
@@ -327,22 +352,15 @@ def _ai_config(session: Session) -> dict[str, str]:
     rows = session.execute(select(SettingRecord)).scalars()
     values = {row.key: decode_setting_value(row.key, row.value) for row in rows}
     cloud_url = values.get("ai_api_url") or values.get("ai_custom_url", "")
-    test_matches = (
-        values.get("ai_last_test_url", "").rstrip("/") == cloud_url.rstrip("/")
-        and values.get("ai_last_test_key_revision", "")
-        == values.get("ai_key_revision", "")
-        and values.get("ai_last_test_method") == "chat_completions"
-    )
+    test_status, tested_at = saved_test_status(session, values)
     return {
         "provider": values.get("ai_provider", "local"),
         "cloud_api_url": cloud_url,
         "cloud_model": values.get("ai_model", ""),
         "cloud_key_configured": "true" if values.get("ai_api_key") else "",
         "remote_content_consent": values.get("remote_content_consent", "false"),
-        "last_test_status": values.get("ai_last_test_status", "untested")
-        if test_matches
-        else "untested",
-        "last_test_at": values.get("ai_last_test_at", ""),
+        "last_test_status": test_status,
+        "last_test_at": tested_at,
     }
 
 
@@ -350,6 +368,8 @@ def _cloud_provider(config: dict[str, str]) -> str:
     if config.get("provider") != "cloud":
         return "local"
     url = (config.get("cloud_api_url") or "").lower()
+    if url.rstrip("/") == "https://opencode.ai/zen/v1":
+        return "opencode-zen"
     model = (config.get("cloud_model") or "").lower()
     if "nvidia" in url or "nvidia" in model or "nemotron" in model:
         return "nvidia-nim"
@@ -385,27 +405,25 @@ def _worker_status(worker: WorkerStatus | None, now: datetime) -> str:
 
 def _progress_state(
     worker: WorkerStatus | None,
-    running_jobs: list[JobRecord],
-    pending_jobs: list[JobRecord],
-    failed_jobs: list[JobRecord],
+    running_count: int,
+    pending_count: int,
 ) -> str:
     if _worker_status(worker, utc_now()) == "offline" and (
-        running_jobs or pending_jobs
+        running_count or pending_count
     ):
         return "offline"
-    if running_jobs:
+    if running_count:
         return "running"
-    if pending_jobs:
+    if pending_count:
         return "queued"
-    if failed_jobs:
-        return "completed"
     return "completed"
 
 
 def _current_step(
     running_jobs: list[JobRecord],
     pending_jobs: list[JobRecord],
-    completed_jobs: list[JobRecord],
+    completed_by_type: Counter[str],
+    active_by_type: Counter[str],
 ) -> str:
     job = (
         sorted(running_jobs, key=lambda item: item.started_at or item.created_at)[0]
@@ -418,12 +436,8 @@ def _current_step(
         return "All set"
 
     if job.type == "GENERATE_EMBEDDING":
-        completed = len([j for j in completed_jobs if j.type == "GENERATE_EMBEDDING"])
-        total = (
-            completed
-            + len([j for j in running_jobs if j.type == "GENERATE_EMBEDDING"])
-            + len([j for j in pending_jobs if j.type == "GENERATE_EMBEDDING"])
-        )
+        completed = completed_by_type["GENERATE_EMBEDDING"]
+        total = completed + active_by_type["GENERATE_EMBEDDING"]
         return f"Processing embeddings: {completed}/{total} completed"
 
     return JOB_LABELS.get(job.type, job.type.replace("_", " ").title())
@@ -496,10 +510,13 @@ def _completion_label(job_type: str, note_title: str) -> str:
 
 
 def _recent_logs(session: Session, limit: int) -> list[AutomationLogRecord]:
+    # IDs are monotonic and indexed. Ordering the entire automation log by its
+    # unindexed timestamp forced SQLite to scan/sort the full history just to
+    # return eight rows, which made the Home endpoint take tens of seconds.
     return list(
         session.execute(
             select(AutomationLogRecord)
-            .order_by(AutomationLogRecord.created_at.desc())
+            .order_by(AutomationLogRecord.id.desc())
             .limit(limit)
         ).scalars()
     )
@@ -676,10 +693,33 @@ def _safe_json_dict(value: str) -> dict[str, Any]:
 
 
 def _graph_summary(
-    session: Session, notes: list[NoteRecord], connections: list[ConnectionRecord]
+    session: Session,
+    notes: list[NoteRecord],
+    connections: list[ConnectionRecord],
+    graph_edges: list[GraphEdgeRecord] | None = None,
 ) -> dict[str, Any]:
-    graph_nodes = list(session.execute(select(GraphNodeRecord)).scalars())
-    graph_edges = list(session.execute(select(GraphEdgeRecord)).scalars())
+    graph_nodes = list(
+        session.execute(
+            select(
+                GraphNodeRecord.id,
+                GraphNodeRecord.type,
+                GraphNodeRecord.label,
+                GraphNodeRecord.graph_metadata,
+            )
+        ).all()
+    )
+    if graph_edges is None:
+        graph_edges = list(
+            session.execute(
+                select(
+                    GraphEdgeRecord.source_node_id,
+                    GraphEdgeRecord.target_node_id,
+                    GraphEdgeRecord.status,
+                    GraphEdgeRecord.confidence,
+                    GraphEdgeRecord.created_at,
+                )
+            ).all()
+        )
     if graph_nodes:
         active_edges = [
             edge for edge in graph_edges if getattr(edge, "status", "") != "ignored"
@@ -759,7 +799,7 @@ def _estimate_clusters(
 
 def _needs_attention(
     worker: WorkerStatus | None,
-    failed_jobs: list[JobRecord],
+    failed_count: int,
     unassimilated: list[NoteRecord],
     insights: list[InsightRecord],
     ai_config: dict[str, str],
@@ -775,11 +815,11 @@ def _needs_attention(
                 "action": "Open monitor",
             }
         )
-    if failed_jobs:
+    if failed_count:
         items.append(
             {
                 "kind": "failed_jobs",
-                "title": f"{len(failed_jobs)} jobs failed",
+                "title": f"{failed_count} jobs failed",
                 "description": "Review recent errors in Monitor.",
                 "action": "View errors",
             }
@@ -788,17 +828,16 @@ def _needs_attention(
 
 
 def _last_processing_at(
-    jobs: list[JobRecord], notes: list[NoteRecord]
+    last_completed_at: datetime | None, notes: list[NoteRecord]
 ) -> datetime | None:
-    values = [job.completed_at for job in jobs if job.completed_at]
+    values = [last_completed_at] if last_completed_at else []
     values.extend(note.last_processed_at for note in notes if note.last_processed_at)
     return max(values) if values else None
 
 
 def _maintenance_backlog_counts(
     session: Session,
-    running_jobs: list[JobRecord],
-    pending_jobs: list[JobRecord],
+    active_counts: Counter[str],
 ) -> Counter[str]:
     evaluated_node_ids = select(ArtifactEvaluationRecord.artifact_id).where(
         ArtifactEvaluationRecord.artifact_type == "node"
@@ -830,7 +869,6 @@ def _maintenance_backlog_counts(
         )
         or 0
     )
-    active_counts = Counter(job.type for job in [*running_jobs, *pending_jobs])
     backlog = Counter(active_counts)
     backlog["JUDGE_ARTIFACT"] = max(judge_remaining, active_counts["JUDGE_ARTIFACT"])
     backlog["ENRICH_GRAPH_NODE"] = max(

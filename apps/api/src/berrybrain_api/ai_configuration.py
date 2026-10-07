@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -13,6 +14,7 @@ from berrybrain_api.models import SettingRecord
 from berrybrain_api.settings_store import decode_setting_value, set_setting
 
 AI_CONFIGURATION_KEY = "ai_configuration_v2"
+AI_PROVIDER_CREDENTIALS_KEY = "ai_provider_credentials_v1"
 AI_CONFIGURATION_SCHEMA_VERSION: Literal[2] = 2
 
 PROVIDERS = {
@@ -30,6 +32,12 @@ PROVIDERS = {
         "label": "OpenRouter",
         "mode": "cloud",
         "url": "https://openrouter.ai/api/v1",
+    },
+    "opencode-zen": {
+        "label": "OpenCode Zen",
+        "mode": "cloud",
+        "url": "https://opencode.ai/zen/v1",
+        "chat_only": True,
     },
     "groq": {
         "label": "Groq",
@@ -96,6 +104,10 @@ class AIConfiguration(BaseModel):
             provider = PROVIDERS.get(slot.provider_id)
             if provider is None:
                 raise ValueError(f"Unknown provider for {name}")
+            if name == "embedding" and provider.get("chat_only"):
+                raise ValueError(
+                    "OpenCode Zen does not provide embeddings through this integration; choose another cloud provider for embeddings"
+                )
             if provider["mode"] != self.mode:
                 raise ValueError(
                     f"{name} provider belongs to {provider['mode']}, not {self.mode}"
@@ -132,12 +144,16 @@ def provider_catalog() -> list[dict[str, object]]:
             "label": data["label"],
             "mode": data["mode"],
             "url": data["url"],
-            "capabilities": [
-                "chat",
-                "embeddings",
-                "structured_output",
-                "health",
-            ],
+            "capabilities": (
+                ["chat", "structured_output", "health"]
+                if data.get("chat_only")
+                else [
+                    "chat",
+                    "embeddings",
+                    "structured_output",
+                    "health",
+                ]
+            ),
             "judgeDefaults": {
                 "committeeSize": DEFAULT_COMMITTEE_SIZE,
                 "roles": [dict(role) for role in DEFAULT_JUDGE_ROLES[:3]],
@@ -212,6 +228,60 @@ def save_configuration(
     return updated
 
 
+def load_provider_credentials(session: Session) -> dict[str, str]:
+    raw = _setting(session, AI_PROVIDER_CREDENTIALS_KEY)
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            return {
+                str(provider_id): str(value)
+                for provider_id, value in payload.items()
+                if provider_id in PROVIDERS and isinstance(value, str) and value
+            }
+    return {}
+
+
+def save_provider_credentials(
+    session: Session, credentials: dict[str, str]
+) -> dict[str, str]:
+    current = load_provider_credentials(session)
+    updates = {
+        provider_id: value.strip()
+        for provider_id, value in credentials.items()
+        if provider_id in PROVIDERS and value.strip()
+    }
+    if not updates:
+        return current
+    updated = {**current, **updates}
+    set_setting(
+        session,
+        AI_PROVIDER_CREDENTIALS_KEY,
+        json.dumps(updated, sort_keys=True, separators=(",", ":")),
+    )
+    set_setting(session, "ai_key_revision", secrets.token_urlsafe(24))
+    return updated
+
+
+def provider_api_key(session: Session, provider_id: str) -> str:
+    credentials = load_provider_credentials(session)
+    if provider_id in credentials:
+        return credentials[provider_id]
+    configuration = load_configuration(session)
+    if configuration and configuration.main.provider_id == provider_id:
+        return _setting(session, "ai_api_key")
+    return ""
+
+
+def provider_endpoint(configuration: AIConfiguration, provider_id: str) -> str:
+    provider = PROVIDERS[provider_id]
+    if provider_id == configuration.main.provider_id and configuration.endpoint_url:
+        return configuration.endpoint_url
+    return str(provider["url"])
+
+
 def configuration_gate(session: Session) -> dict[str, object]:
     configuration = load_configuration(session)
     if configuration is None:
@@ -248,8 +318,7 @@ def embedding_execution_configuration(session: Session) -> dict[str, str]:
     gate = configuration_gate(session)
     if configuration is None or not gate["valid"]:
         return {}
-    provider = PROVIDERS[configuration.embedding.provider_id]
-    endpoint = configuration.endpoint_url or str(provider["url"])
+    endpoint = provider_endpoint(configuration, configuration.embedding.provider_id)
     result = {
         "provider": configuration.mode,
         "embedding_provider": configuration.mode,
@@ -262,7 +331,10 @@ def embedding_execution_configuration(session: Session) -> dict[str, str]:
         result.update(
             {
                 "cloud_api_url": endpoint,
-                "cloud_api_key": _setting(session, "ai_api_key"),
+                "cloud_api_key": provider_api_key(
+                    session, configuration.embedding.provider_id
+                ),
+                "cloud_provider": configuration.embedding.provider_id,
                 "cloud_embedding_model": configuration.embedding.model_id,
             }
         )

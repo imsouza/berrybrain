@@ -141,11 +141,17 @@ class JobServiceTest(unittest.TestCase):
         requested = request_job_cancellation(self.session, running.id)
         self.assertEqual(requested.status, CANCEL_REQUESTED)
 
-        failed = fail_job(self.session, running.id, "provider timeout")
+        claim_token = claimed.claim_token
+        failed = fail_job(
+            self.session, running.id, "provider timeout", claim_token=claim_token
+        )
         self.assertEqual(failed.status, CANCELLED)
         self.assertIsNone(failed.error_message)
         self.assertEqual(
-            acknowledge_job_cancellation(self.session, running.id).status, CANCELLED
+            acknowledge_job_cancellation(
+                self.session, running.id, claim_token=claim_token
+            ).status,
+            CANCELLED,
         )
         actions = set(
             self.session.execute(select(AutomationLogRecord.action_type)).scalars()
@@ -159,11 +165,13 @@ class JobServiceTest(unittest.TestCase):
         request_job_cancellation(self.session, job.id)
 
         with self.assertRaises(HTTPException) as conflict:
-            complete_job(self.session, job.id)
+            complete_job(self.session, job.id, claim_token=job.claim_token)
         self.assertEqual(conflict.exception.status_code, 409)
         self.assertEqual(self.session.get(JobRecord, job.id).status, CANCEL_REQUESTED)
 
-        acknowledged = acknowledge_job_cancellation(self.session, job.id)
+        acknowledged = acknowledge_job_cancellation(
+            self.session, job.id, claim_token=job.claim_token
+        )
         self.assertEqual(acknowledged.status, CANCELLED)
 
     def test_job_boundary_helpers_fail_closed_and_normalize_dates(self) -> None:
@@ -263,7 +271,7 @@ class JobServiceTest(unittest.TestCase):
             self.assertEqual(recovered.type, job_type)
             self.assertEqual(recovered.status, "running")
             self.assertEqual(recovered.attempts, 2)
-            complete_job(self.session, recovered.id)
+            complete_job(self.session, recovered.id, claim_token=recovered.claim_token)
 
     def test_claim_next_job_returns_none_when_queue_is_empty(self) -> None:
         self.assertIsNone(claim_next_job(self.session))
@@ -327,12 +335,16 @@ class JobServiceTest(unittest.TestCase):
         failed_job = create_job(
             self.session, "PARSE_NOTE", {"note_path": "inbox/b.md"}, max_attempts=1
         )
-        failed_job.attempts = 1
-        failed_job.status = "running"
-        self.session.commit()
-
-        completed = complete_job(self.session, completed_job.id)
-        failed = fail_job(self.session, failed_job.id, "boom")
+        claimed = claim_next_job(self.session)
+        self.assertEqual(claimed.id, completed_job.id)
+        completed = complete_job(
+            self.session, completed_job.id, claim_token=claimed.claim_token
+        )
+        claimed = claim_next_job(self.session)
+        self.assertEqual(claimed.id, failed_job.id)
+        failed = fail_job(
+            self.session, failed_job.id, "boom", claim_token=claimed.claim_token
+        )
 
         self.assertEqual(completed.status, "completed")
         self.assertIsNotNone(completed.completed_at)
@@ -391,11 +403,13 @@ class JobServiceTest(unittest.TestCase):
         job = create_job(
             self.session, "PARSE_NOTE", {"note_path": "c.md"}, max_attempts=3
         )
+        claim_next_job(self.session)
         job.attempts = 2
-        job.status = "running"
         self.session.commit()
 
-        failed = fail_job(self.session, job.id, "temporary error")
+        failed = fail_job(
+            self.session, job.id, "temporary error", claim_token=job.claim_token
+        )
 
         self.assertEqual(failed.status, PENDING)
         self.assertEqual(failed.attempts, 2)
@@ -405,11 +419,13 @@ class JobServiceTest(unittest.TestCase):
         job = create_job(
             self.session, "PARSE_NOTE", {"note_path": "d.md"}, max_attempts=2
         )
+        claim_next_job(self.session)
         job.attempts = 2
-        job.status = "running"
         self.session.commit()
 
-        failed = fail_job(self.session, job.id, "final error")
+        failed = fail_job(
+            self.session, job.id, "final error", claim_token=job.claim_token
+        )
 
         self.assertEqual(failed.status, DEAD_LETTER)
         self.assertEqual(failed.attempts, 2)
@@ -418,10 +434,10 @@ class JobServiceTest(unittest.TestCase):
         job = create_job(
             self.session, "PARSE_NOTE", {"note_path": "retry.md"}, max_attempts=1
         )
-        job.status = "running"
-        job.attempts = 1
-        self.session.commit()
-        failed = fail_job(self.session, job.id, "final error")
+        claim_next_job(self.session)
+        failed = fail_job(
+            self.session, job.id, "final error", claim_token=job.claim_token
+        )
 
         retried = retry_job(self.session, failed.id)
 
@@ -664,7 +680,7 @@ class JobServiceTest(unittest.TestCase):
 
         self.assertIsNone(claim_next_job(self.session))
 
-        complete_job(self.session, first.id)
+        complete_job(self.session, first.id, claim_token=first.claim_token)
         second = claim_next_job(self.session)
         self.assertEqual(second.type, "CLASSIFY_NOTE")
         self.assertEqual(second.payload, jobs[1].payload)
