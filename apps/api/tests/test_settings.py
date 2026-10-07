@@ -11,6 +11,14 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from berrybrain_api.ai_configuration import (
+    AIConfiguration,
+    HippoRagSlot,
+    JudgeSlot,
+    ModelSlot,
+    save_configuration,
+    save_provider_credentials,
+)
 from berrybrain_api.config import _discover_project_root
 from berrybrain_api.database import Base
 from berrybrain_api.models import ModelInvocationRecord, NoteRecord
@@ -102,6 +110,21 @@ class SettingsStoreTest(unittest.TestCase):
         self.assertEqual(
             decode_setting_value(setting.key, setting.value), "secret-main"
         )
+
+    def test_provider_credential_map_is_encrypted_and_never_listed(self) -> None:
+        raw = '{"deepseek":"secret-a","nvidia-nim":"secret-b"}'
+        setting = set_setting(self.session, "ai_provider_credentials_v1", raw)
+
+        self.assertTrue(setting.value.startswith(ENCRYPTED_PREFIX))
+        self.assertNotIn("secret-a", setting.value)
+        result = settings_router.get_settings_list(None)
+        listed = next(
+            item
+            for item in result["settings"]
+            if item["key"] == "ai_provider_credentials_v1"
+        )
+        self.assertEqual(listed["value"], "")
+        self.assertTrue(listed["configured"])
 
     def test_plaintext_legacy_secret_is_migrated_in_place(self) -> None:
         from berrybrain_api.models import SettingRecord
@@ -316,6 +339,7 @@ class SettingsStoreTest(unittest.TestCase):
                 urllib.error.URLError(TimeoutError("timed out"))
             ),
         )
+
         self.assertIn(
             "could not be reached",
             settings_router._provider_error(urllib.error.URLError("offline")),
@@ -342,6 +366,72 @@ class SettingsStoreTest(unittest.TestCase):
         self.assertEqual(
             settings_router._provider_model_id({"model": "model-d"}), "model-d"
         )
+
+    def test_settings_authorization_distinguishes_service_owner_and_user(self) -> None:
+        request = SimpleNamespace(headers={"authorization": "Bearer service-token"})
+        app_settings = SimpleNamespace(admin_email="owner@example.com")
+
+        with (
+            patch.object(
+                settings_router, "get_app_settings", return_value=app_settings
+            ),
+            patch.object(settings_router, "verify_service_token", return_value=True),
+        ):
+            self.assertEqual(settings_router._caller_state(request), "service")
+
+        request.headers = {}
+        with (
+            patch.object(
+                settings_router, "get_app_settings", return_value=app_settings
+            ),
+            patch.object(settings_router, "get_session_user", return_value=None),
+        ):
+            self.assertEqual(settings_router._caller_state(request), "anon")
+
+        owner = SimpleNamespace(email="OWNER@example.com")
+        with (
+            patch.object(
+                settings_router, "get_app_settings", return_value=app_settings
+            ),
+            patch.object(
+                settings_router, "get_session_user", return_value=(owner, object())
+            ),
+        ):
+            self.assertEqual(settings_router._caller_state(request), "admin")
+
+        user = SimpleNamespace(email="user@example.com")
+        with (
+            patch.object(
+                settings_router, "get_app_settings", return_value=app_settings
+            ),
+            patch.object(
+                settings_router, "get_session_user", return_value=(user, object())
+            ),
+        ):
+            self.assertEqual(settings_router._caller_state(request), "user")
+
+        for state, status_code in (("anon", 401), ("user", 403)):
+            with (
+                self.subTest(state=state),
+                patch.object(settings_router, "_caller_state", return_value=state),
+                self.assertRaises(HTTPException) as error,
+            ):
+                settings_router._require_settings_reader(request)
+            self.assertEqual(error.exception.status_code, status_code)
+
+        with (
+            patch.object(
+                settings_router, "get_app_settings", return_value=app_settings
+            ),
+            patch.object(
+                settings_router,
+                "require_session_user",
+                return_value=(user, object()),
+            ),
+            self.assertRaises(HTTPException) as error,
+        ):
+            settings_router._require_admin_csrf(request)
+        self.assertEqual(error.exception.status_code, 403)
 
     def test_model_test_rejects_incomplete_invalid_and_unavailable_config(self) -> None:
         incomplete = settings_router.get_ai_models(settings_router.AiModelsRequest())
@@ -399,6 +489,17 @@ class SettingsStoreTest(unittest.TestCase):
                 settings_router.update_settings_batch(payload)
             self.assertEqual(error.exception.status_code, 400)
 
+    def test_batch_validation_identifies_the_invalid_setting(self) -> None:
+        with self.assertRaises(HTTPException) as error:
+            settings_router.update_settings_batch(
+                settings_router.BatchUpdateSettingsRequest(
+                    values={"ui_font": "roboto", "theme": "dark"}
+                )
+            )
+
+        self.assertEqual(error.exception.status_code, 422)
+        self.assertEqual(error.exception.detail, "ui_font: Unsupported setting value")
+
     def test_ai_and_graph_config_only_reveal_secrets_to_service_callers(self) -> None:
         for key, value in {
             "ai_provider": "cloud",
@@ -424,6 +525,41 @@ class SettingsStoreTest(unittest.TestCase):
         self.assertEqual(service_ai["cloud_api_key"], "main-secret")
         self.assertEqual(service_graph["cloud_api_key"], "graph-secret")
         self.assertEqual(service_graph["default_layout"], "brain")
+
+    def test_ai_config_resolves_mixed_cloud_slots_and_service_credentials(self) -> None:
+        configuration = AIConfiguration(
+            mode="cloud",
+            main=ModelSlot(provider_id="deepseek", model_id="main-model"),
+            embedding=ModelSlot(provider_id="nvidia-nim", model_id="embedding-model"),
+            judge=JudgeSlot(provider_id="deepseek", model_id="judge-model"),
+            hipporag=HippoRagSlot(provider_id="deepseek", model_id="rag-model"),
+            endpoint_url="https://api.deepseek.com",
+        )
+        save_provider_credentials(
+            self.session,
+            {"deepseek": "main-secret", "nvidia-nim": "embedding-secret"},
+        )
+        save_configuration(self.session, configuration, validated=True)
+        self.session.commit()
+
+        with patch.object(settings_router, "_caller_state", return_value="admin"):
+            admin = settings_router.get_ai_config(MagicMock())
+        with patch.object(settings_router, "_caller_state", return_value="service"):
+            service = settings_router.get_ai_config(MagicMock())
+
+        self.assertTrue(service["configuration_valid"])
+        self.assertEqual(service["cloud_api_key"], "main-secret")
+        self.assertEqual(service["embedding_cloud_provider"], "nvidia-nim")
+        self.assertEqual(
+            service["embedding_cloud_api_url"],
+            "https://integrate.api.nvidia.com/v1",
+        )
+        self.assertEqual(service["embedding_cloud_api_key"], "embedding-secret")
+        self.assertEqual(service["judge_cloud_provider"], "deepseek")
+        self.assertEqual(service["judge_cloud_api_key"], "main-secret")
+        self.assertEqual(service["hipporag_cloud_api_key"], "main-secret")
+        self.assertEqual(admin["embedding_cloud_api_key"], "")
+        self.assertEqual(admin["judge_cloud_api_key"], "")
 
     def test_danger_wipe_preserves_or_resets_settings_and_only_clears_vault(
         self,

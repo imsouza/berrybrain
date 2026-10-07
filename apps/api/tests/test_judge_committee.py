@@ -499,9 +499,15 @@ class TestRouterEndpoints(unittest.TestCase):
         try:
             from fastapi.testclient import TestClient
 
+            from berrybrain_api.config import get_settings
+            from berrybrain_api.database import Base, engine
             from berrybrain_api.main import app
 
-            self.client = TestClient(app)
+            Base.metadata.create_all(engine)
+            self.client = TestClient(
+                app, headers={"Authorization": "Bearer " + get_settings().api_token}
+            )
+            self.addCleanup(self.client.close)
         except (ImportError, RuntimeError):
             self.client = None
 

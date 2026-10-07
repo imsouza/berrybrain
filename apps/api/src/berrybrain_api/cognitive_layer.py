@@ -313,11 +313,15 @@ from berrybrain_api.vector_store import (  # noqa: E402,F401
 )
 
 
-async def answer_cognitive_query(session: Session, question: str) -> dict[str, Any]:
+async def answer_cognitive_query(
+    session: Session, question: str, *, conversation_context: str = ""
+) -> dict[str, Any]:
     """Compatibility facade for callers that patch cognitive_layer globals."""
     import berrybrain_api.cognitive_query as cognitive_query
 
     cognitive_query.generate_graph_answer = generate_graph_answer
     cognitive_query.get_ai_config = get_ai_config
     cognitive_query.orchestrate_retrieval = orchestrate_retrieval
-    return await _answer_cognitive_query(session, question)
+    return await _answer_cognitive_query(
+        session, question, conversation_context=conversation_context
+    )

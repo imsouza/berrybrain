@@ -2,13 +2,16 @@ import base64
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from berrybrain_api.api_contract import NoteDocument, NotePage, Offset
+from berrybrain_api.artifact_state import accepted_node_clause
 from berrybrain_api.attachment_processing import (
     process_attachment,
     serialize_extraction,
@@ -22,6 +25,7 @@ from berrybrain_api.attachment_security import (
 )
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
+from berrybrain_api.filesystem import atomic_write_text, serialized_vault
 from berrybrain_api.graph_write_service import GraphWriteService
 from berrybrain_api.jobs import (
     PENDING,
@@ -155,9 +159,9 @@ def _serialize_attachment(
 
 
 @router.post("/{note_path:path}/organize")
+@serialized_vault
 def organize_note_endpoint(note_path: str) -> dict:
     """Move an inbox note into a stable, evidence-backed semantic folder."""
-    settings = get_settings()
     with SessionLocal() as session:
         enabled = session.execute(
             select(SettingRecord).where(
@@ -182,6 +186,7 @@ def organize_note_endpoint(note_path: str) -> dict:
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type.in_(("topic", "context")),
                 GraphNodeRecord.confidence >= 0.72,
+                accepted_node_clause(),
             )
         ).scalars()
         for node in nodes:
@@ -198,40 +203,38 @@ def organize_note_endpoint(note_path: str) -> dict:
 
         _, _, label = max(candidates, key=lambda item: (item[0], item[1], item[2]))
         folder_slug = slugify_title(label)[:64] or "topic"
-        destination_folder = settings.vault_path / "organized" / folder_slug
-        destination_folder.mkdir(parents=True, exist_ok=True)
-        source_path = resolve_note_path(settings.vault_path, note_path)
-        destination = destination_folder / source_path.name
-        suffix = 2
-        while destination.exists() and destination != source_path:
-            destination = (
-                destination_folder / f"{source_path.stem}-{suffix}{source_path.suffix}"
-            )
-            suffix += 1
-        if destination == source_path:
+        folder = f"organized/{folder_slug}"
+        if current_parent == folder:
             return {"status": "already_organized", "path": note_path, "topic": label}
-
-        source_path.rename(destination)
-        new_path = destination.relative_to(settings.vault_path).as_posix()
-        note.path = new_path
-        session.commit()
-        _update_internal_links(session, note_path, new_path)
-        return {
-            "status": "organized",
-            "path": new_path,
-            "previousPath": note_path,
-            "topic": label,
-            "confidenceThreshold": 0.72,
-        }
+    moved = _move_note(note_path, MoveNoteRequest(folder=folder), actor_type="system")
+    return {
+        "status": "organized",
+        "path": moved["path"],
+        "previousPath": note_path,
+        "topic": label,
+        "confidenceThreshold": 0.72,
+    }
 
 
-@router.get("")
-def list_notes() -> dict:
+@router.get("", response_model=NotePage)
+def list_notes(
+    limit: Annotated[int | None, Query(ge=1, le=200)] = None,
+    offset: Offset = 0,
+) -> dict:
     settings = get_settings()
-    return {"notes": list_markdown_notes(settings.vault_path)}
+    notes = list_markdown_notes(settings.vault_path)
+    page = notes[offset:] if limit is None else notes[offset : offset + limit]
+    end = offset + len(page)
+    return {
+        "notes": page,
+        "total": len(notes),
+        "nextOffset": end if end < len(notes) else None,
+    }
 
 
-@router.post("", status_code=201)
+@router.post(
+    "", status_code=201, response_model=NoteDocument, response_model_exclude_none=True
+)
 def create_note_endpoint(payload: CreateNoteRequest) -> dict:
     settings = get_settings()
     note = create_note(
@@ -287,11 +290,16 @@ def get_note_processing_status(note_path: str) -> dict:
 
         from berrybrain_api.models import JobRecord
 
+        note = session.scalar(select(NoteRecord).where(NoteRecord.path == note_path))
+        if note is None:
+            raise HTTPException(status_code=404, detail="Note not found")
         jobs = list(
             session.execute(
                 select(JobRecord)
-                .where(JobRecord.payload.like(f'%"note_path":"{note_path}"%'))
-                .order_by(JobRecord.created_at.desc())
+                .where(
+                    (JobRecord.note_id == note.id) | (JobRecord.note_path == note_path)
+                )
+                .order_by(JobRecord.created_at.desc(), JobRecord.id.desc())
             ).scalars()
         )
 
@@ -326,7 +334,7 @@ def get_note_processing_status(note_path: str) -> dict:
 
     completed_count = sum(1 for s in steps if s["status"] == "completed")
     running_count = sum(1 for s in steps if s["status"] == "running")
-    failed_count = sum(1 for s in steps if s["status"] == "failed")
+    failed_count = sum(1 for s in steps if s["status"] in {"failed", "dead_letter"})
 
     return {
         "steps": steps,
@@ -445,16 +453,24 @@ def reprocess_attachment(
 
 
 @router.delete("/attachments/{attachment_id}")
+@serialized_vault
 def delete_attachment(attachment_id: int) -> dict:
+    from berrybrain_api.attachment_cleanup import (
+        drain_attachment_cleanup,
+        queue_attachment_cleanup,
+    )
+
     settings = get_settings()
     with SessionLocal() as session:
         record = session.get(NoteAttachmentRecord, attachment_id)
         if record is None:
             raise HTTPException(status_code=404, detail="Attachment not found")
-        path = (Path(settings.vault_path) / record.stored_path).resolve()
-        vault_root = Path(settings.vault_path).resolve()
-        if vault_root in path.parents and path.exists():
-            path.unlink()
+        queue_attachment_cleanup(session, [record])
+        from berrybrain_api.vector_cleanup import queue_vector_cleanup
+
+        owner = session.get(NoteRecord, record.note_id)
+        if owner is not None:
+            queue_vector_cleanup(session, owner, attachment_id=record.id)
         extraction = session.execute(
             select(AttachmentExtractionRecord).where(
                 AttachmentExtractionRecord.attachment_id == attachment_id
@@ -498,9 +514,13 @@ def delete_attachment(attachment_id: int) -> dict:
             job.status = SUPERSEDED
             job.error_message = "Attachment was deleted before processing completed"
             job.completed_at = datetime.now(UTC)
+            job.claim_token = ""
+            job.claimed_by = ""
+            job.lease_expires_at = None
         session.delete(record)
         session.commit()
-    return {"status": "deleted", "id": attachment_id}
+        cleanup = drain_attachment_cleanup(session, settings.vault_path)
+    return {"status": "deleted", "id": attachment_id, "binaryCleanup": cleanup}
 
 
 @router.get("/{note_path:path}/attachments")
@@ -641,7 +661,9 @@ def download_note_endpoint(note_path: str):
     return FileResponse(path, filename=path.name, media_type="text/markdown")
 
 
-@router.get("/{note_path:path}")
+@router.get(
+    "/{note_path:path}", response_model=NoteDocument, response_model_exclude_none=True
+)
 def read_note_endpoint(note_path: str) -> dict:
     settings = get_settings()
     note = read_note(settings.vault_path, note_path)
@@ -657,6 +679,7 @@ def read_note_endpoint(note_path: str) -> dict:
 
 
 @router.put("/{note_path:path}/rename")
+@serialized_vault
 def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
     from sqlalchemy import select
 
@@ -674,6 +697,12 @@ def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
             previous_title = record.title
             record.path = new_path
             record.title = payload.title
+            for attachment in session.scalars(
+                select(NoteAttachmentRecord).where(
+                    NoteAttachmentRecord.note_id == record.id
+                )
+            ):
+                attachment.note_path = new_path
             session.flush()
             record = sync_note_record(session, settings.vault_path, new_path)
             from berrybrain_api.learning import record_learning_event
@@ -709,6 +738,11 @@ def rename_note_endpoint(note_path: str, payload: RenameNoteRequest) -> dict:
 
 @router.put("/{note_path:path}/move")
 def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
+    return _move_note(note_path, payload, actor_type="user")
+
+
+@serialized_vault
+def _move_note(note_path: str, payload: MoveNoteRequest, *, actor_type: str) -> dict:
     settings = get_settings()
     old_path = resolve_note_path(settings.vault_path, note_path)
     if not old_path.exists():
@@ -750,6 +784,12 @@ def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
             previous_title = record.title
             record.path = new_rel
             record.updated_at = datetime.now(UTC)
+            for attachment in session.scalars(
+                select(NoteAttachmentRecord).where(
+                    NoteAttachmentRecord.note_id == record.id
+                )
+            ):
+                attachment.note_path = new_rel
             session.flush()
             record = sync_note_record(session, settings.vault_path, new_rel)
             from berrybrain_api.learning import record_learning_event
@@ -763,7 +803,7 @@ def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
                 source_note_ids=[record.id],
                 before_state={"path": old_rel, "title": previous_title},
                 after_state={"path": record.path, "title": record.title},
-                actor_type="user",
+                actor_type=actor_type,
                 origin="notes_api",
             )
             session.commit()
@@ -785,7 +825,10 @@ def move_note_endpoint(note_path: str, payload: MoveNoteRequest) -> dict:
     return read_note(settings.vault_path, new_rel)
 
 
-@router.put("/{note_path:path}")
+@router.put(
+    "/{note_path:path}", response_model=NoteDocument, response_model_exclude_none=True
+)
+@serialized_vault
 def update_note_endpoint(note_path: str, payload: UpdateNoteRequest) -> dict:
     settings = get_settings()
     current = read_note(settings.vault_path, note_path)
@@ -803,9 +846,17 @@ def update_note_endpoint(note_path: str, payload: UpdateNoteRequest) -> dict:
     affected_job_types = affected_job_types_for_note_update(
         str(current.get("content") or ""), payload.content, note_path
     )
-    note = update_note(settings.vault_path, note_path, payload.content)
+    note = update_note(
+        settings.vault_path,
+        note_path,
+        payload.content,
+        expected_content_hash=payload.base_content_hash,
+    )
     with SessionLocal() as session:
         record = sync_note_record(session, settings.vault_path, note_path)
+        note["id"] = record.id
+        note["stableId"] = record.stable_id
+        note["sourceVersion"] = record.source_version
         if affected_job_types:
             enqueue_note_changed_jobs(
                 session,
@@ -830,6 +881,7 @@ def reprocess_note_endpoint(note_path: str) -> dict:
 
 
 @router.delete("/{note_path:path}")
+@serialized_vault
 def delete_note_endpoint(note_path: str) -> dict:
     settings = get_settings()
     result = delete_note(settings.vault_path, note_path)
@@ -854,10 +906,14 @@ def _update_internal_links(session, old_path: str, new_path: str) -> None:
     for row in rows:
         if old_ref not in (row.content or ""):
             continue
-        row.content = row.content.replace(old_ref, new_ref)
+        updated_content = row.content.replace(old_ref, new_ref)
         abs_path = resolve_note_path(settings.vault_path, row.path)
         if abs_path.exists():
-            abs_path.write_text(row.content, encoding="utf-8")
+            atomic_write_text(abs_path, updated_content)
+            record = sync_note_record(session, settings.vault_path, row.path)
+            enqueue_note_changed_jobs(
+                session, record.path, "NOTE_UPDATED", record.content_hash
+            )
     session.commit()
 
 

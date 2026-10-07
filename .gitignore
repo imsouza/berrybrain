@@ -15,12 +15,16 @@ vault/*
 coverage.json
 build/
 dist/
-/docs/
 apps/web/test-results/
 apps/web/playwright-report/
+reports/evaluation/human-supervised/
+reports/evaluation/jbcs-validation/
 /.tmp/
 /Journal_of_the_Brazilian_Computer_Society__JBCS__Template.zip
 
 # build artifacts
 *.tsbuildinfo
 apps/api/uv.lock
+.benchmark-venv/
+.benchmark-cache/
+nginx/sites-enabled/*.conf

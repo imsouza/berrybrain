@@ -47,6 +47,16 @@ class WorkerResilienceTest(unittest.TestCase):
     def test_provider_timeout_is_transient(self) -> None:
         self.assertFalse(resilience.is_permanent_job_error(TimeoutError()))
 
+    def test_reclustering_timeout_allows_preview_and_guarded_apply(self) -> None:
+        settings = WorkerSettings(ollama_timeout=30)
+
+        self.assertEqual(
+            resilience.timeout_for_job(settings, "UPDATE_GRAPH_CLUSTERS"), 660
+        )
+        self.assertEqual(
+            resilience.timeout_for_job(settings, "UPDATE_GRAPH_STATS"), 120
+        )
+
     def test_cloud_concurrency_is_limited_independently(self) -> None:
         settings = WorkerSettings(
             max_concurrent_jobs=6,

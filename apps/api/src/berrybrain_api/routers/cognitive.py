@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from berrybrain_api.cognitive_layer import (
     answer_cognitive_query,
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/v1/cognitive", tags=["cognitive"])
 
 
 class CognitiveQueryRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=16000)
 
 
 @router.get("/status")

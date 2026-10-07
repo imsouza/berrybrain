@@ -6,6 +6,8 @@ from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
 
+from berrybrain_api.filesystem import atomic_write_text, serialized_vault
+
 SAFE_FOLDERS = {
     "inbox",
     "study",
@@ -153,6 +155,7 @@ def resolve_note_path(vault_path: Path, note_path: str) -> Path:
     return candidate
 
 
+@serialized_vault
 def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
     ensure_vault(vault_path)
 
@@ -161,7 +164,11 @@ def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
 
     notes: list[dict[str, str]] = []
     for path in sorted(vault_path.rglob("*.md")):
-        if not path.is_file() or ".attachments" in path.parts:
+        if (
+            not path.is_file()
+            or ".attachments" in path.parts
+            or ".berrybrain-restore" in path.parts
+        ):
             continue
         relative_path = path.relative_to(vault_path).as_posix()
         notes.append(
@@ -174,6 +181,7 @@ def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
     return notes
 
 
+@serialized_vault
 def read_note(vault_path: Path, note_path: str) -> dict[str, object]:
     path = resolve_note_path(vault_path, note_path)
     if not path.exists():
@@ -191,6 +199,7 @@ def read_note(vault_path: Path, note_path: str) -> dict[str, object]:
     }
 
 
+@serialized_vault
 def create_note(
     vault_path: Path, title: str, folder: str, content: str
 ) -> dict[str, object]:
@@ -204,19 +213,45 @@ def create_note(
     path.parent.mkdir(parents=True, exist_ok=True)
     text = content.strip()
 
-    path.write_text(text, encoding="utf-8")
+    while True:
+        try:
+            atomic_write_text(path, text, overwrite=False)
+            break
+        except FileExistsError:
+            path = unique_note_path(vault_path, folder, slug)
     return read_note(vault_path, path.relative_to(vault_path.resolve()).as_posix())
 
 
-def update_note(vault_path: Path, note_path: str, content: str) -> dict[str, object]:
+@serialized_vault
+def update_note(
+    vault_path: Path,
+    note_path: str,
+    content: str,
+    *,
+    expected_content_hash: str | None = None,
+) -> dict[str, object]:
     path = resolve_note_path(vault_path, note_path)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Note not found")
 
-    path.write_text(content, encoding="utf-8")
+    if expected_content_hash is not None:
+        current = read_note(vault_path, note_path)
+        if current["content_hash"] != expected_content_hash:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "note_content_conflict",
+                    "message": "The note changed after it was opened.",
+                    "notePath": note_path,
+                    "currentContentHash": current["content_hash"],
+                    "currentContent": current["content"],
+                },
+            )
+    atomic_write_text(path, content)
     return read_note(vault_path, note_path)
 
 
+@serialized_vault
 def delete_note(vault_path: Path, note_path: str) -> dict[str, str]:
     path = resolve_note_path(vault_path, note_path)
     if not path.exists():
@@ -226,13 +261,14 @@ def delete_note(vault_path: Path, note_path: str) -> dict[str, str]:
     return {"status": "deleted", "path": note_path}
 
 
+@serialized_vault
 def rename_note(vault_path: Path, note_path: str, new_title: str) -> dict[str, object]:
     old_path = resolve_note_path(vault_path, note_path)
     if not old_path.exists():
         raise HTTPException(status_code=404, detail="Note not found")
 
     slug = slugify_title(new_title)
-    folder = old_path.parent.name
+    folder = old_path.parent.relative_to(vault_path.resolve()).as_posix()
     new_path = resolve_note_path(vault_path, f"{folder}/{slug}.md")
     if new_path.exists() and new_path != old_path:
         new_path = unique_note_path(vault_path, folder, slug)

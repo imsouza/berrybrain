@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from berrybrain_api.artifact_state import FAILED_QUALITY_STATUSES
 from berrybrain_api.models import ChunkRecord, ConnectionRecord, NoteRecord
 from berrybrain_api.services import find_similar_chunks_by_vector
 
@@ -191,7 +192,8 @@ def hybrid_search(
             .filter(
                 ConnectionRecord.status.not_in(
                     ("ignored", "archived", "stale", "dismissed")
-                )
+                ),
+                ConnectionRecord.quality_gate_status.not_in(FAILED_QUALITY_STATUSES),
             )
             .limit(50)
             .all()
@@ -269,7 +271,8 @@ def hybrid_search(
             .filter(
                 ConnectionRecord.status.not_in(
                     ("ignored", "archived", "stale", "dismissed")
-                )
+                ),
+                ConnectionRecord.quality_gate_status.not_in(FAILED_QUALITY_STATUSES),
             )
             .all()
         )

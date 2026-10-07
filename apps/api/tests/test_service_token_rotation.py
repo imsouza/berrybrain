@@ -26,9 +26,9 @@ from berrybrain_api.security import (
 
 class ServiceTokenRotationTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine)
-        self.session = sessionmaker(bind=engine)()
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.session = sessionmaker(bind=self.engine)()
         self.settings = SimpleNamespace(
             api_token="legacy-worker-token",
             session_secret="test-session-secret-with-enough-entropy",
@@ -36,6 +36,7 @@ class ServiceTokenRotationTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.session.close()
+        self.engine.dispose()
 
     def test_rotation_hashes_tokens_and_expires_legacy_grace_token(self) -> None:
         self.assertTrue(

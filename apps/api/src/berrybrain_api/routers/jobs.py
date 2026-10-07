@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from berrybrain_api.api_contract import PageLimit
 from berrybrain_api.artifact_state import processable_node_clause
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.job_contracts import (
@@ -10,18 +11,21 @@ from berrybrain_api.job_contracts import (
     update_job_attempt,
 )
 from berrybrain_api.jobs import (
+    CANCEL_REQUESTED,
     COMPLETED,
     DEAD_LETTER,
     FAILED,
     PENDING,
     RUNNING,
     SUPERSEDED,
+    acknowledge_job_cancellation,
     calculate_pipeline_progress,
     claim_next_job,
     complete_job,
     create_job,
     fail_job,
     list_jobs,
+    lock_worker_claim,
     normalize_utc,
     recover_stale_running_jobs,
     renew_job_lease,
@@ -57,7 +61,7 @@ class UpdateAttemptRequest(BaseModel):
 
 
 @router.get("")
-def list_jobs_endpoint(status: str | None = None, limit: int = 50) -> dict:
+def list_jobs_endpoint(status: str | None = None, limit: PageLimit = 50) -> dict:
     with SessionLocal() as session:
         jobs = list_jobs(session, status=status, limit=min(limit, 200))
         return {"jobs": [serialize_job(j) for j in jobs]}
@@ -94,9 +98,18 @@ def recover_stale_endpoint(stale_after_minutes: int = 30) -> dict:
 
 
 @router.post("/{job_id}/renew-lease")
-def renew_job_lease_endpoint(job_id: int, lease_minutes: int = 30) -> dict:
+def renew_job_lease_endpoint(
+    job_id: int,
+    lease_minutes: int = 30,
+    claim_token: str = Header(..., alias="X-BerryBrain-Claim-Token", min_length=1),
+) -> dict:
     with SessionLocal() as session:
-        job = renew_job_lease(session, job_id, lease_minutes=max(1, lease_minutes))
+        job = renew_job_lease(
+            session,
+            job_id,
+            lease_minutes=max(1, lease_minutes),
+            claim_token=claim_token,
+        )
         return {"job": serialize_job(job)}
 
 
@@ -122,7 +135,8 @@ def job_cancellation_endpoint(job_id: int) -> dict:
             return {"status": "not_found", "cancelRequested": False}
         return {
             "status": job.status,
-            "cancelRequested": job.status == "cancel_requested",
+            "cancelRequested": job.status
+            in {"cancel_requested", "cancelled", SUPERSEDED},
             "job": serialize_job(job),
         }
 
@@ -145,29 +159,49 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
         )
         running = list(
             session.execute(
-                select(JobRecord).where(JobRecord.status == RUNNING)
+                select(JobRecord).where(
+                    JobRecord.status.in_([RUNNING, CANCEL_REQUESTED])
+                )
             ).scalars()
         )
         stale = [
             job
             for job in running
-            if job.started_at
-            and (cutoff - normalize_utc(job.started_at)).total_seconds()
-            > max(1, stale_after_minutes) * 60
+            if (
+                job.lease_expires_at is not None
+                and normalize_utc(job.lease_expires_at) <= cutoff
+            )
+            or (
+                job.lease_expires_at is None
+                and job.started_at is not None
+                and (cutoff - normalize_utc(job.started_at)).total_seconds()
+                >= max(1, stale_after_minutes) * 60
+            )
         ]
-        has_active_work = bool(
-            stale or status_counts.get(PENDING, 0) or status_counts.get(RUNNING, 0)
-        )
+        has_active_work = bool(stale or status_counts.get(PENDING, 0) or running)
         failed_count = status_counts.get(FAILED, 0) + status_counts.get(DEAD_LETTER, 0)
         has_failed_history = bool(failed_count)
         pending_count = int(status_counts.get(PENDING, 0) or 0)
-        running_count = int(status_counts.get(RUNNING, 0) or 0)
+        running_count = int(status_counts.get(RUNNING, 0) or 0) + int(
+            status_counts.get(CANCEL_REQUESTED, 0) or 0
+        )
+        oldest_pending = session.scalar(
+            select(func.min(JobRecord.created_at)).where(JobRecord.status == PENDING)
+        )
+        oldest_pending_age = (
+            max(0, int((cutoff - normalize_utc(oldest_pending)).total_seconds()))
+            if oldest_pending
+            else 0
+        )
+        pending_breached = oldest_pending_age >= 1800
         slo_status = (
-            "breached" if stale else ("at_risk" if pending_count else "healthy")
+            "breached"
+            if stale or pending_breached
+            else ("at_risk" if pending_count else "healthy")
         )
         return {
             "status": "degraded"
-            if stale
+            if stale or pending_breached
             else (
                 "processing"
                 if has_active_work
@@ -175,7 +209,8 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
             ),
             "counts": {
                 "pending": status_counts.get(PENDING, 0),
-                "running": status_counts.get(RUNNING, 0),
+                "running": running_count,
+                "cancel_requested": status_counts.get(CANCEL_REQUESTED, 0),
                 "failed": failed_count,
                 "dead_letter": status_counts.get(DEAD_LETTER, 0),
                 "completed": status_counts.get("completed", 0),
@@ -188,12 +223,15 @@ def jobs_health_endpoint(stale_after_minutes: int = 30) -> dict:
                 "pending": pending_count,
                 "running": running_count,
                 "staleRunning": len(stale),
+                "oldestPendingAgeSeconds": oldest_pending_age,
                 "policy": {
                     "pendingBreachSeconds": 1800,
                     "runningLeaseMinutes": max(1, stale_after_minutes),
                 },
             },
-            "canonicalCounts": canonical_job_counts(session),
+            "canonicalCounts": canonical_job_counts(
+                session, status_counts=status_counts
+            ),
         }
 
 
@@ -249,19 +287,27 @@ def pipeline_progress_endpoint() -> dict:
 
 
 @router.post("/{job_id}/complete")
-def complete_job_endpoint(job_id: int) -> dict:
+def complete_job_endpoint(
+    job_id: int,
+    claim_token: str = Header(..., alias="X-BerryBrain-Claim-Token", min_length=1),
+) -> dict:
     with SessionLocal() as session:
-        job = complete_job(session, job_id)
+        job = complete_job(session, job_id, claim_token=claim_token)
         return {"job": serialize_job(job)}
 
 
 @router.post("/{job_id}/fail")
-def fail_job_endpoint(job_id: int, payload: FailJobRequest) -> dict:
+def fail_job_endpoint(
+    job_id: int,
+    payload: FailJobRequest,
+    claim_token: str = Header(..., alias="X-BerryBrain-Claim-Token", min_length=1),
+) -> dict:
     with SessionLocal() as session:
         job = fail_job(
             session,
             job_id,
             payload.error_message,
+            claim_token=claim_token,
             stage=payload.stage,
             error_class=payload.error_class,
             error_code=payload.error_code,
@@ -271,11 +317,16 @@ def fail_job_endpoint(job_id: int, payload: FailJobRequest) -> dict:
 
 
 @router.patch("/{job_id}/attempt")
-def update_job_attempt_endpoint(job_id: int, payload: UpdateAttemptRequest) -> dict:
+def update_job_attempt_endpoint(
+    job_id: int,
+    payload: UpdateAttemptRequest,
+    claim_token: str = Header(..., alias="X-BerryBrain-Claim-Token", min_length=1),
+) -> dict:
     with SessionLocal() as session:
         job = session.get(JobRecord, job_id)
         if job is None:
             return {"status": "not_found"}
+        lock_worker_claim(session, job, claim_token)
         attempt = update_job_attempt(
             session,
             job,
@@ -287,6 +338,16 @@ def update_job_attempt_endpoint(job_id: int, payload: UpdateAttemptRequest) -> d
         )
         session.commit()
         return {"attempt": serialize_attempt(attempt)}
+
+
+@router.post("/{job_id}/cancelled")
+def acknowledge_cancelled_endpoint(
+    job_id: int,
+    claim_token: str = Header(..., alias="X-BerryBrain-Claim-Token", min_length=1),
+) -> dict:
+    with SessionLocal() as session:
+        job = acknowledge_job_cancellation(session, job_id, claim_token)
+        return {"job": serialize_job(job)}
 
 
 @router.get("/trace/{note_path:path}")

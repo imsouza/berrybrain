@@ -1,0 +1,1096 @@
+{
+  "version": "1.4.9",
+  "dateLocal": "2026-10-03",
+  "scope": "Product only. No academic experiments or thesis artifacts changed. Isolated tests and targeted job reconciliation made no model calls; the configured worker continued its normal operation.",
+  "python": {
+    "modules": 85,
+    "tests": 694,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "groups": {
+      "apps/api/tests": 513,
+      "apps/worker/tests": 59,
+      "apps/api/regression_tests": 114,
+      "apps/hipporag/tests": 8
+    },
+    "results": [
+      {
+        "file": "apps/api/tests/test_agent_monitor.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_ai_configuration_v2.py",
+        "exit": 0,
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_ai_content_safety.py",
+        "exit": 0,
+        "tests": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_architecture_boundaries.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_artifact_state.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_ask_flow.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_ask_suggestions.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_attachment_processing.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_attachment_security.py",
+        "exit": 0,
+        "tests": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_automation_logs.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_backup_portability.py",
+        "exit": 0,
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_cognitive_query_resilience.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_cognitive_vector_store.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_critical_coverage.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_database_runtime.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_evidence_selection.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_extractor_sandbox.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_faster_whisper_extractor.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_feedback.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_inference_domain.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_inference_transactions.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_invalidation.py",
+        "exit": 0,
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_ontology_confidence.py",
+        "exit": 0,
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_quality.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_research.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_runtime_api.py",
+        "exit": 0,
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_graph_write_service.py",
+        "exit": 0,
+        "tests": 28,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_hipporag_defaults.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_hipporag_security.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_home_lists.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_home_summary.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_insight_filters.py",
+        "exit": 0,
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_insight_quality.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_integration.py",
+        "exit": 0,
+        "tests": 42,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_job_contracts.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_jobs.py",
+        "exit": 0,
+        "tests": 44,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_judge_committee.py",
+        "exit": 0,
+        "tests": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_judge_prompt.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_learning.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_maintenance.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_maturation_regressions.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_model_invocation_ledger.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_model_router_domain.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_ontology_service.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_operational_runbook.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_performance_metrics.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_queue_slo.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_runtime_content_contract.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_schema.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_schema_migrations.py",
+        "exit": 0,
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_second_brain_phase1.py",
+        "exit": 0,
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_security_auth.py",
+        "exit": 0,
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_security_redaction.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_semantic_clustering.py",
+        "exit": 0,
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_semantic_enrichment.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_semantic_graph_maintenance.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_service_token_rotation.py",
+        "exit": 0,
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_settings.py",
+        "exit": 0,
+        "tests": 38,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_settings_registry.py",
+        "exit": 0,
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_vault_graph_service.py",
+        "exit": 0,
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_vault_metadata.py",
+        "exit": 0,
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_vault_scan.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_vault_watcher.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/tests/test_vector_store_docker_profiles.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_content_fallbacks.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_prompt_loader.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_cancellation.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_enrichment.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_flashcards.py",
+        "exit": 0,
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_hipporag.py",
+        "exit": 0,
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_integration.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_judge.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_lease_recovery.py",
+        "exit": 0,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_parity.py",
+        "exit": 0,
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_pipeline_fallbacks.py",
+        "exit": 0,
+        "tests": 18,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/worker/tests/test_worker_resilience.py",
+        "exit": 0,
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_ai_setup_fixes.py",
+        "exit": 0,
+        "tests": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_ask_current_evidence.py",
+        "exit": 0,
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_external_api_client.py",
+        "exit": 0,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_release_job_diagnostics.py",
+        "exit": 0,
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_review_fixes.py",
+        "exit": 0,
+        "tests": 30,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_service_token_lifecycle.py",
+        "exit": 0,
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_system_api_review.py",
+        "exit": 0,
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/hipporag/tests/test_sidecar.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "file": "apps/api/regression_tests/test_exhausted_job_reconciliation.py",
+        "exit": 0,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "runs": [
+      {
+        "kind": "full isolated product suite",
+        "modules": 84,
+        "tests": 686,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "kind": "subsequent targeted administrative-tool regression",
+        "modules": 1,
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "countingNote": "Consolidated module reports: 686 checks in the full run plus 8 later reconciliation checks, including subcases. Not a single 694-check full run."
+  },
+  "web": {
+    "unitTests": 14,
+    "failures": 0,
+    "typeScript": "passed",
+    "eslint": "passed",
+    "browser": {
+      "tests": 2,
+      "failures": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "spec": "e2e/api-docs.spec.ts",
+      "baseUrl": "http://127.0.0.1:3000",
+      "startTime": "2026-10-04T02:24:58.004Z",
+      "durationMs": 32237.112
+    }
+  },
+  "ruff": "Passed: eight runtime/regression Python files plus the administrative reconciliation script and its regression module.",
+  "deployment": {
+    "status": "published locally; verified by running images, healthchecks, version, schema and HTTP",
+    "buildExitCode": 0,
+    "composeUpExitCode": 1,
+    "composeUpNote": "Old Docker ghost references caused a non-zero return after the new services started. Deployment success was established independently; the Compose exit is not reported as successful.",
+    "checkedAt": "2026-10-04T07:45:55.633Z",
+    "schemaVersion": 14,
+    "containers": [
+      {
+        "name": "/berrybrain-api-1",
+        "id": "e30fdb4b5fb53f489cfc5fe6674ec7f293b93b61b1973a6a5b02a8cb902987f3",
+        "image": "sha256:d4ee6040a694e1af69e8898e689968c002385fd2578557422202583b8f01d86a",
+        "state": "running",
+        "health": "healthy"
+      },
+      {
+        "name": "/berrybrain-web-1",
+        "id": "cff24b127e582a91d6febd4087c0baea7c2622afce31b1eab23a0c001a760444",
+        "image": "sha256:33b022d528fd804ce5f76b47cca79f1cabe9a833f15a97a11d58b3ff727418dc",
+        "state": "running",
+        "health": "healthy"
+      },
+      {
+        "name": "/berrybrain-worker-1",
+        "id": "59a04bf8a97fd550d433ef78941f13511c704c745e884b25a1ec336f889d52f4",
+        "image": "sha256:fca30a9cf557d72ce75607c31d49a7e1c54f7c99434d20f65a2af98e98314770",
+        "state": "running",
+        "health": "healthy"
+      },
+      {
+        "name": "/berrybrain-hipporag-1",
+        "id": "0a9300096d86a09ddb3987e9c67a2b468c64df494b274b1332544b7951416b97",
+        "image": "sha256:f176f95662536d8bec0a4f5b0af46f19086949d7a590abbc2420c55ef2ff0dc1",
+        "state": "running",
+        "health": "healthy"
+      },
+      {
+        "name": "/berrybrain-web-before-ai-setup-20260909",
+        "id": "9caa3186f846c9d53d32c057eb776c1b66443fb869ba02e7bcd768cd57fd9246",
+        "image": "sha256:ba0f899797a3c7d2bac341f9c095c8ca8e4e8209bf8a148f615799e533f65f15",
+        "state": "exited",
+        "health": "unhealthy"
+      }
+    ],
+    "localImageTags": {
+      "berrybrain-api:1.4.9": "sha256:d4ee6040a694e1af69e8898e689968c002385fd2578557422202583b8f01d86a",
+      "berrybrain-web:1.4.9": "sha256:33b022d528fd804ce5f76b47cca79f1cabe9a833f15a97a11d58b3ff727418dc",
+      "berrybrain-worker:1.4.9": "sha256:fca30a9cf557d72ce75607c31d49a7e1c54f7c99434d20f65a2af98e98314770"
+    },
+    "preservedPreviousImages": {
+      "berrybrain-api:pre-1.4.9-20261003": "sha256:41c52bdb49b50a3d28129933a0a0bb93bfb0497da3c15b37c211e089e8728b75",
+      "berrybrain-web:pre-1.4.9-20261003": "sha256:d6b469087f6340c10b57314cea23c03c0062781380682a57aaf0d94faaee04fd",
+      "berrybrain-worker:pre-1.4.9-20261003": "sha256:d92716bca5e3974e7ddf74ea20dfd068a6dd31b426846088a7bcf2b317ef18ad"
+    },
+    "rollbackNote": "Schema 14 compatibility must be handled explicitly when reverting to the earlier API; image-only rollback is not sufficient.",
+    "hipporagUnchanged": true,
+    "oldWebBackupContainerPreserved": true,
+    "runtimeSourceVerification": [
+      {
+        "service": "api",
+        "version": "1.4.9",
+        "hashes": [
+          {
+            "path": "__init__.py",
+            "sha256": "fd9b3d8560cd7b7bee405ed3e24d7798672a8a04abef65fb2853f8193b4f4697"
+          },
+          {
+            "path": "home_summary.py",
+            "sha256": "e167aaa983068334bf637410847d284677d8268ba3ac66a13953f91a3ef8c63b"
+          },
+          {
+            "path": "job_summary.py",
+            "sha256": "5c5c7b7e466f97d8087191bc859ef0919a7eb9386bb20b31e3393297e1339f90"
+          },
+          {
+            "path": "assimilation.py",
+            "sha256": "2127137c43f163a92fbfa1bcc56a26dc6bb270b3283fdf56419eb2d89ff4afab"
+          },
+          {
+            "path": "models.py",
+            "sha256": "26a79d377c19b5a14391b1cb63ed329e446b921ea3133e025dfb30b732555ef6"
+          },
+          {
+            "path": "job_contracts.py",
+            "sha256": "ec794843bd7f3becc91a11934f29e60f7694a2d7df3393ea28c829edd6145f41"
+          },
+          {
+            "path": "routers/jobs.py",
+            "sha256": "b764e520dcde9ce8739be9f4c11acd8f4b12b8e3ff3b8c17d0d27ec7712a2572"
+          },
+          {
+            "path": "schema_migrations.py",
+            "sha256": "512fb9afb8bf239b555c220d85a2c1d3ae2735d8c3b14f0d22e0b1bb77811aa8"
+          },
+          {
+            "path": "main.py",
+            "sha256": "3779c0c168f6492507d6a3bebdbdcaf1fb9f9dfce93958b595c64e5759c88371"
+          },
+          {
+            "path": "security.py",
+            "sha256": "c233c7a74a1c45f8d4d6b9f7948a7d8fbddfbacdc384559d3b14e4311224451f"
+          },
+          {
+            "path": "request_limits.py",
+            "sha256": "d6e1513c219d9724db3a41bd2f0992897bb1ba6530fdc9305bdb2ae6e907dfb3"
+          },
+          {
+            "path": "api_contract.py",
+            "sha256": "e4f08ea886fed84947709bc20e2eed8244a44167c30c485ba4a8161ccaf36773"
+          },
+          {
+            "path": "routers/notes.py",
+            "sha256": "425e830fff63ac245f1c398e527f817360c0b545abf4080e63dbb3c18e0dc216"
+          }
+        ],
+        "mismatches": []
+      },
+      {
+        "service": "worker",
+        "version": "1.4.9",
+        "hashes": [
+          {
+            "path": "__init__.py",
+            "sha256": "fd9b3d8560cd7b7bee405ed3e24d7798672a8a04abef65fb2853f8193b4f4697"
+          },
+          {
+            "path": "api_client.py",
+            "sha256": "82682ce1e23e3e0c61c484119fefe7b4530e035515a608aab78a7e287774deb1"
+          },
+          {
+            "path": "main.py",
+            "sha256": "c921f71aaf8ab8295eb4185fae47345b2d36dd70d5d1c6b1965be5d7b5399f30"
+          }
+        ],
+        "mismatches": []
+      }
+    ],
+    "repositoryOnlyAdministrativeTool": "scripts/reconcile-exhausted-jobs.py (executed through stdin in the API environment; not baked into these images)",
+    "gitCommitCreated": false,
+    "gitTagCreated": false,
+    "remotePush": false,
+    "remoteReleaseCreated": false
+  },
+  "verificationDateLocal": "2026-10-04",
+  "diffCheck": "passed",
+  "backup": {
+    "id": "backup-20261004T015213Z-b3771f6b",
+    "createdBeforeMigration": true,
+    "version": "1.4.8",
+    "schemaVersion": 13,
+    "notes": 55,
+    "jobs": 51359,
+    "databaseBytes": 1031733248,
+    "containerPath": "/app/data/backups/backup-20261004T015213Z-b3771f6b",
+    "sqliteQuickCheck": "ok",
+    "manifestChecksumsVerified": true,
+    "private": true
+  },
+  "liveVerification": {
+    "initial": {
+      "checkedAt": "2026-10-04T02:24:55.464Z",
+      "checks": [
+        {
+          "path": "/health",
+          "status": 200,
+          "ms": 261,
+          "schemaVersion": 14
+        },
+        {
+          "path": "/api/v1",
+          "status": 200,
+          "ms": 32,
+          "version": "1.4.9"
+        },
+        {
+          "kind": "OpenAPI",
+          "status": 200,
+          "ms": 1976,
+          "version": "1.4.9",
+          "operations": 237,
+          "explicitSecurityDeclarations": 237
+        },
+        {
+          "path": "/api/v1/home/summary",
+          "status": 200,
+          "ms": 1550
+        },
+        {
+          "path": "/api/v1/home/summary",
+          "status": 200,
+          "ms": 1082
+        },
+        {
+          "path": "/api/v1/jobs/health",
+          "status": 200,
+          "ms": 118
+        },
+        {
+          "path": "/api/v1/jobs/health",
+          "status": 200,
+          "ms": 137
+        },
+        {
+          "kind": "graph nodes paginated",
+          "limit": 2,
+          "status": 200,
+          "ms": 98,
+          "items": 2
+        },
+        {
+          "kind": "graph edges paginated",
+          "limit": 2,
+          "status": 200,
+          "ms": 65,
+          "items": 2
+        },
+        {
+          "kind": "unauthenticated judge mode request",
+          "status": 401,
+          "expectedStatus": 401,
+          "ms": 12
+        },
+        {
+          "path": "/berrybrain",
+          "status": 200,
+          "ms": 78,
+          "version": "1.4.9"
+        }
+      ],
+      "queueSlo": {
+        "status": "breached",
+        "oldestPendingAgeSeconds": 1384606,
+        "staleRunning": 0
+      }
+    },
+    "afterReconciliation": {
+      "checkedAt": "2026-10-04T07:45:55.633Z",
+      "checks": [
+        {
+          "path": "/health",
+          "status": 200,
+          "ms": 299,
+          "schema": {
+            "currentVersion": 14,
+            "targetVersion": 14,
+            "minimumSupportedVersion": 0,
+            "compatible": true
+          }
+        },
+        {
+          "path": "/api/v1",
+          "status": 200,
+          "ms": 75,
+          "version": "1.4.9"
+        },
+        {
+          "path": "/api/v1/home/summary",
+          "status": 200,
+          "ms": 7061,
+          "jobCounts": {
+            "pending": 6,
+            "active": 0,
+            "failed": 1201,
+            "completedToday": 1548,
+            "total": 52529
+          }
+        },
+        {
+          "path": "/api/v1/jobs/health",
+          "status": 200,
+          "ms": 2506,
+          "slo": {
+            "status": "at_risk",
+            "pending": 5,
+            "running": 1,
+            "staleRunning": 0,
+            "oldestPendingAgeSeconds": 53,
+            "policy": {
+              "pendingBreachSeconds": 1800,
+              "runningLeaseMinutes": 30
+            }
+          },
+          "counts": {
+            "pending": 5,
+            "running": 1,
+            "cancel_requested": 0,
+            "failed": 1201,
+            "dead_letter": 1201,
+            "completed": 50426
+          }
+        }
+      ]
+    },
+    "performanceNote": "Point observations under different workloads/cache states, not a controlled benchmark, percentiles or latency guarantee. Later Home and jobs health took 7061 ms and 2506 ms, respectively.",
+    "externalClient": {
+      "script": "examples/berrybrain_client.py",
+      "readOnly": true,
+      "origins": [
+        {
+          "baseUrl": "http://127.0.0.1:8000",
+          "totalNotes": 55,
+          "returnedNotes": 1,
+          "stableIdPresent": true,
+          "sourceVersionPresent": true
+        },
+        {
+          "baseUrl": "http://127.0.0.1:3000/berrybrain",
+          "totalNotes": 55,
+          "returnedNotes": 1,
+          "stableIdPresent": true,
+          "sourceVersionPresent": true
+        }
+      ],
+      "notesCreatedOrChanged": false
+    }
+  },
+  "reconciliation": {
+    "applied": {
+      "dryRun": false,
+      "jobs": [
+        {
+          "jobId": 20471,
+          "applied": true,
+          "eligible": true,
+          "status": "dead_letter",
+          "attempts": 2,
+          "maxAttempts": 2,
+          "reason": "reconciled"
+        }
+      ]
+    },
+    "readOnlyVerification": {
+      "job": {
+        "id": 20471,
+        "status": "dead_letter",
+        "attempts": 2,
+        "maxAttempts": 2
+      },
+      "audit": [
+        {
+          "id": 669412,
+          "actionType": "RECONCILE_EXHAUSTED_JOB",
+          "targetId": "20471"
+        }
+      ],
+      "recentAuditRowsExamined": 1000
+    },
+    "newAttemptsCreated": false,
+    "priorErrorPreserved": true,
+    "historyDeleted": false,
+    "scope": "Explicit legacy job 20471 only. Corrected exhausted pending state without re-execution.",
+    "auditLookup": "Bounded most recent 1000 audit rows; job looked up by primary key."
+  },
+  "remainingLimitations": [
+    "Latency remains variable under the host's workload; no fast-response SLO is claimed.",
+    "Docker lists old ghost container IDs that cannot be inspected; no daemon restart or metadata surgery was performed.",
+    "Host kernel/cgroup does not enforce configured memory limits; host maintenance is still required.",
+    "Per-token scopes, per-vault isolation, fully typed responses and the wider architecture roadmap remain open.",
+    "No claim of absence of all bugs."
+  ]
+}

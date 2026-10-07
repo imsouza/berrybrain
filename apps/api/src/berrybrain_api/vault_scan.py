@@ -6,6 +6,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.filesystem import serialized_vault
 from berrybrain_api.jobs import (
     EXPAND_KNOWLEDGE_GRAPH,
     FIND_CONNECTIONS,
@@ -19,8 +20,12 @@ from berrybrain_api.sync import remove_note_record, sync_note_record
 from berrybrain_api.vault import content_hash, ensure_vault
 
 
+@serialized_vault
 def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
+    from berrybrain_api.attachment_cleanup import drain_attachment_cleanup
+
     ensure_vault(vault_path)
+    drain_attachment_cleanup(session, vault_path)
 
     result = {
         "created": 0,
@@ -37,7 +42,11 @@ def scan_vault(session: Session, vault_path: Path) -> dict[str, int]:
     seen_paths: set[str] = set()
 
     for path in sorted(vault_path.rglob("*.md")):
-        if not path.is_file() or ".attachments" in path.parts:
+        if (
+            not path.is_file()
+            or ".attachments" in path.parts
+            or ".berrybrain-restore" in path.parts
+        ):
             continue
         relative_path = _relative_note_path(path, vault_path)
         seen_paths.add(relative_path)

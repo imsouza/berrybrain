@@ -65,6 +65,7 @@ PUBLIC_SETTING_SPECS: dict[str, SettingSpec] = {
     "ai_api_url": SettingSpec(kind="url"),
     "ai_custom_url": SettingSpec(kind="url"),
     "ai_api_key": SettingSpec(max_length=4096),
+    "ai_provider_credentials_v1": SettingSpec(max_length=65536),
     "ai_model": SettingSpec(max_length=200),
     "graph_ai_provider": _choice("local", "cloud"),
     "graph_ai_api_url": SettingSpec(kind="url"),

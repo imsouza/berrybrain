@@ -95,7 +95,8 @@ def verify_password(password: str, stored: str, secret: str) -> bool:
 
 
 def token_hash(token: str, secret: str) -> str:
-    return hmac.new(secret.encode(), token.encode(), hashlib.sha256).hexdigest()
+    """Keyed lookup digest for tokens; user passwords use hash_password instead."""
+    return hmac.digest(secret.encode(), token.encode(), "sha256").hex()
 
 
 def verify_service_token(session: Session, settings: Settings, raw_token: str) -> bool:
@@ -125,9 +126,46 @@ def verify_service_token(session: Session, settings: Settings, raw_token: str) -
             expires_at = expires_at.replace(tzinfo=UTC)
         if expires_at < now:
             return False
-    record.last_used_at = now
-    session.commit()
+    last_used = record.last_used_at
+    if last_used is None or (now - last_used.replace(tzinfo=UTC)).total_seconds() >= 60:
+        record.last_used_at = now
+        session.commit()
     return True
+
+
+def issue_service_token(
+    session: Session,
+    settings: Settings,
+    *,
+    name: str,
+    expires_in_days: int = 90,
+) -> tuple[str, ServiceTokenRecord]:
+    """Issue a trusted integration credential without rotating any existing token."""
+    managed_count = session.scalar(select(func.count(ServiceTokenRecord.id))) or 0
+    if managed_count == 0 and settings.api_token:
+        # Activating managed tokens must not silently disable the existing worker.
+        from sqlalchemy.dialects.sqlite import insert
+
+        session.execute(
+            insert(ServiceTokenRecord)
+            .values(
+                name="legacy-environment-token",
+                token_hash=token_hash(settings.api_token, settings.session_secret),
+                status="active",
+            )
+            .on_conflict_do_nothing(index_elements=["token_hash"])
+        )
+    raw_token = f"bbt_{secrets.token_urlsafe(48)}"
+    record = ServiceTokenRecord(
+        name=name.strip()[:120],
+        token_hash=token_hash(raw_token, settings.session_secret),
+        status="active",
+        expires_at=datetime.now(UTC) + timedelta(days=expires_in_days),
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return raw_token, record
 
 
 def rotate_service_token(
@@ -144,6 +182,10 @@ def rotate_service_token(
             select(ServiceTokenRecord).where(
                 ServiceTokenRecord.revoked_at.is_(None),
                 ServiceTokenRecord.status.in_(("active", "grace")),
+                or_(
+                    ServiceTokenRecord.expires_at.is_(None),
+                    ServiceTokenRecord.expires_at > now,
+                ),
             )
         ).scalars()
     )
@@ -430,8 +472,13 @@ def get_session_user(
     user = session.get(UserRecord, record.user_id)
     if user is None:
         return None
-    record.last_seen_at = datetime.now(UTC)
-    session.commit()
+    now = datetime.now(UTC)
+    if user.locked_until and user.locked_until.replace(tzinfo=UTC) > now:
+        return None
+    last_seen = record.last_seen_at
+    if last_seen is None or (now - last_seen.replace(tzinfo=UTC)).total_seconds() >= 60:
+        record.last_seen_at = now
+        session.commit()
     return user, record
 
 
@@ -470,7 +517,7 @@ def assert_csrf(
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
 
 
-def revoke_sessions(session: Session, user_id: int) -> int:
+def revoke_sessions(session: Session, user_id: int, *, autocommit: bool = True) -> int:
     now = datetime.now(UTC)
     rows = list(
         session.execute(
@@ -482,7 +529,8 @@ def revoke_sessions(session: Session, user_id: int) -> int:
     )
     for row in rows:
         row.revoked_at = now
-    session.commit()
+    if autocommit:
+        session.commit()
     return len(rows)
 
 

@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from berrybrain_api.config import get_settings
 from berrybrain_api.models import SettingRecord
 
-ENCRYPTED_SETTING_KEYS = {"ai_api_key", "graph_ai_api_key"}
+ENCRYPTED_SETTING_KEYS = {
+    "ai_api_key",
+    "ai_provider_credentials_v1",
+    "graph_ai_api_key",
+}
 _ENCRYPTION_PREFIX = "bbenc:v1:"
 SECRET_SETTING_KEYS = ENCRYPTED_SETTING_KEYS
 ENCRYPTED_PREFIX = _ENCRYPTION_PREFIX

@@ -362,6 +362,29 @@ def serialize_clusters(session: Session) -> list[dict[str, Any]]:
 
 
 def serialize_palette(session: Session) -> dict[str, Any]:
+    usage_counts = dict(
+        session.execute(
+            select(GraphNodeRecord.color_id, func.count(GraphNodeRecord.id))
+            .where(accepted_node_clause(include_provisional=True))
+            .group_by(GraphNodeRecord.color_id)
+        ).all()
+    )
+    cluster_labels = {
+        item.color_id: item.label
+        for item in session.execute(select(SemanticClusterRecord)).scalars()
+    }
+    vault_labels = {
+        item.color_id: item.vault_id
+        for item in session.execute(select(VaultVisualIdentityRecord)).scalars()
+    }
+
+    def palette_label(item: GraphPaletteRecord) -> str:
+        if item.namespace == "semantic":
+            return cluster_labels.get(item.color_id, "Inactive semantic context")
+        if item.namespace == "vault":
+            return vault_labels.get(item.color_id, "Vault namespace")
+        return "Pending semantic classification"
+
     colors = [
         {
             "colorId": item.color_id,
@@ -371,6 +394,9 @@ def serialize_palette(session: Session) -> dict[str, Any]:
             "border": item.border,
             "text": item.text,
             "namespace": item.namespace,
+            "label": palette_label(item),
+            "nodeCount": usage_counts.get(item.color_id, 0),
+            "active": usage_counts.get(item.color_id, 0) > 0,
             "accessibility": _json_object(item.accessibility_json),
         }
         for item in session.execute(

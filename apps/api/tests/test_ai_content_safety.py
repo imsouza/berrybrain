@@ -17,6 +17,7 @@ from berrybrain_api.ai_configuration import (
     JudgeSlot,
     ModelSlot,
     save_configuration,
+    save_provider_credentials,
 )
 from berrybrain_api.ai_gateway import (
     UNTRUSTED_CONTENT_POLICY,
@@ -101,6 +102,48 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
             config = get_ai_config(session)
 
             self.assertEqual(config["cloud_provider"], "nvidia-nim")
+        finally:
+            session.close()
+            engine.dispose()
+
+    def test_config_routes_mixed_cloud_provider_credentials_by_slot(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        try:
+            save_provider_credentials(
+                session,
+                {"deepseek": "deepseek-secret", "nvidia-nim": "nvidia-secret"},
+            )
+            save_configuration(
+                session,
+                AIConfiguration(
+                    mode="cloud",
+                    main=ModelSlot(provider_id="deepseek", model_id="deepseek-v4-pro"),
+                    embedding=ModelSlot(
+                        provider_id="nvidia-nim", model_id="nvidia/embed"
+                    ),
+                    judge=JudgeSlot(provider_id="deepseek", model_id="deepseek-v4-pro"),
+                    hipporag=HippoRagSlot(
+                        provider_id="deepseek", model_id="deepseek-v4-pro"
+                    ),
+                    endpoint_url="https://api.deepseek.com",
+                ),
+                validated=True,
+            )
+            session.commit()
+
+            config = get_ai_config(session)
+
+            self.assertEqual(config["cloud_provider"], "deepseek")
+            self.assertEqual(config["cloud_api_url"], "https://api.deepseek.com")
+            self.assertEqual(config["cloud_api_key"], "deepseek-secret")
+            self.assertEqual(config["embedding_cloud_provider"], "nvidia-nim")
+            self.assertEqual(
+                config["embedding_cloud_api_url"],
+                "https://integrate.api.nvidia.com/v1",
+            )
+            self.assertEqual(config["embedding_cloud_api_key"], "nvidia-secret")
         finally:
             session.close()
             engine.dispose()
@@ -317,6 +360,35 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
             json.loads(request.data),
             {"model": "embed-model", "input": "private evidence"},
         )
+
+    def test_cloud_embedding_uses_dedicated_mixed_provider_route(self) -> None:
+        payload = {"data": [{"embedding": [0.2, 0.4]}]}
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(json.dumps(payload).encode()),
+        ) as urlopen:
+            vector = generate_query_embedding(
+                {
+                    "embedding_provider": "cloud",
+                    "embedding_model": "nvidia/embed",
+                    "cloud_api_url": "https://api.deepseek.com",
+                    "cloud_api_key": "deepseek-secret",
+                    "cloud_provider": "deepseek",
+                    "embedding_cloud_api_url": "https://integrate.api.nvidia.com/v1",
+                    "embedding_cloud_api_key": "nvidia-secret",
+                    "embedding_cloud_provider": "nvidia-nim",
+                    "remote_content_consent": "true",
+                },
+                "private evidence",
+            )
+
+        self.assertEqual(vector, [0.2, 0.4])
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url, "https://integrate.api.nvidia.com/v1/embeddings"
+        )
+        self.assertEqual(request.get_header("Authorization"), "Bearer nvidia-secret")
+        self.assertEqual(json.loads(request.data)["input_type"], "query")
 
     def test_nvidia_query_embedding_uses_provider_contract(self) -> None:
         payload = {"data": [{"embedding": [0.4, 0.5]}]}

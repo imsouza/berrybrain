@@ -68,14 +68,18 @@ def upsert_generated_metadata(
 
 def get_generated_metadata(
     session: Session,
-    note_id: int,
+    note_id: int | None,
     generation_type: str | None = None,
+    limit: int | None = None,
 ) -> list[GeneratedMetadataRecord]:
-    query = select(GeneratedMetadataRecord).where(
-        GeneratedMetadataRecord.note_id == note_id
-    )
+    query = select(GeneratedMetadataRecord)
+    if note_id is not None:
+        query = query.where(GeneratedMetadataRecord.note_id == note_id)
     if generation_type:
         query = query.where(GeneratedMetadataRecord.generation_type == generation_type)
+    query = query.order_by(GeneratedMetadataRecord.id.desc())
+    if limit is not None:
+        query = query.limit(max(1, min(limit, 200)))
     return list(session.execute(query).scalars())
 
 

@@ -1203,35 +1203,37 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
 def summarize_graph(
     session: Session, *, include_provisional: bool = False
 ) -> dict[str, Any]:
-    nodes = list(
-        session.execute(
-            select(GraphNodeRecord).where(
-                accepted_node_clause(include_provisional=include_provisional),
-            )
-        ).scalars()
+    accepted_node_ids = select(GraphNodeRecord.id).where(
+        accepted_node_clause(include_provisional=include_provisional),
     )
-    node_ids = {node.id for node in nodes}
-    edges = list(
-        session.execute(
-            select(GraphEdgeRecord).where(
-                accepted_edge_clause(include_provisional=include_provisional),
+    node_ids = set(session.execute(accepted_node_ids).scalars())
+    edge_rows = (
+        list(
+            session.execute(
+                select(
+                    GraphEdgeRecord.source_node_id,
+                    GraphEdgeRecord.target_node_id,
+                ).where(
+                    accepted_edge_clause(include_provisional=include_provisional),
+                    GraphEdgeRecord.source_node_id.in_(accepted_node_ids),
+                    GraphEdgeRecord.target_node_id.in_(accepted_node_ids),
+                )
             )
-        ).scalars()
+            .tuples()
+            .all()
+        )
+        if node_ids
+        else []
     )
-    edges = [
-        edge
-        for edge in edges
-        if edge.source_node_id in node_ids and edge.target_node_id in node_ids
-    ]
     degrees: dict[int, int] = defaultdict(int)
-    for edge in edges:
-        degrees[edge.source_node_id] += 1
-        degrees[edge.target_node_id] += 1
+    for source_node_id, target_node_id in edge_rows:
+        degrees[source_node_id] += 1
+        degrees[target_node_id] += 1
     return {
-        "nodes": len(nodes),
-        "edges": len(edges),
-        "orphans": sum(1 for node in nodes if degrees.get(node.id, 0) == 0),
-        "clusters": _estimate_clusters(nodes, edges),
+        "nodes": len(node_ids),
+        "edges": len(edge_rows),
+        "orphans": sum(1 for node_id in node_ids if degrees.get(node_id, 0) == 0),
+        "clusters": _estimate_clusters_from_ids(node_ids, edge_rows),
         "centralNotes": [
             {"id": node_id, "degree": degree}
             for node_id, degree in sorted(
@@ -1239,6 +1241,31 @@ def summarize_graph(
             )[:5]
         ],
     }
+
+
+def _estimate_clusters_from_ids(
+    node_ids: set[int], edge_rows: list[tuple[int, int]]
+) -> int:
+    if not node_ids:
+        return 0
+    adjacency: dict[int, set[int]] = defaultdict(set)
+    for source_node_id, target_node_id in edge_rows:
+        adjacency[source_node_id].add(target_node_id)
+        adjacency[target_node_id].add(source_node_id)
+    visited: set[int] = set()
+    clusters = 0
+    for node_id in node_ids:
+        if node_id in visited:
+            continue
+        clusters += 1
+        stack = [node_id]
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            stack.extend(adjacency[current] - visited)
+    return clusters
 
 
 def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
