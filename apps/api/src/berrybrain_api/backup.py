@@ -3,6 +3,8 @@ import json
 import os
 import shutil
 import sqlite3
+import tempfile
+from contextlib import closing
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -12,6 +14,8 @@ from zipfile import ZipFile
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 from berrybrain_api import __version__
 from berrybrain_api.config import get_settings
@@ -23,11 +27,13 @@ from berrybrain_api.database import (
 from berrybrain_api.database import (
     engine as database_engine,
 )
+from berrybrain_api.filesystem import serialized_vault, vault_lock
 from berrybrain_api.models import (
     AttachmentExtractionRecord,
     NoteAttachmentRecord,
     SettingRecord,
 )
+from berrybrain_api.runtime_guard import database_lease, exclusive_database_access
 from berrybrain_api.schema_migrations import (
     CURRENT_SCHEMA_VERSION,
     apply_schema_migrations,
@@ -68,7 +74,10 @@ def _db_path() -> str:
 
 def _copy_sqlite_snapshot(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(source) as source_db, sqlite3.connect(destination) as dest_db:
+    with (
+        closing(sqlite3.connect(source)) as source_db,
+        closing(sqlite3.connect(destination)) as dest_db,
+    ):
         source_db.backup(dest_db)
 
 
@@ -171,21 +180,37 @@ def list_backups() -> list[dict[str, object]]:
     return backups[:50]
 
 
+@serialized_vault
 def create_backup() -> dict[str, object]:
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    _id = f"backup-{ts}"
+    _id = f"backup-{ts}-{uuid4().hex[:8]}"
     dest = _backup_dir() / _id
     dest.mkdir(parents=True)
 
     db = Path(_db_path())
     if db.exists():
-        _copy_sqlite_snapshot(db, dest / db.name)
+        with database_lease(db):
+            _copy_sqlite_snapshot(db, dest / db.name)
 
     vault = get_settings().vault_path
     if vault.exists():
-        shutil.copytree(vault, dest / "vault", dirs_exist_ok=True)
+        shutil.copytree(
+            vault,
+            dest / "vault",
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(".berrybrain-restore", ".berrybrain-write-*"),
+        )
 
-    with SessionLocal() as session:
+    snapshot_engine = (
+        create_engine(f"sqlite:///{dest / db.name}", poolclass=NullPool)
+        if (dest / db.name).exists()
+        else None
+    )
+    with (
+        Session(snapshot_engine)
+        if snapshot_engine is not None
+        else SessionLocal() as session
+    ):
         meta = {
             "id": _id,
             "createdAt": datetime.now(UTC).isoformat(),
@@ -348,42 +373,136 @@ def _commit_prepared_restore(
     staged_vault: Path | None,
     restore_id: str,
 ) -> None:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    with exclusive_database_access(database_path), vault_lock(vault_path):
+        from berrybrain_api.runtime_guard import restore_marker
+
+        if restore_marker(database_path).exists():
+            raise RuntimeError(
+                "An interrupted restore requires recovery; no changes made."
+            )
+        _commit_restore_contents(
+            database_path=database_path,
+            staged_database=staged_database,
+            vault_path=vault_path,
+            staged_vault=staged_vault,
+            restore_id=restore_id,
+        )
+
+
+def _commit_restore_contents(
+    *,
+    database_path: Path,
+    staged_database: Path | None,
+    vault_path: Path,
+    staged_vault: Path | None,
+    restore_id: str,
+) -> None:
     rollback_database = database_path.with_name(
         f".{database_path.name}.rollback-{restore_id}"
     )
-    rollback_vault = vault_path.parent / f".{vault_path.name}.rollback-{restore_id}"
+    vault_path.mkdir(parents=True, exist_ok=True)
+    workspace_root = vault_path / ".berrybrain-restore"
+    if workspace_root.is_symlink():
+        raise ValueError("Restore workspace cannot be a symlink")
+    workspace_root.mkdir(exist_ok=True)
+    workspace = Path(tempfile.mkdtemp(prefix="restore-", dir=workspace_root))
+    rollback_vault = workspace / "previous"
+    incoming_vault = workspace / "incoming"
+    rollback_vault.mkdir()
+    old_entries: list[str] = []
+    installed_entries: list[str] = []
     database_replaced = False
-    vault_replaced = False
-    vault_moved = False
+    from berrybrain_api.filesystem import atomic_write_text
+    from berrybrain_api.runtime_guard import restore_marker
+
+    marker = restore_marker(database_path)
     _dispose_database_engines()
     try:
         if staged_database is not None and database_path.exists():
-            shutil.copy2(database_path, rollback_database)
+            _copy_sqlite_snapshot(database_path, rollback_database)
         if staged_vault is not None:
-            if vault_path.exists():
-                os.replace(vault_path, rollback_vault)
-                vault_moved = True
-            os.replace(staged_vault, vault_path)
-            vault_replaced = True
+            shutil.copytree(
+                staged_vault,
+                incoming_vault,
+                ignore=shutil.ignore_patterns(".berrybrain-restore"),
+            )
+        atomic_write_text(
+            marker,
+            json.dumps(
+                {
+                    "phase": "prepared",
+                    "database": str(database_path),
+                    "rollbackDatabase": str(rollback_database),
+                    "workspace": str(workspace),
+                    "vault": str(vault_path),
+                    "oldEntries": [
+                        entry.name
+                        for entry in vault_path.iterdir()
+                        if entry != workspace_root
+                    ],
+                    "incomingEntries": [
+                        entry.name for entry in incoming_vault.iterdir()
+                    ]
+                    if incoming_vault.exists()
+                    else [],
+                }
+            ),
+        )
+        if staged_vault is not None:
+            for entry in list(vault_path.iterdir()):
+                if entry == workspace_root:
+                    continue
+                os.replace(entry, rollback_vault / entry.name)
+                old_entries.append(entry.name)
+            for entry in list(incoming_vault.iterdir()):
+                os.replace(entry, vault_path / entry.name)
+                installed_entries.append(entry.name)
         if staged_database is not None:
-            os.replace(staged_database, database_path)
+            # SQLite backup replaces contents transactionally without swapping an
+            # inode still known to idle pools in another API process, or leaving
+            # an unrelated WAL beside a replaced file.
+            _copy_sqlite_snapshot(staged_database, database_path)
             database_replaced = True
     except Exception:
-        if database_replaced:
-            if rollback_database.exists():
-                os.replace(rollback_database, database_path)
-            else:
-                database_path.unlink(missing_ok=True)
-        if vault_replaced:
-            _remove_restore_path(vault_path)
-        if vault_moved and rollback_vault.exists():
-            os.replace(rollback_vault, vault_path)
-        _remove_restore_path(rollback_database)
-        _remove_restore_path(rollback_vault)
+        try:
+            if database_replaced:
+                if rollback_database.exists():
+                    _copy_sqlite_snapshot(rollback_database, database_path)
+                else:
+                    database_path.unlink(missing_ok=True)
+            for name in reversed(installed_entries):
+                _remove_restore_path(vault_path / name)
+            for name in reversed(old_entries):
+                os.replace(rollback_vault / name, vault_path / name)
+        except Exception as rollback_error:
+            # Keep the only recovery copies; never delete them after failed rollback.
+            raise RuntimeError(
+                f"Restore rollback incomplete; recovery copies retained at {workspace} and {rollback_database}"
+            ) from rollback_error
+        else:
+            _remove_restore_path(rollback_database)
+            _remove_restore_path(workspace)
+            marker.unlink(missing_ok=True)
         raise
     else:
+        atomic_write_text(
+            marker,
+            json.dumps(
+                {
+                    "phase": "committed",
+                    "database": str(database_path),
+                    "rollbackDatabase": str(rollback_database),
+                    "workspace": str(workspace),
+                    "vault": str(vault_path),
+                }
+            ),
+        )
         _remove_restore_path(rollback_database)
-        _remove_restore_path(rollback_vault)
+        _remove_restore_path(workspace)
+        marker.unlink(missing_ok=True)
+    finally:
+        _dispose_database_engines()
 
 
 def _dispose_database_engines() -> None:
@@ -397,9 +516,11 @@ def _dispose_database_engines() -> None:
 
 
 def _remove_restore_path(path: Path | None) -> None:
-    if path is None or not path.exists():
+    if path is None or (not path.exists() and not path.is_symlink()):
         return
-    if path.is_dir():
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
         shutil.rmtree(path)
     else:
         path.unlink()
@@ -414,13 +535,16 @@ def delete_backup(backup_id: str) -> dict[str, object]:
 
 
 def export_full() -> BytesIO:
+    # Export one retained snapshot, not a live DB file followed by a different backup.
+    backup = create_backup()
+    snapshot_root = Path(str(backup["path"]))
     buf = BytesIO()
     with ZipFile(buf, "w") as zf:
-        db = Path(_db_path())
+        db = snapshot_root / Path(_db_path()).name
         if db.exists():
             zf.write(db, db.name)
 
-        vault = get_settings().vault_path
+        vault = snapshot_root / "vault"
         if vault.exists():
             for file_path in vault.glob("**/*"):
                 if not file_path.is_file() or file_path.is_symlink():
@@ -428,7 +552,8 @@ def export_full() -> BytesIO:
                 rel = file_path.relative_to(vault)
                 zf.write(file_path, f"vault/{rel}")
 
-        with SessionLocal() as session:
+        snapshot_engine = create_engine(f"sqlite:///{db}", poolclass=NullPool)
+        with Session(snapshot_engine) as session:
             attachments = list(session.execute(select(NoteAttachmentRecord)).scalars())
             extractions = {
                 item.attachment_id: item
@@ -448,7 +573,6 @@ def export_full() -> BytesIO:
         for relative_path, content in portable.items():
             zf.writestr(f"portable/{relative_path}", content)
 
-        backup = create_backup()
         zf.writestr(
             "backup_id.json",
             json.dumps({"id": backup["id"], "created_at": backup["metadata"]}),

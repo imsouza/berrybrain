@@ -48,7 +48,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     );
   });
 
-  test("settles a 42-node D3 bubble graph from a compact animated start", async ({ page }) => {
+  test("settles a 42-node worker-driven graph from a compact animated start", async ({ page }) => {
     const nodes = Array.from({ length: 42 }, (_, index) => ({
       id: `bubble_${index}`,
       type: index % 4 === 0 ? "concept" : "note",
@@ -61,18 +61,17 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       type: index % 2 === 0 ? "semantic_relation" : "explicit_link",
       confidence: 0.78,
     })).filter((edge) => edge.source !== edge.target);
-    await page.route("**/api/v1/graph?*", (route) => route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ nodes, edges, graphVersion: 42, stats: { orphan_count: 0 } }),
-    }));
+    await mockPagedGraph(page, nodes, edges);
 
     await page.goto("/brain?graph=open");
     const canvas = page.getByRole("img", { name: /Knowledge graph with 42 nodes/i });
     await expect(canvas).toBeVisible();
-    await expect(canvas).toHaveAttribute("data-layout-engine", "d3-force-v7");
-    await expect(canvas).toHaveAttribute("data-velocity-decay", "0.15");
-    await expect(canvas).toHaveAttribute("data-collision-padding", "11");
+    await expect(canvas).toHaveAttribute("data-layout-engine", "d3-force-v7-worker");
+    await expect(canvas).toHaveAttribute("data-velocity-decay", "0.32");
+    await expect(canvas).toHaveAttribute("data-collision-padding", "5");
+    await expect(canvas).toHaveAttribute("data-node-border", "none");
+    await expect(canvas).toHaveAttribute("data-edge-policy", "all-visible");
+    await expect(canvas).toHaveAttribute("data-drag-physics", "linked-neighbors");
     const compactFrame = await canvas.screenshot();
     await page.waitForTimeout(900);
     const settlingFrame = await canvas.screenshot();
@@ -225,29 +224,52 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await mockPagedGraph(page, [node]);
     await page.goto("/brain?graph=open");
     const canvas = page.getByRole("img", { name: /Knowledge graph with 1 nodes/i });
-    await expect(canvas).toHaveAttribute("data-node-label-max-lines", "3", { timeout: 30_000 });
-    await expect(canvas).toHaveAttribute("data-node-label-max-characters", "58");
-    await expect(canvas).toHaveAttribute("data-node-label-contrast", "fill-aware-wcag");
+    await expect(canvas).toHaveAttribute("data-node-label-policy", "hover-selection-filter", { timeout: 30_000 });
+    await expect(canvas).toHaveAttribute("data-node-border", "none");
+    await expect(canvas).toHaveAttribute("data-drag-physics", "linked-neighbors");
     await page.waitForTimeout(900);
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     const center = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
 
-    await page.mouse.move(center.x, center.y);
     const tooltip = page.getByRole("tooltip");
+    let hitPoint = center;
+    for (const dy of [0, -8, 8, -16, 16]) {
+      for (const dx of [0, -8, 8, -16, 16]) {
+        hitPoint = { x: center.x + dx, y: center.y + dy };
+        await page.mouse.move(hitPoint.x, hitPoint.y);
+        await page.waitForTimeout(25);
+        if (await tooltip.isVisible().catch(() => false)) break;
+      }
+      if (await tooltip.isVisible().catch(() => false)) break;
+    }
     await expect(tooltip).toContainText("Semantic state");
     await expect(tooltip).toContainText("Confidence");
     const tooltipBox = await tooltip.boundingBox();
     expect(Math.abs((tooltipBox?.x || 0) - center.x)).toBeLessThan(380);
 
-    await page.mouse.move(center.x, center.y);
+    await page.mouse.move(hitPoint.x, hitPoint.y);
     await page.mouse.down();
-    await page.mouse.move(center.x + 70, center.y + 40, { steps: 5 });
+    await page.mouse.move(hitPoint.x + 70, hitPoint.y + 40, { steps: 5 });
     await page.mouse.up();
-    await page.waitForTimeout(750);
     await expect(page).toHaveURL(/\/brain\?graph=open$/);
 
-    await page.mouse.click(center.x + 70, center.y + 40);
+    // The released node resumes physics and the click suppression window avoids
+    // treating the drag as navigation. Find its new position along that path.
+    await page.waitForTimeout(340);
+    let releasedPoint = { x: hitPoint.x + 70, y: hitPoint.y + 40 };
+    for (let step = 0; step <= 10; step += 1) {
+      const ratio = 1 - step / 10;
+      releasedPoint = {
+        x: hitPoint.x + 70 * ratio,
+        y: hitPoint.y + 40 * ratio,
+      };
+      await page.mouse.move(releasedPoint.x, releasedPoint.y);
+      await page.waitForTimeout(25);
+      if (await tooltip.isVisible().catch(() => false)) break;
+    }
+    await expect(tooltip).toBeVisible();
+    await page.mouse.click(releasedPoint.x, releasedPoint.y);
     await expect(canvas).toHaveAttribute("data-selected-node", "concept_11");
     await page.waitForTimeout(180);
     await expect(page).toHaveURL(/\/brain\?graph=open$/);

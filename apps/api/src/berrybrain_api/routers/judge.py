@@ -88,6 +88,12 @@ def _with_judge_route(config: dict[str, str]) -> dict[str, str]:
     routed["provider"] = mode
     if mode == "cloud":
         routed["cloud_model"] = model or ""
+        routed["cloud_api_url"] = routed.get(
+            "judge_cloud_api_url", routed.get("cloud_api_url", "")
+        )
+        routed["cloud_api_key"] = routed.get(
+            "judge_cloud_api_key", routed.get("cloud_api_key", "")
+        )
     else:
         routed["ollama_model"] = model or ""
     return routed
@@ -690,9 +696,7 @@ def set_judge_mode(req: JudgeModeUpdate):
             min(MAX_COMMITTEE_SIZE, req.committee_size),
         )
         if req.committee is not None:
-            cfg.committee = eligible_committee_slots(req.committee)[
-                : cfg.committee_size
-            ]
+            cfg.committee = req.committee[: cfg.committee_size]
         if mode == JudgeMode.COMMITTEE:
             from berrybrain_api.ai_configuration import load_configuration
 
@@ -705,14 +709,44 @@ def set_judge_mode(req: JudgeModeUpdate):
             if len(eligible) < cfg.committee_size or any(
                 item["provider"] != active_provider for item in eligible
             ):
+                issues = []
+                seen_models: set[str] = set()
+                seen_slots: set[str] = set()
+                for index in range(cfg.committee_size):
+                    item = cfg.committee[index] if index < len(cfg.committee) else {}
+                    model = str(item.get("model") or "").strip().casefold()
+                    provider = str(item.get("provider") or "").strip()
+                    slot = str(item.get("slot") or "").strip()
+                    prefix = f"Judge {index + 1}"
+                    if not model:
+                        issues.append(f"{prefix}: choose a model.")
+                    elif model == generator_model.strip().casefold():
+                        issues.append(
+                            f"{prefix}: the generator cannot judge its own output."
+                        )
+                    elif model in seen_models:
+                        issues.append(
+                            f"{prefix}: choose a distinct model; duplicate selection."
+                        )
+                    if provider != active_provider or not active_provider:
+                        issues.append(
+                            f"{prefix}: select a model from the active provider ({active_provider or 'not configured'})."
+                        )
+                    if not slot or slot in seen_slots:
+                        issues.append(
+                            f"{prefix}: invalid or duplicate slot identifier."
+                        )
+                    seen_models.add(model)
+                    seen_slots.add(slot)
                 return {
                     "status": "error",
-                    "message": (
-                        "Committee mode requires the selected number of unique, "
-                        "non-generator models from the active provider."
-                    ),
+                    "message": " ".join(issues)
+                    or "Select the requested number of distinct non-generator models.",
+                    "issues": issues,
                 }
             cfg.committee = eligible
+        else:
+            cfg.committee = eligible_committee_slots(cfg.committee)
         if mode == JudgeMode.COMMITTEE and not cfg.consent_at:
             if not req.consent_at:
                 return {
@@ -757,7 +791,6 @@ def get_judge_defaults(req: JudgeDefaultsRequest) -> dict:
         _fetch_models,
         _probe_judge_models,
         _provider_endpoint,
-        _setting,
     )
 
     if req.provider not in PROVIDERS:
@@ -774,7 +807,9 @@ def get_judge_defaults(req: JudgeDefaultsRequest) -> dict:
                 detail="Judge defaults require the active validated provider.",
             )
         endpoint = _provider_endpoint(session, req.provider)
-        api_key = _setting(session, "ai_api_key")
+        from berrybrain_api.ai_configuration import provider_api_key
+
+        api_key = provider_api_key(session, req.provider)
         try:
             provider_models = _fetch_models(req.provider, endpoint, api_key)
         except (OSError, ValueError, urllib.error.URLError) as exc:
@@ -792,8 +827,8 @@ def get_judge_defaults(req: JudgeDefaultsRequest) -> dict:
     ]
     candidates = judge_model_candidates(
         available_models=available_models,
-        generator_model=req.generator_model,
-        primary_judge_model=req.primary_judge_model,
+        generator_model=configuration.main.model_id,
+        primary_judge_model=configuration.judge.model_id,
     )
     validated_models = _probe_judge_models(
         req.provider,
@@ -805,8 +840,8 @@ def get_judge_defaults(req: JudgeDefaultsRequest) -> dict:
     committee = recommend_committee(
         provider=req.provider,
         available_models=validated_models,
-        generator_model=req.generator_model,
-        primary_judge_model=req.primary_judge_model,
+        generator_model=configuration.main.model_id,
+        primary_judge_model=configuration.judge.model_id,
         committee_size=committee_size,
     )
     return _judge_defaults_response(committee, committee_size)

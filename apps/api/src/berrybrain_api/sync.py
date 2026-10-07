@@ -6,10 +6,12 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.filesystem import serialized_vault
 from berrybrain_api.models import NoteRecord
 from berrybrain_api.vault import parse_markdown_note, resolve_note_path
 
 
+@serialized_vault
 def sync_note_record(session: Session, vault_path: Path, note_path: str) -> NoteRecord:
     path = resolve_note_path(vault_path, note_path)
     content = path.read_text(encoding="utf-8")
@@ -36,6 +38,9 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
         record = NoteRecord(path=relative_path, slug=path.stem, title=title)
         session.add(record)
     elif record.content_hash and record.content_hash != metadata.content_hash:
+        from berrybrain_api.vector_cleanup import queue_vector_cleanup
+
+        queue_vector_cleanup(session, record)
         from berrybrain_api.jobs import (
             EXPAND_KNOWLEDGE_GRAPH,
             affected_job_types_for_note_update,
@@ -87,11 +92,18 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     return record
 
 
+@serialized_vault
 def remove_note_record(session: Session, note_path: str) -> int:
+    from berrybrain_api.attachment_cleanup import (
+        drain_attachment_cleanup,
+        queue_attachment_cleanup,
+    )
+    from berrybrain_api.config import get_settings
     from berrybrain_api.models import (
         ConnectionRecord,
         EmbeddingRecord,
         GeneratedMetadataRecord,
+        NoteAttachmentRecord,
     )
 
     record = session.execute(
@@ -101,6 +113,9 @@ def remove_note_record(session: Session, note_path: str) -> int:
         return 0
 
     note_id = record.id
+    from berrybrain_api.vector_cleanup import queue_vector_cleanup
+
+    queue_vector_cleanup(session, record)
     from berrybrain_api.learning import record_learning_event
 
     record_learning_event(
@@ -142,8 +157,15 @@ def remove_note_record(session: Session, note_path: str) -> int:
 
     _detach_note_graph_provenance(session, note_id, delete_note_node=True)
 
+    attachments = list(
+        session.scalars(
+            select(NoteAttachmentRecord).where(NoteAttachmentRecord.note_id == note_id)
+        )
+    )
+    queue_attachment_cleanup(session, attachments)
     session.delete(record)
     session.commit()
+    drain_attachment_cleanup(session, get_settings().vault_path)
     from berrybrain_api.jobs import enqueue_note_deleted_jobs
 
     return len(enqueue_note_deleted_jobs(session, note_path, note_id))

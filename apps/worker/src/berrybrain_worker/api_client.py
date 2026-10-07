@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from urllib.parse import quote
 
 import httpx
 
@@ -57,15 +58,25 @@ async def renew_lease_until_done(
     try:
         while True:
             await asyncio.sleep(60)
-            await renew_job_lease(client, api_url, job_id)
+            try:
+                await renew_job_lease(client, api_url, job_id)
+            except httpx.HTTPStatusError as exc:
+                # A stale/revoked claim cannot be renewed. Other failures (such
+                # as a brief API restart) must not disable future renewals.
+                if exc.response.status_code in {401, 403, 404, 409}:
+                    print(
+                        f"lease no longer valid for job {job_id}: {exc.response.status_code}"
+                    )
+                    return
+                print(f"could not renew lease for job {job_id}: {exc}")
+            except httpx.TransportError as exc:
+                print(f"could not renew lease for job {job_id}: {exc}")
     except asyncio.CancelledError:
         return
-    except Exception as exc:
-        print(f"could not renew lease for job {job_id}: {exc}")
 
 
 async def fetch_note(client: httpx.AsyncClient, api_url: str, note_path: str) -> dict:
-    encoded = "/".join(part for part in note_path.split("/"))
+    encoded = "/".join(quote(part, safe="") for part in note_path.split("/"))
     response = await client.get(f"{api_url}/api/v1/notes/{encoded}")
     response.raise_for_status()
     return response.json()
@@ -80,9 +91,9 @@ async def upsert_metadata(
     content_hash: str,
     model_used: str,
 ) -> None:
-    encoded = "/".join(part for part in note_path.split("/"))
     response = await client.put(
-        f"{api_url}/api/v1/metadata/{generation_type}?note_path={encoded}",
+        f"{api_url}/api/v1/metadata/{quote(generation_type, safe='')}",
+        params={"note_path": note_path},
         json={
             "content": content,
             "content_hash": content_hash,

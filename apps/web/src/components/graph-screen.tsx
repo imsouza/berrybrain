@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { formatEvidenceLabel } from "./graph-formatters";
+import { AskMarkdown } from "./ask-markdown";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
 import { diagnosticMessages, isFilterHidden, type PipelineDiagnostic } from "@/lib/diagnostics";
@@ -55,7 +56,7 @@ const EDGE_COLORS: Record<string, string> = {
 
 const NODE_LEGEND = [
   ["vault", "■", "Vault namespace"],
-  ["note", "●", "Berry red override"],
+  ["note", "●", "Note root · Berry red"],
   ["concept", "◆", "Concept"],
   ["entity", "⬡", "Entity"],
   ["topic", "▲", "Topic"],
@@ -559,6 +560,9 @@ export function GraphScreen({
       border: string;
       text: string;
       namespace: "semantic" | "vault" | "pending";
+      label?: string;
+      nodeCount?: number;
+      active?: boolean;
     }>;
     graphVersion?: number;
   } | null;
@@ -1142,7 +1146,7 @@ export function GraphScreen({
               </span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
-            <p className={`text-sm leading-relaxed ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+            <AskMarkdown content={inference.answer} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
             {["error", "provider_unavailable"].includes(inference.status) && (
               <p className="mt-2 rounded-lg bg-panel px-2 py-1 text-[11px] text-muted">
                 No BerryBrain answer was created. Retry the request or review the active provider and model in Settings.
@@ -1282,7 +1286,7 @@ export function GraphScreen({
                   </span>
                   <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
                 </div>
-                <p className={`whitespace-pre-wrap text-base leading-7 ${["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"}`}>{inference.answer}</p>
+                <AskMarkdown content={inference.answer} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
                 {inference.status === "provider_unavailable" && (
                   <p className="mt-2 text-sm leading-6 text-muted">No answer was created or added to the conversation. Retry the request or review the active provider and model.</p>
                 )}
@@ -1332,7 +1336,9 @@ export function GraphScreen({
                 <div className="space-y-3">
                   {flowTurns.map((turn) => <article key={turn.id} className={`max-w-[90%] rounded-lg border border-border px-4 py-3 ${turn.role === "user" ? "ml-auto bg-accent-soft" : "bg-panel"}`}>
                     <div className="mb-1 text-[10px] font-semibold uppercase text-muted">{turn.role === "user" ? "You" : "BerryBrain"}</div>
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{turn.content}</p>
+                    {turn.role === "user"
+                      ? <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{turn.content}</p>
+                      : <AskMarkdown content={turn.content} className="text-foreground" />}
                   </article>)}
                 </div>
               </section>
@@ -1417,6 +1423,7 @@ export function GraphScreen({
               onOpen={openNodeDetail}
               selectedId={selectedId}
               highlightedIds={highlightedIds}
+              showFilteredLabels={activeFilterCount > 0}
               zoom={zoom}
               setZoom={setZoom}
               pan={pan}
@@ -1450,13 +1457,17 @@ export function GraphScreen({
               ))}
               <div className="my-2 h-px bg-border/40" />
               <div className="mb-1 font-medium text-foreground/80">Color = semantic context</div>
-              {Object.values(graphData?.palette || {}).map((color) => (
+              {Object.values(graphData?.palette || {})
+                .filter((color) => color.active ?? Boolean(color.nodeCount))
+                .sort((left, right) => (right.nodeCount || 0) - (left.nodeCount || 0))
+                .map((color) => (
                 <div key={color.colorId} className="flex items-center gap-2">
-                  <span className="inline-block size-2.5 rounded-full" style={{ background: color.lightHex, border: `1px solid ${color.border}` }} />
-                  <span className="truncate text-muted/70">{color.namespace} · {color.colorId.replace(/^(semantic|vault)-/, "")}</span>
+                  <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: color.lightHex }} />
+                  <span className="min-w-0 truncate text-muted/70" title={`${color.label || color.namespace} · ${color.nodeCount || 0} nodes`}>
+                    {color.label || color.namespace} · {color.nodeCount || 0}
+                  </span>
                 </div>
               ))}
-              <div className="text-muted/60">Dashed border = no connections</div>
               <div className="text-muted/60">Halo = selected or highlighted</div>
               <div className="my-2 h-px bg-border/40" />
               <div className="mb-1 font-medium text-foreground/80">Arrow = ontology relationship</div>

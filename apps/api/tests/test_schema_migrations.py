@@ -25,6 +25,9 @@ class SchemaMigrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
 
+    def tearDown(self) -> None:
+        self.engine.dispose()
+
     def test_upgrade_and_compatible_downgrade_are_versioned(self) -> None:
         result = apply_schema_migrations(self.engine)
         self.assertEqual(result["fromVersion"], 0)
@@ -45,6 +48,43 @@ class SchemaMigrationTest(unittest.TestCase):
         self.assertIn("prompt_version", columns)
         self.assertNotIn("prompt", columns)
         self.assertIn("worker_inbox", inspector.get_table_names())
+
+    def test_v13_normalizes_unsupported_legacy_ui_font(self) -> None:
+        Base.metadata.create_all(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE schema_migrations ("
+                    "version INTEGER PRIMARY KEY, name TEXT NOT NULL, "
+                    "description TEXT NOT NULL, applied_at TEXT NOT NULL)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migrations "
+                    "(version, name, description, applied_at) "
+                    "VALUES (:version, :name, '', 'now')"
+                ),
+                [
+                    {"version": version, "name": f"migration-{version}"}
+                    for version in range(1, 13)
+                ],
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO settings (key, value, updated_at) "
+                    "VALUES ('ui_font', 'roboto', CURRENT_TIMESTAMP)"
+                )
+            )
+
+        result = apply_schema_migrations(self.engine)
+
+        self.assertEqual(result["toVersion"], CURRENT_SCHEMA_VERSION)
+        with self.engine.connect() as connection:
+            value = connection.execute(
+                text("SELECT value FROM settings WHERE key = 'ui_font'")
+            ).scalar_one()
+        self.assertEqual(value, "inter")
 
     def test_v12_backfills_identity_archives_orphans_and_guards_edges(self) -> None:
         Base.metadata.create_all(self.engine)
@@ -83,7 +123,7 @@ class SchemaMigrationTest(unittest.TestCase):
             node_id = node.id
 
         result = apply_schema_migrations(self.engine)
-        self.assertEqual(result["toVersion"], 12)
+        self.assertEqual(result["toVersion"], CURRENT_SCHEMA_VERSION)
         with Session(self.engine) as session:
             migrated_node = session.get(GraphNodeRecord, node_id)
             assert migrated_node is not None

@@ -97,6 +97,12 @@ test("renders and interacts with a 10k-node progressive graph inside runtime bud
     name: `Knowledge graph with ${NODE_COUNT} nodes and ${EDGE_COUNT} connections`,
   });
   await expect(completeCanvas).toBeVisible({ timeout: 15_000 });
+  await expect(completeCanvas).toHaveAttribute("data-layout-engine", "d3-force-v7-worker");
+  await expect(completeCanvas).toHaveAttribute("data-node-radius-range", "4-11");
+  await expect(completeCanvas).toHaveAttribute("data-node-label-policy", "hover-selection-filter");
+  await expect(completeCanvas).toHaveAttribute("data-node-border", "none");
+  await expect(completeCanvas).toHaveAttribute("data-edge-policy", "all-visible");
+  await expect(completeCanvas).toHaveAttribute("data-drag-physics", "linked-neighbors");
   const completeLoadMs = performance.now() - coldStarted;
   expect(completeLoadMs).toBeLessThanOrEqual(15_000);
 
