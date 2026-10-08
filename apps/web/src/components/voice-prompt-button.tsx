@@ -14,7 +14,7 @@ export function VoicePromptButton({
 }) {
   const voice = useVoicePrompt({ value, onChange });
   const active = voice.state !== "idle";
-  const title = voice.error || (active ? "Stop voice input" : "Use voice prompt");
+  const title = voice.unavailableReason || voice.error || (active ? "Stop voice input" : "Use voice prompt");
   const levels = [0.52, 0.82, 1, 0.7, 0.44];
 
   return (
@@ -23,7 +23,8 @@ export function VoicePromptButton({
         type="button"
         className={`bb-action grid ${className} shrink-0 place-items-center p-0 ${active ? "bb-action--active text-accent" : ""}`}
         onClick={() => void voice.toggle()}
-        aria-label={active ? "Stop voice input" : "Use voice prompt"}
+        disabled={Boolean(voice.unavailableReason)}
+        aria-label={voice.unavailableReason || (active ? "Stop voice input" : "Use voice prompt")}
         aria-pressed={active}
         title={title}
       >

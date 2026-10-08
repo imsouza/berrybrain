@@ -5,11 +5,13 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
+import { readResource } from "@/lib/read-resource";
 import packageMetadata from "../../../package.json";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 import { workerHeartbeatStale } from "@/lib/diagnostics";
+import { Home, MessageSquare, Network, Activity, Settings, Plus } from "lucide-react";
 
 const appVersion = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || packageMetadata.version;
 
@@ -72,9 +74,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     let cancelled = false;
     async function loadAttention() {
       try {
-        const response = await fetch(`${w.api}/api/v1/home/summary`);
-        if (!response.ok) return;
-        const payload = await response.json();
+        const payload = await readResource(`${w.api}/api/v1/home/summary`);
         if (!cancelled) {
           const now = Date.now();
           const count = (payload.needsAttention || []).length;
@@ -324,6 +324,14 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   return (
     <>
+    <nav aria-label="Workspace navigation" className="flex w-14 shrink-0 flex-col items-center gap-3 border-r border-border bg-panel py-4 lg:hidden">
+      <button aria-label="Brain" title="Brain" className="bb-action p-2" onClick={async () => { await w.closeNote(); w.setGraphOpen(false); router.push(appPath("/brain") as Route); }}><Home className="size-5" /></button>
+      <button aria-label="Ask" title="Ask" className="bb-action p-2" onClick={() => router.push(appPath("/ask") as Route)}><MessageSquare className="size-5" /></button>
+      <button aria-label="Knowledge graph" title="Knowledge graph" className="bb-action p-2" onClick={() => { w.setGraphOpen(true); router.push(appPath("/brain?graph=open") as Route); }}><Network className="size-5" /></button>
+      <button aria-label="Activity" title="Activity" className="bb-action p-2" onClick={() => router.push(appPath("/activity") as Route)}><Activity className="size-5" /></button>
+      <button aria-label="New note" title="New note" className="bb-action p-2" onClick={() => { void w.createDraft(); router.push(appPath("/brain") as Route); }}><Plus className="size-5" /></button>
+      <button aria-label="Settings" title="Settings" className="bb-action mt-auto p-2" onClick={() => w.setSettingsOpen(true)}><Settings className="size-5" /></button>
+    </nav>
     <div
       className={`fixed inset-0 z-40 bg-black/35 backdrop-blur-[1px] transition-opacity lg:hidden ${mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}
       onClick={onMobileClose}
@@ -336,7 +344,9 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       suppressHydrationWarning
     >
       <div className="flex items-center justify-center px-4 py-4">
-        <Image src={berrylogo} alt="BerryBrain" className="size-28 cursor-pointer rounded-xl transition-opacity hover:opacity-80" onClick={() => { onMobileClose?.(); router.push(appPath("/brain") as Route); }} priority />
+        <button aria-label="Go to Brain" onClick={async () => { await w.closeNote(); w.setGraphOpen(false); onMobileClose?.(); router.push(appPath("/brain") as Route); }}>
+          <Image src={berrylogo} alt="BerryBrain" className="size-28 rounded-xl transition-opacity hover:opacity-80" priority />
+        </button>
       </div>
       <div className="pb-1 text-center text-[9px] font-medium text-muted/50 select-none">v{appVersion}</div>
 

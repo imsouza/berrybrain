@@ -320,7 +320,10 @@ async function fetchGraphResource(
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(input, { signal: controller.signal });
+      const response = await fetch(input, { signal: controller.signal });
+      // Keep the deadline active while downloading the body, not only headers.
+      const body = await response.arrayBuffer();
+      return new Response(body, { status: response.status, headers: response.headers });
     } catch (error) {
       lastError = error;
     } finally {
@@ -330,13 +333,14 @@ async function fetchGraphResource(
   throw lastError instanceof Error ? lastError : new Error("Graph request failed");
 }
 
-export function useGraphData(apiUrl: string) {
+export function useGraphData(apiUrl: string, enabled = true) {
   const initialData = apiUrl === "__demo__" ? null : graphDataCache.get(apiUrl) || null;
   const [data, setData] = useState<GraphData | null>(initialData);
   const dataRef = useRef<GraphData | null>(initialData);
   const [error, setError] = useState(false);
   const [reloadVersion, setReloadVersion] = useState(0);
   useEffect(() => {
+    if (!enabled) return;
     if (apiUrl === "__demo__") {
       const demo = { nodes: [], edges: [], stats: {} };
       dataRef.current = demo;
@@ -373,7 +377,10 @@ export function useGraphData(apiUrl: string) {
       return { stats, palette };
     }
     async function loadFullGraph() {
-        const { stats, palette } = await loadMetadata();
+        // Start metadata in parallel. Nodes need not wait for palette/summary.
+        const metadataPromise = loadMetadata().catch(() => ({ stats: {}, palette: {} }));
+        const stats: Record<string, unknown> = dataRef.current?.stats || {};
+        const palette: Record<string, GraphPaletteColor> = dataRef.current?.palette || {};
         const nodes: GNode[] = [];
         let nodeCursor: number | null = 0;
         let publishedInitialNodes = false;
@@ -409,6 +416,8 @@ export function useGraphData(apiUrl: string) {
             publish({ nodes, edges: [...edges], stats, graphVersion: page.graphVersion, palette });
           }
         }
+        const metadata = await metadataPromise;
+        if (dataRef.current) publish({ ...dataRef.current, ...metadata });
     }
     async function loadDelta(previous: GraphData): Promise<boolean> {
       if (previous.graphVersion === undefined) return false;
@@ -453,24 +462,15 @@ export function useGraphData(apiUrl: string) {
           : false;
         if (!updatedByDelta) await loadFullGraph();
       } catch {
-        try {
-          const legacyResponse = await fetchGraphResource(
-            `${apiUrl}/api/v1/graph?includeProvisional=true`,
-            15_000,
-          );
-          if (!legacyResponse.ok) throw new Error("Legacy graph endpoint unavailable");
-          const legacy = await legacyResponse.json();
-          publish(legacy);
-        } catch {
-          if (!cancelled && !dataRef.current?.nodes.length) setError(true);
-        }
+        // A timed-out paginated read must not trigger a heavier full-graph read.
+        if (!cancelled) setError(true);
       }
     }
     loadGraph();
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, reloadVersion]);
+  }, [apiUrl, reloadVersion, enabled]);
   const reload = useCallback(() => {
     if (apiUrl === "__demo__") return;
     setReloadVersion((value) => value + 1);
@@ -568,7 +568,7 @@ export function GraphCanvas({
     }
     return ids;
   }, [adjacency, focusRoots]);
-  const layoutStorageKey = `bb_graph_layout:${data.graphVersion || 0}:${layoutMode || "brain"}`;
+  const layoutStorageKey = `bb_graph_layout:stable:${layoutMode || "brain"}`;
 
   useEffect(() => {
     if (!selectedId || !containerRef.current) return;
@@ -640,7 +640,7 @@ export function GraphCanvas({
   const persistLayout = useCallback(() => {
     try {
       const positions = Object.fromEntries(
-        layoutRef.current.map((node) => [node.node.id, [node.x, node.y]]),
+        layoutRef.current.map((node) => [node.node.id, [node.x, node.y, node.fx != null && node.fy != null ? 1 : 0]]),
       );
       sessionStorage.setItem(layoutStorageKey, JSON.stringify(positions));
     } catch {
@@ -682,7 +682,11 @@ export function GraphCanvas({
     const sorted = [...data.nodes].sort((a, b) => (degrees.get(b.id) || 0) - (degrees.get(a.id) || 0));
     const rank = new Map(sorted.map((node, index) => [node.id, index]));
     const byType = new Map<string, GNode[]>();
-    for (const node of data.nodes) byType.set(node.type, [...(byType.get(node.type) || []), node]);
+    for (const node of data.nodes) {
+      const group = byType.get(node.type) || [];
+      group.push(node);
+      byType.set(node.type, group);
+    }
     const typeOrder = [...byType.keys()].sort();
     const typeIndex = new Map(typeOrder.map((type, index) => [type, index]));
     const typeRanks = new Map(
@@ -692,32 +696,22 @@ export function GraphCanvas({
       ]),
     );
 
-    let storedPositions = new Map<string, [number, number]>();
+    let storedPositions = new Map<string, [number, number, number?]>();
     try {
-      const stored = JSON.parse(sessionStorage.getItem(layoutStorageKey) || "{}") as Record<string, [number, number]>;
+      const stored = JSON.parse(sessionStorage.getItem(layoutStorageKey) || "{}") as Record<string, [number, number, number?]>;
       storedPositions = new Map(Object.entries(stored));
     } catch {
       storedPositions = new Map();
     }
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const layout: LN[] = data.nodes.map((n, i) => {
       const angle = i * 2.399963229728653;
       const radialAngle = (2 * Math.PI * i) / Math.max(1, data.nodes.length);
       const degree = degrees.get(n.id) || n.connectionsCount || 0;
       const r = nodeRadius(n, degree);
       const stored = storedPositions.get(n.id);
-      if (stored && stored.every(Number.isFinite)) {
-        if (layoutMode !== "brain" || reduceMotion || data.nodes.length >= 8_000) {
-          return { x: stored[0], y: stored[1], vx: 0, vy: 0, r, node: n };
-        }
-        return {
-          x: W / 2 + (stored[0] - W / 2) * 0.22,
-          y: H / 2 + (stored[1] - H / 2) * 0.22,
-          vx: 0,
-          vy: 0,
-          r,
-          node: n,
-        };
+      if (stored && Number.isFinite(stored[0]) && Number.isFinite(stored[1])) {
+        return { x: stored[0], y: stored[1], vx: 0, vy: 0, r, node: n,
+          ...(stored[2] === 1 ? { fx: stored[0], fy: stored[1] } : {}) };
       }
       if (layoutMode === "type") {
         const col = typeIndex.get(n.type) || 0;
@@ -743,7 +737,7 @@ export function GraphCanvas({
     });
     layoutRef.current = layout;
     layoutByIdRef.current = new Map(layout.map((node) => [node.node.id, node]));
-  }, [data, layoutMode, layoutStorageKey]);
+  }, [data.nodes, data.edges, layoutMode, layoutStorageKey]);
 
   useEffect(() => { initLayout(); }, [initLayout]);
 
@@ -923,7 +917,7 @@ export function GraphCanvas({
       if (layoutWorkerRef.current === worker) layoutWorkerRef.current = null;
     };
     worker.postMessage({
-      nodes: nodes.map((node) => ({ id: node.node.id, x: node.x, y: node.y, vx: 0, vy: 0, r: node.r })),
+      nodes: nodes.map((node) => ({ id: node.node.id, x: node.x, y: node.y, fx: node.fx, fy: node.fy, vx: 0, vy: 0, r: node.r })),
       edges: links,
       width: W,
       height: H,
@@ -935,7 +929,7 @@ export function GraphCanvas({
       if (layoutWorkerRef.current === worker) layoutWorkerRef.current = null;
       fitTimers.forEach(window.clearTimeout);
     };
-  }, [data, layoutMode, persistLayout]);
+  }, [data.nodes, data.edges, layoutMode, persistLayout]);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -1079,9 +1073,7 @@ export function GraphCanvas({
 
         pathNodeShape(ct, n.x, n.y, r, shape);
         ct.fillStyle = colors.fill; ct.fill();
-        const labelIsReadable = isSel
-          || isHighlighted
-          || (showFilteredLabels && renderZoom >= 0.7);
+        const labelIsReadable = !isHovered && showFilteredLabels && renderZoom >= 0.7;
         if (labelIsReadable) {
           drawNetworkNodeLabel(ct, n.node, n.x, n.y, r, isSel || isHighlighted);
         }
@@ -1134,9 +1126,9 @@ export function GraphCanvas({
     drag.active = false;
     drag.moved = false;
     drag.nodeIdx = -1;
-    if (!node) return;
-    node.fx = undefined;
-    node.fy = undefined;
+    if (!node || !moved) return;
+    node.fx = node.x;
+    node.fy = node.y;
     node.vx = 0;
     node.vy = 0;
     if (moved) layoutWorkerRef.current?.postMessage({ type: "release", id: node.node.id });
@@ -1164,9 +1156,6 @@ export function GraphCanvas({
           const candidate = findNodeAt(e.clientX, e.clientY);
           const hit = candidate ? layoutRef.current.indexOf(candidate) : -1;
           if (hit < 0) return;
-          const node = layoutRef.current[hit];
-          node.fx = node.x;
-          node.fy = node.y;
           dragRef.current = { active: true, moved: false, startX: e.clientX, startY: e.clientY, nodeIdx: hit, vx: 0, vy: 0, lastT: performance.now() };
         }}
         onMouseMove={e => {

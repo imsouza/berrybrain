@@ -1,4 +1,5 @@
 "use client";
+import { readResource } from "@/lib/read-resource";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Route } from "next";
@@ -371,7 +372,7 @@ export function GraphScreen({
   onOpenSettings?: () => void;
 }) {
   const router = useRouter();
-  const { data, error, reload } = useGraphData(apiUrl);
+  const { data, error, reload } = useGraphData(apiUrl, !askOnly);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -384,7 +385,6 @@ export function GraphScreen({
   });
   const [query, setQuery] = useState("");
   const askInputRef = useRef<HTMLInputElement>(null);
-  const suggestionTrackRef = useRef<HTMLDivElement>(null);
   const autoSubmittedQueryRef = useRef("");
   const [filterType, setFilterType] = useState("brain_view");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -674,9 +674,7 @@ export function GraphScreen({
     setSuggestionsLoading(true);
     const loadSuggestions = async (attempt: number) => {
       try {
-        const response = await apiFetch(`${apiUrl}/api/v1/ask/suggestions?limit=16`);
-        if (!response.ok) throw new Error("Suggestion request failed");
-        const payload = await response.json() as AskSuggestionPayload;
+        const payload = await readResource<AskSuggestionPayload>(`${apiUrl}/api/v1/ask/suggestions?limit=16`);
         if (cancelled) return;
         setAskSuggestions(payload);
         if (payload.generation === "graph_context" && attempt < 3) {
@@ -982,11 +980,6 @@ export function GraphScreen({
     }
   }
 
-  function scrollSuggestions(direction: -1 | 1) {
-    const track = suggestionTrackRef.current;
-    if (!track) return;
-    track.scrollBy({ left: direction * track.clientWidth * 0.82, behavior: "smooth" });
-  }
 
   const activeFilterCount = [
     filterType !== "brain_view",
@@ -1351,14 +1344,10 @@ export function GraphScreen({
                     <h2 className="text-sm font-semibold text-foreground">Suggested next questions</h2>
                     {askSuggestions && <p className="mt-1 text-[11px] text-muted">{askSuggestions.graph.nodes} nodes · {askSuggestions.graph.edges} relationships</p>}
                   </div>
-                  {!suggestionsLoading && (askSuggestions?.questions.length || 0) > 1 && <div className="flex gap-2">
-                    <button type="button" className="bb-action grid size-9 place-items-center text-lg" aria-label="Previous suggestions" onClick={() => scrollSuggestions(-1)}>‹</button>
-                    <button type="button" className="bb-action grid size-9 place-items-center text-lg" aria-label="Next suggestions" onClick={() => scrollSuggestions(1)}>›</button>
-                  </div>}
                 </div>
                 {suggestionsLoading ? <div className="h-32 animate-pulse rounded-xl border border-border bg-panel" /> : (
-                  <div ref={suggestionTrackRef} className="grid snap-x snap-mandatory auto-cols-[minmax(min(19rem,82vw),1fr)] grid-flow-col gap-3 overflow-x-auto pb-3">
-                    {askSuggestions?.questions.map((item) => <button key={item.id} className="bb-card bb-card--interactive min-h-32 snap-start p-4 text-left" onClick={() => void runInference(item.prompt)}>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {askSuggestions?.questions.map((item) => <button key={item.id} className="bb-card bb-card--interactive flex min-h-36 flex-col border border-border p-5 text-left focus-visible:outline focus-visible:outline-accent" onClick={() => { setQuery(item.prompt); askInputRef.current?.focus(); }}>
                       <span className="block text-[10px] font-semibold uppercase text-accent">{item.topic}</span>
                       <span className="mt-3 block text-sm leading-6 text-foreground">{item.prompt}</span>
                       <span className="mt-3 block text-[10px] uppercase text-muted">{item.source.replaceAll("_", " ")}</span>
@@ -1380,8 +1369,9 @@ export function GraphScreen({
         </div>
       ) : (
       <div className="relative flex-1 overflow-hidden bg-background">
-      {error ? (
-        <div className="flex h-full items-center justify-center text-sm text-danger">{t("graphLoadError")}</div>
+      {error && graphData?.nodes.length ? <div role="alert" className="absolute left-4 right-4 top-4 z-30 rounded-lg border border-warning/30 bg-panel p-3 text-xs text-warning">Graph loading is incomplete. Available nodes are shown. <button className="underline" onClick={reload}>Retry</button></div> : null}
+      {error && !graphData?.nodes.length ? (
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-danger" role="alert">{t("graphLoadError")}<button className="bb-action px-4 py-2" onClick={reload}>Retry</button></div>
       ) : graphData ? (
           filtered.nodes.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">

@@ -1695,6 +1695,7 @@ def recalculate_quality_report() -> dict:
 def recalculate_graph_confidence(
     payload: ConfidenceRecalculationRequest,
 ) -> dict[str, int | str]:
+    from berrybrain_api.graph_feedback import feedback_snapshot
     from berrybrain_api.graph_write_service import (
         recalculate_edge_confidence,
         recalculate_node_confidence,
@@ -1715,9 +1716,25 @@ def recalculate_graph_confidence(
         elif payload.node_ids:
             return {"status": "completed", "nodes": 0, "edges": 0}
         edges = list(session.execute(edge_query).scalars())
-        for node in nodes:
-            recalculate_node_confidence(node, session)
-        for edge in edges:
-            recalculate_edge_confidence(edge, session)
+        # Retain endpoint objects in the identity map, including nodes outside
+        # the requested scope, instead of fetching both endpoints per edge.
+        nodes_by_id = {node.id: node for node in nodes}
+        missing = {
+            value
+            for edge in edges
+            for value in (edge.source_node_id, edge.target_node_id)
+        } - nodes_by_id.keys()
+        if missing:
+            nodes_by_id.update(
+                (node.id, node)
+                for node in session.scalars(
+                    select(GraphNodeRecord).where(GraphNodeRecord.id.in_(missing))
+                )
+            )
+        with feedback_snapshot(session), session.no_autoflush:
+            for node in nodes:
+                recalculate_node_confidence(node, session)
+            for edge in edges:
+                recalculate_edge_confidence(edge, session)
         session.commit()
         return {"status": "completed", "nodes": len(nodes), "edges": len(edges)}

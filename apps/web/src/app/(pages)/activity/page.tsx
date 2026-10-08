@@ -13,8 +13,9 @@ import {
   RefreshCw,
   Wrench,
 } from "lucide-react";
-import { apiFetch, appPath, getApiUrl } from "@/contexts/workspace-context";
+import { appPath, getApiUrl } from "@/contexts/workspace-context";
 import { locale, t, tf } from "@/i18n";
+import { readResource } from "@/lib/read-resource";
 
 type ActivityKind = "log" | "completed" | "failed" | "running" | "pending";
 type ActivityFilter = ActivityKind | "all";
@@ -66,7 +67,6 @@ type ActivitySnapshot = {
 };
 
 const EMPTY_SUMMARY: ActivitySummary = { completed: 0, failed: 0, running: 0, pending: 0 };
-const ACTIVITY_CACHE_TTL_MS = 15_000;
 const activityCache = new Map<string, ActivitySnapshot>();
 
 const JOB_LABELS: Record<string, string> = {
@@ -125,7 +125,7 @@ function humanizeJob(job: Job): { human: string; noteRef?: string; detail?: stri
     if (job.type === "AGGREGATE_CONCEPTS") return { human: t("act_conceptsAggregated") };
     return { human: `${t("act_completedFor")} ${label}${forNote}`, noteRef: notePath };
   }
-  if (job.status === "failed") {
+  if (job.status === "failed" || job.status === "dead_letter") {
     return { human: `${t("act_failedAt")}${label}${forNote}`, noteRef: notePath, detail: job.error_message };
   }
   if (job.status === "running") return { human: `${label}${t("act_runningAt")}${forNote}`, noteRef: notePath };
@@ -153,7 +153,7 @@ function buildSnapshot(jobs: Job[], logs: Log[]): ActivitySnapshot {
     const humanized = humanizeJob(job);
     const kind: ActivityKind = job.status === "completed"
       ? "completed"
-      : job.status === "failed"
+      : ["failed", "dead_letter"].includes(job.status)
         ? "failed"
         : job.status === "running"
           ? "running"
@@ -199,10 +199,10 @@ export default function ActivityPage() {
   const [updatedAt, setUpdatedAt] = useState<number | null>(() => initial?.updatedAt || null);
   const [technicalMode, setTechnicalMode] = useState(false);
   const [filter, setFilter] = useState<ActivityFilter>("all");
-  const requestRef = useRef<Promise<void> | null>(null);
+  const requestRef = useRef(0);
 
   const loadActivity = useCallback(async () => {
-    if (requestRef.current) return requestRef.current;
+    const requestId = ++requestRef.current;
     const hasCachedData = activityCache.has(api);
     setError("");
     if (hasCachedData) setRefreshing(true);
@@ -210,42 +210,42 @@ export default function ActivityPage() {
 
     const request = (async () => {
       try {
-        const [logsResponse, jobsResponse] = await Promise.all([
-          apiFetch(`${api}/api/v1/automation-logs?limit=100`),
-          apiFetch(`${api}/api/v1/jobs?limit=100`),
+        const jobFilter = ["failed", "pending", "running", "completed"].includes(filter) ? `&status=${filter}&include_dead_letter=true` : "";
+        const [logsResult, jobsResult] = await Promise.allSettled([
+          readResource(`${api}/api/v1/automation-logs?limit=100&compact=true`),
+          readResource(`${api}/api/v1/jobs?limit=100&include_counts=true${jobFilter}`),
         ]);
-        if (!logsResponse.ok || !jobsResponse.ok) throw new Error("Activity could not be loaded.");
-        const [logsPayload, jobsPayload] = await Promise.all([
-          logsResponse.json(),
-          jobsResponse.json(),
-        ]);
+        if (requestId !== requestRef.current) return;
+        if (logsResult.status === "rejected" && jobsResult.status === "rejected") throw new Error("Activity could not be loaded. Retry when the server is available.");
+        const logsPayload = logsResult.status === "fulfilled" ? logsResult.value : {};
+        const jobsPayload = jobsResult.status === "fulfilled" ? jobsResult.value : {};
         const snapshot = buildSnapshot(
           (jobsPayload.jobs || []) as Job[],
           (logsPayload.logs || []) as Log[],
         );
-        activityCache.set(api, snapshot);
+        if (jobsPayload.counts) snapshot.summary = {
+          completed: jobsPayload.counts.completed || 0, failed: jobsPayload.counts.failed || 0,
+          pending: jobsPayload.counts.pending || 0,
+          running: (jobsPayload.counts.running || 0) + (jobsPayload.counts.cancel_requested || 0),
+        };
+        if (logsResult.status === "rejected" || jobsResult.status === "rejected") setError("Some activity sources are unavailable. Available records are shown.");
+        if (filter === "all") activityCache.set(api, snapshot);
         setActivity(snapshot.activity);
         setSummary(snapshot.summary);
         setUpdatedAt(snapshot.updatedAt);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Activity could not be loaded.");
+        if (requestId === requestRef.current) setError(caught instanceof Error ? caught.message : "Activity could not be loaded.");
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (requestId === requestRef.current) { setLoading(false); setRefreshing(false); }
       }
     })();
-    requestRef.current = request;
     await request;
-    requestRef.current = null;
-  }, [api]);
+  }, [api, filter]);
 
   useEffect(() => {
-    const cached = activityCache.get(api);
-    if (!cached || Date.now() - cached.updatedAt >= ACTIVITY_CACHE_TTL_MS) {
-      void loadActivity();
-    }
-    const interval = window.setInterval(() => { void loadActivity(); }, ACTIVITY_CACHE_TTL_MS);
-    return () => window.clearInterval(interval);
+    void loadActivity();
+    const interval = window.setInterval(() => { if (!document.hidden) void loadActivity(); }, 30_000);
+    return () => { requestRef.current += 1; window.clearInterval(interval); };
   }, [api, loadActivity]);
 
   const filtered = useMemo(
