@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from berrybrain_api.ai_status import saved_test_status
 from berrybrain_api.artifact_state import (
@@ -45,6 +45,7 @@ from berrybrain_api.models import (
     SettingRecord,
     WorkerStatus,
 )
+from berrybrain_api.provider_alerts import model_availability_alerts
 from berrybrain_api.services import _is_visible_insight
 from berrybrain_api.settings_store import decode_setting_value
 
@@ -190,6 +191,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         ai_config=ai_config,
         now=now,
     )
+    needs_attention = model_availability_alerts(session) + needs_attention
 
     progress_state = _progress_state(worker, running_count, pending_count)
     if remaining_tasks and progress_state == "completed":
@@ -516,6 +518,10 @@ def _recent_logs(session: Session, limit: int) -> list[AutomationLogRecord]:
     return list(
         session.execute(
             select(AutomationLogRecord)
+            .options(
+                defer(AutomationLogRecord.before_state),
+                defer(AutomationLogRecord.after_state),
+            )
             .order_by(AutomationLogRecord.id.desc())
             .limit(limit)
         ).scalars()

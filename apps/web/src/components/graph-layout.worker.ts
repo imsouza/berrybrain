@@ -82,8 +82,9 @@ self.onmessage = (event: MessageEvent<LayoutMessage>) => {
   if (event.data.type === "release") {
     const node = nodesById.get(event.data.id);
     if (!node || !simulation) return;
-    node.fx = null;
-    node.fy = null;
+    // Keep the user's anchor while connected, unpinned nodes settle.
+    node.fx = node.x;
+    node.fy = node.y;
     simulation.alpha(Math.max(simulation.alpha(), 0.3));
     scheduleSimulation(36);
     return;

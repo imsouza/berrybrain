@@ -4,6 +4,20 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.4.11 - 2026-10-08
+
+- Load Activity, Home and Monitor independently with bounded requests; compact,
+  ID-paginated event history and global failed/dead-letter job counts.
+- Add private JSON log export in Settings and observed model-unavailability
+  notifications without inference probes or automatic model replacement.
+- Keep workspace navigation across Ask, Activity and notes; use Ask suggestion
+  cards and avoid downloading the full graph on Ask.
+- Preserve dragged graph positions, keep one hover tooltip, reduce layout work,
+  and expose partial-load failures without discarding available nodes.
+- Render note Mermaid diagrams and LaTeX with strict/inert rendering; disable
+  microphone input on insecure HTTP. Require patched KaTeX throughout the tree.
+- Preserve schema 14 and all user data; no new thesis experiments.
+
 ## 1.4.10 - 2026-10-07
 
 - Include the product/API changes prepared for 1.4.9, without changing the frozen

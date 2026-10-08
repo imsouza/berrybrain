@@ -80,7 +80,25 @@ def finish_model_invocation(
             if error is not None:
                 record.error_class = type(error).__name__[:120]
                 record.error_message = _safe_error_message(error)
+            # Persist the invocation even if the optional notification fails.
             ledger.commit()
+            if error is not None:
+                from berrybrain_api.notification_service import create_notification
+                from berrybrain_api.provider_alerts import UNAVAILABLE_MODEL
+
+                if status == "failed" and UNAVAILABLE_MODEL.search(
+                    record.error_message
+                ):
+                    create_notification(
+                        ledger,
+                        notification_type="model_unavailable",
+                        title=f"Model unavailable: {record.model}",
+                        description="The provider rejected this model or capability. It may have been removed, retired, or access changed. Review AI setup; no model was replaced automatically.",
+                        action="Review AI setup",
+                        action_url="/brain?settings=open",
+                        deduplicate_title=True,
+                    )
+                ledger.commit()
     except Exception:
         return
 
@@ -118,6 +136,12 @@ def _ledger_session(bind: Engine | Connection) -> Session:
 
 
 def _safe_error_message(error: BaseException) -> str:
+    from berrybrain_api.provider_alerts import UNAVAILABLE_MODEL
+
+    # Classify before redaction removes detail, but never persist raw provider
+    # messages (which may contain prompts, URLs or credentials).
+    if UNAVAILABLE_MODEL.search(str(error)[:4000]):
+        return "The configured model is unavailable or its capability was rejected."
     name = type(error).__name__
     if name == "GraphAIUnavailable":
         return redact_text(str(error))[:1000]

@@ -722,7 +722,7 @@ test.describe("Authenticated workspace quality", () => {
 
   test("cancels an active job from Monitor", async ({ page, context }) => {
     let cancellationRequested = false;
-    await page.route("**/api/v1/jobs?limit=50", (route) =>
+    await page.route("**/api/v1/jobs?limit=50*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

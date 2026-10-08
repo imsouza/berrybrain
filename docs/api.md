@@ -154,6 +154,39 @@ Releases 1.4.9 and 1.4.10 use database schema 14. The additive index migration p
 history; the HTTP API remains `/api/v1`. Older binaries enforce schema
 compatibility, so an image-only rollback after migration is not sufficient.
 
+## Operational history and model alerts
+
+These endpoints use the same workspace authentication and authorization as the
+rest of `/api/v1`; they do not expose host or Docker logs.
+
+- `GET /automation-logs?compact=true&limit=50`: bounded event summaries without
+  before/after note snapshots. Limit 1–100. `nextCursor` is an insertion ID; pass
+  it as `before_id` for older entries. Order is descending insertion ID, not
+  event timestamp. The default `compact=false` preserves full-event fields.
+- `GET /automation-logs/export?limit=1000`: downloadable JSON, latest 1–1000
+  compact events (default 500), with `Cache-Control: no-store`. Credentials are
+  redacted and snapshots excluded, but titles, paths, and descriptions may still
+  contain private metadata. Review before sharing; this is not a backup.
+- `GET /jobs?status=failed&include_dead_letter=true&include_counts=true&limit=50`:
+  server-side filtering includes exhausted retries. Use `nextCursor` as
+  `before_id` to page older jobs; limit 1–200. Optional `counts` cover the whole
+  queue, independent of the page/filter. `counts.failed` includes `dead_letter`;
+  `counts.dead_letter` is a subset, so do not add it again to `counts.total`.
+- `GET /monitor/stats`: job totals and completions in the last hour are global.
+  `jobs.recent_sample_size` identifies the bounded 200-job sample used for type
+  breakdowns; model-invocation statistics also describe a recent 200-row sample.
+- `GET /monitor/model-alerts`: current configured-model warnings inferred from
+  recent recorded failures, not a live provider-catalog probe. A bounded window
+  of 1000 invocations is inspected; a later successful invocation clears the
+  corresponding current warning. Older generic `cloud` records cannot prove
+  provider identity and are ignored when predating configuration validation.
+
+New observed model/capability rejections also create unread, per-model
+notifications. A rate-limit error alone is not treated as model removal.
+Notifications remain historical until marked read; current warnings and unread
+history are different views. No automatic model replacement, paid availability
+probe, or bulk job retry is performed.
+
 ## Python example
 
 See [the standard-library client](../examples/berrybrain_client.py), with no

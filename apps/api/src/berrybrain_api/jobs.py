@@ -1126,20 +1126,27 @@ def retry_job(session: Session, job_id: int) -> JobRecord:
 
 
 def list_jobs(
-    session: Session, status: str | None = None, limit: int = 50
+    session: Session,
+    status: str | None = None,
+    limit: int = 50,
+    *,
+    before_id: int | None = None,
+    include_dead_letter: bool = False,
 ) -> list[JobRecord]:
-    query = (
-        select(JobRecord)
-        .order_by(JobRecord.created_at.desc(), JobRecord.id.desc())
-        .limit(limit)
-    )
+    query = select(JobRecord).order_by(JobRecord.id.desc()).limit(limit)
     if status:
         query = (
             select(JobRecord)
-            .where(JobRecord.status == status)
-            .order_by(JobRecord.created_at.desc(), JobRecord.id.desc())
+            .where(
+                JobRecord.status.in_([FAILED, DEAD_LETTER])
+                if status == FAILED and include_dead_letter
+                else JobRecord.status == status
+            )
+            .order_by(JobRecord.id.desc())
             .limit(limit)
         )
+    if before_id is not None:
+        query = query.where(JobRecord.id < before_id)
     return list(session.execute(query).scalars())
 
 

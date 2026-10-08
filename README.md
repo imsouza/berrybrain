@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.10-blue)
+![Version](https://img.shields.io/badge/version-1.4.11-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.10](#whats-new-in-1410)
+- [What's New in 1.4.11](#whats-new-in-1411)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,19 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.10
+## What's New in 1.4.11
+
+Activity and Monitor load independently, with compact log history, global failed
+job counts, and JSON export in Settings. The workspace keeps navigation visible
+on Ask and Activity. Note previews support Mermaid and LaTeX; voice is disabled
+on insecure HTTP. Graph dragging preserves positions and partial-load failures
+remain visible. Ontology shapes and semantic colors are unchanged.
+
+See [1.4.11 release notes](docs/releases/v1.4.11.md),
+[API documentation](docs/api.md) and the
+[system checklist](docs/reviews/2026-10-08-system-usability.md).
+
+### What's New in 1.4.10
 
 This release includes the product changes prepared for 1.4.9 and the corrected
 source-map-js dependency. The existing 1.4.9 tag is preserved; its image/release
