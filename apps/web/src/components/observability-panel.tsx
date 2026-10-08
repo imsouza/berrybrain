@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { readResource } from "@/lib/read-resource";
+import { apiFetch } from "@/contexts/workspace-context";
 
 type LogEntry = {
   id: number;
@@ -56,6 +58,54 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
   const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<number | null>(null);
   const [jobActionStatus, setJobActionStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [totals, setTotals] = useState<Record<string, number>>({});
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const generation = useRef(0);
+  const browsingHistory = useRef(false);
+
+  const loadData = useCallback(async (cursor?: number) => {
+    if (apiUrl === "__demo__") return;
+    browsingHistory.current = Boolean(cursor);
+    const request = ++generation.current;
+    setLoading(true);
+    setLoadError("");
+    const apply = (callback: () => void) => { if (request === generation.current) callback(); };
+    try {
+      if (tab === "jobs") {
+        const params = new URLSearchParams({ limit: "50", include_counts: "true", include_dead_letter: "true" });
+        if (filter) params.set("status", filter);
+        if (cursor) params.set("before_id", String(cursor));
+        const data = await readResource(`${apiUrl}/api/v1/jobs?${params}`);
+        apply(() => {
+          setJobs(previous => cursor ? [...previous, ...(data.jobs || [])] : data.jobs || []);
+          setTotals(data.counts || {});
+          setNextCursor(data.nextCursor ?? null);
+        });
+      } else if (tab === "logs") {
+        const data = await readResource(`${apiUrl}/api/v1/automation-logs?limit=50&compact=true`);
+        apply(() => setLogs(data.logs || []));
+      } else {
+        // Render each panel independently; one failed optional diagnostic must
+        // not erase jobs or hold every tab behind a Promise.all barrier.
+        const resources: Array<[string, (value: any) => void]> = tab === "stats"
+          ? [["monitor/stats", setStats]]
+          : [["worker/status", value => setWorker(value.worker)], ["jobs/health", setJobHealth],
+             ["cognitive/maturity", setMaturity], ["settings/ai/config", setAIConfig],
+             ["judge/scorecard", value => setJudgeStatus({mode: value.mode || "deterministic", status: value.calibrated ? value.mode : "NOT_CALIBRATED"})]];
+        const results = await Promise.allSettled(resources.map(async ([path, setter]) => {
+          const value = await readResource(`${apiUrl}/api/v1/${path}`);
+          apply(() => setter(value));
+        }));
+        if (results.some(result => result.status === "rejected")) throw new Error("Some diagnostics are unavailable. Available data is still shown.");
+      }
+    } catch (error) {
+      apply(() => setLoadError(error instanceof Error ? error.message : "Could not load monitor."));
+    } finally {
+      apply(() => setLoading(false));
+    }
+  }, [apiUrl, filter, tab]);
 
   useEffect(() => {
     if (!open) return;
@@ -70,73 +120,24 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
       setAIConfig(null);
       return;
     }
-    async function load() {
-      try {
-        const [jRes, lRes, wRes, sRes, hRes, mRes, jm, aiRes] = await Promise.all([
-          fetch(`${apiUrl}/api/v1/jobs?limit=50`),
-          fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
-          fetch(`${apiUrl}/api/v1/worker/status`),
-          fetch(`${apiUrl}/api/v1/monitor/stats`),
-          fetch(`${apiUrl}/api/v1/jobs/health`),
-          fetch(`${apiUrl}/api/v1/cognitive/maturity`),
-          fetch(`${apiUrl}/api/v1/judge/scorecard`),
-          fetch(`${apiUrl}/api/v1/settings/ai/config`),
-        ]);
-        const j = await jRes.json();
-        const l = await lRes.json();
-        const w = await wRes.json();
-        const s = await sRes.json();
-        const h = await hRes.json().catch(() => null);
-        const m = await mRes.json().catch(() => null);
-        const jmData = await jm.json().catch(() => ({}));
-        const aiData = await aiRes.json().catch(() => null);
-        setJobs(j.jobs || []);
-        setLogs(l.logs || []);
-        setWorker(w.worker);
-        setStats(s);
-        setJobHealth(h);
-        setMaturity(m);
-        setJudgeStatus({
-          mode: jmData.mode || "deterministic",
-          status: jmData.calibrated ? jmData.mode : "NOT_CALIBRATED",
-        });
-        setAIConfig(aiData);
-      } catch {}
-    }
-    load();
-    const iv = setInterval(load, 8000);
-    return () => clearInterval(iv);
-  }, [apiUrl, open]);
+    let stopped = false;
+    browsingHistory.current = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!document.hidden && !browsingHistory.current) await loadData();
+      if (!stopped) timer = setTimeout(poll, 20_000);
+    };
+    void poll();
+    return () => { stopped = true; generation.current += 1; clearTimeout(timer); };
+  }, [apiUrl, open, loadData]);
 
   const isFailedJob = (job: any) => job.status === "failed" || job.status === "dead_letter";
-  const loadData = async () => {
-    const [jRes, lRes, wRes, sRes, hRes, mRes] = await Promise.all([
-      fetch(`${apiUrl}/api/v1/jobs?limit=50`),
-      fetch(`${apiUrl}/api/v1/automation-logs?limit=50`),
-      fetch(`${apiUrl}/api/v1/worker/status`),
-      fetch(`${apiUrl}/api/v1/monitor/stats`),
-      fetch(`${apiUrl}/api/v1/jobs/health`),
-      fetch(`${apiUrl}/api/v1/cognitive/maturity`),
-    ]);
-    const j = await jRes.json();
-    const l = await lRes.json();
-    const w = await wRes.json();
-    const s = await sRes.json();
-    const h = await hRes.json().catch(() => null);
-    const m = await mRes.json().catch(() => null);
-    setJobs(j.jobs || []);
-    setLogs(l.logs || []);
-    setWorker(w.worker);
-    setStats(s);
-    setJobHealth(h);
-    setMaturity(m);
-  };
 
   async function retryJob(jobId: number) {
     setRetryingJobId(jobId);
     setJobActionStatus("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/jobs/${jobId}/retry`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/jobs/${jobId}/retry`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || "Retry failed.");
       await loadData();
@@ -152,7 +153,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
     setCancellingJobId(jobId);
     setJobActionStatus("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/jobs/${jobId}/cancel`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/jobs/${jobId}/cancel`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || "Cancel failed.");
       await loadData();
@@ -173,10 +174,10 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
     : jobs;
 
   const counts = {
-    pending: jobs.filter((j) => j.status === "pending").length,
-    running: jobs.filter((j) => j.status === "running").length,
-    completed: jobs.filter((j) => j.status === "completed").length,
-    failed: jobs.filter(isFailedJob).length,
+    pending: totals.pending || 0,
+    running: (totals.running || 0) + (totals.cancel_requested || 0),
+    completed: totals.completed || 0,
+    failed: totals.failed || 0,
   };
   const queueSloLabel =
     jobHealth?.slo?.status === "healthy"
@@ -231,6 +232,9 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+          {loading && <p className="py-2 text-xs text-muted" role="status">Loading {tab}…</p>}
+          {loadError && <div role="alert" className="my-2 rounded-lg border border-danger/30 p-3 text-xs text-danger">{loadError} <button className="underline" onClick={() => void loadData()}>Retry</button></div>}
+          {tab === "jobs" && nextCursor && <button className="bb-action my-2 px-3 py-2 text-xs" disabled={loading} onClick={() => void loadData(nextCursor)}>Load older jobs</button>}
           {tab === "jobs" && (
             <div>
               <div className="sticky top-0 z-10 -mx-6 flex gap-1 bg-panel px-6 pb-3 pt-2">
@@ -251,9 +255,9 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
                     onClick={() => setFilter(key)}
                   >
                     {label}
-                    {jobs.length > 0 && (
+                    {Object.keys(totals).length > 0 && (
                       <span className="ml-1 opacity-60">
-                        {key === "" ? jobs.length : key === "failed" ? jobs.filter(isFailedJob).length : jobs.filter((j) => j.status === key).length}
+                        {key === "" ? totals.total : counts[key as keyof typeof counts] || 0}
                       </span>
                     )}
                   </button>
@@ -268,7 +272,7 @@ export function ObservabilityPanel({ open, apiUrl, onClose }: Props) {
               <div className="mt-2 space-y-1.5">
                 {filtered.length === 0 ? (
                   <div className="py-12 text-center text-xs text-muted">
-                    No jobs.
+                    {loading ? "Loading jobs…" : loadError ? "Job history could not be loaded." : "No jobs match this filter."}
                   </div>
                 ) : (
                   filtered.map((job: any) => {

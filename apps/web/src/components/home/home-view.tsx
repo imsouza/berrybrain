@@ -9,6 +9,7 @@ import { t, tf } from "@/i18n";
 import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
 import { CircleHelp, ExternalLink } from "lucide-react";
+import { readResource } from "@/lib/read-resource";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
@@ -81,16 +82,6 @@ type PipelineProgress = { notePath: string; completed: number; total: number; pe
 const HOME_CACHE_TTL_MS = 15_000;
 const homeCache = new Map<string, { summary: HomeSummary; pipeline: PipelineProgress[]; updatedAt: number }>();
 
-async function fetchHomeResource(input: string, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { signal: controller.signal });
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
 export function HomeView() {
   const w = useWorkspace();
   const router = useRouter();
@@ -122,17 +113,15 @@ export function HomeView() {
     try {
       // Pipeline progress is supplementary; it must never hold the main summary
       // spinner open when a worker endpoint is slow or unavailable.
-      const pipelinePromise = fetchHomeResource(
+      const pipelinePromise = readResource(
         `${w.api}/api/v1/jobs/pipeline-progress`,
         5_000,
       ).catch(() => null);
-      const summaryResponse = await fetchHomeResource(`${w.api}/api/v1/home/summary`, 8_000);
-      if (!summaryResponse.ok) throw new Error("home-summary");
-      const nextSummary = await summaryResponse.json() as HomeSummary;
+      const nextSummary = await readResource<HomeSummary>(`${w.api}/api/v1/home/summary`, 15_000);
       setSummary(nextSummary);
+      homeCache.set(w.api, { summary: nextSummary, pipeline: cached?.pipeline || [], updatedAt: Date.now() });
       setLoading(false);
-      const pipelineResponse = await pipelinePromise;
-      const pipelinePayload = pipelineResponse?.ok ? await pipelineResponse.json() : null;
+      const pipelinePayload = await pipelinePromise;
       const nextPipeline = pipelinePayload
         ? (pipelinePayload.notes || []) as PipelineProgress[]
         : cached?.pipeline || [];

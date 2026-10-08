@@ -11,6 +11,7 @@ import {
 import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
 import { judgeSelectionIssues } from "../lib/judge-selection";
+import { SettingsLogs } from "./settings-logs";
 
 type ThemeKind = "light" | "dark";
 
@@ -57,6 +58,7 @@ const SECTION_AREAS: Record<string, SettingsArea[]> = {
   Saving: ["General"],
   Maintenance: ["Maintenance"],
   Diagnostics: ["Jobs & Worker", "Performance", "Monitoring"],
+  Logs: ["Monitoring", "Jobs & Worker"],
   "Danger zone": ["Storage & vaults", "Security & data"],
 };
 
@@ -1223,6 +1225,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
             {maintenanceStatus && <p className="rounded-xl bg-surface px-3 py-2 text-xs text-muted ring-1 ring-border/40">{maintenanceStatus}</p>}
           </Section>
 
+          <Section title="Logs" description="Inspect and export recent automation events."><SettingsLogs apiUrl={apiUrl} /></Section>
           <Section title={t("diagnostics")} description={t("diagnosticsDesc")}>
             {diagLoading ? (
               <p className="text-xs text-muted">{t("loadingDiagnostics")}</p>

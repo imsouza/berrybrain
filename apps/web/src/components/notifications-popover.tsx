@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { appPath } from "@/contexts/workspace-context";
+import { apiFetch, appPath } from "@/contexts/workspace-context";
+import { readResource } from "@/lib/read-resource";
 
 type Alert = {
   id: number;
@@ -35,9 +36,8 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
 
     async function load() {
       try {
-        const r = await fetch(`${apiUrl}/api/v1/notifications?limit=30`);
-        if (r.ok && !cancelled) {
-          const data = await r.json();
+        const data = await readResource(`${apiUrl}/api/v1/notifications?limit=30`);
+        if (!cancelled) {
           setAlerts(data.notifications || []);
         }
       } catch {}
@@ -54,14 +54,14 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
   }, [open, apiUrl]);
 
   const handleAction = async (alert: Alert) => {
-    await fetch(`${apiUrl}/api/v1/notifications/${alert.id}/read`, { method: "POST" }).catch(() => undefined);
+    await apiFetch(`${apiUrl}/api/v1/notifications/${alert.id}/read`, { method: "POST" }).catch(() => undefined);
     const destination = alert.actionUrl || "/activity";
     window.location.href = destination.startsWith("/") ? appPath(destination) : destination;
     onClose();
   };
 
   const markAllRead = async () => {
-    await fetch(`${apiUrl}/api/v1/notifications/read-all`, { method: "POST" });
+    await apiFetch(`${apiUrl}/api/v1/notifications/read-all`, { method: "POST" });
     setAlerts((items) => items.map((item) => ({ ...item, read: true })));
   };
 
