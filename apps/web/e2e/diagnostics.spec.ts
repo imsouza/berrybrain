@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { mockGraphPages } from "./graph-mocks";
 
 test.describe("Graph empty-state diagnostics (mocked API)", () => {
   test.beforeEach(async ({ page }) => {
+    await mockGraphPages(page, () => ({ nodes: [], edges: [] }));
     await page.route("**/api/v1/setup/status", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ needsSetup: false }) }),
     );

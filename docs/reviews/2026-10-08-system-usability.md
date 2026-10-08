@@ -17,7 +17,8 @@ experimentos do TCC, apagar falhas históricas ou repetir jobs em massa.
 - [x] Markdown: Mermaid e LaTeX, renderização segura e tratamento de erros.
 - [x] Grafo: tooltip único, posições fixadas após arrastar e polimento visual,
   preservando as formas ontológicas e cores semânticas catalogadas.
-- [ ] Regressões de produto, lint/typecheck/build e smoke checks operacionais.
+- [x] Regressões locais de produto e lint/typecheck/build de produção.
+- [ ] CI final e smoke checks operacionais após implantação.
 - [ ] Atualizar instalação somente após validação, preservando rollback e dados.
 
 Checkboxes acima indicam implementação no worktree, não publicação no servidor.
@@ -75,8 +76,12 @@ aviso explícito, sem tentar em seguida um endpoint completo mais pesado.
   desabilitada em HTTP, falha parcial, sidebar, Activity/Monitor e Markdown.
 - API: 6 regressões de Activity/alertas, 27 regressões anteriores e 64 testes
   de Home/jobs/ledger aprovados (97 no total, sem testes acadêmicos).
-- O build de produção passou. A versão final 1.4.11 inclui ainda o ajuste para
-  não fixar nós com um simples clique; validação final/release continuam pendentes.
+- O build final de produção 1.4.11 passou, incluindo o ajuste para não fixar
+  nós com um simples clique. A rodada local final dos 11 cenários passou.
+- No primeiro CI, oito checks passaram; web passou em 59/65 cenários e revelou
+  seis mocks antigos (leitura completa do grafo e URL de jobs sem os novos
+  parâmetros). Fixtures atualizadas para o contrato paginado, preservando as
+  asserções funcionais. Reexecução do CI pendente, sem merge/deploy antecipado.
 - Leitura posterior dos jobs: 1.076 falhas históricas, 619 com texto de timeout,
   120 relacionadas a lease e 337 não classificadas por esse filtro simples.
   Dos jobs falhos, 570 eram UPDATE_GRAPH_STATS. Esses grupos não provam uma
