@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from berrybrain_api.graph_contracts import (
     SYMMETRIC_EDGE_TYPES,
@@ -19,6 +20,33 @@ from berrybrain_api.models import GraphEdgeRecord, GraphFeedbackRecord, GraphNod
 
 NEGATIVE_ACTIONS = frozenset({"ignored", "deleted"})
 POSITIVE_ACTIONS = frozenset({"confirmed", "corrected", "restored"})
+_SNAPSHOT_KEY = "berrybrain_confidence_feedback_snapshot"
+
+
+@contextmanager
+def feedback_snapshot(session: Session):
+    """Bound a read-only feedback snapshot to one confidence recalculation.
+
+    Avoid two SQL reads per graph artifact, without a cross-request cache.
+    Exact-context precedence and newest overlapping feedback remain unchanged.
+    """
+    previous = session.info.get(_SNAPSHOT_KEY)
+    grouped: dict[tuple[str, str], list[GraphFeedbackRecord]] = {}
+    for row in session.scalars(
+        select(GraphFeedbackRecord)
+        .where(GraphFeedbackRecord.active.is_(True))
+        .options(defer(GraphFeedbackRecord.original_payload))
+        .order_by(GraphFeedbackRecord.id.desc())
+    ):
+        grouped.setdefault((row.artifact_kind, row.artifact_key), []).append(row)
+    session.info[_SNAPSHOT_KEY] = grouped
+    try:
+        yield
+    finally:
+        if previous is None:
+            session.info.pop(_SNAPSHOT_KEY, None)
+        else:
+            session.info[_SNAPSHOT_KEY] = previous
 
 
 @dataclass(frozen=True)
@@ -79,6 +107,8 @@ def record_feedback(
     original_payload: dict[str, Any],
     replacement_payload: dict[str, Any] | None = None,
 ) -> GraphFeedbackRecord:
+    # A write invalidates an optional read snapshot in this same session.
+    session.info.pop(_SNAPSHOT_KEY, None)
     if artifact_kind not in {"node", "edge"}:
         raise ValueError("Graph feedback artifact kind must be node or edge")
     if action not in NEGATIVE_ACTIONS | POSITIVE_ACTIONS:
@@ -136,6 +166,26 @@ def resolve_feedback(
     source_note_ids: list[int],
 ) -> FeedbackDecision | None:
     normalized_ids = normalized_note_ids(source_note_ids)
+    snapshot = session.info.get(_SNAPSHOT_KEY)
+    if snapshot is not None:
+        candidates = snapshot.get((artifact_kind, artifact_key), [])
+        key = context_key(normalized_ids)
+        row = next((item for item in candidates if item.context_key == key), None)
+        if row is None and normalized_ids:
+            incoming_ids = set(normalized_ids)
+            row = next(
+                (
+                    item
+                    for item in candidates
+                    if incoming_ids & set(_integer_list(item.source_note_ids))
+                ),
+                None,
+            )
+        return (
+            FeedbackDecision(row.action, _json_object(row.replacement_payload), row.id)
+            if row
+            else None
+        )
     row = session.execute(
         select(GraphFeedbackRecord)
         .where(

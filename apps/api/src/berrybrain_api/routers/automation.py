@@ -1,4 +1,8 @@
-from fastapi import APIRouter
+import json
+from typing import Annotated
+
+from fastapi import APIRouter, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from berrybrain_api.automation_logs import (
@@ -22,10 +26,42 @@ class CreateAutomationLogRequest(BaseModel):
 
 
 @router.get("")
-def list_logs(limit: int = 50) -> dict:
+def list_logs(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    before_id: Annotated[int | None, Query(ge=1)] = None,
+    compact: bool = False,
+) -> dict:
     with SessionLocal() as session:
-        logs = list_automation_logs(session, limit=min(limit, 100))
-        return {"logs": [serialize_automation_log(log) for log in logs]}
+        logs = list_automation_logs(
+            session, limit=limit + 1, before_id=before_id, compact=compact
+        )
+        more = len(logs) > limit
+        page = logs[:limit]
+        return {
+            "logs": [serialize_automation_log(log, compact=compact) for log in page],
+            "nextCursor": page[-1].id if more else None,
+        }
+
+
+@router.get("/export")
+def export_logs(limit: Annotated[int, Query(ge=1, le=1000)] = 500) -> Response:
+    """Bounded authenticated export. Never includes before/after note snapshots."""
+    with SessionLocal() as session:
+        logs = list_automation_logs(session, limit=limit, compact=True)
+        payload = {
+            "scope": "recent automation logs",
+            "limit": limit,
+            "containsPrivateMetadata": True,
+            "logs": [serialize_automation_log(log, compact=True) for log in logs],
+        }
+    return Response(
+        json.dumps(payload, ensure_ascii=False),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="berrybrain-logs.json"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("", status_code=201)

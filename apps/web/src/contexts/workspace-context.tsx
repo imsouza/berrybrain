@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AutosaveStatus, Insight, JobSummary, NoteDetail, NoteSummary, Stats, Toast } from "@/types";
 import { acknowledgeDraft, draftKey, forgetDraft, keepDraft, readDraft } from "@/lib/pending-drafts";
+import { readResource } from "@/lib/read-resource";
 
 export function getApiUrl() {
   const env = process.env.NEXT_PUBLIC_BERRYBRAIN_API_URL;
@@ -96,15 +97,21 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const loadAll = useCallback(async () => {
     if (demo) return;
     try {
-      const [nr, jr, sr, insR] = await Promise.all([
-        apiFetch(`${api}/api/v1/notes`), apiFetch(`${api}/api/v1/jobs?limit=8`),
-        apiFetch(`${api}/api/v1/monitor/stats`),
-        apiFetch(`${api}/api/v1/insights?limit=5`),
+      await Promise.allSettled([
+        (async () => {
+          let offset: number | null = 0;
+          const notes: NoteSummary[] = [];
+          while (offset !== null) {
+            const page: { notes: NoteSummary[]; nextOffset?: number | null } = await readResource(`${api}/api/v1/notes?limit=200&offset=${offset}`);
+            notes.push(...(page.notes || []));
+            setNotes([...notes]);
+            offset = page.nextOffset ?? null;
+          }
+        })(),
+        readResource(`${api}/api/v1/jobs?limit=8`).then(data => setJobs(data.jobs || [])),
+        readResource(`${api}/api/v1/monitor/stats`).then(setStats),
+        readResource(`${api}/api/v1/insights?limit=5`).then(data => setInsights(data.insights || [])),
       ]);
-      if (nr.ok) setNotes((await nr.json()).notes);
-      if (jr.ok) setJobs((await jr.json()).jobs);
-      if (sr.ok) setStats(await sr.json());
-      if (insR.ok) setInsights((await insR.json()).insights || []);
     } catch {}
   }, [api, demo]);
 
@@ -428,8 +435,19 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [persistDraft]);
   useEffect(() => {
     if (demo) return;
-    const iv = setInterval(() => { apiFetch(`${api}/api/v1/jobs?limit=8`).then(r => { if (r.ok) r.json().then(d => setJobs(d.jobs)); }).catch(() => {}); }, 8000);
-    return () => clearInterval(iv);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!document.hidden) {
+        try {
+          const data = await readResource<{ jobs: JobSummary[] }>(`${api}/api/v1/jobs?limit=8`);
+          if (!stopped) setJobs(data.jobs);
+        } catch { /* Keep the last known state; Monitor exposes read errors. */ }
+      }
+      if (!stopped) timer = setTimeout(poll, 15_000);
+    };
+    timer = setTimeout(poll, 15_000);
+    return () => { stopped = true; clearTimeout(timer); };
   }, [api, demo]);
   useEffect(() => {
     if (!active || autosave !== "unsaved") return;

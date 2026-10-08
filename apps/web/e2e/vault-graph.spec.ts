@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mockGraphPages } from "./graph-mocks";
 
 test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
   test.beforeEach(async ({ page }) => {
@@ -32,6 +33,17 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
 
   test("new vault appears in graph after scan", async ({ page }) => {
     let notesCreated = false;
+    await mockGraphPages(page, () => ({
+      nodes: notesCreated ? [
+        { id: "note_1", type: "note", label: "Docker and Linux Shell", status: "confirmed" },
+        { id: "concept_docker", type: "concept", label: "Docker", status: "suggested" },
+        { id: "concept_linux", type: "concept", label: "Linux", status: "suggested" },
+      ] : [],
+      edges: notesCreated ? [
+        { source: "note_1", target: "concept_docker", type: "mentions", confidence: 0.95 },
+        { source: "note_1", target: "concept_linux", type: "mentions", confidence: 0.92 },
+      ] : [],
+    }));
 
     await page.route("**/api/v1/vault/scan*", (route) => {
       notesCreated = true;
@@ -109,6 +121,7 @@ test.describe("Vault-to-graph E2E - fix-new-version.md §5.4", () => {
   });
 
   test("pipeline diagnostics show correct state before scan", async ({ page }) => {
+    await mockGraphPages(page, () => ({ nodes: [], edges: [] }));
     await page.route("**/api/v1/vault/debug/vault-graph-pipeline", (route) =>
       route.fulfill({
         status: 200,

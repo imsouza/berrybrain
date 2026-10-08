@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { mockGraphPages } from "./graph-mocks";
 
 async function mockPagedGraph(page: Page, nodes: Record<string, unknown>[], edges: Record<string, unknown>[] = []) {
   await page.route("**/api/v1/graph/summary?*", (route) => route.fulfill({
@@ -361,6 +362,10 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
   test("scan vault then graph appears", async ({ page }) => {
     let notesCreated = false;
+    await mockGraphPages(page, () => ({
+      nodes: notesCreated ? [{ id: "note_1", type: "note", label: "Test Note" }] : [],
+      edges: [],
+    }));
 
     await page.route("**/api/v1/vault/scan*", (route) => {
       notesCreated = true;

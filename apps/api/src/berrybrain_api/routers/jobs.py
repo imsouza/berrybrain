@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Header
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
@@ -61,10 +63,39 @@ class UpdateAttemptRequest(BaseModel):
 
 
 @router.get("")
-def list_jobs_endpoint(status: str | None = None, limit: PageLimit = 50) -> dict:
+def list_jobs_endpoint(
+    status: str | None = None,
+    limit: PageLimit = 50,
+    before_id: Annotated[int | None, Query(ge=1)] = None,
+    include_dead_letter: bool = False,
+    include_counts: bool = False,
+) -> dict:
     with SessionLocal() as session:
-        jobs = list_jobs(session, status=status, limit=min(limit, 200))
-        return {"jobs": [serialize_job(j) for j in jobs]}
+        page_size = min(limit, 200)
+        jobs = list_jobs(
+            session,
+            status=status,
+            limit=page_size + 1,
+            before_id=before_id,
+            include_dead_letter=include_dead_letter,
+        )
+        page = jobs[:page_size]
+        result: dict[str, Any] = {
+            "jobs": [serialize_job(j) for j in page],
+            "nextCursor": page[-1].id if len(jobs) > page_size else None,
+        }
+        if include_counts:
+            counts = dict(
+                session.execute(
+                    select(JobRecord.status, func.count()).group_by(JobRecord.status)
+                ).all()
+            )
+            result["counts"] = {
+                **counts,
+                "total": sum(counts.values()),
+                "failed": counts.get(FAILED, 0) + counts.get(DEAD_LETTER, 0),
+            }
+        return result
 
 
 class CreateJobRequest(BaseModel):

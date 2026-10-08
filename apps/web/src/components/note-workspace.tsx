@@ -7,7 +7,7 @@ import { NoteEditor } from "./editor/note-editor";
 import { HomeView } from "./home/home-view";
 import { RightPanel } from "./panel/right-panel";
 import { ResizeHandle } from "./sidebar/resize-handle";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -44,7 +44,7 @@ const GraphScreen = dynamic(
   },
 );
 
-function Shell() {
+function Shell({ children }: { children?: ReactNode }) {
   const w = useWorkspace();
   const router = useRouter();
   const pathname = usePathname();
@@ -55,7 +55,9 @@ function Shell() {
   const [tourOpen, setTourOpen] = useState(false);
 
   useEffect(() => {
+    if (!/\/(brain|demo)\/?$/.test(pathname)) w.setGraphOpen(false);
     const params = new URLSearchParams(window.location.search);
+    if (params.get("settings") === "open") w.setSettingsOpen(true);
     setAskInitialQuery(params.get("q")?.trim() || "");
     const notePath = params.get("note");
     const newNote = params.get("newNote");
@@ -83,7 +85,7 @@ function Shell() {
       window.history.replaceState({}, "", url.toString());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pathname]);
   useEffect(() => {
     router.prefetch(appPath("/ask") as Route);
     router.prefetch(appPath("/activity") as Route);
@@ -138,11 +140,11 @@ function Shell() {
             onOpenHome={() => router.push(appPath("/brain") as Route)}
             onOpenGraph={() => router.push(appPath("/brain?graph=open") as Route)}
             onOpenSettings={() => w.setSettingsOpen(true)}
-            onNavigate={(path) => { void w.openNote(path); }}
+            onNavigate={(path) => { void w.openNote(path); router.push(appPath("/brain") as Route); }}
           />
         ) : w.graphOpen ? (
           <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
-        ) : w.active ? (
+        ) : children ? children : w.active ? (
           <NoteEditor />
         ) : (
           <HomeView />
@@ -159,10 +161,10 @@ function Shell() {
   );
 }
 
-export function NoteWorkspace() {
+export function NoteWorkspace({ children }: { children?: ReactNode }) {
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
-  return <WorkspaceProvider demo={isDemo}><Shell /></WorkspaceProvider>;
+  return <WorkspaceProvider demo={isDemo}><Shell>{children}</Shell></WorkspaceProvider>;
 }
 
 function DemoNotice() {

@@ -1,7 +1,10 @@
 "use client";
 
 import { useWorkspace } from "@/contexts/workspace-context";
-import { MarkdownPreview } from "./markdown-preview";
+import dynamic from "next/dynamic";
+const MarkdownPreview = dynamic(() => import("./markdown-preview").then(module => module.MarkdownPreview), {
+  loading: () => <p className="p-4 text-sm text-muted">Loading Markdown preview…</p>,
+});
 import { useState, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { t } from "@/i18n";
@@ -623,6 +626,8 @@ export function NoteEditor() {
             <ToolbarButton icon={<Paperclip />} title="Attach file" onClick={() => fileInputRef.current?.click()} />
             <ToolbarButton icon={<Code />} title="Inline code" onClick={() => wrapSelection("`", "`", "code")} />
             <ToolbarButton icon={<FileCode2 />} title="Code block" onClick={() => insertBlock("```\ncode\n```\n")} />
+            <ToolbarButton icon={<FileCode2 />} title="Mermaid diagram" onClick={() => insertBlock("```mermaid\ngraph TD\n  A[Note] --> B[Insight]\n```\n")} />
+            <ToolbarButton icon={<Code />} title="LaTeX equation" onClick={() => insertBlock("$$\n\\frac{a}{b} = c\n$$\n")} />
             <ToolbarButton icon={<Table />} title="Table" onClick={() => insertBlock("| Column | Value |\n| --- | --- |\n| Example | Text |\n")} />
             <ToolbarButton icon={<Pilcrow />} title="Horizontal rule" onClick={() => insertBlock("---\n")} />
           </ToolbarGroup>

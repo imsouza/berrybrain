@@ -82,6 +82,12 @@ export function useVoicePrompt({
   const [level, setLevel] = useState(0);
   const [error, setError] = useState("");
   const [secureUrl, setSecureUrl] = useState("");
+  const [unavailableReason, setUnavailableReason] = useState("Checking microphone support…");
+  useEffect(() => {
+    setUnavailableReason(!window.isSecureContext
+      ? "Voice input is disabled on HTTP. Use a trusted HTTPS connection or type your message."
+      : !recognitionConstructor() ? "Voice input is not supported by this browser. Type your message." : "");
+  }, []);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -242,6 +248,7 @@ export function useVoicePrompt({
   }, [stopMeter]);
 
   return {
+    unavailableReason,
     error,
     level,
     listening: state === "listening",
