@@ -16,6 +16,7 @@ def create_notification(
     action_url: str | None = None,
     related_insight_id: int | None = None,
     related_job_id: int | None = None,
+    deduplicate_title: bool = False,
 ) -> NotificationRecord:
     existing = session.execute(
         select(NotificationRecord).where(
@@ -23,6 +24,7 @@ def create_notification(
             NotificationRecord.related_insight_id == related_insight_id,
             NotificationRecord.related_job_id == related_job_id,
             NotificationRecord.read_at.is_(None),
+            NotificationRecord.title == title if deduplicate_title else True,
         )
     ).scalar_one_or_none()
     if existing is not None:

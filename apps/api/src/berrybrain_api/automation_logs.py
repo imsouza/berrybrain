@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from berrybrain_api.models import AutomationLogRecord
 from berrybrain_api.redaction import redact_text, redact_value
@@ -40,33 +40,47 @@ def create_automation_log(
 
 
 def list_automation_logs(
-    session: Session, limit: int = 50
+    session: Session,
+    limit: int = 50,
+    *,
+    before_id: int | None = None,
+    compact: bool = False,
 ) -> list[AutomationLogRecord]:
-    return list(
-        session.execute(
-            select(AutomationLogRecord)
-            .order_by(
-                AutomationLogRecord.created_at.desc(), AutomationLogRecord.id.desc()
-            )
-            .limit(limit)
-        ).scalars()
-    )
+    # The insertion sequence is indexed. Sorting the unindexed timestamp with
+    # large before/after snapshots made this read scan the entire audit history.
+    query = select(AutomationLogRecord).order_by(AutomationLogRecord.id.desc())
+    if before_id is not None:
+        query = query.where(AutomationLogRecord.id < before_id)
+    if compact:
+        query = query.options(
+            defer(AutomationLogRecord.before_state),
+            defer(AutomationLogRecord.after_state),
+        )
+    return list(session.execute(query.limit(max(1, min(limit, 1000)))).scalars())
 
 
-def serialize_automation_log(log: AutomationLogRecord) -> dict[str, Any]:
-    return {
+def serialize_automation_log(
+    log: AutomationLogRecord, *, compact: bool = False
+) -> dict[str, Any]:
+    result = {
         "id": log.id,
         "action_type": log.action_type,
         "target_type": log.target_type,
         "target_id": log.target_id,
-        "description": log.description,
-        "before_state": parse_json(log.before_state),
-        "after_state": parse_json(log.after_state),
+        "description": redact_text(log.description)[:4000]
+        if compact
+        else redact_text(log.description),
         "reversible": bool(log.reversible),
         "reverted_at": log.reverted_at.isoformat() if log.reverted_at else None,
         "reverted_by_log_id": log.reverted_by_log_id,
         "created_at": log.created_at.isoformat() if log.created_at else None,
     }
+    if not compact:
+        result.update(
+            before_state=redact_value(parse_json(log.before_state)),
+            after_state=redact_value(parse_json(log.after_state)),
+        )
+    return result
 
 
 def compact_json(value: object) -> str:

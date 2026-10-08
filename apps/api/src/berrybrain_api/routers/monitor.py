@@ -14,11 +14,13 @@ from berrybrain_api.models import (
     GeneratedMetadataRecord,
     GraphFeedbackRecord,
     InsightRecord,
+    JobRecord,
     LearningEventRecord,
     ModelInvocationRecord,
     NoteRecord,
     WorkerStatus,
 )
+from berrybrain_api.provider_alerts import model_availability_alerts
 from berrybrain_api.schema_migrations import schema_diagnostic
 from berrybrain_api.services import (
     decode_embedding_vector,
@@ -28,6 +30,15 @@ from berrybrain_api.services import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["monitor"])
+
+
+@router.get("/monitor/model-alerts")
+def provider_model_alerts() -> dict:
+    with SessionLocal() as session:
+        return {
+            "alerts": model_availability_alerts(session),
+            "source": "observed provider failures",
+        }
 
 
 class HeartbeatRequest(BaseModel):
@@ -63,12 +74,15 @@ def _worker_status_payload(session, worker: WorkerStatus) -> dict:
 def monitor_stats() -> dict:
     with SessionLocal() as session:
         jobs = list_jobs(session, limit=200)
+        lifetime_counts = dict(
+            session.execute(
+                select(JobRecord.status, func.count()).group_by(JobRecord.status)
+            ).all()
+        )
         worker = session.execute(
             select(WorkerStatus).order_by(WorkerStatus.id.desc()).limit(1)
         ).scalar_one_or_none()
         completed = [j for j in jobs if j.status == "completed"]
-        failed = [j for j in jobs if j.status == "failed"]
-        pending = [j for j in jobs if j.status == "pending"]
         types: dict[str, int] = {}
         for j in completed:
             types[j.type] = types.get(j.type, 0) + 1
@@ -130,19 +144,22 @@ def monitor_stats() -> dict:
             "metadata": session.query(GeneratedMetadataRecord).count(),
             "embeddings": session.query(EmbeddingRecord).count(),
             "jobs": {
-                "total": len(jobs),
-                "completed": len(completed),
-                "failed": len(failed),
-                "pending": len(pending),
-                "running": len(running),
-                "per_hour": len(
-                    [
-                        j
-                        for j in completed
-                        if j.completed_at
-                        and (datetime.now() - j.completed_at).total_seconds() < 3600
-                    ]
-                ),
+                "total": sum(lifetime_counts.values()),
+                "completed": lifetime_counts.get("completed", 0),
+                "failed": lifetime_counts.get("failed", 0)
+                + lifetime_counts.get("dead_letter", 0),
+                "pending": lifetime_counts.get("pending", 0),
+                "running": lifetime_counts.get("running", 0)
+                + lifetime_counts.get("cancel_requested", 0),
+                "recent_sample_size": len(jobs),
+                "per_hour": session.scalar(
+                    select(func.count(JobRecord.id)).where(
+                        JobRecord.status == "completed",
+                        JobRecord.completed_at
+                        >= datetime.now(UTC) - timedelta(hours=1),
+                    )
+                )
+                or 0,
             },
             "model_invocations": {
                 "total": len(invocations),
