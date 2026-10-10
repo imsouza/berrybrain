@@ -71,6 +71,26 @@ test("partial graph failure keeps loaded nodes and exposes retry", async ({ page
   await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
 });
 
+test("graph uses the compact projection and follows edge cursors", async ({ page }) => {
+  const cursors: string[] = [];
+  await page.route("**/api/v1/graph/edges?**", route => {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get("compact")).toBe("true");
+    expect(query.get("limit")).toBe("1000");
+    const cursor = query.get("cursor") || "";
+    cursors.push(cursor);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      edges: [{ id: cursor === "0" ? 1 : 2, source: "note_0", target: cursor === "0" ? "note_1" : "note_2", type: "related" }],
+      nextCursor: cursor === "0" ? 1 : null,
+      graphVersion: 1,
+    }) });
+  });
+  await page.goto("/brain?graph=open");
+  await expect(page.getByRole("img", { name: /Knowledge graph with 3 nodes/ })).toBeVisible();
+  await expect.poll(() => cursors).toEqual(["0", "1"]);
+  await expect(page.getByRole("alert").filter({ hasText: "Graph loading is incomplete" })).toHaveCount(0);
+});
+
 test("logo leaves new-note editor; Markdown preview renders math and Mermaid", async ({ page }) => {
   await page.goto("/brain?newNote=1");
   await expect(page.getByText("Test note", { exact: true }).first()).toBeVisible();
