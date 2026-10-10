@@ -314,10 +314,14 @@ async function fetchGraphResource(
   input: string,
   timeoutMs = 8_000,
   retries = 1,
+  signal?: AbortSignal,
 ): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    signal?.throwIfAborted();
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(input, { signal: controller.signal });
@@ -325,9 +329,11 @@ async function fetchGraphResource(
       const body = await response.arrayBuffer();
       return new Response(body, { status: response.status, headers: response.headers });
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
     } finally {
       window.clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Graph request failed");
@@ -348,6 +354,9 @@ export function useGraphData(apiUrl: string, enabled = true) {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    const readGraph = (url: string, timeout = 8_000, retries = 1) =>
+      fetchGraphResource(url, timeout, retries, controller.signal);
     function publish(next: GraphData) {
       if (cancelled) return;
       dataRef.current = next;
@@ -355,21 +364,16 @@ export function useGraphData(apiUrl: string, enabled = true) {
       setData(next);
     }
     async function loadMetadata() {
-      const summaryResponse = await fetchGraphResource(
-        `${apiUrl}/api/v1/graph/summary?includeProvisional=true`,
-        10_000,
-      );
+      const [summaryResponse, paletteResponse] = await Promise.all([
+        readGraph(`${apiUrl}/api/v1/graph/summary?includeProvisional=true`, 10_000),
+        readGraph(`${apiUrl}/api/v1/graph/palette`, 4_000, 0).catch(() => null),
+      ]);
       if (!summaryResponse.ok) throw new Error("Graph summary unavailable");
       const summary = await summaryResponse.json();
       const stats = {
         ...summary,
         orphan_count: summary.orphan_count ?? summary.orphans ?? 0,
       };
-      const paletteResponse = await fetchGraphResource(
-        `${apiUrl}/api/v1/graph/palette`,
-        4_000,
-        0,
-      ).catch(() => null);
       const palettePayload = paletteResponse?.ok ? await paletteResponse.json() : { colors: [] };
       const palette = Object.fromEntries(
         (palettePayload.colors || []).map((color: GraphPaletteColor) => [color.colorId, color]),
@@ -386,7 +390,7 @@ export function useGraphData(apiUrl: string, enabled = true) {
         let publishedInitialNodes = false;
         while (nodeCursor !== null && !cancelled) {
           const limit = publishedInitialNodes ? 2_000 : 500;
-          const response = await fetchGraphResource(
+          const response = await readGraph(
             `${apiUrl}/api/v1/graph/nodes?cursor=${nodeCursor}&limit=${limit}&includeProvisional=true`,
             12_000,
           );
@@ -403,8 +407,8 @@ export function useGraphData(apiUrl: string, enabled = true) {
         let edgeCursor: number | null = 0;
         let publishedInitialEdges = false;
         while (edgeCursor !== null && !cancelled) {
-          const response = await fetchGraphResource(
-            `${apiUrl}/api/v1/graph/edges?cursor=${edgeCursor}&limit=5000&includeProvisional=true`,
+          const response = await readGraph(
+            `${apiUrl}/api/v1/graph/edges?cursor=${edgeCursor}&limit=1000&includeProvisional=true&compact=true`,
             15_000,
           );
           if (!response.ok) throw new Error("Graph edges unavailable");
@@ -421,7 +425,7 @@ export function useGraphData(apiUrl: string, enabled = true) {
     }
     async function loadDelta(previous: GraphData): Promise<boolean> {
       if (previous.graphVersion === undefined) return false;
-      const response = await fetchGraphResource(
+      const response = await readGraph(
         `${apiUrl}/api/v1/graph/delta?since_version=${previous.graphVersion}&includeProvisional=true`,
         3_000,
         0,
@@ -469,6 +473,7 @@ export function useGraphData(apiUrl: string, enabled = true) {
     loadGraph();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [apiUrl, reloadVersion, enabled]);
   const reload = useCallback(() => {
@@ -542,7 +547,9 @@ export function GraphCanvas({
   const freshNodes = useRef<Map<string, number>>(new Map()); // id → added timestamp
 
   const tctx = useRef<Map<string, any>>(new Map());
-  useEffect(() => { tctx.current = tooltipCtx(data); }, [data]);
+  useEffect(() => {
+    tctx.current = tooltipCtx({ nodes: data.nodes, edges: data.edges });
+  }, [data.nodes, data.edges]);
   useEffect(() => { onOpenRef.current = onOpen; }, [onOpen]);
   useLayoutEffect(() => { viewRef.current = { zoom, pan }; }, [pan, zoom]);
   const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
@@ -554,7 +561,7 @@ export function GraphCanvas({
       map.get(edge.target)?.add(edge.source);
     }
     return map;
-  }, [data]);
+  }, [data.nodes, data.edges]);
   const focusRoots = useMemo(
     () => new Set([selectedId, hoveredId].filter((value): value is string => Boolean(value))),
     [hoveredId, selectedId],
@@ -992,7 +999,9 @@ export function GraphCanvas({
       const spatialIndex = new Map<string, LN[]>();
       for (const node of visibleNodes) {
         const key = `${Math.floor(node.x / 96)}:${Math.floor(node.y / 96)}`;
-        spatialIndex.set(key, [...(spatialIndex.get(key) || []), node]);
+        const bucket = spatialIndex.get(key);
+        if (bucket) bucket.push(node);
+        else spatialIndex.set(key, [node]);
       }
       spatialIndexRef.current = spatialIndex;
       const visibleIds = new Set(visibleNodes.map((node) => node.node.id));

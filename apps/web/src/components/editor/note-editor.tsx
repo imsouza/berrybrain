@@ -1,6 +1,7 @@
 "use client";
 
 import { useWorkspace } from "@/contexts/workspace-context";
+import { pollResource } from "@/lib/poll-resource";
 import dynamic from "next/dynamic";
 const MarkdownPreview = dynamic(() => import("./markdown-preview").then(module => module.MarkdownPreview), {
   loading: () => <p className="p-4 text-sm text-muted">Loading Markdown preview…</p>,
@@ -156,26 +157,13 @@ export function NoteEditor() {
       setPipelineProgress(null);
       return;
     }
-    let cancelled = false;
     const notePath = activePath;
-    const load = () => {
-      fetch(`${w.api}/api/v1/jobs/pipeline-progress`)
-        .then((response) => (response.ok ? response.json() : null))
-        .then((payload) => {
-          if (cancelled) return;
-          const progress = (payload?.notes || []).find((item: NotePipelineProgress) => item.notePath === notePath);
-          setPipelineProgress(progress || null);
-        })
-        .catch(() => {
-          if (!cancelled) setPipelineProgress(null);
-        });
-    };
-    load();
-    const interval = window.setInterval(load, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
+    return pollResource<{ notes: NotePipelineProgress[] }>(
+      `${w.api}/api/v1/jobs/pipeline-progress`,
+      payload => setPipelineProgress(payload.notes.find(item => item.notePath === notePath) || null),
+      15_000,
+      () => setPipelineProgress(null),
+    );
   }, [w.active?.path, w.api, w.demo]);
 
   const editorMetrics = useMemo(() => {

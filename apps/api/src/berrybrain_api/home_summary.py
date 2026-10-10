@@ -140,12 +140,17 @@ def build_home_summary(session: Session) -> dict[str, Any]:
         ).all()
     )
     concepts = list(session.execute(select(ConceptRecord)).scalars())
+    recent_insight_ids = (
+        select(InsightRecord.id)
+        .where(InsightRecord.dismissed_at.is_(None))
+        .order_by(InsightRecord.priority.desc(), InsightRecord.created_at.desc())
+        .limit(30)
+    )
     raw_insights = list(
         session.execute(
             select(InsightRecord)
-            .where(InsightRecord.dismissed_at.is_(None))
+            .where(InsightRecord.id.in_(recent_insight_ids))
             .order_by(InsightRecord.priority.desc(), InsightRecord.created_at.desc())
-            .limit(30)
         ).scalars()
     )
     insights = [insight for insight in raw_insights if _is_visible_insight(insight)][:5]
