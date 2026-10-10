@@ -101,7 +101,13 @@ def note_assimilation_map(
             select(
                 GraphEdgeRecord.source_node_id,
                 GraphEdgeRecord.target_node_id,
-            ).where(accepted_edge_clause())
+            ).where(
+                accepted_edge_clause(),
+                or_(
+                    GraphEdgeRecord.source_node_id.in_(note_node_ids),
+                    GraphEdgeRecord.target_node_id.in_(note_node_ids),
+                ),
+            )
         ).all():
             source_note_id = note_node_ids.get(edge.source_node_id)
             target_note_id = note_node_ids.get(edge.target_node_id)
@@ -139,22 +145,24 @@ def note_assimilation_map(
             (JobRecord.note_path != "", JobRecord.note_path),
             else_=func.json_extract(valid_payload, "$.note_path"),
         )
-        completed_job_note_ids.update(
-            session.execute(
-                select(NoteRecord.id)
-                .join(JobRecord, legacy_path == NoteRecord.path)
-                .where(
-                    NoteRecord.id.in_(note_ids),
-                    JobRecord.note_id == 0,
-                    JobRecord.status == COMPLETED,
-                    JobRecord.type.in_(ASSIMILATION_JOB_TYPES),
-                    or_(
-                        effective_hash == "", effective_hash == NoteRecord.content_hash
-                    ),
-                )
-                .distinct()
-            ).scalars()
+        # Decode legacy identity once per job, not once per note/job join pair.
+        # Distinct path/hash pairs bound Python work while retaining the exact
+        # current-version and empty-hash compatibility rules.
+        legacy_pairs = session.execute(
+            select(legacy_path, effective_hash)
+            .where(
+                JobRecord.note_id == 0,
+                JobRecord.status == COMPLETED,
+                JobRecord.type.in_(ASSIMILATION_JOB_TYPES),
+                legacy_path.in_(note_by_path),
+                effective_hash.in_({"", *note_hash_by_id.values()}),
+            )
+            .distinct()
         )
+        for path, content_hash in legacy_pairs:
+            note = note_by_path[path]
+            if not content_hash or content_hash == note.content_hash:
+                completed_job_note_ids.add(note.id)
     for job in jobs or []:
         if job.status != COMPLETED or job.type not in ASSIMILATION_JOB_TYPES:
             continue

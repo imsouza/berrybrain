@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.11-blue)
+![Version](https://img.shields.io/badge/version-1.4.12-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.11](#whats-new-in-1411)
+- [What's New in 1.4.12](#whats-new-in-1412)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,16 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.11
+## What's New in 1.4.12
+
+Lighter graph pages, cancellable navigation reads and visibility-aware polling
+reduce workspace load. Home avoids repeated legacy JSON joins; pipeline progress
+no longer lets global maintenance hide note jobs. Full graph evidence remains
+available through the default API projection. See the [1.4.12 release notes](docs/releases/v1.4.12.md)
+and [performance review](docs/reviews/2026-10-10-performance.md) for measurements,
+limits and the load-balancing decision. No new research experiments were run.
+
+### Previous: 1.4.11
 
 Activity and Monitor load independently, with compact log history, global failed
 job counts, and JSON export in Settings. The workspace keeps navigation visible

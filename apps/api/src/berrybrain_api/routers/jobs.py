@@ -2,7 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 
 from berrybrain_api.api_contract import PageLimit
 from berrybrain_api.artifact_state import processable_node_clause
@@ -17,6 +17,7 @@ from berrybrain_api.jobs import (
     COMPLETED,
     DEAD_LETTER,
     FAILED,
+    NOTE_PIPELINE_ORDER,
     PENDING,
     RUNNING,
     SUPERSEDED,
@@ -283,30 +284,69 @@ def job_attempts_endpoint(job_id: int) -> dict:
 def pipeline_progress_endpoint() -> dict:
     """Per-note pipeline progress for active/recent jobs."""
     with SessionLocal() as session:
+        valid_payload = case(
+            (func.json_valid(JobRecord.payload), JobRecord.payload), else_="{}"
+        )
+        # Only legacy identity fields are consumed by the progress calculator.
+        # Never deserialize generation prompts / snapshots just to draw a badge.
+        identity_payload = func.json_object(
+            "note_id",
+            func.coalesce(func.json_extract(valid_payload, "$.note_id"), 0),
+            "note_path",
+            func.coalesce(func.json_extract(valid_payload, "$.note_path"), ""),
+            "pipeline_run_id",
+            func.coalesce(func.json_extract(valid_payload, "$.pipeline_run_id"), ""),
+            "content_hash",
+            func.coalesce(func.json_extract(valid_payload, "$.content_hash"), ""),
+        )
         jobs = list(
             session.execute(
-                select(JobRecord)
+                select(
+                    JobRecord.id,
+                    JobRecord.type,
+                    JobRecord.status,
+                    JobRecord.note_id,
+                    JobRecord.note_path,
+                    JobRecord.pipeline_run_id,
+                    JobRecord.content_hash,
+                    JobRecord.created_at,
+                    JobRecord.started_at,
+                    JobRecord.completed_at,
+                    JobRecord.error_message,
+                    identity_payload.label("payload"),
+                )
                 .where(
+                    JobRecord.type.in_(NOTE_PIPELINE_ORDER),
+                    or_(
+                        JobRecord.note_id > 0,
+                        JobRecord.note_path != "",
+                        func.coalesce(func.json_extract(valid_payload, "$.note_id"), 0)
+                        > 0,
+                        func.coalesce(
+                            func.json_extract(valid_payload, "$.note_path"), ""
+                        )
+                        != "",
+                    ),
                     JobRecord.status.in_(
                         [PENDING, RUNNING, COMPLETED, FAILED, DEAD_LETTER, SUPERSEDED]
-                    )
+                    ),
                 )
                 .order_by(JobRecord.created_at.desc())
                 .limit(500)
-            ).scalars()
+            ).all()
         )
-        note_paths_by_id = {
-            note.id: note.path for note in session.execute(select(NoteRecord)).scalars()
-        }
+        note_paths_by_id = dict(
+            session.execute(select(NoteRecord.id, NoteRecord.path)).all()
+        )
         graph_note_ids = {
-            int(node.source_id)
-            for node in session.execute(
-                select(GraphNodeRecord).where(
+            int(source_id)
+            for source_id in session.scalars(
+                select(GraphNodeRecord.source_id).where(
                     GraphNodeRecord.type == "note",
                     processable_node_clause(),
                 )
-            ).scalars()
-            if node.source_id is not None
+            )
+            if source_id is not None
         }
     return {
         "notes": calculate_pipeline_progress(

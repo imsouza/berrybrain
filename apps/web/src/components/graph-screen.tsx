@@ -1,5 +1,6 @@
 "use client";
 import { readResource } from "@/lib/read-resource";
+import { pollResource } from "@/lib/poll-resource";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Route } from "next";
@@ -471,24 +472,17 @@ export function GraphScreen({
   }, [apiUrl, data]);
   useEffect(() => {
     if (askOnly || apiUrl === "__demo__") return;
-    let cancelled = false;
-    const loadProgress = () => {
-      apiFetch(`${apiUrl}/api/v1/jobs/pipeline-progress`)
-        .then((response) => response.ok ? response.json() : null)
-        .then((payload) => {
-          if (cancelled || !payload) return;
+    return pollResource<{ notes: { state?: string; graphState?: string; estimatedRemainingSeconds?: number | null; estimatedRemainingSecondsP95?: number | null }[] }>(
+      `${apiUrl}/api/v1/jobs/pipeline-progress`,
+      (payload) => {
           const notes = Array.isArray(payload.notes) ? payload.notes : [];
           const active = notes.filter((item: { state?: string }) => ["waiting", "processing"].includes(item.state || "")).length;
           const degraded = notes.filter((item: { graphState?: string }) => item.graphState === "degraded").length;
           const estimates = notes.map((item: { estimatedRemainingSeconds?: number | null }) => item.estimatedRemainingSeconds).filter((value: unknown): value is number => typeof value === "number");
           const upperEstimates = notes.map((item: { estimatedRemainingSecondsP95?: number | null }) => item.estimatedRemainingSecondsP95).filter((value: unknown): value is number => typeof value === "number");
           setGraphPipeline({ active, degraded, estimatedRemainingSeconds: estimates.length ? Math.max(...estimates) : null, estimatedRemainingSecondsP95: upperEstimates.length ? Math.max(...upperEstimates) : null });
-        })
-        .catch(() => {});
-    };
-    loadProgress();
-    const interval = window.setInterval(loadProgress, 5000);
-    return () => { cancelled = true; window.clearInterval(interval); };
+      },
+    );
   }, [apiUrl, askOnly]);
   const [showInsightNodes, setShowInsightNodes] = useState(() => {
     if (typeof window === "undefined") return true;
