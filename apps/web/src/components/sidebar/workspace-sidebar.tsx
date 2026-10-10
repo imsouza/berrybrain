@@ -5,7 +5,7 @@ import type { Route } from "next";
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
-import { readResource } from "@/lib/read-resource";
+import { pollResource } from "@/lib/poll-resource";
 import packageMetadata from "../../../package.json";
 import { useWorkspace, appPath } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
@@ -71,27 +71,15 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       setAttentionCount(0);
       return;
     }
-    let cancelled = false;
-    async function loadAttention() {
-      try {
-        const payload = await readResource(`${w.api}/api/v1/home/summary`);
-        if (!cancelled) {
+    return pollResource<{ needsAttention?: unknown[] }>(
+      `${w.api}/api/v1/home/summary`,
+      payload => {
           const now = Date.now();
           const count = (payload.needsAttention || []).length;
           setAttentionCount(dismissedAt > now - 60000 ? 0 : count);
-        }
-      } catch {
-        if (!cancelled) {
-          setAttentionCount(0);
-        }
-      }
-    }
-    loadAttention();
-    const timer = setInterval(loadAttention, 30000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
+      },
+      30_000,
+    );
   }, [w.api, dismissedAt, w.demo]);
 
   const loadFolders = useCallback(async () => {

@@ -190,7 +190,7 @@ def evidence_coverage_signal(
     return ConfidenceSignal(coverage, "evidence-claim-token-coverage")
 
 
-def serialize_confidence(target: Any) -> dict[str, Any]:
+def serialize_confidence(target: Any, *, compact: bool = False) -> dict[str, Any]:
     sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
     score = getattr(target, "confidence", None) if sample_size else None
     return {
@@ -200,7 +200,13 @@ def serialize_confidence(target: Any) -> dict[str, Any]:
         "level": 0.95,
         "sampleSize": sample_size,
         "method": getattr(target, "confidence_method", "unavailable") or "unavailable",
-        "factors": _json_list(getattr(target, "confidence_factors", "[]")),
+        **(
+            {}
+            if compact
+            else {
+                "factors": _json_list(getattr(target, "confidence_factors", "[]")),
+            }
+        ),
         "computedAt": (
             target.confidence_updated_at.isoformat()
             if getattr(target, "confidence_updated_at", None)

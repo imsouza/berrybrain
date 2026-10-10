@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from berrybrain_api.ai_gateway import (
     GraphAIUnavailable,
@@ -339,6 +339,7 @@ def get_graph_edges_page(
     limit: int = Query(default=500, ge=1, le=5000),
     node_ids: str = "",
     include_provisional: bool = Query(False, alias="includeProvisional"),
+    compact: bool = False,
 ) -> dict:
     with SessionLocal() as session:
         visible_nodes = select(GraphNodeRecord.id).where(
@@ -346,6 +347,11 @@ def get_graph_edges_page(
         )
         query = (
             select(GraphEdgeRecord)
+            .options(
+                defer(GraphEdgeRecord.ai_notes, raiseload=True),
+                defer(GraphEdgeRecord.user_notes, raiseload=True),
+                defer(GraphEdgeRecord.source_note_ids, raiseload=True),
+            )
             .where(
                 GraphEdgeRecord.id > cursor,
                 accepted_edge_clause(include_provisional=include_provisional),
@@ -355,6 +361,13 @@ def get_graph_edges_page(
             .order_by(GraphEdgeRecord.id)
             .limit(limit + 1)
         )
+        if compact:
+            # The canvas needs topology and confidence bounds, not audit blobs.
+            # Full provenance remains available through the default projection.
+            query = query.options(
+                defer(GraphEdgeRecord.evidence, raiseload=True),
+                defer(GraphEdgeRecord.confidence_factors, raiseload=True),
+            )
         requested_ids = {
             int(item.rsplit("_", 1)[-1])
             for item in node_ids.split(",")
@@ -393,9 +406,9 @@ def get_graph_edges_page(
                 "type": edge.type,
                 "label": edge.label,
                 "confidence": edge.confidence if edge.confidence_sample_size else None,
-                "confidenceInterval": serialize_confidence(edge),
+                "confidenceInterval": serialize_confidence(edge, compact=compact),
                 "reason": edge.reason,
-                "evidence": _parse_json_list(edge.evidence),
+                **({} if compact else {"evidence": _parse_json_list(edge.evidence)}),
                 "status": edge.status,
                 "provider": edge.provider,
                 "model": edge.model,
