@@ -4,6 +4,21 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.4.12 - 2026-10-10
+
+- Add opt-in compact graph edge pages; omit audit blobs from visual reads while
+  preserving the default full API contract, topology and confidence bounds.
+- Cancel abandoned graph reads, fetch metadata concurrently, reduce page size
+  and avoid redundant visual-index reconstruction.
+- Pause editor, graph and sidebar polling in hidden tabs; serialize periodic
+  requests with timeouts and ignore late results after navigation.
+- Project lightweight pipeline identity/status fields and exclude unrelated
+  maintenance before sampling note progress.
+- Remove repeated legacy JSON joins from note assimilation and select insight
+  IDs before loading full Home records. No schema migration or model changes.
+- Add API/browser/polling regression coverage and operational measurements
+  explicitly separated from research benchmarks.
+
 ## 1.4.11 - 2026-10-08
 
 - Load Activity, Home and Monitor independently with bounded requests; compact,

@@ -122,6 +122,20 @@ Default pages include accepted artifacts; `includeProvisional=true` is for
 review workbenches and still excludes rejected/quarantined artifacts. Edges
 only expose endpoints visible under the same policy.
 
+For network visualization, use `GET /graph/edges?compact=true&limit=1000`
+and follow `nextCursor`. This opt-in projection omits `evidence` and
+`confidenceInterval.factors` without reading those audit blobs from storage.
+IDs, endpoints, relationships, reason, confidence bounds and provenance
+identifiers remain unchanged. Omitted fields mean **not loaded**, not missing
+evidence. The default (`compact=false`) retains the complete existing contract;
+audit/inference clients must not treat the visual projection as an evidence
+bundle. Nodes, ontology shapes and semantic colors are unchanged.
+
+`GET /jobs/pipeline-progress` samples the latest 500 note-linked pipeline jobs,
+excluding unrelated global maintenance before applying the limit. It supports
+structured and legacy JSON note identities. It is a bounded progress view, not
+the complete job ledger; use paginated `/jobs` and job detail for history.
+
 HTTP 200 from Ask means the request completed, **not that every assertion is
 true or that sufficient evidence exists**. Preserve the returned status and
 citations, distinguish inference from evidence, and do not present an abstention
