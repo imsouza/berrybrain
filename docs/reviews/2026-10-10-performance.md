@@ -1,7 +1,8 @@
 # Otimização de desempenho — 10/10/2026
 
 Escopo: sistema BerryBrain. Não inclui novos experimentos, números ou alterações
-do TCC. Base em execução: v1.4.11. Mudanças abaixo ainda não implantadas.
+do TCC. Base diagnosticada: v1.4.11. Atualização v1.4.12 implantada em
+11/10/2026, com backup verificado e contêineres anteriores preservados.
 
 ## Checklist
 
@@ -28,7 +29,17 @@ do TCC. Base em execução: v1.4.11. Mudanças abaixo ainda não implantadas.
 - [x] Build final de produção, typecheck e lint aprovados.
 - [x] Comparação operacional das projeções em leitura estrita.
 - [x] Validação de navegador com o build final: 19 cenários aprovados.
-- [ ] Publicação e implantação controlada com backup e rollback.
+- [x] PR #30 integrado à main após os nove checks obrigatórios aprovarem.
+- [x] CI de sistema: 719 testes em 89 módulos, sem falhas ou skips.
+- [x] Release v1.4.12: imagens AMD64/ARM64 publicadas; assinaturas e
+  atestações SPDX verificadas por identidade do workflow e digest.
+- [x] Publicar três SBOMs, digests, guia de verificação e SHA256SUMS.
+- [x] Publicação e implantação controlada com backup e rollback.
+- [x] API, worker e web v1.4.12 saudáveis; configurações, volumes e portas iguais.
+- [x] Conferir 34 outros contêineres ativos: nenhuma mudança de imagem,
+  estado, início de execução ou contagem de reinícios.
+- [x] Smoke HTTP autenticado: Home, jobs, notas e grafo; páginas principais
+  e comunicação frontend/API com HTTP 200.
 
 ## Evidências iniciais
 
@@ -66,7 +77,9 @@ limites de memória ou parâmetros globais do kernel.
 
 Executada em processo diagnóstico separado, com `PRAGMA query_only=ON` em
 todas as conexões desse processo. O código candidato foi carregado somente
-na memória desse processo; a aplicação ativa permaneceu na v1.4.11.
+na memória desse processo; a aplicação ativa permaneceu na v1.4.11. As arestas
+foram comparadas com `include_provisional=True`, como no canvas, incluindo
+relações provisórias. A API sem esse parâmetro restringe a visão às aceitas.
 
 | Operação | Código anterior | Candidato | Observação |
 | --- | ---: | ---: | --- |
@@ -79,9 +92,68 @@ São chamadas diretas aos handlers, não medidas HTTP ponta a ponta. Uma execuç
 por versão, ordem fixa (anterior primeiro), cache aquecido e build concorrente:
 não é possível atribuir toda a diferença temporal ao código. A redução de bytes
 e a igualdade da topologia foram verificadas diretamente; percentis de latência
-e experiência pós-deploy continuam pendentes. O build concorrente e demais
+e avaliação prolongada no navegador continuam pendentes. O build concorrente e demais
 serviços competem pelo host, reforçando a necessidade de medições posteriores
 sem essa interferência.
+
+## Publicação e verificação — 11/10/2026
+
+- [PR #30](https://github.com/imsouza/berrybrain/pull/30), nove checks aprovados.
+  Relatório do CI: 719 testes em 89 módulos, zero falhas e zero skips.
+  As suítes locais e de CI se sobrepõem; seus totais não devem ser somados.
+- [Release v1.4.12](https://github.com/imsouza/berrybrain/releases/tag/v1.4.12),
+  commit `24fa3ccefd32ac7a12a68aef2023d425208a192a`.
+- Imagens AMD64/ARM64 com assinaturas e atestações SPDX verificadas via Cosign
+  3.1.3, identidade do workflow da tag e correspondência de subject/digest.
+- Seis assets publicados; SHA-256 informado pelo GitHub conferido com o local:
+  três SBOMs SPDX 2.3, `IMAGE_DIGESTS.txt`, `VERIFICATION.md`, `SHA256SUMS`.
+  Os SBOMs avulsos vieram do runner AMD64; não são inventários ARM64 separados.
+  Atestações específicas de plataforma permanecem anexadas às imagens OCI.
+- Backup privado `backup-20261011T191339Z-579e8820`: 70 arquivos verificados,
+  SQLite `quick_check = ok`, esquema 14, 56 notas e 71.260 jobs. Nenhum conteúdo
+  desse backup foi anexado à release pública.
+- Implantação concluída às 19:25 UTC de 11/10/2026. API, worker e web saudáveis,
+  sem migração de esquema. Os três contêineres da v1.4.11 ficaram parados e
+  preservados com sufixo `rollback-pre-1.4.12-20261011`. As imagens anteriores
+  também têm tag `pre-1.4.12-20261011`; aliases locais apontam para a v1.4.12.
+
+### Leituras após implantação
+
+17 leituras HTTP concluíram com status 200: saúde, Home, progresso, saúde/lista
+de jobs, notas, resumo/paleta/nós/arestas do grafo, quatro páginas HTML e duas
+chamadas à API pelo proxy do frontend. São smoke checks do produto, não novos
+experimentos acadêmicos nem um teste de carga. Os testes de interação no
+navegador são os 19 cenários locais registrados acima.
+
+| Recurso | Tempo observado | Resultado |
+| --- | ---: | --- |
+| Home, primeira leitura após subir | 8,072 s | HTTP 200 |
+| Home pelo frontend, leitura subsequente | 1,162 s | HTTP 200 |
+| Home, reconferência posterior | 1,899 s | HTTP 200 |
+| Home, nova reconferência | 8,668 s | HTTP 200; lentidão residual |
+| Progresso | 0,240 s | 27 notas; antes a amostra era vazia |
+| Notas | 0,080 s | 56 notas preservadas |
+| Resumo do grafo, visão aceita | 0,201 s | HTTP 200 |
+| Nós, visão aceita | 0,097 s | HTTP 200 |
+| Arestas compactas, visão aceita | 0,152 s | 273 arestas; 210.965 bytes |
+| Mesmas arestas, projeção completa | 0,151 s | Mesmos IDs; 319.877 bytes |
+| Falhas, incluindo dead letters | 0,450 s | 20 registros na página; 1.076 no total |
+
+Os 273 itens da visão aceita não devem ser confundidos com as 1.170 arestas
+incluindo provisórias da comparação anterior. O percurso real do canvas,
+`includeProvisional=true&compact=true`, também foi conferido após a implantação:
+duas páginas, 1.000 e 170 arestas, cursores crescentes, sem IDs repetidos e com
+versão de grafo estável (0,426 s e 0,143 s nessas leituras).
+Falhas arquivadas não foram
+apagadas nem reexecutadas em massa. O recorte de logs desde a subida dos três
+serviços não apresentou linhas de erro/exceção ou HTTP 5xx; reinícios: zero.
+
+**Limite ainda presente:** a Home variou de 1,162 s a 8,668 s nas leituras após
+a implantação. A lentidão não ocorreu apenas na primeira leitura; não pode ser
+atribuída exclusivamente ao cache frio. Consultas e concorrência pelo HDD
+merecem outra rodada de
+diagnóstico operacional. Não há evidência para declarar a lentidão totalmente
+eliminada ou prometer um percentil de resposta.
 
 ## Load balancer: decisão
 
