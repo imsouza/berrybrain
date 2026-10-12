@@ -39,6 +39,7 @@ type Job = {
   attempts: number;
   max_attempts: number;
   error_message?: string;
+  automaticRecovery?: { count?: number; scheduledAt?: string };
   created_at?: string;
   completed_at?: string;
   started_at?: string;
@@ -80,6 +81,9 @@ const JOB_LABELS: Record<string, string> = {
   GENERATE_NOTE_TITLE: "Automatic title",
   GENERATE_GRAPH_INSIGHTS: "Graph insights",
   UPDATE_GRAPH_STATS: "Graph stats",
+  JUDGE_ARTIFACT: "Artifact quality evaluation",
+  GENERATE_INFERRED_CONNECTIONS: "Inferred connections",
+  ENRICH_GRAPH_NODE: "Graph node enrichment",
   EXTRACT_CONTEXT: "Context extraction",
   CONSOLIDATE_CONCEPTS: "Concept consolidation",
   GENERATE_AGENDA: "Agenda generation",
@@ -165,7 +169,7 @@ function buildSnapshot(jobs: Job[], logs: Log[]): ActivitySnapshot {
       when,
       whenTs: timestamp(when || undefined),
       human: humanized.human,
-      technical: `${job.type} · job #${job.id} · ${job.attempts || 1}/${job.max_attempts || 3} attempts${job.error_message ? ` · ${job.error_message.slice(0, 150)}` : ""}`,
+      technical: `${job.type} · job #${job.id} · ${job.attempts || 1}/${job.max_attempts || 3} attempts${job.automaticRecovery?.count ? ` · automatic recovery ${job.automaticRecovery.count}/3` : ""}${job.error_message ? ` · ${job.error_message.slice(0, 150)}` : ""}`,
       kind,
       noteRef: humanized.noteRef,
       detail: humanized.detail,

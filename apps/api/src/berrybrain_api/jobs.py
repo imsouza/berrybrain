@@ -696,6 +696,9 @@ def claim_next_job(
     lease_minutes: int = 30,
 ) -> JobRecord | None:
     recover_stale_running_jobs(session, stale_after_minutes)
+    from berrybrain_api.job_recovery import recover_exhausted_jobs
+
+    recover_exhausted_jobs(session)
 
     candidates = list(
         session.execute(
@@ -1048,7 +1051,7 @@ def fail_job(
     if stage:
         update_job_attempt(session, job, stage=stage)
 
-    if job.attempts >= job.max_attempts:
+    if job.attempts >= job.max_attempts or retryability == "permanent":
         job.status = DEAD_LETTER
         job.claimed_by = ""
         job.claim_token = ""
@@ -1151,11 +1154,16 @@ def list_jobs(
 
 
 def serialize_job(job: JobRecord) -> dict[str, Any]:
+    payload = parse_json(job.payload)
+    recovery = (
+        payload.get("_automatic_recovery", {}) if isinstance(payload, dict) else {}
+    )
     return {
         "id": job.id,
         "type": job.type,
         "status": job.status,
-        "payload": parse_json(job.payload),
+        "payload": payload,
+        "automaticRecovery": recovery if isinstance(recovery, dict) else {},
         "payload_schema_version": job.payload_schema_version,
         "note_id": job.note_id,
         "note_path": job.note_path,

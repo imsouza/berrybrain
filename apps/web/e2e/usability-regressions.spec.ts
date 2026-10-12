@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const home = {
   status: { worker: "running", cloudStatus: "configured", pendingJobs: 0, activeJobs: 0 },
   progress: { mode: "determinate", percent: 100, active: 0, pending: 0, completed: 100, failed: 2, status: "completed", currentStep: "Ready", lastResult: "Ready" },
-  stats: { notes: { total: 1, createdToday: 1, unassimilated: 0 }, connections: { total: 0 }, concepts: { total: 0 }, knowledge: { weakConcepts: 0, openGaps: 0 }, jobs: { pending: 0, active: 0, failed: 2, completedToday: 100, total: 102 }, ai: {} },
+  stats: { notes: { total: 1, createdToday: 1, unassimilated: 0 }, connections: { total: 0, createdToday: 0 }, concepts: { total: 0, newToday: 0, withoutPermanentNote: 0 }, knowledge: { weakConcepts: 0, openGaps: 0 }, jobs: { pending: 0, active: 0, failed: 2, completedToday: 100, total: 102, byStatus: { completed: 100, dead_letter: 2 } }, ai: { provider: "cloud", model: "fixture-model", embeddings: 1, metadata: 1 } },
   recentNotes: [], activeJobs: [], recentlyCompleted: [], recentActivity: [], recentConnections: [],
   graphSummary: { nodes: 3, edges: 2, orphans: 0, clusters: 1, centralNotes: [] }, needsAttention: [], jobsByType: {},
 };
@@ -37,6 +37,46 @@ async function mockWorkspace(page: Page) {
 
 test.beforeEach(async ({ page }) => { await mockWorkspace(page); });
 
+test("Alerts counts unread items and opening does not dismiss them", async ({ page }) => {
+  let unread = 7;
+  await page.route("**/api/v1/notifications**", route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/read-all")) unread = 0;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      unreadCount: unread,
+      notifications: [{ id: 1, title: "Retry needs attention", description: "Temporary provider error", action: "Open Monitor", read: unread === 0 }],
+    }) });
+  });
+  await page.goto("/brain");
+  const badge = page.getByRole("button", { name: "Notifications", exact: true });
+  await expect(badge).toContainText("7");
+  await badge.click();
+  await expect(page.getByRole("heading", { name: "Alerts 7 unread" })).toBeVisible();
+  await expect(badge).toContainText("7");
+  await page.getByRole("button", { name: "Mark all as read" }).click();
+  await expect(page.getByRole("heading", { name: "Alerts 0 unread" })).toBeVisible();
+  await expect(badge).not.toContainText("7");
+});
+
+test("Home charts use real counts and operations switch compact views", async ({ page }) => {
+  await page.goto("/brain");
+  const charts = page.getByTestId("workspace-charts");
+  await expect(charts.getByRole("img", { name: "1 of 1 notes assimilated" })).toBeVisible();
+  await expect(charts.getByRole("img", { name: "Notes: 1", exact: true })).toBeVisible();
+  await expect(page.getByText("Knowledge operations", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Connections 0", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Connections 0", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Activity 0", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Activity 0", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: test.info().outputPath("home-charts-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 600, height: 800 });
+  await expect(page.getByRole("navigation", { name: "Workspace navigation" })).toBeVisible();
+  await page.waitForTimeout(350); // allow the responsive sidebar transition to settle
+  await charts.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.screenshot({ path: test.info().outputPath("home-charts-mobile.png"), fullPage: true });
+});
+
 test("activity loads; monitor finds old dead letters independently of optional endpoints", async ({ page }) => {
   await page.goto("/activity");
   await expect(page.getByText("Event visible", { exact: true })).toBeVisible();
@@ -55,6 +95,30 @@ test("Ask keeps sidebar and does not download full graph", async ({ page }) => {
   expect(graphPages).toBe(0);
   await page.setViewportSize({ width: 600, height: 800 });
   await expect(page.getByRole("navigation", { name: "Workspace navigation" })).toBeVisible();
+});
+
+test("manual insight highlight waits for the graph and consumes only a visible insight", async ({ page }) => {
+  await page.goto("/ask");
+  const key = "bb_manual_insight_highlights:";
+  await page.evaluate(key => localStorage.setItem(key, JSON.stringify([42, 99])), key);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toEqual([42, 99]);
+  await page.route("**/api/v1/graph/nodes?**", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({
+      nodes: [{ id: "insight_42", sourceId: 42, type: "insight", label: "Manual insight" }],
+      nextCursor: null, graphVersion: 1,
+    }),
+  }));
+  await page.route("**/api/v1/graph/edges?**", route => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ edges: [], nextCursor: null, graphVersion: 1 }),
+  }));
+  await page.goto("/brain?graph=open");
+  await expect(page.getByRole("img", { name: /Knowledge graph with 1 nodes/ })).toBeVisible();
+  await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toEqual([99]);
+  await page.reload();
+  await expect(page.getByRole("img", { name: /Knowledge graph with 1 nodes/ })).toBeVisible();
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), key)).toEqual([99]);
 });
 
 test("voice is disabled on insecure HTTP and suggests HTTPS", async ({ page }) => {

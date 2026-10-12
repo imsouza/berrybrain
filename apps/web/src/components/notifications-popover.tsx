@@ -23,6 +23,8 @@ type Props = {
 export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -39,6 +41,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
         const data = await readResource(`${apiUrl}/api/v1/notifications?limit=30`);
         if (!cancelled) {
           setAlerts(data.notifications || []);
+          setUnreadCount(data.unreadCount || 0);
         }
       } catch {}
       if (!cancelled) setLoading(false);
@@ -54,15 +57,20 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
   }, [open, apiUrl]);
 
   const handleAction = async (alert: Alert) => {
-    await apiFetch(`${apiUrl}/api/v1/notifications/${alert.id}/read`, { method: "POST" }).catch(() => undefined);
+    const response = await apiFetch(`${apiUrl}/api/v1/notifications/${alert.id}/read`, { method: "POST" }).catch(() => null);
+    if (response?.ok) window.dispatchEvent(new Event("bb:notifications-changed"));
     const destination = alert.actionUrl || "/activity";
     window.location.href = destination.startsWith("/") ? appPath(destination) : destination;
     onClose();
   };
 
   const markAllRead = async () => {
-    await apiFetch(`${apiUrl}/api/v1/notifications/read-all`, { method: "POST" });
+    setError("");
+    const response = await apiFetch(`${apiUrl}/api/v1/notifications/read-all`, { method: "POST" }).catch(() => null);
+    if (!response?.ok) { setError("Could not mark notifications as read. Try again."); return; }
     setAlerts((items) => items.map((item) => ({ ...item, read: true })));
+    setUnreadCount(0);
+    window.dispatchEvent(new Event("bb:notifications-changed"));
   };
 
   if (!open) return null;
@@ -78,7 +86,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
       />
       <div className="bb-card bb-card--elevated relative z-50 flex max-h-[70vh] w-80 flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/35">
-          <h2 className="text-sm font-semibold">Alerts</h2>
+          <h2 className="text-sm font-semibold">Alerts <span className="text-xs text-muted">{unreadCount} unread</span></h2>
           <button
             className="rounded-lg p-1.5 text-muted transition hover:bg-black/5 hover:text-foreground"
             onClick={onClose}
@@ -113,6 +121,7 @@ export function NotificationsPopover({ open, onClose, apiUrl }: Props) {
         </div>
 
         <div className="border-t border-border/35 p-2">
+          {error && <p role="alert" className="px-2 pb-2 text-xs text-danger">{error}</p>}
           <button
             className="bb-action w-full px-3 py-1.5 text-xs font-medium"
             onClick={markAllRead}

@@ -10,6 +10,7 @@ import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
 import { CircleHelp, ExternalLink } from "lucide-react";
 import { readResource } from "@/lib/read-resource";
+import { WorkspaceCharts } from "./workspace-charts";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
 
@@ -50,7 +51,7 @@ type HomeSummary = {
     connections: { total: number; createdToday: number; averageConfidence: number };
     concepts: { total: number; newToday: number; withoutPermanentNote: number };
     knowledge: { weakConcepts: number; openGaps: number };
-    jobs: { pending: number; active: number; failed: number; completedToday: number; total: number };
+    jobs: { pending: number; active: number; failed: number; completedToday: number; total: number; byStatus?: Record<string, number> };
     ai: { provider: string; model: string; metadata: number; embeddings: number; jobsProcessed: number; errors: number };
   };
   recentNotes: NoteItem[];
@@ -92,6 +93,7 @@ export function HomeView() {
   const [starterText, setStarterText] = useState("");
   const [askText, setAskText] = useState("");
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const [operationsTab, setOperationsTab] = useState<"processing" | "connections" | "activity">("processing");
   const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress[]>(() => cachedHome?.pipeline || []);
 
   const loadSummary = useCallback(async (force = false) => {
@@ -244,24 +246,27 @@ export function HomeView() {
 
         <StatsGrid summary={summary} />
 
-        <section className="mt-8 border-y border-border py-6" aria-label="Operational workspace">
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <section className="mt-6 rounded-xl border border-border/60 bg-surface/30 p-4 sm:p-5" aria-label="Operational workspace">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Knowledge operations</h2>
               <p className="mt-1 text-xs text-muted">Live processing, new relationships, and recent system decisions.</p>
             </div>
             <button className="bb-action h-8 px-3 text-[11px]" onClick={() => w.setMonitorOpen(true)}>{t("monitor")}</button>
           </div>
-          <div className="grid auto-rows-fr gap-0 overflow-hidden rounded-lg border border-border bg-panel md:grid-cols-3">
-            <div className="h-full border-b border-border p-5 md:border-b-0 md:border-r">
-              <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />
-            </div>
-            <div className="h-full border-b border-border p-5 md:border-b-0 md:border-r">
-              <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />
-            </div>
-            <div className="h-full p-5">
-              <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />
-            </div>
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Knowledge operations views">
+            {([
+              ["processing", "Processing", summary.activeJobs.length],
+              ["connections", "Connections", summary.recentConnections.length],
+              ["activity", "Activity", summary.recentActivity.length],
+            ] as const).map(([tab, label, count]) => <button key={tab} type="button" aria-pressed={operationsTab === tab}
+              className={`rounded-full px-3 py-1.5 text-xs transition ${operationsTab === tab ? "bg-accent-soft text-accent" : "text-muted hover:bg-surface"}`}
+              onClick={() => setOperationsTab(tab)}>{label} <span className="ml-1 tabular-nums opacity-70">{count}</span></button>)}
+          </div>
+          <div className="max-h-80 overflow-y-auto overscroll-contain pr-1" aria-live="polite">
+            {operationsTab === "processing" && <ActiveJobsPanel jobs={summary.activeJobs} pipelineProgress={pipelineProgress} onOpenMonitor={() => w.setMonitorOpen(true)} />}
+            {operationsTab === "connections" && <RecentConnectionsList connections={summary.recentConnections} onOpenGraph={() => w.setGraphOpen(true)} onUpdateStatus={updateConnectionStatus} />}
+            {operationsTab === "activity" && <RecentActivityTimeline activity={summary.recentActivity} completed={summary.recentlyCompleted} />}
           </div>
         </section>
 
@@ -585,11 +590,12 @@ function StatsGrid({ summary }: { summary: HomeSummary }) {
     <Section title={t("stats")} className="mt-8">
       <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label={t("notes")} value={s.notes.total} detail={`+${s.notes.createdToday} ${t("oneCreatedToday")} · ${s.notes.unassimilated} ${t("notAssimilated")}`} />
-        <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")} · ${percent(s.connections.averageConfidence)} ${t("confidence")}`} />
+        <StatCard label={t("connections")} value={s.connections.total} detail={`${s.connections.createdToday} ${t("newConnections")}`} />
         <StatCard label={t("concepts")} value={s.concepts.total} detail={`${s.concepts.newToday} ${t("newToday")} · ${s.concepts.withoutPermanentNote} ${t("withoutNote")}`} />
         <StatCard label={t("jobs")} value={s.jobs.total} detail={`${s.jobs.pending} ${t("pending")} · ${tf("activeJobsCount", { count: s.jobs.active })} · ${s.jobs.failed} ${t("errors")}`} />
-        <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? t("online") : t("local")} detail={`${s.ai.embeddings} ${t("embeddings")} · ${s.ai.metadata} ${t("metadata")}`} />
+        <StatCard label={providerLabel(s.ai.provider)} value={s.ai.model ? "Configured" : "Not configured"} detail={`${s.ai.embeddings} ${t("embeddings")} · ${s.ai.metadata} ${t("metadata")}`} />
       </div>
+      <WorkspaceCharts stats={s} />
     </Section>
   );
 }
@@ -608,13 +614,13 @@ function RecentConnectionsList({
       {connections.length === 0 ? (
         <EmptyState title={t("noConnectionsYet")} text={t("autopilotCreatesRelations")} />
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/50">
           {connections.slice(0, 5).map((connection) => (
-            <div key={connection.id} className="bb-subcard p-4">
+            <div key={connection.id} className="py-3 first:pt-0">
               <div className="text-xs font-medium">
                 {connection.source?.title || t("origin")} ↔ {connection.target?.title || t("destination")}
               </div>
-              <p className="mt-1 text-[11px] leading-5 text-muted/65">{connection.reason || t("noReason")}</p>
+              <details className="mt-1 text-[11px] leading-5 text-muted/65"><summary className="cursor-pointer">Why this connection?</summary><p>{connection.reason || t("noReason")}</p></details>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted/55">
                 <span>{t("connectionConfidence")}: {connection.confidencePercent}%</span>
                 <span className="rounded-full bg-panel px-2 py-1">{connection.status || t("suggested")}</span>
@@ -637,14 +643,14 @@ function RecentConnectionsList({
 function RecentActivityTimeline({ activity, completed }: { activity: ActivityItem[]; completed: CompletionItem[] }) {
   return (
     <Section title={t("recentActivity")}>
-      <div className="grid gap-3">
-        <div className="bb-subcard p-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="min-w-0">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("doneRecently")}</div>
           {completed.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentResults")}</p> : completed.slice(0, 5).map((item) => (
             <RowLine key={item.id} left={item.label} right={formatTime(item.completedAt)} />
           ))}
         </div>
-        <div className="bb-subcard p-4">
+        <div className="min-w-0">
           <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/40">{t("autoQueue")}</div>
           {activity.length === 0 ? <p className="text-xs text-muted/50">{t("noRecentActivity")}</p> : activity.slice(0, 5).map((item, index) => (
             <RowLine key={item.id || index} left={item.description} right={formatTime(item.when)} />
@@ -732,10 +738,6 @@ function cloudStatusLabel(provider: string, status: string) {
     failed: "connection failed",
   };
   return `AI · ${name} ${suffix[status] || status}`;
-}
-
-function percent(value: number) {
-  return `${Math.round(value * 100)}%`;
 }
 
 function formatTime(value?: string | null) {

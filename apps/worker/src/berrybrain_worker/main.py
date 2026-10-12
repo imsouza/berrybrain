@@ -258,7 +258,12 @@ async def run_loop(
                         )
                         try:
                             await fail_job(
-                                client, settings.api_url, int(job["id"]), error_msg
+                                client,
+                                settings.api_url,
+                                int(job["id"]),
+                                error_msg,
+                                error_class="permanent_job_error",
+                                retryability="permanent",
                             )
                         except httpx.HTTPError as report_exc:
                             print(
@@ -277,7 +282,12 @@ async def run_loop(
                     error_msg = format_job_failure(str(job["type"]), exc)
                     try:
                         await fail_job(
-                            client, settings.api_url, int(job["id"]), error_msg
+                            client,
+                            settings.api_url,
+                            int(job["id"]),
+                            error_msg,
+                            error_class="transient_job_error",
+                            retryability="retryable",
                         )
                     except httpx.HTTPError as report_exc:
                         print(
