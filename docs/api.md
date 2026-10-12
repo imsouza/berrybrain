@@ -172,6 +172,12 @@ deleting the notification history. Failed reads must not clear client badges.
 ### Bounded autonomous job recovery
 
 The claim path runs a deterministic supervisor after expired-lease recovery.
+Expired leases finish the associated attempt with `lease_expired` diagnostics
+(or cancellation), preserving the last execution stage rather than reporting
+success. Worker graph expansion/inference calls use explicit 120-second request
+limits instead of the generic 10-second client default; enrichment admission
+uses 60 seconds. The graph-expansion whole-job deadline is at least 330 seconds
+to cover expansion, enrichment, HippoRAG synchronization and final bookkeeping.
 It scans at most 50 failed/dead-letter jobs per minute, newest first with a
 rotating persisted cursor. It admits at most one recovery every five minutes
 and defers admission while four or more jobs are pending/running. It extends

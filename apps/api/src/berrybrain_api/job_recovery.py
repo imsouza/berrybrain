@@ -153,7 +153,13 @@ def _maintenance_covers(job_type: str, older: dict, newer: dict) -> bool:
     """Never replace a global failure with a scoped/legacy note update."""
     if newer.get("note_id") or newer.get("note_path"):
         return False
-    ignored = {"_automatic_recovery", "payload_schema_version"}
+    ignored = {
+        "_automatic_recovery",
+        "payload_schema_version",
+        "idempotency_key",
+        "trigger",
+        "priority",
+    }
     old = {key: value for key, value in older.items() if key not in ignored}
     new = {key: value for key, value in newer.items() if key not in ignored}
     if job_type != "UPDATE_GRAPH_STATS":

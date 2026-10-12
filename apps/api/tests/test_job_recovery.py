@@ -12,7 +12,7 @@ from berrybrain_api.job_recovery import (
     recover_exhausted_jobs,
     transient_failure,
 )
-from berrybrain_api.jobs import utc_now
+from berrybrain_api.jobs import recover_stale_running_jobs, utc_now
 from berrybrain_api.models import (
     AutomationLogRecord,
     GraphNodeRecord,
@@ -61,6 +61,27 @@ class AutonomousRecoveryTest(unittest.TestCase):
         self.assertEqual(
             len(list(self.session.scalars(select(AutomationLogRecord)))), 1
         )
+
+    def test_expired_lease_closes_attempt_without_claiming_success(self):
+        job = self.job(
+            status="running",
+            started_at=utc_now() - timedelta(hours=1),
+            completed_at=None,
+        )
+        attempt = JobAttemptRecord(
+            job_id=job.id,
+            job_type=job.type,
+            attempt=2,
+            stage="context_loading",
+            started_at=job.started_at,
+        )
+        self.session.add(attempt)
+        self.session.commit()
+        self.assertEqual(recover_stale_running_jobs(self.session), 1)
+        self.assertEqual(job.status, "dead_letter")
+        self.assertIsNotNone(attempt.finished_at)
+        self.assertEqual(attempt.error_code, "lease_expired")
+        self.assertEqual(attempt.stage, "context_loading")
 
     def test_cooldown_and_durable_scan_limit(self):
         job = self.job(completed_at=utc_now())
@@ -123,6 +144,17 @@ class AutonomousRecoveryTest(unittest.TestCase):
             recover_exhausted_jobs(self.session), {"recovered": 1, "superseded": 0}
         )
         self.assertEqual(old.status, "pending")
+
+    def test_periodic_stats_keys_do_not_prevent_scope_supersession(self):
+        old = self.job(payload='{"idempotency_key":"stats:old","trigger":"periodic"}')
+        self.job(
+            status="completed",
+            payload='{"idempotency_key":"stats:new","trigger":"periodic"}',
+        )
+        self.assertEqual(
+            recover_exhausted_jobs(self.session), {"recovered": 0, "superseded": 1}
+        )
+        self.assertEqual(old.status, "superseded")
 
     def test_superset_stats_cover_partial_failure(self):
         old = self.job(payload='{"scope_node_ids":[3]}')

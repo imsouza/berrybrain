@@ -89,6 +89,13 @@ class WorkerResilienceTest(unittest.TestCase):
                     signal, resilience.format_job_failure("JUDGE_ARTIFACT", error)
                 )
 
+    def test_exhausted_quota_is_not_a_temporary_rate_limit(self) -> None:
+        self.assertTrue(
+            resilience.is_permanent_job_error(
+                CloudError("Cloud HTTP 429: insufficient_quota")
+            )
+        )
+
     def test_reclustering_timeout_allows_preview_and_guarded_apply(self) -> None:
         settings = WorkerSettings(ollama_timeout=30)
 
