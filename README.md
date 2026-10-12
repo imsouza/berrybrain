@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.12-blue)
+![Version](https://img.shields.io/badge/version-1.4.13-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.12](#whats-new-in-1412)
+- [What's New in 1.4.13](#whats-new-in-1413)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,17 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.12
+## What's New in 1.4.13
+
+Bounded autonomous recovery handles eligible exhausted jobs without bulk replay,
+resetting history or hiding permanent failures. Alerts count unread items; Home
+offers compact operations and real-data charts. Manually created insights receive
+a one-time highlight when first displayed in the graph. See the
+[1.4.13 release notes](docs/releases/v1.4.13.md),
+[recovery checklist](docs/reviews/2026-10-12-autonomous-recovery-dashboard.md)
+and [API contracts](docs/api.md) for limits and controls.
+
+### Previous: 1.4.12
 
 Lighter graph pages, cancellable navigation reads and visibility-aware polling
 reduce workspace load. Home avoids repeated legacy JSON joins; pipeline progress

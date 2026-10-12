@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
+from typing import Annotated
 
-from fastapi import APIRouter
-from sqlalchemy import select
+from fastapi import APIRouter, Query
+from sqlalchemy import func, select, update
 
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.models import InsightRecord, NotificationRecord
@@ -54,10 +55,32 @@ def _get_recent_notifications(session, limit: int = 20) -> list[dict]:
 
 
 @router.get("")
-def list_notifications(limit: int = 20) -> dict:
+def list_notifications(limit: Annotated[int, Query(ge=1, le=200)] = 20) -> dict:
     with SessionLocal() as session:
         notifications = _get_recent_notifications(session, limit=limit)
-        return {"notifications": notifications}
+        unread = (
+            session.scalar(
+                select(func.count())
+                .select_from(NotificationRecord)
+                .where(NotificationRecord.read_at.is_(None))
+            )
+            or 0
+        )
+        return {"notifications": notifications, "unreadCount": unread}
+
+
+@router.get("/summary")
+def notification_summary() -> dict:
+    with SessionLocal() as session:
+        unread = (
+            session.scalar(
+                select(func.count())
+                .select_from(NotificationRecord)
+                .where(NotificationRecord.read_at.is_(None))
+            )
+            or 0
+        )
+        return {"unreadCount": unread}
 
 
 @router.post("/{notification_id}/read")
@@ -75,16 +98,14 @@ def mark_notification_read(notification_id: int) -> dict:
 @router.post("/read-all")
 def mark_all_notifications_read() -> dict:
     with SessionLocal() as session:
-        notifications = list(
-            session.execute(
-                select(NotificationRecord).where(NotificationRecord.read_at.is_(None))
-            ).scalars()
-        )
         now = datetime.now(UTC)
-        for n in notifications:
-            n.read_at = now
+        result = session.execute(
+            update(NotificationRecord)
+            .where(NotificationRecord.read_at.is_(None))
+            .values(read_at=now)
+        )
         session.commit()
-        return {"status": "marked_read", "count": len(notifications)}
+        return {"status": "marked_read", "count": result.rowcount}
 
 
 @router.post("/generate-insight-notification")

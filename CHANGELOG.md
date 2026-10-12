@@ -4,6 +4,21 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.4.13 - 2026-10-12
+
+- Add bounded exhausted-job recovery with durable cooldowns, source/version
+  validation, permanent-error guards and scope-aware maintenance supersession.
+  Preserve job identity, attempt history and errors; never bulk-replay backlog.
+- Count all unread notifications via a lightweight summary endpoint; opening
+  Alerts no longer dismisses the badge. Document public API additions.
+- Highlight manually created insights once when first displayed in the graph;
+  preserve ontology shapes/colors and respect reduced-motion preferences.
+- Compact Home operations and add accessible SVG charts from actual note,
+  knowledge and job-state counts without additional chart dependencies.
+- Correct Activity labels and local graph-statistics timeout guidance. Preserve
+  provider error classification through wrapped HTTP failures.
+- Add isolated regression coverage. No schema migration or TCC experiments.
+
 ## 1.4.12 - 2026-10-10
 
 - Add opt-in compact graph edge pages; omit audit blobs from visual reads while

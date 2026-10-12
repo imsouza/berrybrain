@@ -39,7 +39,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   const pathname = usePathname();
   const isDemo = pathname === "/demo" || pathname.endsWith("/demo");
   const [attentionCount, setAttentionCount] = useState(0);
-  const [dismissedAt, setDismissedAt] = useState<number>(0);
+  const [notificationRevision, setNotificationRevision] = useState(0);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [folderOrder, setFolderOrder] = useState<string[]>(() => {
@@ -62,8 +62,9 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   const [dragOverNote, setDragOverNote] = useState("");
 
   useEffect(() => {
-    const stored = localStorage.getItem("bb_notif_dismissed_at");
-    if (stored) setDismissedAt(parseInt(stored, 10) || 0);
+    const refresh = () => setNotificationRevision(value => value + 1);
+    window.addEventListener("bb:notifications-changed", refresh);
+    return () => window.removeEventListener("bb:notifications-changed", refresh);
   }, []);
 
   useEffect(() => {
@@ -71,16 +72,14 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       setAttentionCount(0);
       return;
     }
-    return pollResource<{ needsAttention?: unknown[] }>(
-      `${w.api}/api/v1/home/summary`,
+    return pollResource<{ unreadCount?: number }>(
+      `${w.api}/api/v1/notifications/summary`,
       payload => {
-          const now = Date.now();
-          const count = (payload.needsAttention || []).length;
-          setAttentionCount(dismissedAt > now - 60000 ? 0 : count);
+          setAttentionCount(Math.max(0, payload.unreadCount || 0));
       },
       30_000,
     );
-  }, [w.api, dismissedAt, w.demo]);
+  }, [w.api, notificationRevision, w.demo]);
 
   const loadFolders = useCallback(async () => {
     if (w.demo) {
@@ -477,7 +476,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <button className="rounded-lg p-1 text-muted hover:bg-surface" onClick={() => { onMobileClose?.(); w.setGuideOpen(true); }} aria-label="Guide" title="Guide">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 9a3.75 3.75 0 117.05 1.79c-.89.52-1.55 1.16-1.55 2.21m-1.5 3.75h.01M12 21a9 9 0 100-18 9 9 0 000 18z" /></svg>
           </button>
-          <button className={`relative rounded-lg p-1 text-muted hover:bg-surface ${attentionCount ? "text-accent" : ""}`} onClick={() => { onMobileClose?.(); localStorage.setItem("bb_notif_dismissed_at", String(Date.now())); setDismissedAt(Date.now()); setAttentionCount(0); w.setNotificationsOpen(true); }} aria-label="Notifications">
+          <button className={`relative rounded-lg p-1 text-muted hover:bg-surface ${attentionCount ? "text-accent" : ""}`} onClick={() => { onMobileClose?.(); w.setNotificationsOpen(true); }} aria-label="Notifications" title={`${attentionCount} unread notifications`}>
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 01-6 0" /></svg>
             {attentionCount > 0 && (
               <span className="absolute -right-1 -top-1 grid min-w-3.5 place-items-center rounded-full bg-white px-1 text-[8px] font-semibold text-[#CC4168]">

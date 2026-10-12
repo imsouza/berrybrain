@@ -47,6 +47,48 @@ class WorkerResilienceTest(unittest.TestCase):
     def test_provider_timeout_is_transient(self) -> None:
         self.assertFalse(resilience.is_permanent_job_error(TimeoutError()))
 
+    def test_local_graph_timeout_does_not_blame_ai_provider(self) -> None:
+        message = resilience.format_job_failure("UPDATE_GRAPH_STATS", TimeoutError())
+        self.assertIn("API/database load", message)
+        self.assertNotIn("AI provider", message)
+
+    def test_wrapped_provider_http_status_controls_retry(self) -> None:
+        for status in (400, 401, 403, 404, 422, 408, 429, 500, 503):
+            with self.subTest(status=status):
+                response = httpx.Response(
+                    status, request=httpx.Request("POST", "https://provider.test/chat")
+                )
+                try:
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        raise CloudError(f"Cloud HTTP error: {exc}")
+                except CloudError as wrapped:
+                    self.assertEqual(
+                        resilience.is_permanent_job_error(wrapped),
+                        status in (400, 401, 403, 404, 422),
+                    )
+
+    def test_permanent_provider_message_explains_manual_action(self) -> None:
+        message = resilience.format_job_failure(
+            "JUDGE_ARTIFACT", CloudError("HTTP 404"), permanent=True
+        )
+        self.assertIn("model availability", message)
+        self.assertIn("Automatic retry is disabled", message)
+
+    def test_transient_provider_messages_keep_retryable_signals(self) -> None:
+        for detail, signal in (
+            ("Cloud HTTP 429", "HTTP 429"),
+            ("Cloud HTTP 503", "HTTP 503"),
+            ("Provider circuit open for cloud:test", "circuit"),
+        ):
+            with self.subTest(detail=detail):
+                error = CloudError(detail)
+                self.assertFalse(resilience.is_permanent_job_error(error))
+                self.assertIn(
+                    signal, resilience.format_job_failure("JUDGE_ARTIFACT", error)
+                )
+
     def test_reclustering_timeout_allows_preview_and_guarded_apply(self) -> None:
         settings = WorkerSettings(ollama_timeout=30)
 

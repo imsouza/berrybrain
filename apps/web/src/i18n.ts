@@ -149,6 +149,7 @@ export const I18N: Record<LangKind, Record<string, string>> = {
     act_noteParsed: "Note parsed",
     act_conceptsAggregated: "Concepts aggregated",
     act_completedFor: " completed for",
+    act_forNote: " for {name}",
     act_failedAt: "Failed at ",
     act_runningAt: " running",
     act_queued: " queued",

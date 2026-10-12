@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+import re
 import time
 
 import httpx
@@ -51,7 +52,30 @@ def is_permanent_job_error(exc: Exception) -> bool:
         status = exc.response.status_code
         return status < 500 and status not in {408, 409, 425, 429}
     if isinstance(exc, CloudError | OllamaError):
-        return False
+        cause = exc.__cause__ or exc.__context__
+        if isinstance(cause, httpx.HTTPStatusError):
+            return is_permanent_job_error(cause)
+        detail = str(exc).lower()
+        status = re.search(r"\bhttp(?: error)?[ :]+(\d{3})\b", detail)
+        if status:
+            code = int(status.group(1))
+            return 400 <= code < 500 and code not in {408, 409, 425, 429}
+        return any(
+            marker in detail
+            for marker in (
+                "http 400",
+                "http 401",
+                "http 403",
+                "http 404",
+                "http 422",
+                "invalid api key",
+                "unauthorized",
+                "does not provide",
+                "model not found",
+                "model is not available",
+                "insufficient quota",
+            )
+        )
     return isinstance(exc, ValueError)
 
 
@@ -89,6 +113,12 @@ def format_job_failure(job_type: str, exc: Exception, permanent: bool = False) -
     lowered = detail.lower()
 
     if isinstance(exc, asyncio.TimeoutError | httpx.TimeoutException):
+        if job_type == "UPDATE_GRAPH_STATS":
+            return (
+                "Graph statistics update timed out while computing local graph data. "
+                "Check API/database load. Eligible jobs can retry through bounded "
+                "automatic recovery; review details in Monitor."
+            )
         return (
             f"{step.capitalize()} timed out. Check the selected AI provider, then retry "
             "the job from Monitor."
@@ -105,6 +135,26 @@ def format_job_failure(job_type: str, exc: Exception, permanent: bool = False) -
             "Check provider or API availability, then retry from Monitor."
         )
     if isinstance(exc, CloudError | OllamaError):
+        if permanent:
+            return (
+                f"{step.capitalize()} cannot use the configured AI provider/model. "
+                "Check credentials, model availability and quota in Settings. "
+                "Automatic retry is disabled for this permanent error."
+            )
+        cause = exc.__cause__ or exc.__context__
+        if isinstance(cause, httpx.HTTPStatusError):
+            return format_job_failure(job_type, cause, permanent=permanent)
+        status = re.search(r"\bhttp(?: error)?[ :]+(\d{3})\b", lowered)
+        if status:
+            return (
+                f"{step.capitalize()} failed because the AI provider returned HTTP {status.group(1)}. "
+                "Review provider availability in Settings; eligible transient failures can retry automatically."
+            )
+        if "provider circuit open" in lowered:
+            return (
+                f"{step.capitalize()} is paused by the provider circuit breaker after repeated failures. "
+                "Wait for bounded recovery or review the provider in Settings."
+            )
         if "invalid json" in lowered or "json response is not an object" in lowered:
             return (
                 f"{step.capitalize()} received an invalid AI response. Retry with the "
