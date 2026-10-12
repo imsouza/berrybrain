@@ -328,7 +328,7 @@ def pipeline_progress_endpoint() -> dict:
                         != "",
                     ),
                     JobRecord.status.in_(
-                        [PENDING, RUNNING, COMPLETED, FAILED, DEAD_LETTER, SUPERSEDED]
+                        [PENDING, RUNNING, COMPLETED, FAILED, DEAD_LETTER]
                     ),
                 )
                 .order_by(JobRecord.created_at.desc())

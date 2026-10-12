@@ -1,5 +1,7 @@
 "use client";
 
+import { acknowledgeManualInsight, pendingManualInsights } from "@/lib/manual-insight-highlight";
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   select,
@@ -503,7 +505,7 @@ function tooltipCtx(g: { nodes: GNode[]; edges: GEdge[] }) {
 }
 
 export function GraphCanvas({
-  data, onNavigate, onSelect, onOpen, selectedId, highlightedIds = [], showFilteredLabels = false, zoom, setZoom, pan, setPan, layoutMode = "brain",
+  data, onNavigate, onSelect, onOpen, selectedId, highlightedIds = [], manualInsightScope, showFilteredLabels = false, zoom, setZoom, pan, setPan, layoutMode = "brain",
 }: {
   data: {
     nodes: GNode[];
@@ -516,6 +518,7 @@ export function GraphCanvas({
   onOpen?: (id: string) => void;
   selectedId: string | null;
   highlightedIds?: string[];
+  manualInsightScope?: string;
   showFilteredLabels?: boolean;
   zoom: number; setZoom: (z: number) => void;
   pan: { x: number; y: number }; setPan: (p: { x: number; y: number }) => void;
@@ -545,6 +548,20 @@ export function GraphCanvas({
   const W = 6000, H = 6000;
   const knownNodes = useRef<Set<string>>(new Set());
   const freshNodes = useRef<Map<string, number>>(new Map()); // id → added timestamp
+  const manualNodes = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") setRenderRevision(value => value + 1); };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, []);
+  useEffect(() => {
+    if (manualInsightScope === undefined) return;
+    const pending = new Set(pendingManualInsights(manualInsightScope));
+    manualNodes.current = new Map(data.nodes
+      .filter(node => node.type === "insight" && node.sourceId && pending.has(node.sourceId))
+      .map(node => [node.id, node.sourceId!]));
+    setRenderRevision(value => value + 1);
+  }, [data.nodes, manualInsightScope]);
 
   const tctx = useRef<Map<string, any>>(new Map());
   useEffect(() => {
@@ -994,6 +1011,7 @@ export function GraphCanvas({
           index % sampleStride === 0
           || node.node.id === selectedId
           || highlighted.has(node.node.id)
+          || manualNodes.current.has(node.node.id)
         ),
       );
       const spatialIndex = new Map<string, LN[]>();
@@ -1042,6 +1060,15 @@ export function GraphCanvas({
 
       let hasActivePulse = false;
       for (const n of visibleNodes) {
+        const manualInsight = manualNodes.current.get(n.node.id);
+        const screenX = width / 2 + renderPan.x + renderZoom * (n.x - W / 2);
+        const screenY = height / 2 + renderPan.y + renderZoom * (n.y - H / 2);
+        if (manualInsight && manualInsightScope !== undefined && document.visibilityState !== "hidden"
+          && screenX >= 0 && screenX <= width && screenY >= 0 && screenY <= height) {
+          freshNodes.current.set(n.node.id, performance.now());
+          acknowledgeManualInsight(manualInsightScope, manualInsight);
+          manualNodes.current.delete(n.node.id);
+        }
         const isSel = n.node.id === selectedId;
         const isHovered = n.node.id === hoveredId;
         const isHighlighted = isHovered || highlighted.has(n.node.id);
@@ -1073,7 +1100,8 @@ export function GraphCanvas({
         }
 
         if (isNew && !isSel) {
-          const pulseRadius = r + 8 + Math.sin(pulsePhase * Math.PI * 4) * 4;
+          const pulseRadius = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? r + 10 : r + 8 + Math.sin(pulsePhase * Math.PI * 4) * 4;
           const alpha = (1 - pulsePhase) * 0.4;
           ct.beginPath(); ct.arc(n.x, n.y, pulseRadius, 0, Math.PI * 2);
           ct.fillStyle = `rgba(217,138,0,${alpha})`;
@@ -1099,7 +1127,7 @@ export function GraphCanvas({
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [data, zoom, pan, selectedId, hoveredId, focusId, focusRoots, focusedIds, highlighted, renderRevision, showFilteredLabels]);
+  }, [data, zoom, pan, selectedId, hoveredId, focusId, focusRoots, focusedIds, highlighted, renderRevision, showFilteredLabels, manualInsightScope]);
 
   const toWorld = (cx: number, cy: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };

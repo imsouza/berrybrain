@@ -49,3 +49,25 @@ class WorkerLeaseRecoveryTest(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(len(requests), 2)
         self.assertTrue(all(r.extensions["timeout"]["read"] == 60 for r in requests))
+
+    async def test_graph_maintenance_does_not_inherit_ten_second_timeout(self):
+        for handler, expected in (
+            (main.process_expand_knowledge_graph, [120, 60, 120]),
+            (main.process_generate_inferred_connections, [120, 120]),
+            (main.process_generate_node_summary, [120]),
+        ):
+            with self.subTest(handler=handler.__name__):
+                requests = []
+
+                def respond(request, captured=requests):
+                    captured.append(request)
+                    return httpx.Response(200, json={})
+
+                async with httpx.AsyncClient(
+                    timeout=10, transport=httpx.MockTransport(respond)
+                ) as client:
+                    with patch.object(main, "complete_job", AsyncMock()):
+                        await handler(client, WorkerSettings(), {"id": 17}, {})
+                self.assertEqual(
+                    [r.extensions["timeout"]["read"] for r in requests], expected
+                )
