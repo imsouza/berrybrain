@@ -1,4 +1,6 @@
 "use client";
+
+import { queueManualInsight } from "@/lib/manual-insight-highlight";
 import { readResource } from "@/lib/read-resource";
 import { pollResource } from "@/lib/poll-resource";
 
@@ -961,6 +963,7 @@ export function GraphScreen({
         return;
       }
       if (payload.status === "created" || payload.status === "existing") {
+        if (payload.status === "created" && payload.insight?.id) queueManualInsight(apiUrl, Number(payload.insight.id));
         setInference((current) => current ? { ...current, status: "saved_as_insight" } : current);
         setInferenceSaveStatus(`Saved as insight: ${payload.insight?.title || text}`);
         reload();
@@ -1407,6 +1410,7 @@ export function GraphScreen({
               onOpen={openNodeDetail}
               selectedId={selectedId}
               highlightedIds={highlightedIds}
+              manualInsightScope={apiUrl}
               showFilteredLabels={activeFilterCount > 0}
               zoom={zoom}
               setZoom={setZoom}

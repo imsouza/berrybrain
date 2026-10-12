@@ -258,7 +258,12 @@ async def run_loop(
                         )
                         try:
                             await fail_job(
-                                client, settings.api_url, int(job["id"]), error_msg
+                                client,
+                                settings.api_url,
+                                int(job["id"]),
+                                error_msg,
+                                error_class="permanent_job_error",
+                                retryability="permanent",
                             )
                         except httpx.HTTPError as report_exc:
                             print(
@@ -277,7 +282,12 @@ async def run_loop(
                     error_msg = format_job_failure(str(job["type"]), exc)
                     try:
                         await fail_job(
-                            client, settings.api_url, int(job["id"]), error_msg
+                            client,
+                            settings.api_url,
+                            int(job["id"]),
+                            error_msg,
+                            error_class="transient_job_error",
+                            retryability="retryable",
                         )
                     except httpx.HTTPError as report_exc:
                         print(
@@ -1089,11 +1099,12 @@ async def process_generate_insights(
 async def process_expand_knowledge_graph(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
-    response = await client.post(f"{settings.api_url}/api/v1/graph/expand")
+    response = await client.post(f"{settings.api_url}/api/v1/graph/expand", timeout=120)
     response.raise_for_status()
     enrichment = await client.post(
         f"{settings.api_url}/api/v1/graph/enrich-missing",
         params={"limit": 50},
+        timeout=60,
     )
     enrichment.raise_for_status()
     hipporag_sync = await client.post(
@@ -1884,9 +1895,13 @@ async def process_generate_inferred_connections(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
     # Ensure concept/topic nodes exist before inferring connections (G3 + G1)
-    expand_response = await client.post(f"{settings.api_url}/api/v1/graph/expand")
+    expand_response = await client.post(
+        f"{settings.api_url}/api/v1/graph/expand", timeout=120
+    )
     expand_response.raise_for_status()
-    response = await client.post(f"{settings.api_url}/api/v1/graph/infer-connections")
+    response = await client.post(
+        f"{settings.api_url}/api/v1/graph/infer-connections", timeout=120
+    )
     response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
 
@@ -1894,7 +1909,7 @@ async def process_generate_inferred_connections(
 async def process_generate_node_summary(
     client: httpx.AsyncClient, settings: WorkerSettings, job: dict, payload: dict
 ) -> None:
-    response = await client.post(f"{settings.api_url}/api/v1/graph/expand")
+    response = await client.post(f"{settings.api_url}/api/v1/graph/expand", timeout=120)
     response.raise_for_status()
     await complete_job(client, settings.api_url, int(job["id"]))
 

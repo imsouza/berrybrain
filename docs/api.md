@@ -135,6 +135,8 @@ bundle. Nodes, ontology shapes and semantic colors are unchanged.
 excluding unrelated global maintenance before applying the limit. It supports
 structured and legacy JSON note identities. It is a bounded progress view, not
 the complete job ledger; use paginated `/jobs` and job detail for history.
+Superseded jobs are excluded from this current-progress view, not deleted from
+the ledger or reported as completed.
 
 HTTP 200 from Ask means the request completed, **not that every assertion is
 true or that sufficient evidence exists**. Preserve the returned status and
@@ -147,11 +149,64 @@ permission for ordinary Ask to silently use arbitrary web content.
 ## Job health and dashboard counts
 
 `GET /api/v1/home/summary` reports lifetime job totals using SQL aggregates.
+`stats.jobs.byStatus` contains the actual status/count mapping, including
+superseded and cancelled work. The Home charts use this snapshot, not a
+fabricated time series; note assimilation is coverage, not throughput.
 The `createdToday`/`completedToday` counters use UTC day boundaries.
 `recentlyCompleted` contains at most eight items; it is not the source of the
 lifetime `progress.completed` count. Duration estimates use up to 200 recent
 successful executions per required job type and remain unavailable when there
 are no valid samples. These estimates are not processing-time guarantees.
+
+### Notifications
+
+`GET /api/v1/notifications?limit=20` returns `notifications` and `unreadCount`.
+The limit is 1–200; the count covers **all unread notifications**, not just the
+page or the number of alert categories. `GET /api/v1/notifications/summary`
+returns only `{ "unreadCount": 7 }` for lightweight badge polling. Both follow
+the existing API authentication rules. Opening Alerts does not mark items read.
+`POST /api/v1/notifications/{id}/read` marks one item read;
+`POST /api/v1/notifications/read-all` marks all existing items read, without
+deleting the notification history. Failed reads must not clear client badges.
+
+### Bounded autonomous job recovery
+
+The claim path runs a deterministic supervisor after expired-lease recovery.
+Expired leases finish the associated attempt with `lease_expired` diagnostics
+(or cancellation), preserving the last execution stage rather than reporting
+success. Worker graph expansion/inference calls use explicit 120-second request
+limits instead of the generic 10-second client default; enrichment admission
+uses 60 seconds. The graph-expansion whole-job deadline is at least 330 seconds
+to cover expansion, enrichment, HippoRAG synchronization and final bookkeeping.
+It scans at most 50 failed/dead-letter jobs per minute, newest first with a
+rotating persisted cursor. It admits at most one recovery every five minutes
+and defers admission while four or more jobs are pending/running. It extends
+the **same job** by one attempt, at most three times, with minimum cooldowns
+of 5 minutes, 30 minutes and 2 hours after the preceding failure. Existing IDs,
+attempt history and errors are preserved. No worker means no recovery scan.
+
+Only allowlisted ingestion/enrichment/judge/maintenance jobs with recognized
+transient failures are eligible. Source hashes, semantic fingerprints and the
+Judge timestamp/configuration version must still match. Missing or changed
+sources are superseded; unverified sources, unknown errors, permanent provider
+failures and cancelled jobs are not replayed. Destructive jobs and automatic
+note creation are excluded. Idempotency keys prevent duplicate recovery;
+maintenance supersession additionally requires a completed newer job covering
+the same scope. A partial graph update cannot replace a failed global update.
+Pending/running covering maintenance defers recovery without claiming success.
+
+Serialized jobs expose `automaticRecovery` (`count`, `scheduledAt`) when
+recovered. Automation logs record `AUTO_RECOVER_JOB` and `AUTO_SUPERSEDE_JOB`.
+The existing settings API accepts `automatic_job_recovery_enabled=false` to
+disable this supervisor. `internal_job_recovery_state` is its checkpoint, not
+an application integration interface; do not edit it. Normal manual retry
+remains available in Monitor. Historical notifications remain until marked read.
+
+This is not unlimited self-healing: credentials, removed models, exhausted
+quota and repeated failures still require operator attention. Recovery may
+call the configured provider and incur its normal costs; it does not switch
+models/providers or bulk-replay the failed backlog. AI subagents perform their
+pipeline stages; the deterministic queue supervisor owns recovery decisions.
 
 `GET /api/v1/jobs/health` treats a running job as stale when its lease expires.
 The start-time threshold is used only for legacy jobs with no lease. Pending

@@ -282,6 +282,7 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 "failed": failed_count,
                 "completedToday": job_snapshot.completed_today,
                 "total": sum(counts.values()),
+                "byStatus": dict(counts),
             },
             "ai": {
                 "provider": _cloud_provider(ai_config),
