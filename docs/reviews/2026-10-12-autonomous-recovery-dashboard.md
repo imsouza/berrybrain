@@ -23,6 +23,8 @@ sem retry indiscriminado de jobs antigos ou troca automática de provedor.
 - [x] Publicar/implantar após validação, com backup e rollback.
 - [ ] Reduzir a latência residual de Home e diagnóstico da fila sob carga;
   a implantação não encerra a otimização de desempenho.
+- [ ] Investigar o timeout persistente de inferência do job `#71279`; retomada
+  automática confirmada, conclusão bem-sucedida ainda não obtida.
 
 ## Segurança da recuperação
 
@@ -116,8 +118,14 @@ duplicar tarefas. Falhas permanentes precisam continuar visíveis ao usuário.
   superseded e um job ativo; a fila mudou durante a observação. Contagens
   menores de falhas não significam que todo job antigo foi executado com sucesso.
 - Recuperação observada via API: job `#71279` (`GENERATE_INFERRED_CONNECTIONS`)
-  em execução, `automaticRecovery.count=1`, agendado pelo supervisor às
-  23:43:25 UTC. Isso confirma a retomada automática, não ainda seu sucesso final.
+  retomado com `automaticRecovery.count=1`, agendado às 23:43:25 UTC. A terceira
+  tentativa começou às 23:43:31 e terminou às 23:48:02 após 271.257 ms, novamente
+  com timeout. O job retornou a dead letter; a tentativa foi encerrada com
+  `transient_job_error`, diferentemente das duas antigas, ainda abertas no histórico.
+  Isso confirma a retomada e a auditoria, não a solução da causa. O estágio registrado
+  permaneceu `context_loading`; a mensagem sugere conferir o provedor, mas não prova
+  que ele seja o gargalo. Próximo diagnóstico: separar espera HTTP, consultas locais
+  e inferência, sem aumentar cegamente limites ou forçar novas tentativas.
 - Pendência de infraestrutura: enumeração global do Docker e atualização dos
   aliases `berrybrain-*:local` excederam os prazos. Os aliases ainda apontam para
   1.4.12; os containers ativos usam os digests verificados de 1.4.13. Não executar
