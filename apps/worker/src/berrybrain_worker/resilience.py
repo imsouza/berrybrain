@@ -52,6 +52,15 @@ def is_permanent_job_error(exc: Exception) -> bool:
         status = exc.response.status_code
         return status < 500 and status not in {408, 409, 425, 429}
     if isinstance(exc, CloudError | OllamaError):
+        if any(
+            marker in str(exc).lower()
+            for marker in (
+                "insufficient quota",
+                "insufficient_quota",
+                "quota exhausted",
+            )
+        ):
+            return True
         cause = exc.__cause__ or exc.__context__
         if isinstance(cause, httpx.HTTPStatusError):
             return is_permanent_job_error(cause)
@@ -199,6 +208,12 @@ def format_job_failure(job_type: str, exc: Exception, permanent: bool = False) -
 
 def timeout_for_job(settings: WorkerSettings, job_type: str) -> int:
     ai_job_timeout = max(30, settings.ollama_timeout + 30)
+    if job_type == "EXPAND_KNOWLEDGE_GRAPH":
+        # Expand (120s), enrichment admission (60s), HippoRAG sync (120s),
+        # plus context and completion. Never inherit the client's 10s default.
+        return max(ai_job_timeout, 330)
+    if job_type == "GENERATE_NODE_SUMMARY":
+        return max(ai_job_timeout, 150)
     long_running = {
         "ASSIMILATE_NOTE",
         "GENERATE_GRAPH_INSIGHTS",

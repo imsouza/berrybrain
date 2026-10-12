@@ -856,6 +856,17 @@ def recover_stale_running_jobs(session: Session, stale_after_minutes: int = 30) 
             else:
                 job.status = PENDING
                 job.error_message = "Recovered stale running job"
+            finish_job_attempt(
+                session,
+                job,
+                success=False,
+                error_class="lease_expired",
+                error_code="job_cancelled"
+                if job.status == CANCELLED
+                else "lease_expired",
+                retryability="none" if job.status == CANCELLED else "retryable",
+                dead_letter_reason=job.error_message or "",
+            )
             job.started_at = None
             job.lease_expires_at = None
             job.claimed_by = ""

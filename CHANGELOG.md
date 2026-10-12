@@ -17,6 +17,8 @@ All notable BerryBrain changes are documented here.
   knowledge and job-state counts without additional chart dependencies.
 - Correct Activity labels and local graph-statistics timeout guidance. Preserve
   provider error classification through wrapped HTTP failures.
+- Give heavy graph requests explicit timeouts within bounded job deadlines;
+  close expired-lease attempt records so diagnostics do not remain unfinished.
 - Add isolated regression coverage. No schema migration or TCC experiments.
 
 ## 1.4.12 - 2026-10-10
