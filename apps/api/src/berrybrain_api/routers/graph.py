@@ -1746,8 +1746,36 @@ def recalculate_graph_confidence(
             )
         with feedback_snapshot(session), session.no_autoflush:
             for node in nodes:
-                recalculate_node_confidence(node, session)
+                before = (
+                    node.confidence,
+                    node.confidence_method,
+                    node.confidence_factors,
+                )
+                recalculate_node_confidence(node, session, preserve_observations=True)
+                if before != (
+                    node.confidence,
+                    node.confidence_method,
+                    node.confidence_factors,
+                ):
+                    node.updated_at = datetime.now(UTC)
             for edge in edges:
-                recalculate_edge_confidence(edge, session)
+                before = (
+                    edge.confidence,
+                    edge.confidence_method,
+                    edge.confidence_factors,
+                )
+                recalculate_edge_confidence(edge, session, preserve_observations=True)
+                if before != (
+                    edge.confidence,
+                    edge.confidence_method,
+                    edge.confidence_factors,
+                ):
+                    edge.updated_at = datetime.now(UTC)
         session.commit()
-        return {"status": "completed", "nodes": len(nodes), "edges": len(edges)}
+        return {
+            "status": "completed",
+            "nodes": len(nodes),
+            "edges": len(edges),
+            "nodesUnavailable": sum(not node.confidence_sample_size for node in nodes),
+            "edgesUnavailable": sum(not edge.confidence_sample_size for edge in edges),
+        }

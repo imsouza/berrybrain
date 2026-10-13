@@ -249,7 +249,9 @@ def persist_semantic_analysis(
     node.ai_summary = analysis.meaning_in_context
     persist_confidence(node, confidence_estimate)
     node.ai_context = analysis.why_it_matters_here
-    node.source_evidence = json.dumps(analysis.evidence, ensure_ascii=False)
+    # Analysis evidence belongs to the versioned profile/history. Replacing the
+    # source evidence here changes the fingerprint of the input just evaluated
+    # and immediately makes a completed analysis appear stale.
     node.semantic_state = "completed"
     node.semantic_profile_version = version
     node.provider = analysis.provider

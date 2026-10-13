@@ -9,11 +9,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from berrybrain_api.confidence import (
-    ConfidenceSignal,
-    estimate_confidence,
-    persist_confidence,
-)
 from berrybrain_api.graph_contracts import canonical_edge_type, canonical_node_type
 from berrybrain_api.graph_ontology import (
     canonical_label,
@@ -70,20 +65,16 @@ def audit_graph_semantics(session: Session, *, apply: bool = False) -> dict[str,
             continue
         result["nodes"]["active"] += 1
         if apply:
+            contract_changed = node.type != node_type
             node.type = node_type
             node.semantic_status = "active"
             node.ontology_class = ontology_class(node_type)
             node.canonical_label = canonical_label(node.label).casefold()
-            signals = [
-                ConfidenceSignal(1.0, f"source-note:{note_id}")
-                for note_id in _json_list(node.source_note_ids)
-                if isinstance(note_id, int)
-            ]
-            if node.quality_score > 0:
-                signals.append(
-                    ConfidenceSignal(node.quality_score, "judge:quality-score")
-                )
-            persist_confidence(node, estimate_confidence(signals))
+            from berrybrain_api.graph_write_service import recalculate_node_confidence
+
+            recalculate_node_confidence(
+                node, session, preserve_observations=not contract_changed
+            )
 
     for edge in edges:
         source = node_by_id.get(edge.source_node_id)
@@ -127,6 +118,7 @@ def audit_graph_semantics(session: Session, *, apply: bool = False) -> dict[str,
         result["edges"]["retyped"] += int(edge.type != edge_type)
         result["edges"]["reversed"] += int(reverse)
         if apply:
+            contract_changed = edge.type != edge_type or reverse
             if reverse:
                 edge.source_node_id, edge.target_node_id = (
                     edge.target_node_id,
@@ -135,15 +127,11 @@ def audit_graph_semantics(session: Session, *, apply: bool = False) -> dict[str,
             edge.type = edge_type
             edge.semantic_status = "active"
             edge.ontology_property = ontology_property(edge_type)
-            signals = [
-                ConfidenceSignal(1.0, f"edge-evidence:{index}:{_stable_evidence(item)}")
-                for index, item in enumerate(_json_list(edge.evidence))
-            ]
-            if edge.quality_score > 0:
-                signals.append(
-                    ConfidenceSignal(edge.quality_score, "judge:quality-score")
-                )
-            persist_confidence(edge, estimate_confidence(signals))
+            from berrybrain_api.graph_write_service import recalculate_edge_confidence
+
+            recalculate_edge_confidence(
+                edge, session, preserve_observations=not contract_changed
+            )
 
     from berrybrain_api.services import audit_knowledge_confidence
 

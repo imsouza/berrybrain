@@ -140,6 +140,7 @@ def audit_connection_confidence(
         connection
         for connection in connections
         if connection.confidence_updated_at is None
+        or connection.confidence_method == "empirical-bernstein-bounded-signals-v1"
     ]
     result = {
         "examined": len(connections),
@@ -206,7 +207,12 @@ def _audit_float_confidence_records(
     reason: Any,
     evidence: Any,
 ) -> dict[str, int]:
-    pending = [record for record in records if record.confidence_updated_at is None]
+    pending = [
+        record
+        for record in records
+        if record.confidence_updated_at is None
+        or record.confidence_method == "empirical-bernstein-bounded-signals-v1"
+    ]
     result = {
         "examined": len(records),
         "pending": len(pending),
@@ -290,7 +296,7 @@ def serialize_connection(
         if target_note
         else None,
         "connection_type": conn.connection_type,
-        "confidence": conn.confidence,
+        "confidence": conn.confidence if conn.confidence_sample_size else None,
         "confidenceInterval": serialize_percentage_confidence(conn),
         "reason": conn.reason,
         "evidence": _parse_json_list(getattr(conn, "evidence", "[]")),
@@ -579,7 +585,8 @@ def build_graph(
                 "source": f"note_{conn.source_note_id}",
                 "target": f"note_{conn.target_note_id}",
                 "type": conn.connection_type,
-                "confidence": conn.confidence,
+                "confidence": serialize_percentage_confidence(conn)["score"],
+                "confidenceInterval": serialize_percentage_confidence(conn),
                 "reason": conn.reason,
             }
         )
@@ -652,7 +659,7 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
             ],
             source_evidence=_parse_json_list(c.source_evidence),
             status=c.status if c.status in {"suggested", "confirmed"} else "suggested",
-            confidence=c.confidence,
+            confidence=c.confidence if c.confidence_sample_size else None,
             created_by=c.extracted_by,
             model=c.model,
             provider=c.provider,
@@ -674,7 +681,7 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
             edge_type=conn.connection_type,
             reason=conn.reason or "Persisted relationship between the source notes.",
             evidence=evidence or [f"notes:{conn.source_note_id},{conn.target_note_id}"],
-            confidence=conn.confidence / 100 if conn.confidence > 0 else None,
+            confidence=serialize_percentage_confidence(conn)["score"],
             source_note_ids=[conn.source_note_id, conn.target_note_id],
             created_by="legacy_ai" if conn.created_by == "ai" else conn.created_by,
             model=conn.model,
