@@ -124,6 +124,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 ConnectionRecord.source_note_id,
                 ConnectionRecord.target_note_id,
                 ConnectionRecord.confidence,
+                ConnectionRecord.confidence_sample_size,
+                ConnectionRecord.confidence_method,
                 ConnectionRecord.created_at,
             )
         ).all()
@@ -135,6 +137,8 @@ def build_home_summary(session: Session) -> dict[str, Any]:
                 GraphEdgeRecord.target_node_id,
                 GraphEdgeRecord.status,
                 GraphEdgeRecord.confidence,
+                GraphEdgeRecord.confidence_sample_size,
+                GraphEdgeRecord.confidence_method,
                 GraphEdgeRecord.created_at,
             ).where(accepted_edge_clause())
         ).all()
@@ -663,10 +667,10 @@ def _serialize_connection(
         "source": _serialize_connection_note(source),
         "target": _serialize_connection_note(target),
         "type": connection.connection_type,
-        "confidence": connection.confidence / 100
-        if connection.confidence > 1
-        else connection.confidence,
-        "confidencePercent": connection.confidence,
+        "confidence": serialize_percentage_confidence(connection)["score"],
+        "confidencePercent": (
+            connection.confidence if connection.confidence_sample_size else None
+        ),
         "confidenceInterval": serialize_percentage_confidence(connection),
         "reason": connection.reason,
         "evidence": _safe_json_list(getattr(connection, "evidence", "[]")),
@@ -949,18 +953,30 @@ def _last_result(
     return "No recent results"
 
 
-def _average_confidence(connections: list[ConnectionRecord]) -> float:
-    if not connections:
-        return 0
-    raw = sum(connection.confidence for connection in connections) / len(connections)
+def _average_confidence(connections: list[ConnectionRecord]) -> float | None:
+    measured = [
+        item
+        for item in connections
+        if item.confidence_sample_size
+        and item.confidence_method != "empirical-bernstein-bounded-signals-v1"
+    ]
+    if not measured:
+        return None
+    raw = sum(connection.confidence for connection in measured) / len(measured)
     # ConnectionRecord stores confidence as 0-100 integers
     return round(raw / 100, 2)
 
 
-def _average_confidence_edges(edges: list[GraphEdgeRecord]) -> float:
-    if not edges:
-        return 0
-    raw = sum(edge.confidence for edge in edges) / len(edges)
+def _average_confidence_edges(edges: list[GraphEdgeRecord]) -> float | None:
+    measured = [
+        item
+        for item in edges
+        if item.confidence_sample_size
+        and item.confidence_method != "empirical-bernstein-bounded-signals-v1"
+    ]
+    if not measured:
+        return None
+    raw = sum(edge.confidence for edge in measured) / len(measured)
     # GraphEdgeRecord stores confidence as 0.0-1.0 floats
     return round(raw, 2)
 

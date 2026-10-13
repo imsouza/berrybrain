@@ -27,6 +27,7 @@ HIGH_IMPACT_ARTIFACT_TYPES = ("node", "edge", "insight")
 MIN_COMMITTEE_SIZE = 2
 MAX_COMMITTEE_SIZE = 5
 DEFAULT_COMMITTEE_SIZE = 3
+JUDGE_PROMPT_VERSION = "artifact-judge.v3.md"
 
 DEFAULT_JUDGE_ROLES: tuple[dict[str, str], ...] = (
     {
@@ -462,7 +463,7 @@ def persist_committee_run(
         evidence_used="[]",
         provider="committee",
         model="committee",
-        prompt_version="artifact-judge.v2.md",
+        prompt_version=JUDGE_PROMPT_VERSION,
     )
     session.add(summary_record)
     session.commit()

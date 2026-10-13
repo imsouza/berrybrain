@@ -144,7 +144,9 @@ def _recalculate_node_confidence(
 
 
 def _recalculate_edge_confidence(
-    edge: GraphEdgeRecord, session: Session | None = None
+    edge: GraphEdgeRecord,
+    session: Session | None = None,
+    extra_signals: Iterable[ConfidenceSignal] = (),
 ) -> None:
     signals = [
         ConfidenceSignal(
@@ -168,21 +170,65 @@ def _recalculate_edge_confidence(
                 signals.append(
                     ConfidenceSignal(1.0, f"human-feedback:{decision.record_id}")
                 )
+    signals.extend(extra_signals)
     persist_confidence(edge, estimate_confidence(signals))
 
 
 def recalculate_node_confidence(
-    node: GraphNodeRecord, session: Session | None = None
+    node: GraphNodeRecord,
+    session: Session | None = None,
+    *,
+    preserve_observations: bool = False,
 ) -> None:
     """Refresh persisted confidence after graph provenance changes."""
-    _recalculate_node_confidence(node, session)
+    extra = []
+    if preserve_observations:
+        from berrybrain_api.confidence import stored_confidence_signals
+
+        extra = stored_confidence_signals(node)
+        if session is not None and node.semantic_state == "completed":
+            from berrybrain_api.models import NodeEnrichmentVersionRecord
+            from berrybrain_api.semantic_enrichment import source_fingerprint
+
+            history = session.scalar(
+                select(NodeEnrichmentVersionRecord).where(
+                    NodeEnrichmentVersionRecord.node_id == node.id,
+                    NodeEnrichmentVersionRecord.version
+                    == node.semantic_profile_version,
+                    NodeEnrichmentVersionRecord.source_fingerprint
+                    == source_fingerprint(session, node),
+                )
+            )
+            if history is not None:
+                try:
+                    profile = json.loads(history.analysis_json)
+                    scores = profile.get("confidence", {})
+                except (TypeError, ValueError, AttributeError):
+                    scores = {}
+                if isinstance(scores, dict):
+                    extra.extend(
+                        ConfidenceSignal(scores[key], source)
+                        for key, source in (
+                            ("concept_detection", "semantic:concept-detection"),
+                            ("semantic_interpretation", "semantic:interpretation"),
+                            ("evidence_coverage", "semantic:evidence-coverage"),
+                        )
+                        if key in scores
+                    )
+    _recalculate_node_confidence(node, session, extra)
 
 
 def recalculate_edge_confidence(
-    edge: GraphEdgeRecord, session: Session | None = None
+    edge: GraphEdgeRecord,
+    session: Session | None = None,
+    *,
+    preserve_observations: bool = False,
 ) -> None:
     """Refresh persisted confidence after graph provenance changes."""
-    _recalculate_edge_confidence(edge, session)
+    from berrybrain_api.confidence import stored_confidence_signals
+
+    extra = stored_confidence_signals(edge) if preserve_observations else ()
+    _recalculate_edge_confidence(edge, session, extra)
 
 
 def _node_state(node: GraphNodeRecord) -> dict[str, Any]:

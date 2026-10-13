@@ -104,6 +104,34 @@ class GraphQualityReportTest(unittest.TestCase):
         self.assertEqual(projected["stats"]["node_count"], 2)
         self.assertEqual(self.session.query(GraphNodeRecord).count(), 2)
 
+    def test_semantic_audit_preserves_zero_but_invalidates_retyped_measurements(self):
+        from berrybrain_api.confidence import persist_judge_confidence
+        from berrybrain_api.graph_semantic_service import audit_graph_semantics
+
+        source = GraphNodeRecord(type="concept", label="Telemetry")
+        target = GraphNodeRecord(type="concept", label="Observability")
+        self.session.add_all([source, target])
+        self.session.flush()
+        edge = GraphEdgeRecord(
+            source_node_id=source.id, target_node_id=target.id, type="related"
+        )
+        self.session.add(edge)
+        self.session.flush()
+        persist_judge_confidence(source, 0.0)
+        persist_judge_confidence(edge, 0.8)
+        self.session.commit()
+
+        audit_graph_semantics(self.session, apply=True)
+        self.assertEqual(source.confidence, 0.0)
+        self.assertEqual(source.confidence_sample_size, 1)
+        self.assertEqual(edge.confidence, 0.8)
+
+        edge.type = "semantic_relation"
+        self.session.commit()
+        audit_graph_semantics(self.session, apply=True)
+        self.assertEqual(edge.type, "related")
+        self.assertEqual(edge.confidence_sample_size, 0)
+
     def test_legacy_projection_and_sync_preserve_relationship_evidence(self) -> None:
         source = NoteRecord(
             title="Source note",
@@ -171,10 +199,9 @@ class GraphQualityReportTest(unittest.TestCase):
         edge = self.session.query(GraphEdgeRecord).one()
         self.assertEqual(edge.type, "supports")
         self.assertEqual(edge.status, "confirmed")
-        self.assertEqual(edge.confidence, 0.5)
-        self.assertEqual(
-            edge.confidence_method, "empirical-bernstein-bounded-signals-v1"
-        )
+        # Legacy scalars without observations must not become new model evidence.
+        self.assertEqual(edge.confidence_sample_size, 0)
+        self.assertEqual(edge.confidence_method, "unavailable")
         self.assertIn("source excerpt", edge.evidence)
 
 

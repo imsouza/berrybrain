@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import logging
+import math
 import urllib.error
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from berrybrain_api.artifact_state import apply_quality_verdict
+from berrybrain_api.confidence import persist_judge_confidence
 from berrybrain_api.config import PROJECT_ROOT, get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.judge_committee import (
     DEFAULT_COMMITTEE_SIZE,
+    JUDGE_PROMPT_VERSION,
     MAX_COMMITTEE_SIZE,
     MIN_COMMITTEE_SIZE,
     JudgeConfig,
@@ -42,7 +46,50 @@ router = APIRouter(prefix="/api/v1/judge", tags=["judge"])
 logger = logging.getLogger(__name__)
 
 _VERDICT_ORDER = {"rejected": 0, "review": 1, "passed": 2}
-JUDGE_PROMPT_VERSION = "artifact-judge.v2.md"
+
+
+def _validated_judge_score(value: object) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError("Judge must return a finite score between zero and one")
+    return float(value)
+
+
+def _parse_judge_result(result: dict) -> tuple[str, float, dict]:
+    """Derive aggregate support from the complete rubric, not a model total."""
+    criteria = (
+        "accuracy",
+        "relevance",
+        "semantic_coherence",
+        "evidence_quality",
+        "clarity",
+    )
+    rubric = result.get("rubric")
+    verdict = result.get("verdict")
+    if not isinstance(rubric, dict) or verdict not in _VERDICT_ORDER:
+        raise ValueError("Judge must return a rubric and a supported verdict")
+    values = []
+    for criterion in criteria:
+        value = rubric.get(criterion)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(value)
+            or not 0 <= value <= 10
+        ):
+            raise ValueError("Judge rubric must contain all five bounded criteria")
+        values.append(float(value))
+    score = _validated_judge_score(sum(values) / (len(values) * 10))
+    # Enforce the prompt's numeric gates, never relax a semantic rejection.
+    if min(values) < 6:
+        verdict = "rejected"
+    elif verdict == "passed" and (min(values) < 7 or score < 0.8):
+        verdict = "review"
+    return verdict, score, rubric
 
 
 def _require_admin_csrf(request: Request) -> None:
@@ -219,9 +266,7 @@ async def _run_committee_models(
                 prompt_version=JUDGE_PROMPT_VERSION,
             )
             elapsed = (datetime.now(UTC) - started_at).total_seconds() * 1000
-            rubric = result.get("rubric", {})
-            if not isinstance(rubric, dict):
-                rubric = {}
+            verdict, score, rubric = _parse_judge_result(result)
             rubric["committeeRole"] = role
             verdicts.append(
                 {
@@ -229,8 +274,8 @@ async def _run_committee_models(
                     "provider": judge["provider"],
                     "model": judge["model"],
                     "role": role,
-                    "verdict": result.get("verdict", "error"),
-                    "score": float(result.get("score", 0.0)),
+                    "verdict": verdict,
+                    "score": score,
                     "rubric": rubric,
                     "reasoning": result.get("reasoning", ""),
                     "latency_ms": int(elapsed),
@@ -338,10 +383,10 @@ def _scorecard_agreement(rows: list[tuple[str, str]]) -> dict:
 
 
 class ArtifactEvaluationCreate(BaseModel):
-    artifact_type: str
+    artifact_type: Literal["node", "edge", "connection", "insight"]
     artifact_id: int
-    verdict: str
-    score: float
+    verdict: Literal["passed", "review", "rejected", "error"]
+    score: float = Field(ge=0, le=1, allow_inf_nan=False, strict=True)
     rubric: str
     reasoning: str
     evidence_used: str
@@ -389,6 +434,11 @@ def submit_evaluation(eval_req: ArtifactEvaluationCreate):
                 apply_quality_verdict(artifact, eval_req.verdict)
                 artifact.quality_score = eval_req.score
                 artifact.latest_evaluation_id = evaluation.id
+                persist_judge_confidence(
+                    artifact,
+                    eval_req.score if eval_req.verdict != "error" else None,
+                    percentage=isinstance(artifact, ConnectionRecord),
+                )
                 if hasattr(artifact, "updated_at"):
                     artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.commit()
@@ -550,6 +600,9 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
                 artifact.quality_gate_status = "review"
                 artifact.quality_score = 0.0
                 artifact.latest_evaluation_id = evaluation.id
+                persist_judge_confidence(
+                    artifact, None, percentage=isinstance(artifact, ConnectionRecord)
+                )
                 if hasattr(artifact, "updated_at"):
                     artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.commit()
@@ -589,6 +642,11 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
                 apply_quality_verdict(artifact, summary.verdict)
                 artifact.quality_score = summary.score
                 artifact.latest_evaluation_id = summary.id
+                persist_judge_confidence(
+                    artifact,
+                    summary.score if summary.verdict != "error" else None,
+                    percentage=isinstance(artifact, ConnectionRecord),
+                )
                 if hasattr(artifact, "updated_at"):
                     artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 session.commit()
@@ -610,9 +668,8 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
                 prompt_version=JUDGE_PROMPT_VERSION,
             )
 
-            verdict = result.get("verdict", "error")
-            score = float(result.get("score", 0.0))
-            rubric = json.dumps(result.get("rubric", {}))
+            verdict, score, rubric_values = _parse_judge_result(result)
+            rubric = json.dumps(rubric_values)
             reasoning = result.get("reasoning", "")
 
             evaluation = ArtifactEvaluationRecord(
@@ -633,6 +690,11 @@ async def evaluate_artifact_internal(req: EvaluateInternalRequest):
             apply_quality_verdict(artifact, verdict)
             artifact.quality_score = score
             artifact.latest_evaluation_id = evaluation.id
+            persist_judge_confidence(
+                artifact,
+                score if verdict != "error" else None,
+                percentage=isinstance(artifact, ConnectionRecord),
+            )
             if hasattr(artifact, "updated_at"):
                 artifact.updated_at = datetime.now(UTC).replace(tzinfo=None)
 

@@ -17,18 +17,20 @@ claim is true.
 
 The implementation is `estimate_confidence` in
 `apps/api/src/berrybrain_api/confidence.py`. Its serialized method identifier is
-`empirical-bernstein-bounded-signals-v1`.
+`evidence-support-mean-v2`.
 
 For each artifact, callers provide finite scored signals. The estimator:
 
 1. deduplicates signals by source identifier;
-2. clips every scored observation to `[0,1]`;
+2. accepts only finite numeric observations in `[0,1]`; rejects booleans, missing,
+   malformed and out-of-range values rather than silently clamping them;
 3. retains provenance identifiers as auditable factors but excludes provenance-only prefixes from
    the scored-observation count;
 4. returns unavailable bounds when `n=0` and deliberately returns `[0,1]` when `n=1`;
 5. otherwise calculates the mean, Bessel-corrected sample variance, and the radius below at the
    default nominal level `1-delta=0.95`;
-6. clips the interval to `[0,1]` and persists its midpoint as the compatibility score.
+6. clips the interval to `[0,1]` but persists the **observed arithmetic mean** as
+   the support score. The score and descriptive uncertainty are separate outputs.
 
 For `n>1`:
 
@@ -36,7 +38,7 @@ For `n>1`:
 r = sqrt(2 s^2 log(3/delta) / n) + 3 log(3/delta) / n
 L = max(0, mean - r)
 U = min(1, mean + r)
-score = (L + U) / 2
+score = mean
 ```
 
 The radius is based on the empirical Bernstein form used by Audibert, Munos, and Szepesvari,
@@ -52,11 +54,51 @@ independence, common-mean interpretation, and empirical coverage have not been e
 human correctness labels. Therefore:
 
 - `95%` is a **nominal construction level**, not demonstrated 95% coverage of factual truth;
-- the midpoint is a compatibility display score, not a posterior probability;
+- the mean is a descriptive support score, not a posterior probability;
 - the lower bound is suitable for conservative ordering, but is not calibrated risk;
 - a full `[0,1]` interval is expected with one scored signal and can remain wide at small `n`;
 - repeated provenance records cannot legitimately increase confidence;
 - Wilson and Jeffreys intervals are **not** used by the current runtime implementation.
+
+## Why the Previous UI Repeated 50 Percent
+
+The previous `empirical-bernstein-bounded-signals-v1` method displayed `(L+U)/2`.
+For one observation the interval is `[0,1]`; with a few observations the radius
+also commonly covers that full range. Consequently very different measurements
+all displayed 0.5. This was an uninformative midpoint, not a measured 50% chance.
+For example, a single signal of 0.2 or 0.9 now reports that measured support,
+while retaining the same honest `[0,1]` uncertainty. An actual mean of 0.5 remains
+possible; the implementation must not artificially avoid it.
+
+Judge evaluations replace the current `judge:quality-score` observation after
+successful evaluation. Repeated evaluations do not accumulate independent votes.
+Internal single-model and committee judges use the versioned `artifact-judge.v3.md`
+prompt and must return all five rubric
+criteria as numbers in `[0,10]`. The backend computes their normalized mean and
+enforces the rubric's numeric verdict gates; it does not trust the model's total.
+Incomplete, nonnumeric or out-of-range rubrics fail evaluation instead of becoming
+a fabricated zero or a default 50%. A stricter semantic rejection is never relaxed.
+A committee contributes its aggregate once, not its aggregate plus all members.
+Policy-only mode and persisted error verdicts remove that observation; they do not
+invent a zero score. Transport failures abort the transaction and retain the last
+stored evaluation until a successful retry. A measured zero is retained. Semantic model signals, lexical coverage
+and Judge scores remain heterogeneous, potentially correlated heuristics.
+
+Lexical coverage uses registered text/excerpts, not metadata keys, IDs or hashes.
+It is token overlap, not a semantic entailment check. Missing text means unavailable,
+whereas measured zero overlap is a valid zero. Home averages exclude unavailable
+artifacts and legacy midpoint estimates rather than treating them as current measurements.
+
+New persistence stores a versioned object in the existing `confidence_factors` JSON
+column: `version`, `factors`, `observations` (source and score), and nominal `level`.
+The API retains its `factors` list and additionally exposes `observations`. Legacy
+JSON lists remain readable, but the old aggregate score is never reused as a raw
+observation. Previously stored model signals cannot be reconstructed from a midpoint
+alone; historical rows require evidence-based recalculation or a fresh evaluation.
+Do not bulk replace stored 50% values with another constant.
+
+The UI uses **Evidence support** and **Not evaluated**, not a generic pending label
+that falsely implies queued work. Processing state is displayed separately.
 
 ## Benchmark Effect Interval
 

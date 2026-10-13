@@ -129,10 +129,12 @@ class AskFlowTest(unittest.IsolatedAsyncioTestCase):
             .filter_by(insight_id=result["insight"]["id"])
             .one()
         )
-        self.assertGreater(inference.confidence_sample_size, 0)
+        # The saved turn only retains evidence IDs, not measured support signals.
+        # IDs alone must not manufacture a confidence score.
+        self.assertEqual(inference.confidence_sample_size, 0)
         self.assertEqual(
             inference.confidence_method,
-            "empirical-bernstein-bounded-signals-v1",
+            "unavailable",
         )
 
     async def test_cancelled_turn_does_not_persist_provider_answer(self) -> None:

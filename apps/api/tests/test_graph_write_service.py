@@ -123,11 +123,11 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(first.id, duplicate.id)
         self.assertEqual(len(edges), 1)
         self.assertEqual(duplicate.type, "related")
-        self.assertAlmostEqual(duplicate.confidence, 0.5)
+        self.assertAlmostEqual(duplicate.confidence, 0.9)
         self.assertEqual(duplicate.confidence_sample_size, 1)
         self.assertEqual(
             duplicate.confidence_method,
-            "empirical-bernstein-bounded-signals-v1",
+            "evidence-support-mean-v2",
         )
         self.assertIn("edge-evidence:", duplicate.confidence_factors)
         self.assertLess(duplicate.confidence_lower, duplicate.confidence)

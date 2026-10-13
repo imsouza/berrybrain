@@ -11,6 +11,7 @@ from statistics import variance
 from typing import Any
 
 TOKEN_RE = re.compile(r"[\w-]{3,}", flags=re.UNICODE)
+CONFIDENCE_METHOD = "evidence-support-mean-v2"
 PROVENANCE_SIGNAL_PREFIXES = (
     "connection-evidence:",
     "edge-evidence:",
@@ -37,6 +38,7 @@ class ConfidenceEstimate:
     method: str
     factors: tuple[str, ...]
     level: float = 0.95
+    observations: tuple[ConfidenceSignal, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,6 +53,8 @@ def serialize_estimate(estimate: ConfidenceEstimate) -> dict[str, Any]:
         "sampleSize": estimate.sample_size,
         "method": estimate.method,
         "factors": list(estimate.factors),
+        "observations": [asdict(signal) for signal in estimate.observations],
+        "interpretation": "evidence_support_not_probability",
     }
 
 
@@ -59,11 +63,11 @@ def estimate_confidence(
     *,
     level: float = 0.95,
 ) -> ConfidenceEstimate:
-    """Estimate a bounded uncertainty interval from distinct scored observations.
+    """Average distinct support signals, separately from descriptive uncertainty.
 
     Provenance identifiers establish traceability but are not correctness outcomes, so
-    they never increase confidence by themselves. Scored observations are interpreted
-    as independent bounded measurements; callers must not pass duplicate sources.
+    they never increase support by themselves. Heterogeneous signals are not proven
+    independent or calibrated: neither the mean nor its interval is truth probability.
     """
     if not 0 < level < 1:
         raise ValueError("Confidence level must be between 0 and 1")
@@ -72,18 +76,26 @@ def estimate_confidence(
     seen_sources: set[str] = set()
     for item in signals:
         signal = item if isinstance(item, ConfidenceSignal) else ConfidenceSignal(*item)
-        if signal.source in seen_sources or not math.isfinite(signal.score):
+        if (
+            not isinstance(signal.source, str)
+            or not signal.source.strip()
+            or signal.source in seen_sources
+            or isinstance(signal.score, bool)
+            or not isinstance(signal.score, int | float)
+            or not math.isfinite(signal.score)
+            or not 0 <= signal.score <= 1
+        ):
             continue
         seen_sources.add(signal.source)
         factors.append(signal.source)
         if signal.source.startswith(PROVENANCE_SIGNAL_PREFIXES):
             continue
-        observations.append(
-            ConfidenceSignal(max(0.0, min(1.0, float(signal.score))), signal.source)
-        )
+        observations.append(ConfidenceSignal(float(signal.score), signal.source))
 
     if not observations:
-        return ConfidenceEstimate(None, None, None, 0, "unavailable", tuple(factors))
+        return ConfidenceEstimate(
+            None, None, None, 0, "unavailable", tuple(factors), level
+        )
 
     sample_size = len(observations)
     observed_mean = sum(item.score for item in observations) / sample_size
@@ -99,15 +111,15 @@ def estimate_confidence(
         )
         lower = max(0.0, observed_mean - radius)
         upper = min(1.0, observed_mean + radius)
-    conservative_center = (lower + upper) / 2.0
     return ConfidenceEstimate(
-        round(conservative_center, 6),
+        round(observed_mean, 6),
         round(lower, 6),
         round(upper, 6),
         sample_size,
-        "empirical-bernstein-bounded-signals-v1",
+        CONFIDENCE_METHOD,
         tuple(factors),
         level,
+        tuple(observations),
     )
 
 
@@ -118,7 +130,7 @@ def estimate_connection_confidence(
     model_score: int | float | None = None,
     model_source: str = "connection-model",
 ) -> ConfidenceEstimate:
-    """Calculate connection confidence from independent evidence and model signals."""
+    """Calculate descriptive support from evidence and model signals."""
     evidence_items = [item for item in evidence if str(item).strip()]
     signals = [
         ConfidenceSignal(
@@ -133,12 +145,12 @@ def estimate_connection_confidence(
     coverage = evidence_coverage_signal([reason], evidence_items)
     if coverage is not None:
         signals.append(coverage)
-    if model_score is not None:
+    if model_score is not None and not isinstance(model_score, bool):
         try:
             normalized_score = float(model_score)
         except (TypeError, ValueError):
             normalized_score = math.nan
-        if math.isfinite(normalized_score):
+        if math.isfinite(normalized_score) and 0 <= normalized_score <= 100:
             normalized_score = (
                 normalized_score / 100 if normalized_score > 1 else normalized_score
             )
@@ -152,7 +164,7 @@ def persist_confidence(target: Any, estimate: ConfidenceEstimate) -> None:
     target.confidence_upper = estimate.upper
     target.confidence_sample_size = estimate.sample_size
     target.confidence_method = estimate.method
-    target.confidence_factors = json.dumps(list(estimate.factors), ensure_ascii=False)
+    target.confidence_factors = _stored_estimate(estimate)
     target.confidence_updated_at = datetime.now(UTC)
 
 
@@ -163,7 +175,7 @@ def persist_percentage_confidence(target: Any, estimate: ConfidenceEstimate) -> 
     target.confidence_upper = estimate.upper
     target.confidence_sample_size = estimate.sample_size
     target.confidence_method = estimate.method
-    target.confidence_factors = json.dumps(list(estimate.factors), ensure_ascii=False)
+    target.confidence_factors = _stored_estimate(estimate)
     target.confidence_updated_at = datetime.now(UTC)
 
 
@@ -180,31 +192,116 @@ def evidence_coverage_signal(
     evidence_tokens = {
         token.casefold()
         for item in evidence
-        for token in TOKEN_RE.findall(
-            json.dumps(item, ensure_ascii=False)
-            if isinstance(item, dict | list)
-            else str(item or "")
-        )
+        for token in TOKEN_RE.findall(_evidence_text(item))
     }
+    if not evidence_tokens:
+        return None
     coverage = len(claim_tokens & evidence_tokens) / len(claim_tokens)
     return ConfidenceSignal(coverage, "evidence-claim-token-coverage")
+
+
+def _evidence_text(item: Any) -> str:
+    # IDs, hashes, paths and JSON keys establish provenance, not textual support.
+    if isinstance(item, dict):
+        return " ".join(
+            _evidence_text(item[key])
+            for key in ("excerpt", "text", "quote", "content")
+            if key in item
+        )
+    if isinstance(item, list):
+        return " ".join(_evidence_text(value) for value in item)
+    return item if isinstance(item, str) else ""
+
+
+def _stored_estimate(estimate: ConfidenceEstimate) -> str:
+    return json.dumps(
+        {
+            "version": 2,
+            "factors": list(estimate.factors),
+            "observations": [asdict(signal) for signal in estimate.observations],
+            "level": estimate.level,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _stored_details(target: Any) -> dict[str, Any]:
+    try:
+        parsed = json.loads(getattr(target, "confidence_factors", "[]") or "[]")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if isinstance(parsed, list):
+        return {"factors": parsed}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        **parsed,
+        "factors": parsed.get("factors")
+        if isinstance(parsed.get("factors"), list)
+        else [],
+        "observations": parsed.get("observations")
+        if isinstance(parsed.get("observations"), list)
+        else [],
+    }
+
+
+def stored_confidence_signals(target: Any) -> list[ConfidenceSignal]:
+    """Read actual observations, never reinterpret a legacy interval midpoint."""
+    details = _stored_details(target)
+    signals = [
+        ConfidenceSignal(1.0, source)
+        for source in details.get("factors", [])
+        if isinstance(source, str) and source.startswith(PROVENANCE_SIGNAL_PREFIXES)
+    ]
+    for item in details.get("observations", []):
+        if (
+            isinstance(item, dict)
+            and "score" in item
+            and isinstance(item.get("source"), str)
+        ):
+            signals.append(ConfidenceSignal(item["score"], item["source"]))
+    return signals
+
+
+def persist_judge_confidence(
+    target: Any, score: float | None, *, percentage: bool = False
+) -> None:
+    """Replace the current judge observation; retries are not new evidence.
+
+    None means no measured verdict (e.g. policy-only mode or evaluator error),
+    not a negative score. A genuine zero verdict remains a scored observation.
+    """
+    signals = [
+        signal
+        for signal in stored_confidence_signals(target)
+        if not signal.source.startswith("judge:")
+    ]
+    if score is not None:
+        signals.append(ConfidenceSignal(score, "judge:quality-score"))
+    persist = persist_percentage_confidence if percentage else persist_confidence
+    persist(target, estimate_confidence(signals))
 
 
 def serialize_confidence(target: Any, *, compact: bool = False) -> dict[str, Any]:
     sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
     score = getattr(target, "confidence", None) if sample_size else None
+    details = {} if compact else _stored_details(target)
     return {
         "score": score,
         "lower": getattr(target, "confidence_lower", None),
         "upper": getattr(target, "confidence_upper", None),
-        "level": 0.95,
+        **({"level": details.get("level", 0.95)} if not compact else {}),
         "sampleSize": sample_size,
         "method": getattr(target, "confidence_method", "unavailable") or "unavailable",
+        "needsRecalculation": getattr(target, "confidence_method", "")
+        == "empirical-bernstein-bounded-signals-v1",
         **(
             {}
             if compact
             else {
-                "factors": _json_list(getattr(target, "confidence_factors", "[]")),
+                "factors": details.get("factors", []),
+                "observations": details.get("observations", []),
+                "interpretation": "evidence_support_not_probability",
             }
         ),
         "computedAt": (
