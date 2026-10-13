@@ -18,6 +18,8 @@ All notable BerryBrain changes are documented here.
 - Fix percentage scaling and exclude unavailable/legacy estimates from Home means.
   Document reusable API contracts and bounded historical repair. No new research
   experiments, schema migration, provider changes or bulk inference.
+- Cancel automatic camera fitting when a graph-node drag starts, so late layout
+  updates do not reframe a manually positioned node.
 
 ## 1.4.13 - 2026-10-12
 
