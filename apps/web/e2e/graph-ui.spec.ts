@@ -254,17 +254,8 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
 
     // Wait for the drag click-suppression window; the released node stays pinned.
     await page.waitForTimeout(340);
-    let releasedPoint = { x: hitPoint.x + 70, y: hitPoint.y + 40 };
-    for (let step = 0; step <= 10; step += 1) {
-      const ratio = 1 - step / 10;
-      releasedPoint = {
-        x: hitPoint.x + 70 * ratio,
-        y: hitPoint.y + 40 * ratio,
-      };
-      await page.mouse.move(releasedPoint.x, releasedPoint.y);
-      await page.waitForTimeout(25);
-      if (await tooltip.isVisible().catch(() => false)) break;
-    }
+    const releasedPoint = { x: hitPoint.x + 70, y: hitPoint.y + 40 };
+    await page.mouse.move(releasedPoint.x, releasedPoint.y);
     await expect(tooltip).toBeVisible();
     await page.mouse.click(releasedPoint.x, releasedPoint.y);
     await expect(canvas).toHaveAttribute("data-selected-node", "concept_11");

@@ -44,6 +44,9 @@ no grafo nem comprovação de que todos necessitam avaliação por IA.
 - [x] Home: excluir itens não avaliados da média e corrigir escala de 1%.
 - [x] UI: suporte de evidência, incerteza separada, estado não avaliado e aviso
   para valores legados, sem apresentar o midpoint antigo como nova média.
+- [x] Impedir auto-fit da câmera durante/depois de iniciar arrasto de um nó.
+  A regressão visual revelou que o worker podia reenquadrar a câmera após a ação
+  manual, mesmo com coordenadas do nó fixadas.
 - [x] Recalcular sob demanda preservando observações registradas; recuperar
   sinais semânticos versionados apenas se a origem ainda corresponder.
 - [x] Documentar método e contrato reutilizável em `docs/confidence-model.md`
@@ -76,8 +79,9 @@ versionados compatíveis são necessários nesses casos.
   avaliação paga ou experimento de pesquisa executado.
 - TypeScript, ESLint, Ruff e build Next.js de produção aprovados em 13/10.
 - Primeira rodada de navegador: 21 aprovações diretas e um hover aprovado no retry.
-  O teste usava geometria/espero fixos; sincronização do canvas ajustada e nova
-  rodada exigida antes da aprovação final.
+  O teste usava geometria/espera fixas; sincronização do canvas ajustada. A rodada
+  seguinte revelou deslocamento de câmera após arrasto. Corrigido o controle da
+  câmera; novo build e rodada visual exigidos antes da aprovação final.
 - Relatórios locais: `/tmp/berrybrain-confidence-api-checks.json` e
   `/tmp/berrybrain-confidence-final-checks.json`.
 - Primeiro harness isolado não iniciou testes por ausência de pytest; dependência
