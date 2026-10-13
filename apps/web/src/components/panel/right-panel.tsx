@@ -9,7 +9,8 @@ type NoteConnection = {
   source_note: { id: number; title: string; path: string } | null;
   target_note: { id: number; title: string; path: string } | null;
   connection_type: string;
-  confidence: number;
+  confidence: number | null;
+  confidenceInterval?: { method?: string };
   reason: string;
   evidence?: string[];
   status?: string;
@@ -144,7 +145,7 @@ export function RightPanel() {
                         <button className="truncate text-left text-[11px] font-medium text-foreground hover:text-accent" onClick={() => other?.path && w.openNote(other.path)}>
                           {other?.title || "Connection"}
                         </button>
-                        <span className="ml-auto text-[10px] text-muted/50">{formatConfidence(c.confidence)}</span>
+                        <span className="ml-auto text-[10px] text-muted/50">{formatConfidence(c.confidence, c.confidenceInterval?.method)}</span>
                       </div>
                       <p className="line-clamp-3 text-[10px] text-muted/70">{c.reason || "Connection has no explanation."}</p>
                       {!!c.evidence?.length && <p className="mt-1 truncate text-[10px] text-muted/45">Evidence: {c.evidence.slice(0, 2).map(formatEvidenceLabel).join(" · ")}</p>}
@@ -247,9 +248,11 @@ function Row({ k, v }: { k: string; v: string | number }) {
   return <div className="flex justify-between"><span className="text-muted/50">{k}</span><span className="tabular-nums">{v}</span></div>;
 }
 
-function formatConfidence(value?: number) {
-  if (value === undefined || value === null) return "-";
-  return `${Math.round(value <= 1 ? value * 100 : value)}%`;
+function formatConfidence(value?: number | null, method?: string) {
+  if (method === "empirical-bernstein-bounded-signals-v1") return "Needs recalculation";
+  if (value === undefined || value === null || !Number.isFinite(value)) return "Not evaluated";
+  // The connections API uses integer percentages, including 0% and 1%.
+  return `${Math.round(value)}%`;
 }
 
 function parseMaybeJson(value: string): unknown {

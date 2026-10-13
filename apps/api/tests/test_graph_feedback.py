@@ -134,7 +134,7 @@ class GraphFeedbackTest(unittest.TestCase):
             node.id, "confirmed", user_decision=True
         )
 
-        factors = json.loads(confirmed.confidence_factors)
+        factors = json.loads(confirmed.confidence_factors)["factors"]
         self.assertTrue(any(item.startswith("human-feedback:") for item in factors))
         self.assertEqual(confirmed.status, "confirmed")
 

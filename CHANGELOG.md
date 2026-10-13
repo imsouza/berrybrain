@@ -4,6 +4,23 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.4.14 - 2026-10-13
+
+- Replace interval-midpoint confidence with the mean of recorded support signals;
+  preserve descriptive uncertainty separately, without claiming truth probability.
+- Connect Judge outcomes to evidence support; compute internal scores from the
+  validated five-criterion rubric and version its prompt as v3. Retries replace
+  the current evaluation instead of manufacturing independent observations.
+- Preserve genuine zero scores, reject invalid inputs, and distinguish unavailable
+  measurements from queued processing and legacy values needing recalculation.
+- Store auditable raw observations; recover semantic signals only from matching
+  versioned source fingerprints. Preserve canonical source evidence on enrichment.
+- Fix percentage scaling and exclude unavailable/legacy estimates from Home means.
+  Document reusable API contracts and bounded historical repair. No new research
+  experiments, schema migration, provider changes or bulk inference.
+- Cancel automatic camera fitting when a graph-node drag starts, so late layout
+  updates do not reframe a manually positioned node.
+
 ## 1.4.13 - 2026-10-12
 
 - Add bounded exhausted-job recovery with durable cooldowns, source/version

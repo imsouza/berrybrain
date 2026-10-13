@@ -1,5 +1,6 @@
 import unittest
 from datetime import timedelta
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -21,6 +22,55 @@ from berrybrain_api.models import (
 
 
 class HomeSummaryTest(unittest.TestCase):
+    def test_confidence_average_excludes_unknown_but_includes_measured_zero(self):
+        from berrybrain_api.home_summary import (
+            _average_confidence,
+            _average_confidence_edges,
+            _serialize_connection,
+        )
+
+        unknown = SimpleNamespace(confidence=0, confidence_sample_size=0)
+        negative = SimpleNamespace(
+            confidence=0,
+            confidence_sample_size=1,
+            confidence_method="evidence-support-mean-v2",
+        )
+        supported = SimpleNamespace(
+            confidence=80,
+            confidence_sample_size=1,
+            confidence_method="evidence-support-mean-v2",
+        )
+        legacy = SimpleNamespace(
+            confidence=50,
+            confidence_sample_size=1,
+            confidence_method="empirical-bernstein-bounded-signals-v1",
+        )
+        self.assertEqual(
+            _average_confidence([unknown, negative, supported, legacy]), 0.4
+        )
+        self.assertIsNone(_average_confidence([legacy]))
+        self.assertIsNone(_average_confidence_edges([legacy]))
+        self.assertIsNone(_average_confidence([unknown]))
+        self.assertIsNone(_average_confidence_edges([unknown]))
+        supported.confidence = 0.8
+        self.assertEqual(_average_confidence_edges([unknown, negative, supported]), 0.4)
+        connection = ConnectionRecord(
+            id=1,
+            source_note_id=1,
+            target_note_id=2,
+            connection_type="related",
+            confidence=1,
+            confidence_sample_size=1,
+            created_by="ai",
+        )
+        payload = _serialize_connection(connection, {})
+        self.assertEqual(payload["confidence"], 0.01)
+        self.assertEqual(payload["confidencePercent"], 1)
+        connection.confidence_sample_size = 0
+        payload = _serialize_connection(connection, {})
+        self.assertIsNone(payload["confidence"])
+        self.assertIsNone(payload["confidencePercent"])
+
     def setUp(self) -> None:
         engine = create_engine(
             "sqlite:///:memory:", connect_args={"check_same_thread": False}

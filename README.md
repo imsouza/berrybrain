@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.13-blue)
+![Version](https://img.shields.io/badge/version-1.4.14-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.13](#whats-new-in-1413)
+- [What's New in 1.4.14](#whats-new-in-1414)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,7 +93,16 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.13
+## What's New in 1.4.14
+
+Evidence support uses recorded signals instead of an interval midpoint. Judge
+scores update the displayed aggregate, with validated rubrics and auditable
+observations. Missing evaluations and legacy values are explicit; the score is
+not a probability of truth. See the [1.4.14 release notes](docs/releases/v1.4.14.md),
+[method](docs/confidence-model.md) and
+[validation checklist](docs/reviews/2026-10-13-confidence-evaluation.md).
+
+### Previous: 1.4.13
 
 Bounded autonomous recovery handles eligible exhausted jobs without bulk replay,
 resetting history or hiding permanent failures. Alerts count unread items; Home
