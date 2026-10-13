@@ -228,27 +228,23 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await expect(canvas).toHaveAttribute("data-node-label-policy", "hover-selection-filter", { timeout: 30_000 });
     await expect(canvas).toHaveAttribute("data-node-border", "none");
     await expect(canvas).toHaveAttribute("data-drag-physics", "linked-neighbors");
-    await page.waitForTimeout(900);
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    const center = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
-
     const tooltip = page.getByRole("tooltip");
-    let hitPoint = center;
-    for (const dy of [0, -8, 8, -16, 16]) {
-      for (const dx of [0, -8, 8, -16, 16]) {
-        hitPoint = { x: center.x + dx, y: center.y + dy };
-        await page.mouse.move(hitPoint.x, hitPoint.y);
-        await page.waitForTimeout(25);
-        if (await tooltip.isVisible().catch(() => false)) break;
-      }
-      if (await tooltip.isVisible().catch(() => false)) break;
-    }
+    let hitPoint = { x: 0, y: 0 };
+    // The single-node fixture is centered after layout. Re-read the canvas
+    // bounds as the workspace settles; fixed sleeps can sample stale geometry.
+    await expect(async () => {
+      const box = await canvas.boundingBox();
+      expect(box).not.toBeNull();
+      hitPoint = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+      await page.mouse.move(box!.x + 5, box!.y + 5);
+      await page.mouse.move(hitPoint.x, hitPoint.y);
+      await expect(tooltip).toBeVisible({ timeout: 750 });
+    }).toPass({ timeout: 10_000 });
     await expect(tooltip).toContainText("Semantic state");
     await expect(tooltip).toContainText("Evidence support");
     await expect(tooltip).toContainText("88%");
     const tooltipBox = await tooltip.boundingBox();
-    expect(Math.abs((tooltipBox?.x || 0) - center.x)).toBeLessThan(380);
+    expect(Math.abs((tooltipBox?.x || 0) - hitPoint.x)).toBeLessThan(380);
 
     await page.mouse.move(hitPoint.x, hitPoint.y);
     await page.mouse.down();
@@ -256,8 +252,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await page.mouse.up();
     await expect(page).toHaveURL(/\/brain\?graph=open$/);
 
-    // The released node resumes physics and the click suppression window avoids
-    // treating the drag as navigation. Find its new position along that path.
+    // Wait for the drag click-suppression window; the released node stays pinned.
     await page.waitForTimeout(340);
     let releasedPoint = { x: hitPoint.x + 70, y: hitPoint.y + 40 };
     for (let step = 0; step <= 10; step += 1) {
