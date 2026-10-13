@@ -245,7 +245,8 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
       if (await tooltip.isVisible().catch(() => false)) break;
     }
     await expect(tooltip).toContainText("Semantic state");
-    await expect(tooltip).toContainText("Confidence");
+    await expect(tooltip).toContainText("Evidence support");
+    await expect(tooltip).toContainText("88%");
     const tooltipBox = await tooltip.boundingBox();
     expect(Math.abs((tooltipBox?.x || 0) - center.x)).toBeLessThan(380);
 
@@ -628,6 +629,7 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     await dockerNode.click();
     await expect(page).toHaveURL(/\/graph\/nodes\/11$/, { timeout: 15_000 });
     await expect(page.getByText("The last analysis failed.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Legacy interval midpoint/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Back to Home" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Back to graph/i })).toBeVisible();
     const navigation = page.getByRole("complementary", { name: "Navigation" });

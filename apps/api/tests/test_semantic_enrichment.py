@@ -101,8 +101,26 @@ class SemanticEnrichmentTest(unittest.TestCase):
         self.assertEqual(profile.prompt_version, SEMANTIC_PROMPT_VERSION)
         self.assertEqual(payload["state"], "completed")
         self.assertEqual(payload["historyCount"], 1)
+        self.assertEqual(source_fingerprint(self.session, self.node), fingerprint)
+        self.assertAlmostEqual(self.node.confidence, (0.98 + 0.9 + 0.75) / 3, places=6)
         self.assertIn("Docker packages", payload["analysis"]["meaning_in_context"])
         self.assertEqual(
             self.session.query(NodeEnrichmentVersionRecord).count(),
             1,
         )
+
+        from berrybrain_api.graph_write_service import recalculate_node_confidence
+
+        # The old midpoint lost individual scores, but a matching versioned
+        # semantic analysis can recover its actual observations without inference.
+        self.node.confidence = 0.5
+        self.node.confidence_method = "empirical-bernstein-bounded-signals-v1"
+        self.node.confidence_factors = "[]"
+        recalculate_node_confidence(self.node, self.session, preserve_observations=True)
+        self.assertAlmostEqual(self.node.confidence, (0.98 + 0.9 + 0.75) / 3, places=6)
+        self.assertEqual(self.node.confidence_sample_size, 3)
+
+        self.node.confidence_factors = "[]"
+        self.node.label = "Changed source"
+        recalculate_node_confidence(self.node, self.session, preserve_observations=True)
+        self.assertEqual(self.node.confidence_sample_size, 0)

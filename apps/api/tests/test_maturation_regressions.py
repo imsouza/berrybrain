@@ -339,7 +339,7 @@ class MaturationRegressionTest(unittest.TestCase):
             interval = edge["confidenceInterval"]
             self.assertIn(
                 interval["method"],
-                {"unavailable", "empirical-bernstein-bounded-signals-v1"},
+                {"unavailable", "evidence-support-mean-v2"},
             )
             self.assertTrue(edge["status"])
             self.assertTrue(edge["provider"])

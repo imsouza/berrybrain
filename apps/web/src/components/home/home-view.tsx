@@ -48,7 +48,7 @@ type HomeSummary = {
   };
   stats: {
     notes: { total: number; createdToday: number; unassimilated: number };
-    connections: { total: number; createdToday: number; averageConfidence: number };
+    connections: { total: number; createdToday: number; averageConfidence: number | null };
     concepts: { total: number; newToday: number; withoutPermanentNote: number };
     knowledge: { weakConcepts: number; openGaps: number };
     jobs: { pending: number; active: number; failed: number; completedToday: number; total: number; byStatus?: Record<string, number> };
@@ -75,7 +75,7 @@ type NoteItem = { title: string; path: string; folder?: string; status?: string 
 type ActiveJob = { id: number; type: string; label: string; notePath?: string; noteTitle?: string; provider?: string; model?: string; elapsedSeconds?: number; progress?: number | null };
 type CompletionItem = { id: number; type: string; label: string; noteTitle?: string; completedAt?: string | null };
 type ActivityItem = { id?: number; action: string; description: string; technicalDescription?: string; when?: string | null };
-type ConnectionItem = { id: number; type: string; confidence: number; confidencePercent: number; reason: string; source?: NoteRef | null; target?: NoteRef | null; status?: string };
+type ConnectionItem = { id: number; type: string; confidence: number | null; confidencePercent: number | null; confidenceInterval?: { method?: string }; reason: string; source?: NoteRef | null; target?: NoteRef | null; status?: string };
 type NoteRef = { title: string; path: string };
 type AttentionItem = { kind: string; title: string; description: string; action: string };
 type PipelineProgress = { notePath: string; completed: number; total: number; percent: number; currentStep?: string | null; estimatedRemainingSeconds?: number | null; graphState?: string };
@@ -622,7 +622,7 @@ function RecentConnectionsList({
               </div>
               <details className="mt-1 text-[11px] leading-5 text-muted/65"><summary className="cursor-pointer">Why this connection?</summary><p>{connection.reason || t("noReason")}</p></details>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted/55">
-                <span>{t("connectionConfidence")}: {connection.confidencePercent}%</span>
+                <span title="Support from recorded signals, not probability of truth">Evidence support: {connection.confidenceInterval?.method === "empirical-bernstein-bounded-signals-v1" ? "Needs recalculation" : typeof connection.confidencePercent === "number" ? `${connection.confidencePercent}%` : "Not evaluated"}</span>
                 <span className="rounded-full bg-panel px-2 py-1">{connection.status || t("suggested")}</span>
                 <button className="bb-action px-2.5 py-1" onClick={onOpenGraph}>{t("viewInGraph")}</button>
                 {connection.status !== "confirmed" && (
