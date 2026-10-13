@@ -20,7 +20,11 @@ sem retry indiscriminado de jobs antigos ou troca automática de provedor.
 - [x] Knowledge Operations compacto, legível e responsivo.
 - [x] Statistics com gráficos acessíveis, dados reais e identidade visual atual.
 - [x] Regressões isoladas de backend e frontend, build e revisão do diff.
-- [ ] Publicar/implantar após validação, com backup e rollback.
+- [x] Publicar/implantar após validação, com backup e rollback.
+- [ ] Reduzir a latência residual de Home e diagnóstico da fila sob carga;
+  a implantação não encerra a otimização de desempenho.
+- [ ] Investigar o timeout persistente de inferência do job `#71279`; retomada
+  automática confirmada, conclusão bem-sucedida ainda não obtida.
 
 ## Segurança da recuperação
 
@@ -70,13 +74,63 @@ duplicar tarefas. Falhas permanentes precisam continuar visíveis ao usuário.
 - 7 testes auxiliares de frontend aprovados: polling (4), fila de destaque (3).
 - ESLint, TypeScript, Ruff, formatação e `git diff --check` aprovados.
 - Build de produção Next.js aprovado (23 páginas, antes do bump de versão).
-  Nenhuma implantação feita
-  nesta etapa; a instância continua na versão 1.4.12.
+  Imagens finais da versão 1.4.13 construídas no CI e implantadas conforme abaixo.
 - 22 cenários de navegador aprovados, sem retries na execução completa;
   inspeção visual de Home desktop/mobile aprovada (fixtures, não produção).
   O primeiro lote foi interrompido pelo limite global de 5 minutos do harness;
   a execução completa com prazo maior terminou em 5,2 minutos, sem falhas.
 - PR de implementação: https://github.com/imsouza/berrybrain/pull/32.
+
+## Publicação verificada
+
+- Release [v1.4.13](https://github.com/imsouza/berrybrain/releases/tag/v1.4.13)
+  publicada em 12/10/2026, commit `cf206766781c510178a65b6293347b0084ec1998`.
+- Nove verificações do PR aprovadas. CI de produto: 766 testes em 91 módulos,
+  sem falhas ou testes ignorados. Esses testes e os locais se sobrepõem;
+  não somar os totais como cobertura independente.
+- Imagens API/worker/web publicadas para AMD64 e ARM64; assinaturas Cosign e
+  atestações SPDX verificadas antes de obter as imagens ARM64 do servidor.
+- Seis arquivos públicos anexados: três SBOMs, `IMAGE_DIGESTS.txt`,
+  `VERIFICATION.md` e `SHA256SUMS`; checksums conferidos.
+- Backup privado `backup-20261012T233213Z-94ed14d3`: 71 arquivos verificados,
+  SQLite `quick_check=ok`, schema 14, 56 notas e 71.529 jobs. Vault, banco e
+  credenciais não foram enviados à release pública.
+
+## Implantação e observação em produção
+
+- Concluída em 12/10/2026 às 23:44 UTC (20:44 em São Paulo). API, worker e web
+  saudáveis, versão 1.4.13 e revisão da release conferidas. Mesmas configurações,
+  volumes, vault, rede e portas; containers anteriores preservados para rollback.
+- 32 outros containers conhecidos comparados antes/depois: mesmos IDs, imagens,
+  estados, horários de início e contadores de reinício. Não houve restart global
+  do Docker, prune, exclusão de volumes ou reenvio em massa de jobs.
+- Smoke de leitura: 16 requisições HTTP 200, incluindo Home, notificações,
+  saúde/progresso da fila, resumo/nós/arestas do grafo e páginas brain, activity,
+  ask e account. Soma dos estados dos jobs igual ao total da Home; contagem de
+  notificações não lidas válida (1.414 na leitura), independente do limite da lista.
+- Grafo: resumo 421 ms, página de nós 210 ms e arestas compactas 203 ms nessa
+  amostra. São tempos de requisição local, não benchmark de renderização ou TCC.
+- Limitação ainda aberta: Home 10,7 s na primeira leitura e 1,7 s via proxy,
+  depois 10,2 s durante processamento; diagnóstico da fila 9,5–14,1 s. Não há
+  evidência para declarar resolvida toda a latência. Priorizar perfil das consultas
+  e contenção de I/O antes de considerar balanceamento de carga.
+- Snapshot pós-atualização: 69.399 concluídos, 1.025 dead letters, 1.104
+  superseded e um job ativo; a fila mudou durante a observação. Contagens
+  menores de falhas não significam que todo job antigo foi executado com sucesso.
+- Recuperação observada via API: job `#71279` (`GENERATE_INFERRED_CONNECTIONS`)
+  retomado com `automaticRecovery.count=1`, agendado às 23:43:25 UTC. A terceira
+  tentativa começou às 23:43:31 e terminou às 23:48:02 após 271.257 ms, novamente
+  com timeout. O job retornou a dead letter; a tentativa foi encerrada com
+  `transient_job_error`, diferentemente das duas antigas, ainda abertas no histórico.
+  Isso confirma a retomada e a auditoria, não a solução da causa. O estágio registrado
+  permaneceu `context_loading`; a mensagem sugere conferir o provedor, mas não prova
+  que ele seja o gargalo. Próximo diagnóstico: separar espera HTTP, consultas locais
+  e inferência, sem aumentar cegamente limites ou forçar novas tentativas.
+- Pendência de infraestrutura: enumeração global do Docker e atualização dos
+  aliases `berrybrain-*:local` excederam os prazos. Os aliases ainda apontam para
+  1.4.12; os containers ativos usam os digests verificados de 1.4.13. Não executar
+  recriação cega pelo alias `local`; usar os digests publicados e preservar rollback.
+  A pendência foi mantida explícita, sem reiniciar o daemon compartilhado.
 
 ## Leitura operacional, sem mutações
 
