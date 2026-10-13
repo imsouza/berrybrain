@@ -11,12 +11,22 @@ para fabricar resultados. Produção observada: v1.4.13; correção em branch se
 - [x] Verificar atividade real: na consulta de 12/10, Judge #71543 estava em
   execução; #71540, #71541 e #71542 concluídos; enriquecimento #71535 concluído.
   Estado concluído de um job não comprova sozinho calibração/correção factual.
+  Em nova leitura de 13/10, #71543 estava `superseded`; os Judges #72032–#72036
+  estavam concluídos. Avaliações #70091–#70095 registravam provider `nvidia-nim`,
+  prompt v2 e escores totais antigos de 3/5, fora da escala 0–1. O modo configurado
+  era `single_model`. Nenhuma chamada de inferência foi necessária para a consulta.
 - [x] Identificar a integração incompleta: avaliações Judge atualizavam
   `quality_score`, mas não necessariamente a pontuação exibida.
 - [x] Separar `pending` de indisponibilidade: a apresentação de um valor ausente
   usava texto de fila mesmo sem comprovar trabalho pendente.
 - [x] Corrigir enriquecimento que sobrescrevia a evidência de entrada e tornava
   a própria análise recém-gravada incompatível com seu fingerprint.
+
+Leitura de produção antes da implantação: 364 nós (74 com método legado, todos
+em 0,5; 290 sem medição) e 3.444 arestas (252 legadas em 0,5; 3.192 sem medição).
+A consulta foi SQLite read-only; o comando Docker atingiu o limite de tempo após
+emitir o resultado. São contagens do armazenamento, não apenas dos itens visíveis
+no grafo nem comprovação de que todos necessitam avaliação por IA.
 
 ## Alterações
 
@@ -58,11 +68,16 @@ versionados compatíveis são necessários nesses casos.
 ## Verificações
 
 - Suíte API: 490 testes aprovados em 66 módulos, sem falhas/erros/skips.
+- CI do primeiro commit do PR #34: 820 testes de produto em 91 módulos, sem
+  falhas/skips; verificações de backend, worker, web, segurança e CodeQL aprovadas.
 - Após ajustes finais: 97 testes aprovados em 11 módulos afetados, sem
   falhas/erros/skips. Esse lote sobrepõe a suíte anterior; não somar os totais.
 - Verificações isoladas, com armazenamento temporário e rede bloqueada; nenhuma
   avaliação paga ou experimento de pesquisa executado.
 - TypeScript, ESLint, Ruff e build Next.js de produção aprovados em 13/10.
+- Primeira rodada de navegador: 21 aprovações diretas e um hover aprovado no retry.
+  O teste usava geometria/espero fixos; sincronização do canvas ajustada e nova
+  rodada exigida antes da aprovação final.
 - Relatórios locais: `/tmp/berrybrain-confidence-api-checks.json` e
   `/tmp/berrybrain-confidence-final-checks.json`.
 - Primeiro harness isolado não iniciou testes por ausência de pytest; dependência
