@@ -254,13 +254,25 @@ class TestAutomaticJudgeCommittee(unittest.IsolatedAsyncioTestCase):
             {
                 "verdict": "passed",
                 "score": 8.4,
-                "rubric": {"accuracy": 8},
+                "rubric": {
+                    "accuracy": 8,
+                    "relevance": 9,
+                    "semantic_coherence": 8,
+                    "evidence_quality": 9,
+                    "clarity": 8,
+                },
                 "reasoning": "Supported.",
             },
             {
                 "verdict": "passed",
                 "score": 8.8,
-                "rubric": {"accuracy": 9},
+                "rubric": {
+                    "accuracy": 9,
+                    "relevance": 9,
+                    "semantic_coherence": 9,
+                    "evidence_quality": 9,
+                    "clarity": 8,
+                },
                 "reasoning": "Supported.",
             },
         ]
@@ -286,6 +298,10 @@ class TestAutomaticJudgeCommittee(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["executionMode"], "committee")
         self.assertEqual(result["judgeCount"], 2)
+        with factory() as session:
+            evaluated = session.get(GraphNodeRecord, node_id)
+            self.assertAlmostEqual(evaluated.confidence, 0.86)
+            self.assertEqual(evaluated.confidence_sample_size, 1)
         self.assertEqual(generate.await_count, 2)
         called_models = {
             call.kwargs["config"]["judge_model"] for call in generate.await_args_list

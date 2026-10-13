@@ -131,6 +131,39 @@ evidence. The default (`compact=false`) retains the complete existing contract;
 audit/inference clients must not treat the visual projection as an evidence
 bundle. Nodes, ontology shapes and semantic colors are unchanged.
 
+### Evidence support (confidence compatibility fields)
+
+`confidenceInterval.method=evidence-support-mean-v2` reports the mean of distinct
+recorded support signals, **not probability of truth**. Its `lower`/`upper` bounds
+describe uncertainty separately and are not empirically calibrated truth coverage.
+The full payload adds `observations` (numeric `score` and `source`) while preserving
+the `factors` list. Zero is a measured negative signal; `score=null` and
+`sampleSize=0` mean no measured support, not queued work. Read semantic/job state
+separately. Missing text/IDs alone do not manufacture a score.
+
+Connection API records retain integer `confidence` percentages (0–100 or null);
+their `confidenceInterval.score`, graph scores and Home `confidence` use 0–1.
+In particular, connection `confidence=1` means **1%**, not 100%. Home
+`confidencePercent` is nullable; `averageConfidence` excludes unmeasured artifacts
+and is null when none are measured. Do not infer units from a value's magnitude.
+
+Legacy `empirical-bernstein-bounded-signals-v1` values are interval midpoints,
+often 50% regardless of input. The full payload marks `needsRecalculation=true`.
+Do not interpret them as the new mean. After backup, an operator can POST
+`/graph/confidence/recalculate` with scoped `node_ids` to recompute without calling
+an AI provider. This preserves recorded v2 observations and recovers versioned
+semantic signals only when the source fingerprint still matches. Lost raw model
+signals cannot be reconstructed from the old midpoint. Responses include
+`nodesUnavailable` and `edgesUnavailable`; a missing measurement stays unavailable.
+The operation does not create Judge jobs or claim successful fresh evaluations.
+Source-changing edits still invalidate previous observations.
+
+Internal Judge agents must supply all five bounded rubric criteria. The backend
+computes their normalized mean and applies numeric verdict gates. Each new Judge
+evaluation replaces one current observation, rather than inflating the sample size
+on retries. Policy-only mode is not a measured Judge score. See
+[confidence methodology](confidence-model.md) for signal and calibration limits.
+
 `GET /jobs/pipeline-progress` samples the latest 500 note-linked pipeline jobs,
 excluding unrelated global maintenance before applying the limit. It supports
 structured and legacy JSON note identities. It is a bounded progress view, not
