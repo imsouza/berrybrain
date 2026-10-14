@@ -1,7 +1,8 @@
 # Suporte de evidências e Judge — 13/10/2026
 
 Escopo: sistema BerryBrain, sem experimentos do research ou chamadas de inferência
-para fabricar resultados. Produção observada: v1.4.13; correção em branch separado.
+para fabricar resultados. Diagnóstico em v1.4.13; v1.4.14 publicada e implantada
+em 14/10/2026 (horários de implantação abaixo em UTC).
 
 ## Diagnóstico confirmado
 
@@ -53,9 +54,12 @@ no grafo nem comprovação de que todos necessitam avaliação por IA.
   e `docs/api.md`.
 - [x] Concluir testes da API e regressões dos módulos alterados; build de produção,
   TypeScript, ESLint e Ruff aprovados.
-- [ ] Concluir regressões de navegador sobre o build recém-gerado.
-- [ ] Publicar/implantar nova versão, com backup e rollback.
-- [ ] Auditar/recalcular registros de produção em lotes e verificar distribuição
+- [x] Concluir regressões de navegador sobre o build recém-gerado: 22 aprovadas,
+  sem retries na rodada final (5,6 minutos).
+- [x] Publicar v1.4.14: PR #34 integrado à main, imagens AMD64/ARM64, assinaturas
+  e atestações SPDX verificadas; seis artefatos de integridade anexados à release.
+- [x] Implantar nova versão localmente, com backup validado e rollback.
+- [x] Auditar/recalcular registros de produção em lotes e verificar distribuição
   real; não substituir percentuais em massa nem forçar inferência paga.
 
 ## Limites necessários
@@ -84,8 +88,111 @@ versionados compatíveis são necessários nesses casos.
   câmera; novo build e rodada visual exigidos antes da aprovação final.
 - Relatórios locais: `/tmp/berrybrain-confidence-api-checks.json` e
   `/tmp/berrybrain-confidence-final-checks.json`.
+- Revisão final `ef908f15e21fc29cbb559fdf93fcee50289c2d00`: nove checks do PR #34
+  aprovados, novo build/TypeScript/ESLint aprovados e 22 testes de navegador
+  aprovados sem repetição. As falhas transitórias anteriores foram investigadas,
+  não ocultadas por retries no resultado final.
 - Primeiro harness isolado não iniciou testes por ausência de pytest; dependência
   instalada somente no ambiente temporário e execução refeita. Um lote conjunto
   anterior também revelou acoplamento de configuração entre testes; os testes de
   produto são executados em processos e armazenamentos temporários separados.
-- Nenhum dado de produção foi reescrito por esta correção até esta etapa.
+- As verificações pré-implantação não reescreveram dados de produção. A manutenção
+  posterior é discriminada abaixo; não é experimento nem nova avaliação por IA.
+
+## Publicação
+
+- Release: https://github.com/imsouza/berrybrain/releases/tag/v1.4.14
+- Código: `64d430ecbef20a77e174a393d227ab0d26a0a89e`; árvore idêntica à revisão
+  final aprovada do PR #34.
+- Pipeline: https://github.com/imsouza/berrybrain/actions/runs/38439951233
+  (dez jobs aprovados).
+- Três assinaturas e três atestações verificadas com Cosign 3.1.3, identidade
+  OIDC do workflow/tag e subjects correspondentes aos manifestos publicados.
+- Artefatos: `IMAGE_DIGESTS.txt`, `SHA256SUMS`, `VERIFICATION.md` e SBOMs SPDX
+  de API/web/worker. SHA-256 verificado antes do upload. Inventários standalone
+  correspondem ao AMD64; atestações de plataforma ficam nos manifestos OCI.
+- Nenhum vault, banco, backup privado ou credencial foi anexado à release.
+
+## Implantação local — 14/10/2026
+
+- Backup `backup-20261014T035046Z-aacd69be`: 71 arquivos verificados por hash,
+  SQLite `quick_check = ok`, 56 notas e 72.340 jobs no snapshot. Uma tentativa
+  anterior atingiu timeout no cliente; sua conclusão não foi usada como garantia.
+- Troca concluída às 04:09:42 UTC; API, web e worker saudáveis. Schema 14
+  mantido, mesmos volumes, vault, portas, rede e variáveis de ambiente.
+- Imagens ARM64 executadas pelos manifestos verificados:
+  API `sha256:3cd1282a1e91398f036927d73b741f93ac8292b9bb3600ac160b1687dcb5254b`;
+  web `sha256:db95b4a7c6545ce0c04887c8ed74adfa238666c3f048d0cda98d4d4d3e3105fa`;
+  worker `sha256:46db04a41d69e6d636a590d912a04abea6b795679db39a31cc2b189f21709440`.
+- Contêineres anteriores retidos, parados, como
+  `berrybrain-{api,web,worker}-rollback-pre-1.4.14-20261014`. Não houve remoção de
+  volumes, prune ou reinício do daemon. Reversão de contêiner não restaura dados;
+  para isso existe o backup validado.
+- Comparação dos 32 outros serviços conhecidos: IDs, imagens, estado, início e
+  contagem de reinícios iguais antes/depois.
+- Smoke somente leitura: 16 respostas HTTP 200, incluindo Home, notificações,
+  jobs, grafo, Brain, Activity, Ask, Settings e proxy web. Contagens dos gráficos
+  de jobs consistentes; notificações retornaram três itens não lidos.
+- Após reinício, Home levou 10,844 s na primeira leitura e 1,312 s pelo proxy
+  posteriormente. Grafo: resumo 112 ms, nós 81 ms, arestas compactas 133 ms.
+  São medições pontuais locais, não benchmark ou garantia de latência.
+- Smoke repetido após reparo: novamente 16 respostas HTTP 200; API/web/worker
+  v1.4.14 saudáveis, zero reinícios. Home 5,510 s e depois 937 ms pelo proxy;
+  `jobs/health` 9,155 s. A latência residual permanece pendente, não resolvida.
+- Fila observada: 70.399 concluídos, 1.603 substituídos e 338 em `dead_letter`.
+  Esses 338 não foram apagados nem reprocessados em massa; estado saudável do
+  worker não significa que o histórico inteiro foi resolvido.
+
+## Pendências reveladas pela auditoria de produção
+
+- [ ] Investigar latência de primeira leitura da Home e `jobs/health` (6,258–9,155 s).
+- [ ] Tratar historicamente verdicts inválidos: dois nós e 16 arestas ativos
+  tinham strings fora do contrato de qualidade. A nova entrada estrita impede
+  novos valores desse tipo, mas não reinterpreta silenciosamente os antigos.
+- [ ] Recuperar avaliações antigas do Judge apenas com rubrica e versão
+  verificáveis; escores antigos fora de 0–1 não devem virar probabilidades ou
+  ser normalizados arbitrariamente. Preservar os registros de auditoria.
+- [ ] Rotacionar coordenadamente token interno e credencial SMTP: uma falha de
+  diagnóstico Docker imprimiu variáveis de ambiente na saída da sessão. Valores
+  não foram incluídos no repositório/release. A rotação não foi feita unilateralmente
+  para evitar quebra de integrações e envio de e-mail.
+
+## Reparo rastreável dos dados — 14/10/2026
+
+- [x] Prévia em conexão SQLite `mode=ro`, sem autoflush, encerrada com rollback;
+  usar funções do sistema, sem provider, geração de jobs ou conteúdo sintético.
+- [x] Recuperar 163 nós ativos pelos perfis semânticos versionados cujo fingerprint
+  ainda corresponde à origem. Nós/insights processados em lotes de até 25, com
+  transação de escrita exclusiva por lote para evitar sobrescrita concorrente.
+- [x] Recalcular 1.631 conexões e 12 respostas salvas pelo serviço existente de
+  auditoria; 112 conceitos examinados, sem recalculação pendente.
+- [x] Recalcular 169 insights ativos com cobertura textual das evidências salvas.
+  Não reutilizar midpoint antigo ou `quality_score` inválido como observação.
+- [x] Reabrir em modo somente leitura e reproduzir as 1.967 médias disponíveis;
+  todas coincidiram com as observações registradas e ficaram no domínio 0–1.
+  Nas conexões, verificar também o arredondamento da coluna percentual inteira.
+
+| Registros recalculados | Disponíveis | Sem medição | Faixa observada de suporte |
+| --- | ---: | ---: | --- |
+| Nós ativos recuperáveis | 163 | 52 ativos mantidos sem medição | 40%–90% |
+| Conexões | 1.627 | 4 | 0%–82,8571% |
+| Respostas salvas | 8 | 4 | 2%–65,6716% |
+| Insights ativos | 169 | 0 | 0%–35% |
+
+As faixas não são comparações de acurácia: nós recuperaram notas semânticas do
+modelo; os demais itens recuperaram cobertura lexical do texto registrado. Zero
+ocorreu legitimamente em 91 conexões e três insights. Baixa sobreposição lexical
+não comprova falsidade, especialmente entre idiomas; tampouco alta sobreposição
+comprova verdade. Nenhum novo julgamento por IA foi solicitado nesta manutenção.
+
+As 3.149 arestas processáveis não tinham observações recuperáveis nessa prévia e
+não receberam pontuação fabricada. Permaneceram históricos: 76 nós e 257 arestas
+legados fora do conjunto processável, além de 97 insights expirados/arquivados.
+O método antigo continua explicitamente identificado, não promovido à média v2.
+
+O primeiro comando de reparo abortou na validação do primeiro lote, antes de
+qualquer commit: o verificador temporário contava fatores de proveniência junto
+das observações. Corrigido para verificar apenas as observações efetivas após o
+filtro do estimador. A segunda execução concluiu; a verificação independente
+somente leitura aprovou todos os agregados persistidos. Nenhuma avaliação Judge,
+nota, evidência original ou registro de job foi apagado pelo reparo.
