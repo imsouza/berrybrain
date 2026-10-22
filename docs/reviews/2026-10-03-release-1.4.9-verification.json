@@ -1,7 +1,7 @@
 {
   "version": "1.4.9",
   "dateLocal": "2026-10-03",
-  "scope": "Product only. No academic experiments or research artifacts changed. Isolated tests and targeted job reconciliation made no model calls; the configured worker continued its normal operation.",
+  "scope": "Product-only checks. Isolated tests and targeted job reconciliation made no model calls; the configured worker continued its normal operation.",
   "python": {
     "modules": 85,
     "tests": 694,
