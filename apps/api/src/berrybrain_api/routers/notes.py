@@ -233,7 +233,11 @@ def list_notes(
             for item in session.scalars(select(VaultRecord))
             if item.path
         }
-        if vault_id is not None and vault_id != "default" and vault_id not in registered.values():
+        if (
+            vault_id is not None
+            and vault_id != "default"
+            and vault_id not in registered.values()
+        ):
             raise HTTPException(status_code=404, detail="Vault not found")
     for note in notes:
         parts = note["path"].split("/")

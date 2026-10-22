@@ -84,7 +84,13 @@ class ActionPlanResponse(BaseModel):
     argumentsHash: str
     attempts: int
     status: Literal[
-        "proposed", "executing", "completed", "partial", "cancelled", "expired", "failed"
+        "proposed",
+        "executing",
+        "completed",
+        "partial",
+        "cancelled",
+        "expired",
+        "failed",
     ]
     expiresAt: datetime
     approvedAt: datetime | None
@@ -198,7 +204,9 @@ def _validate_target_vault(session, plan: AskActionPlanRecord, root: Path) -> No
         raise HTTPException(status_code=409, detail="Target vault changed")
     directory = root.resolve() / vault.path
     if not directory.is_dir() or directory.resolve() != directory:
-        raise HTTPException(status_code=409, detail="Target vault directory is unavailable")
+        raise HTTPException(
+            status_code=409, detail="Target vault directory is unavailable"
+        )
 
 
 def _register_vault(session, plan: AskActionPlanRecord) -> None:
@@ -636,7 +644,9 @@ def reconcile_failed_plan(
         if plan.status in {"partial", "completed"}:
             return _view(session, plan)
         if plan.status != "failed":
-            raise HTTPException(status_code=409, detail="Plan is not ready for reconciliation")
+            raise HTTPException(
+                status_code=409, detail="Plan is not ready for reconciliation"
+            )
         with vault_lock(vault_path):
             session.refresh(plan)
             if plan.status in {"partial", "completed"}:
@@ -658,7 +668,8 @@ def reconcile_failed_plan(
                 if isinstance(exc, HTTPException) and exc.status_code != 404:
                     raise
                 raise HTTPException(
-                    status_code=409, detail="The planned file disappeared during recovery"
+                    status_code=409,
+                    detail="The planned file disappeared during recovery",
                 ) from exc
             current_hash = str(current["content_hash"])
             approved_content = json.loads(plan.arguments_json)["content"]
@@ -691,7 +702,8 @@ def reconcile_failed_plan(
                 if isinstance(exc, HTTPException) and exc.status_code != 404:
                     raise
                 raise HTTPException(
-                    status_code=409, detail="The planned file disappeared during recovery"
+                    status_code=409,
+                    detail="The planned file disappeared during recovery",
                 ) from exc
             if record.content_hash != current_hash or final_hash != current_hash:
                 raise HTTPException(
@@ -770,7 +782,10 @@ def review_draft(plan_id: str, payload: ReviewDraftRequest, request: Request) ->
                 raise HTTPException(
                     status_code=409, detail="Saved draft file is missing"
                 ) from exc
-            if note.content_hash != payload.content_hash or final_hash != payload.content_hash:
+            if (
+                note.content_hash != payload.content_hash
+                or final_hash != payload.content_hash
+            ):
                 raise HTTPException(
                     status_code=409,
                     detail="Draft changed during review; refresh its current content before releasing it",

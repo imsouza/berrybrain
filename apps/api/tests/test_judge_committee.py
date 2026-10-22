@@ -551,9 +551,7 @@ class TestRouterEndpoints(unittest.TestCase):
         )
         with sessions() as session:
             token, _ = issue_service_token(session, settings, name="judge-read-test")
-        self.client = TestClient(
-            main.app, headers={"Authorization": f"Bearer {token}"}
-        )
+        self.client = TestClient(main.app, headers={"Authorization": f"Bearer {token}"})
         stack.callback(self.client.close)
 
     def test_mode_get_returns_default(self):

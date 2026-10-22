@@ -376,7 +376,14 @@ class SecurityAuthTest(unittest.TestCase):
         self.assertEqual(created.status_code, 201)
         profile_id = created.json()["profile"]["id"]
 
-        for unsafe_path in ("../outside", "/absolute", "research/../outside", "research//notes", "research\\notes", "C:private"):
+        for unsafe_path in (
+            "../outside",
+            "/absolute",
+            "research/../outside",
+            "research//notes",
+            "research\\notes",
+            "C:private",
+        ):
             rejected = admin_client.patch(
                 f"/api/v1/admin/profiles/{profile_id}",
                 json={"vault_subpath": unsafe_path},
@@ -386,7 +393,11 @@ class SecurityAuthTest(unittest.TestCase):
         unchanged = admin_client.get("/api/v1/admin/profiles")
         self.assertEqual(unchanged.status_code, 200)
         self.assertEqual(
-            next(item for item in unchanged.json()["profiles"] if item["id"] == profile_id)["vaultSubpath"],
+            next(
+                item
+                for item in unchanged.json()["profiles"]
+                if item["id"] == profile_id
+            )["vaultSubpath"],
             "research",
         )
 

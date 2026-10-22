@@ -386,10 +386,12 @@ class GraphWriteService:
             # the final equality check for Unicode and historic aliases.
             canonical_key = canonical_label(label).casefold()
             candidates = self.session.execute(
-                select(GraphNodeRecord).where(
+                select(GraphNodeRecord)
+                .where(
                     GraphNodeRecord.type.in_(_stored_node_types({canonical_type})),
                     GraphNodeRecord.canonical_label.in_((canonical_key, "")),
-                ).order_by(GraphNodeRecord.id)
+                )
+                .order_by(GraphNodeRecord.id)
             ).scalars()
             existing = next(
                 (

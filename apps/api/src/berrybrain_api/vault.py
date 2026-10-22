@@ -237,7 +237,9 @@ def create_note(
             or namespace.resolve() != namespace
             or not namespace.is_dir()
         ):
-            raise HTTPException(status_code=409, detail="Vault directory is unavailable")
+            raise HTTPException(
+                status_code=409, detail="Vault directory is unavailable"
+            )
         folder = f"{namespace_path}/{folder}"
 
     clean_title = title.strip() or "Untitled note"

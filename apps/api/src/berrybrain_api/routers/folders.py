@@ -111,7 +111,9 @@ def list_folders() -> dict:
                 **folder,
                 "name": vault_names.get(
                     folder["path"],
-                    "Named vaults" if folder["path"] == "vaults" and vault_names else folder["name"],
+                    "Named vaults"
+                    if folder["path"] == "vaults" and vault_names
+                    else folder["name"],
                 ),
                 "protected": folder["path"] in protected,
                 "kind": "vault" if folder["path"] in vault_names else "folder",
@@ -178,7 +180,9 @@ def rename_folder(folder_path: str, payload: dict) -> dict:
     new_prefix = new_path.relative_to(root).as_posix() + "/"
     with SessionLocal() as session:
         if full_path.relative_to(root).as_posix() in _protected_boundaries(session):
-            raise HTTPException(status_code=409, detail="Cannot rename a registered vault")
+            raise HTTPException(
+                status_code=409, detail="Cannot rename a registered vault"
+            )
         records = [
             row
             for row in session.scalars(select(NoteRecord))
@@ -237,8 +241,12 @@ def delete_folder(folder_path: str) -> dict:
         raise HTTPException(status_code=404, detail="Folder not found")
 
     with SessionLocal() as session:
-        if full_path.relative_to(settings.vault_path.resolve()).as_posix() in _protected_boundaries(session):
-            raise HTTPException(status_code=409, detail="Cannot delete a registered vault")
+        if full_path.relative_to(
+            settings.vault_path.resolve()
+        ).as_posix() in _protected_boundaries(session):
+            raise HTTPException(
+                status_code=409, detail="Cannot delete a registered vault"
+            )
 
     if any(f.is_file() for f in full_path.rglob("*")):
         raise HTTPException(status_code=400, detail="Cannot delete folder with notes")

@@ -34,7 +34,9 @@ class VaultNamespaceList(BaseModel):
 def list_vault_namespaces() -> dict:
     """Physical namespaces, not separate users or access-control domains."""
     with SessionLocal() as session:
-        vaults = session.scalars(select(VaultRecord).order_by(VaultRecord.created_at)).all()
+        vaults = session.scalars(
+            select(VaultRecord).order_by(VaultRecord.created_at)
+        ).all()
         result = [
             {
                 "id": item.id,
@@ -47,7 +49,12 @@ def list_vault_namespaces() -> dict:
     if not any(item["id"] == "default" for item in result):
         result.insert(
             0,
-            {"id": "default", "name": "Default", "path": "", "kind": "shared_physical_namespace"},
+            {
+                "id": "default",
+                "name": "Default",
+                "path": "",
+                "kind": "shared_physical_namespace",
+            },
         )
     return {"workspaceModel": "shared", "vaults": result}
 
