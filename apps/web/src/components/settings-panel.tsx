@@ -12,6 +12,7 @@ import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
 import { judgeSelectionIssues } from "../lib/judge-selection";
 import { SettingsLogs } from "./settings-logs";
+import { apiFetch } from "@/contexts/workspace-context";
 
 type ThemeKind = "light" | "dark";
 
@@ -711,7 +712,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     );
     if (!confirmed) return;
     setSaveStatus("Wiping BerryBrain data...");
-    const response = await fetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reset_settings: resetSettings }),
@@ -742,7 +743,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     if (!confirmed) return;
     setMaintenanceStatus(`${labels[action]} running...`);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/maintenance/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/maintenance/${action}`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setMaintenanceStatus(payload.detail || `${labels[action]} failed.`);
@@ -764,7 +765,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       return;
     }
     setMaintenanceStatus("Inspecting semantic graph migration...");
-    const previewResponse = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+    const previewResponse = await apiFetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dry_run: true, batch_size: 100 }),
@@ -783,7 +784,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       return;
     }
     setMaintenanceStatus("Preparing semantic graph...");
-    const response = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dry_run: false, confirm: true, batch_size: 100 }),
@@ -804,7 +805,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setDiagClearing(true);
     setDiagClearResult("");
     try {
-      const r = await fetch(`${apiUrl}/api/v1/jobs/recover-stale`, { method: "POST" });
+      const r = await apiFetch(`${apiUrl}/api/v1/jobs/recover-stale`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setDiagClearResult(t("clearedFail")); return; }
       setDiagClearResult(tf("clearedOk", { count: d.recovered ?? 0 }));

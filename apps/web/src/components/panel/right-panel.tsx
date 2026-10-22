@@ -1,6 +1,6 @@
 "use client";
 
-import { useWorkspace } from "@/contexts/workspace-context";
+import { useWorkspace, apiFetch } from "@/contexts/workspace-context";
 import { useEffect, useState } from "react";
 
 type Step = { type: string; label: string; status: string; error: string | null; attempts: number; id: number | null };
@@ -55,7 +55,7 @@ export function RightPanel() {
 
   const updateConnection = async (id: number, action: "confirm" | "ignore") => {
     if (w.demo) return;
-    await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, { method: "POST" });
+    await apiFetch(`${w.api}/api/v1/connections/id/${id}/${action}`, { method: "POST" });
     if (!w.active) return;
     const r = await fetch(`${w.api}/api/v1/connections/${w.active.path.split("/").map(encodeURIComponent).join("/")}`);
     const d = await r.json();
@@ -69,7 +69,7 @@ export function RightPanel() {
       return;
     }
     const encoded = w.active.path.split("/").map(encodeURIComponent).join("/");
-    const response = await fetch(`${w.api}/api/v1/notes/${encoded}/reprocess`, { method: "POST" });
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encoded}/reprocess`, { method: "POST" });
     if (!response.ok) {
       w.toast("Could not reprocess note.", "error");
       return;
@@ -83,7 +83,7 @@ export function RightPanel() {
       w.toast("Graph expansion is disabled in demo mode.", "info");
       return;
     }
-    await fetch(`${w.api}/api/v1/graph/expand`, { method: "POST" });
+    await apiFetch(`${w.api}/api/v1/graph/expand`, { method: "POST" });
   };
 
   const relatedInsights = w.active

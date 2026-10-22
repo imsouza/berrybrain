@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { pollResource } from "@/lib/poll-resource";
 import packageMetadata from "../../../package.json";
-import { useWorkspace, appPath } from "@/contexts/workspace-context";
+import { useWorkspace, appPath, apiFetch } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 import { workerHeartbeatStale } from "@/lib/diagnostics";
@@ -89,7 +89,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       return;
     }
     try {
-      const response = await fetch(`${w.api}/api/v1/folders`);
+      const response = await apiFetch(`${w.api}/api/v1/folders`);
       if (!response.ok) return;
       const payload = await response.json();
       setFolders(payload.folders || []);
@@ -135,7 +135,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const name = window.prompt(parentPath ? `New folder inside ${parentPath}:` : "Folder name:");
     if (!name?.trim()) return;
-    const response = await fetch(`${w.api}/api/v1/folders`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), parent_path: parentPath }),
@@ -152,7 +152,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const name = window.prompt("New folder name:", currentName);
     if (!name?.trim() || name.trim() === currentName) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() }),
@@ -169,7 +169,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteFolder(path: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete empty folder "${path}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Only empty folders can be deleted.", "error");
       return;
@@ -241,7 +241,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function moveNoteToFolder(notePath: string, folderPath: string) {
     if (w.demo || !notePath || !folderPath) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder: folderPath }),
@@ -259,7 +259,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const title = window.prompt("New note title:", currentTitle);
     if (!title?.trim() || title.trim() === currentTitle) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: title.trim() }),
@@ -279,7 +279,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteNoteInSidebar(notePath: string, currentTitle: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete note "${currentTitle}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Failed to delete note.", "error");
       return;

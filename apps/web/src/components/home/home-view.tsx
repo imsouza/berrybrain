@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { useWorkspace, appPath } from "@/contexts/workspace-context";
+import { useWorkspace, appPath, apiFetch } from "@/contexts/workspace-context";
 import { t, tf } from "@/i18n";
 import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
@@ -157,7 +157,7 @@ export function HomeView() {
 
   const updateConnectionStatus = useCallback(
     async (id: number, action: "confirm" | "ignore") => {
-      const response = await fetch(`${w.api}/api/v1/connections/id/${id}/${action}`, {
+      const response = await apiFetch(`${w.api}/api/v1/connections/id/${id}/${action}`, {
         method: "POST",
       });
       if (!response.ok) {

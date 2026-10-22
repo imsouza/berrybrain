@@ -145,6 +145,33 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("sidebar folder changes carry the browser CSRF token", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    const folderName = `e2e-csrf-${Date.now()}`;
+    page.once("dialog", (dialog) => dialog.accept(folderName));
+    const created = page.waitForResponse((response) =>
+      response.url().endsWith("/api/v1/folders") && response.request().method() === "POST",
+    );
+    await page.getByTitle("Create folder", { exact: true }).click();
+    const createResponse = await created;
+    expect(createResponse.status(), await createResponse.text()).toBe(201);
+    expect(createResponse.request().headers()["x-csrf-token"]).toBeTruthy();
+
+    const folder = page.getByRole("complementary", { name: "Navigation" })
+      .locator(".group", { hasText: folderName });
+    await expect(folder).toBeVisible();
+    await folder.hover();
+    page.once("dialog", (dialog) => dialog.accept());
+    const deleted = page.waitForResponse((response) =>
+      response.url().includes(`/api/v1/folders/${folderName}`) && response.request().method() === "DELETE",
+    );
+    await folder.getByRole("button", { name: "Delete" }).click();
+    const deleteResponse = await deleted;
+    expect(deleteResponse.ok(), await deleteResponse.text()).toBeTruthy();
+    expect(deleteResponse.request().headers()["x-csrf-token"]).toBeTruthy();
+    await expect(folder).toHaveCount(0);
+  });
+
   test("does not report a recently active worker as offline", async ({ page, context }) => {
     const csrf = await authenticate(context);
     const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
