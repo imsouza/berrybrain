@@ -69,8 +69,7 @@ All notable BerryBrain changes are documented here.
 
 ## 1.4.10 - 2026-10-07
 
-- Include the product/API changes prepared for 1.4.9, without changing the frozen
-  research artifact or adding research experiments.
+- Include the product/API changes prepared for 1.4.9.
 - Require source-map-js >= 1.2.2 for GHSA-68fv-2mgg-jv7q; retain the corrected
   Next.js, Sharp and AnyIO dependency requirements.
 - Preserve the existing 1.4.9 tag. Its release pipeline was cancelled before

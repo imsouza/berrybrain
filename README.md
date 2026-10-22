@@ -148,7 +148,6 @@ indexes; it does not remove notes, jobs or evidence.
 
 See the [release notes](docs/releases/v1.4.10.md) and
 [publication checklist](docs/reviews/2026-10-07-release-1.4.10.md).
-research artifacts and results are unchanged.
 
 ### What's New in 1.4.8
 
