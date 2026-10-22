@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from time import perf_counter
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -68,7 +68,6 @@ _PROVIDER_CONCURRENCY = max(1, int(os.environ.get("BERRYBRAIN_AI_CONCURRENCY", "
 _provider_slots = threading.BoundedSemaphore(_PROVIDER_CONCURRENCY)
 _circuit_lock = threading.Lock()
 _circuit_states: dict[str, tuple[int, float]] = {}
-_P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
@@ -445,15 +444,18 @@ def _main_fallback_config(config: dict[str, str]) -> dict[str, str] | None:
     provider_id = config.get("fallback_provider", "")
     model = config.get("fallback_model", "")
     provider = PROVIDERS.get(provider_id)
+    provider_mode = provider.get("mode") if isinstance(provider, dict) else None
+    provider_url = provider.get("url") if isinstance(provider, dict) else None
     mode = config.get("provider", "")
-    if not provider or not model or provider["mode"] != mode:
+    if not model or provider_mode != mode:
         return None
     if mode == "cloud":
         if (
             provider_id == "custom-cloud"
             or config.get("remote_content_consent") != "true"
             or not config.get("fallback_api_key")
-            or not provider["url"]
+            or not isinstance(provider_url, str)
+            or not provider_url
         ):
             return None
         if provider_id == config.get("cloud_provider") and model == config.get(
@@ -462,7 +464,7 @@ def _main_fallback_config(config: dict[str, str]) -> dict[str, str] | None:
             return None
         replacement = {
             "cloud_provider": provider_id,
-            "cloud_api_url": str(provider["url"]),
+            "cloud_api_url": provider_url,
             "cloud_api_key": config["fallback_api_key"],
             "cloud_model": model,
         }
@@ -506,10 +508,10 @@ def _fallback_reason(error: BaseException) -> str:
 def _invoke_provider(
     circuit_key: str,
     attempts: list[int],
-    function: Callable[_P, _R],
-    *args: _P.args,
+    function: Callable[..., _R],
+    *args: Any,
     max_attempts: int = _MAX_PROVIDER_ATTEMPTS,
-    **kwargs: _P.kwargs,
+    **kwargs: Any,
 ) -> _R:
     _assert_circuit_available(circuit_key)
     for attempt in range(1, max_attempts + 1):
