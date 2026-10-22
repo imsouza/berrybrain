@@ -5,6 +5,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.requests import Request
 
 from berrybrain_api.database import Base
 from berrybrain_api.models import (
@@ -101,6 +102,7 @@ class GraphRuntimeApiTest(unittest.TestCase):
             session.add(source)
             session.flush()
             inference = GraphInferenceRecord(
+                access_scope="service",
                 question="What connects these notes?",
                 answer="The accepted graph evidence links them.",
                 status="answered",
@@ -115,6 +117,7 @@ class GraphRuntimeApiTest(unittest.TestCase):
             result = record_inference_feedback(
                 inference_id,
                 InferenceFeedbackRequest(action="upvoted"),
+                Request({"type": "http", "method": "POST", "headers": []}),
                 session,
             )
             event = session.query(LearningEventRecord).one()

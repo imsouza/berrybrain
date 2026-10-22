@@ -53,6 +53,9 @@ function Shell({ children }: { children?: ReactNode }) {
   const [askInitialQuery, setAskInitialQuery] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [editorAskOpen, setEditorAskOpen] = useState(false);
+
+  useEffect(() => setEditorAskOpen(false), [w.active?.path]);
 
   useEffect(() => {
     if (!/\/(brain|demo)\/?$/.test(pathname)) w.setGraphOpen(false);
@@ -145,11 +148,33 @@ function Shell({ children }: { children?: ReactNode }) {
         ) : w.graphOpen ? (
           <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : children ? children : w.active ? (
-          <NoteEditor />
+          <NoteEditor onOpenAsk={() => setEditorAskOpen(true)} />
         ) : (
           <HomeView />
         )}
       </section>
+
+      {editorAskOpen && w.active && !isAskPage && !w.graphOpen && (
+        <aside className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-background shadow-2xl lg:w-[min(620px,65vw)]" aria-label="Ask BerryBrain beside note">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-panel px-4 py-2 text-xs">
+            <span className="truncate font-semibold">Ask beside: {w.active.title}</span>
+            <button className="bb-action px-2 py-1" onClick={() => setEditorAskOpen(false)} aria-label="Close Ask panel">Close</button>
+          </div>
+          <p className="shrink-0 border-b border-border px-4 py-2 text-[11px] text-muted">Only saved BerryBrain content is retrieved. Unsaved editor text is not sent automatically.</p>
+          <GraphScreen
+            key={w.active.path}
+            apiUrl={w.api}
+            askOnly
+            autoFocusAsk
+            initialAskQuery={`Sobre a nota "${w.active.title}": `}
+            onClose={() => setEditorAskOpen(false)}
+            onOpenHome={() => setEditorAskOpen(false)}
+            onOpenGraph={() => { setEditorAskOpen(false); w.setGraphOpen(true); }}
+            onOpenSettings={() => w.setSettingsOpen(true)}
+            onNavigate={(path) => { setEditorAskOpen(false); void w.openNote(path); }}
+          />
+        </aside>
+      )}
 
       {w.rightOpen && (
         <>

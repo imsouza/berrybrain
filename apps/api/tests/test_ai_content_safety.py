@@ -287,6 +287,155 @@ class AIContentSafetyTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(urlopen.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
 
+    async def test_chat_fallback_uses_configured_alternate_after_transient_failure(
+        self,
+    ) -> None:
+        config = {
+            "provider": "cloud",
+            "cloud_provider": "nvidia-nim",
+            "cloud_api_url": "https://integrate.api.nvidia.com/v1",
+            "cloud_api_key": "primary-secret",
+            "cloud_model": "primary",
+            "fallback_provider": "opencode-zen",
+            "fallback_model": "backup",
+            "fallback_api_key": "backup-secret",
+            "remote_content_consent": "true",
+        }
+        transient = urllib.error.HTTPError(
+            config["cloud_api_url"], 503, "Unavailable", None, None
+        )
+        payload = {"choices": [{"message": {"content": '{"answer":"ok"}'}}]}
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            side_effect=[transient, FakeHTTPResponse(json.dumps(payload).encode())],
+        ) as urlopen:
+            result = await generate_graph_answer(config, "question", "system")
+        self.assertEqual(result["answer"], "ok")
+        self.assertEqual(result["_berrybrain_route"]["model"], "backup")
+        self.assertEqual(result["_berrybrain_route"]["provider"], "opencode-zen")
+        self.assertEqual(result["_berrybrain_route"]["reason"], "provider_unavailable")
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertIn(
+            "integrate.api.nvidia.com", urlopen.call_args_list[0].args[0].full_url
+        )
+        self.assertIn("opencode.ai", urlopen.call_args_list[1].args[0].full_url)
+
+    async def test_authentication_failure_does_not_bypass_primary_with_fallback(
+        self,
+    ) -> None:
+        config = {
+            "provider": "cloud",
+            "cloud_provider": "nvidia-nim",
+            "cloud_api_url": "https://integrate.api.nvidia.com/v1",
+            "cloud_api_key": "bad-key",
+            "cloud_model": "primary",
+            "fallback_provider": "opencode-zen",
+            "fallback_model": "backup",
+            "fallback_api_key": "backup-secret",
+            "remote_content_consent": "true",
+        }
+        denied = urllib.error.HTTPError(
+            config["cloud_api_url"], 401, "Unauthorized", None, None
+        )
+        with (
+            patch(
+                "berrybrain_api.ai_gateway.urllib.request.urlopen",
+                side_effect=denied,
+            ) as urlopen,
+            self.assertRaises(GraphAIUnavailable),
+        ):
+            await generate_graph_answer(config, "question", "system")
+        self.assertEqual(urlopen.call_count, 1)
+
+    async def test_removed_model_can_use_configured_chat_fallback(self) -> None:
+        config = {
+            "provider": "cloud",
+            "cloud_provider": "nvidia-nim",
+            "cloud_api_url": "https://integrate.api.nvidia.com/v1",
+            "cloud_api_key": "primary-secret",
+            "cloud_model": "removed",
+            "fallback_provider": "opencode-zen",
+            "fallback_model": "backup",
+            "fallback_api_key": "backup-secret",
+            "remote_content_consent": "true",
+        }
+        removed = urllib.error.HTTPError(
+            config["cloud_api_url"],
+            400,
+            "Bad Request",
+            None,
+            BytesIO(b"model removed does not provide chat"),
+        )
+        payload = {"choices": [{"message": {"content": '{"answer":"available"}'}}]}
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            side_effect=[removed, FakeHTTPResponse(json.dumps(payload).encode())],
+        ) as urlopen:
+            result = await generate_graph_answer(config, "question", "system")
+        self.assertEqual(result["answer"], "available")
+        self.assertTrue(result["_berrybrain_route"]["fallback"])
+        self.assertEqual(result["_berrybrain_route"]["reason"], "model_unavailable")
+        self.assertEqual(urlopen.call_count, 2)
+
+    async def test_missing_local_model_can_use_another_local_model(self) -> None:
+        config = {
+            "provider": "local",
+            "ollama_base_url": "http://ollama:11434",
+            "ollama_model": "removed",
+            "fallback_provider": "ollama",
+            "fallback_model": "available",
+        }
+        removed = urllib.error.HTTPError(
+            "http://ollama:11434/api/generate",
+            404,
+            "Not Found",
+            None,
+            BytesIO(b'{"error":"model removed not found"}'),
+        )
+        payload = {"response": '{"answer":"local answer"}'}
+        with patch(
+            "berrybrain_api.ai_gateway.urllib.request.urlopen",
+            side_effect=[removed, FakeHTTPResponse(json.dumps(payload).encode())],
+        ) as urlopen:
+            result = await generate_graph_answer(config, "question", "system")
+        self.assertEqual(result["answer"], "local answer")
+        self.assertEqual(result["_berrybrain_route"]["model"], "available")
+        self.assertEqual(result["_berrybrain_route"]["reason"], "model_unavailable")
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_rate_limit_with_long_retry_after_does_not_spin_inline(self) -> None:
+        config = {
+            "cloud_api_url": "https://provider-rate-limit.test/v1",
+            "cloud_api_key": "secret",
+            "cloud_model": "reasoner",
+        }
+        rate_limited = urllib.error.HTTPError(
+            config["cloud_api_url"], 429, "Rate limited", {"Retry-After": "60"}, None
+        )
+        attempts = [0]
+        with (
+            patch(
+                "berrybrain_api.ai_gateway.urllib.request.urlopen",
+                side_effect=rate_limited,
+            ) as urlopen,
+            patch("berrybrain_api.ai_gateway.time.sleep") as sleep,
+            self.assertRaises(GraphAIUnavailable) as raised,
+        ):
+            _invoke_provider(
+                "rate-limit:test",
+                attempts,
+                _cloud_json,
+                config,
+                "question",
+                "Respond in Portuguese.",
+                5,
+                256,
+            )
+        self.assertEqual(attempts, [1])
+        self.assertEqual(raised.exception.retry_after_seconds, 60)
+        self.assertEqual(urlopen.call_count, 1)
+        sleep.assert_not_called()
+
     def test_circuit_opens_after_repeated_transient_operations(self) -> None:
         attempts = [0]
         calls = 0

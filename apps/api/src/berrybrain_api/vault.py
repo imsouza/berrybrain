@@ -35,6 +35,24 @@ def slugify_title(title: str) -> str:
     return normalized.strip("-") or "note"
 
 
+def planned_ask_note_path(folder: str, title: str, plan_id: str) -> str:
+    """Stable path shared by Ask writes and vault-scan draft detection."""
+    slug = slugify_title(title)[:80]
+    return f"{folder}/{slug}--ask-{plan_id[:12]}.md"
+
+
+def planned_ask_vault_path(name: str, plan_id: str) -> str:
+    """A stable, visibly named directory for one approved Ask vault proposal."""
+    slug = slugify_title(name)[:64]
+    return f"vaults/{slug}--ask-{plan_id[:12]}"
+
+
+def planned_ask_note_in_vault_path(
+    folder: str, title: str, name: str, plan_id: str
+) -> str:
+    return f"{planned_ask_vault_path(name, plan_id)}/{planned_ask_note_path(folder, title, plan_id)}"
+
+
 def unique_note_path(vault_path: Path, folder: str, slug: str) -> Path:
     candidate = resolve_note_path(vault_path, f"{folder}/{slug}.md")
     if not candidate.exists():
@@ -201,10 +219,26 @@ def read_note(vault_path: Path, note_path: str) -> dict[str, object]:
 
 @serialized_vault
 def create_note(
-    vault_path: Path, title: str, folder: str, content: str
+    vault_path: Path,
+    title: str,
+    folder: str,
+    content: str,
+    *,
+    namespace_path: str = "",
 ) -> dict[str, object]:
     if folder not in SAFE_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid folder")
+
+    if namespace_path:
+        root = vault_path.resolve()
+        namespace = root / namespace_path
+        if (
+            not namespace_path.startswith("vaults/")
+            or namespace.resolve() != namespace
+            or not namespace.is_dir()
+        ):
+            raise HTTPException(status_code=409, detail="Vault directory is unavailable")
+        folder = f"{namespace_path}/{folder}"
 
     clean_title = title.strip() or "Untitled note"
     slug = slugify_title(clean_title)

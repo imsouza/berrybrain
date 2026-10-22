@@ -46,6 +46,26 @@ class GraphWriteServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.id, self.left.id)
         self.assertEqual(json.loads(duplicate.source_note_ids), [1, 3])
 
+    def test_legacy_blank_canonical_label_still_deduplicates(self) -> None:
+        self.left.canonical_label = ""
+        self.session.flush()
+        duplicate = self.writer.upsert_node(
+            node_type="concept",
+            label="distributed_systems",
+            source_note_ids=[3],
+        )
+        self.assertEqual(duplicate.id, self.left.id)
+        self.assertEqual(duplicate.canonical_label, "distributed systems")
+
+    def test_unicode_canonical_collision_keeps_distinct_original_labels(self) -> None:
+        german = self.writer.upsert_node(node_type="concept", label="Straße")
+        ascii_name = self.writer.upsert_node(node_type="concept", label="Strasse")
+        self.assertNotEqual(german.id, ascii_name.id)
+        self.assertEqual(
+            self.writer.upsert_node(node_type="concept", label="Strasse").id,
+            ascii_name.id,
+        )
+
     def test_identical_node_upsert_preserves_artifact_version(self) -> None:
         original_updated_at = self.left.updated_at
         duplicate = self.writer.upsert_node(

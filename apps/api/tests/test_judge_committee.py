@@ -509,35 +509,60 @@ class TestPersistCommitteeRun(unittest.TestCase):
 
 
 class TestRouterEndpoints(unittest.TestCase):
-    """Endpoints logic tests using TestClient when fastapi present; else skip."""
+    """Judge read endpoints against an isolated, authenticated product database."""
 
     def setUp(self):
-        try:
-            from fastapi.testclient import TestClient
+        from contextlib import ExitStack
+        from tempfile import TemporaryDirectory
 
-            from berrybrain_api.config import get_settings
-            from berrybrain_api.database import Base, engine
-            from berrybrain_api.main import app
+        from fastapi.testclient import TestClient
 
-            Base.metadata.create_all(engine)
-            self.client = TestClient(
-                app, headers={"Authorization": "Bearer " + get_settings().api_token}
-            )
-            self.addCleanup(self.client.close)
-        except (ImportError, RuntimeError):
-            self.client = None
+        from berrybrain_api import main
+        from berrybrain_api.config import Settings
+        from berrybrain_api.database import Base
+        from berrybrain_api.routers import judge as judge_router
+        from berrybrain_api.security import issue_service_token
+
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        root = Path(stack.enter_context(TemporaryDirectory()))
+        settings = Settings(
+            _env_file=None,
+            vault_path=root / "vault",
+            database_url=f"sqlite:///{root / 'judge-router.db'}",
+            session_secret="judge-router-test-secret-32-bytes",
+            vault_watcher_enabled=False,
+            enable_default_owner=False,
+        )
+        engine = create_engine(
+            settings.database_url, connect_args={"check_same_thread": False}
+        )
+        stack.callback(engine.dispose)
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(bind=engine)
+        stack.enter_context(patch.object(main, "settings", settings))
+        stack.enter_context(patch.object(main, "SessionLocal", sessions))
+        stack.enter_context(patch.object(judge_router, "SessionLocal", sessions))
+        stack.enter_context(
+            patch("berrybrain_api.config.get_settings", return_value=settings)
+        )
+        stack.enter_context(
+            patch.object(judge_router, "get_settings", return_value=settings)
+        )
+        with sessions() as session:
+            token, _ = issue_service_token(session, settings, name="judge-read-test")
+        self.client = TestClient(
+            main.app, headers={"Authorization": f"Bearer {token}"}
+        )
+        stack.callback(self.client.close)
 
     def test_mode_get_returns_default(self):
-        if not self.client:
-            return
         r = self.client.get("/api/v1/judge/mode")
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertIn(body["mode"], ["deterministic", "single_model", "committee"])
 
     def test_scorecard_get_returns_not_calibrated(self):
-        if not self.client:
-            return
         r = self.client.get("/api/v1/judge/scorecard")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "NOT_CALIBRATED")

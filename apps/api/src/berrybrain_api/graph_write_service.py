@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from berrybrain_api.confidence import (
     ConfidenceSignal,
     estimate_confidence,
+    node_confidence_applicable,
     persist_confidence,
 )
 from berrybrain_api.graph_contracts import (
@@ -112,6 +113,8 @@ def _recalculate_node_confidence(
     session: Session | None = None,
     extra_signals: Iterable[ConfidenceSignal] = (),
 ) -> None:
+    if not node_confidence_applicable(node.type):
+        return
     signals = [
         ConfidenceSignal(1.0, f"source-note:{note_id}")
         for note_id in _json_list(node.source_note_ids)
@@ -376,10 +379,17 @@ class GraphWriteService:
             query = query.where(GraphNodeRecord.source_id == source_id)
             existing = self.session.execute(query).scalar_one_or_none()
         else:
+            # The graph can contain thousands of derived nodes. Restrict the
+            # candidate set in SQLite instead of materializing every node of
+            # this type for every upsert. Blank keys cover legacy rows until
+            # migration 22 backfills them; the original normalization remains
+            # the final equality check for Unicode and historic aliases.
+            canonical_key = canonical_label(label).casefold()
             candidates = self.session.execute(
                 select(GraphNodeRecord).where(
-                    GraphNodeRecord.type.in_(_stored_node_types({canonical_type}))
-                )
+                    GraphNodeRecord.type.in_(_stored_node_types({canonical_type})),
+                    GraphNodeRecord.canonical_label.in_((canonical_key, "")),
+                ).order_by(GraphNodeRecord.id)
             ).scalars()
             existing = next(
                 (
@@ -959,9 +969,9 @@ class GraphWriteService:
                 original_payload=before,
                 replacement_payload=_node_state(node),
             )
-        if feedback is None:
+        if feedback is None and node_confidence_applicable(node.type):
             persist_confidence(node, estimate_confidence([]))
-        else:
+        elif feedback is not None:
             _recalculate_node_confidence(
                 node,
                 self.session,

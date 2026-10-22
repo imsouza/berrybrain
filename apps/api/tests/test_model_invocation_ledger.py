@@ -147,7 +147,7 @@ class ModelInvocationLedgerTest(unittest.IsolatedAsyncioTestCase):
     async def test_cancellation_is_recorded(self) -> None:
         started = asyncio.Event()
 
-        async def blocked_call(*_args):
+        async def blocked_call(*_args, **_kwargs):
             started.set()
             await asyncio.Event().wait()
 
@@ -161,7 +161,7 @@ class ModelInvocationLedgerTest(unittest.IsolatedAsyncioTestCase):
                     prompt_version="cancel-test.v1",
                 )
             )
-            await started.wait()
+            await asyncio.wait_for(started.wait(), timeout=5)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task

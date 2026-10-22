@@ -8,6 +8,7 @@ ignore advisory locks still require the normal version-conflict checks.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import inspect
 import os
 import tempfile
@@ -25,6 +26,15 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def _vault_lock_path(root: Path) -> Path:
+    shared_dir = os.getenv("BERRYBRAIN_VAULT_LOCK_DIR", "").strip()
+    if not shared_dir:
+        return root.parent / f".{root.name}.berrybrain.lock"
+    lock_dir = Path(shared_dir).expanduser().resolve()
+    identity = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:16]
+    return lock_dir / f".{root.name}-{identity}.berrybrain.lock"
+
+
 @contextmanager
 def vault_lock(vault_path: Path) -> Iterator[None]:
     root = vault_path.resolve()
@@ -36,8 +46,8 @@ def vault_lock(vault_path: Path) -> Iterator[None]:
         if key in held:
             yield
             return
-        root.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = root.parent / f".{root.name}.berrybrain.lock"
+        lock_path = _vault_lock_path(root)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+b") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX)
             recovery_root = root / ".berrybrain-restore"

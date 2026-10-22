@@ -376,6 +376,27 @@ class SecurityAuthTest(unittest.TestCase):
         self.assertEqual(created.status_code, 201)
         profile_id = created.json()["profile"]["id"]
 
+        for unsafe_path in ("../outside", "/absolute", "research/../outside", "research//notes", "research\\notes", "C:private"):
+            rejected = admin_client.patch(
+                f"/api/v1/admin/profiles/{profile_id}",
+                json={"vault_subpath": unsafe_path},
+                headers={"X-CSRF-Token": csrf},
+            )
+            self.assertEqual(rejected.status_code, 422, unsafe_path)
+        unchanged = admin_client.get("/api/v1/admin/profiles")
+        self.assertEqual(unchanged.status_code, 200)
+        self.assertEqual(
+            next(item for item in unchanged.json()["profiles"] if item["id"] == profile_id)["vaultSubpath"],
+            "research",
+        )
+
+        rejected_create = admin_client.post(
+            "/api/v1/admin/profiles",
+            json={"name": "Unsafe", "slug": "unsafe", "vault_subpath": "../outside"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(rejected_create.status_code, 422)
+
         duplicate = admin_client.post(
             "/api/v1/admin/profiles",
             json={"name": "Research 2", "slug": "research", "vault_subpath": ""},

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from berrybrain_api.confidence import parse_unit_confidence
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.generated_metadata import resolve_note_id
 from berrybrain_api.home_summary import list_recent_connections
@@ -25,6 +26,9 @@ class SyncConnectionsRequest(BaseModel):
 def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
     with SessionLocal() as session:
         note_id = resolve_note_id(session, payload.note_path)
+        source_note = session.get(NoteRecord, note_id)
+        if source_note is None or source_note.evidence_status == "draft":
+            return {"status": "skipped_draft", "connections_created": 0}
         created = 0
         for conn in payload.connections:
             target_path = conn.get("target", "")
@@ -33,7 +37,11 @@ def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
             target_note = session.execute(
                 select(NoteRecord).where(NoteRecord.path == target_path)
             ).scalar_one_or_none()
-            if target_note is None:
+            if (
+                target_note is None
+                or target_note.id == note_id
+                or target_note.evidence_status == "draft"
+            ):
                 continue
             conn_type = conn.get("type", "semantic")
             if conn_type not in {
@@ -49,8 +57,7 @@ def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
                 "application",
             }:
                 conn_type = "semantic"
-            raw_confidence = conn.get("confidence")
-            confidence = float(raw_confidence) if raw_confidence is not None else None
+            confidence = parse_unit_confidence(conn.get("confidence"))
             reason = conn.get("reason", "")
             existing = session.execute(
                 select(ConnectionRecord).where(
@@ -74,7 +81,8 @@ def sync_connections_from_ai(payload: SyncConnectionsRequest) -> dict:
                     provider=conn.get("provider", ""),
                     model=conn.get("model", ""),
                     prompt_version=conn.get("prompt_version", "connection-reason.v1"),
-                    status=conn.get("status", "suggested"),
+                    # A generated payload cannot grant itself user confirmation.
+                    status="suggested",
                 )
                 created += 1
         return {"status": "synced", "connections_created": created}

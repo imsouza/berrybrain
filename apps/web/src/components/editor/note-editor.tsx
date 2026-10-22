@@ -34,6 +34,7 @@ import {
   Redo2,
   Replace,
   Search,
+  Sparkles,
   Strikethrough,
   Table,
   Trash2,
@@ -100,7 +101,7 @@ function Backlinks({ notePath }: { notePath: string }) {
   );
 }
 
-export function NoteEditor() {
+export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
   const w = useWorkspace();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -503,6 +504,7 @@ export function NoteEditor() {
         </div>
 
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto">
+          {onOpenAsk && <button className="bb-action inline-flex h-8 items-center gap-1.5 px-2.5 text-xs" onClick={onOpenAsk} aria-label="Ask BerryBrain about this note" title="Open Ask beside this note; unsaved text is not sent automatically"><Sparkles className="size-3.5" />Ask BerryBrain</button>}
           <div className="flex rounded-lg bg-surface p-0.5">
             {(["edit", "preview", "split"] as const).map(m => (
               <button

@@ -80,6 +80,7 @@ class AIConfiguration(BaseModel):
     schema_version: Literal[2] = AI_CONFIGURATION_SCHEMA_VERSION
     mode: Literal["cloud", "local"]
     main: ModelSlot
+    fallback_main: ModelSlot | None = None
     embedding: ModelSlot
     judge: JudgeSlot
     hipporag: HippoRagSlot
@@ -118,6 +119,20 @@ class AIConfiguration(BaseModel):
             provider = PROVIDERS[self.main.provider_id]
             if not provider["url"]:
                 raise ValueError("A provider endpoint URL is required")
+        if self.fallback_main is not None:
+            fallback = self.fallback_main
+            provider = PROVIDERS.get(fallback.provider_id)
+            if provider is None or provider["mode"] != self.mode:
+                raise ValueError("Fallback provider must match the selected AI mode")
+            if not fallback.model_id.strip():
+                raise ValueError("A fallback chat model is required")
+            if fallback.provider_id == "custom-cloud":
+                raise ValueError("Custom fallback endpoints are not supported")
+            if (
+                fallback.provider_id == self.main.provider_id
+                and fallback.model_id == self.main.model_id
+            ):
+                raise ValueError("Fallback must differ from the main model")
         return self
 
 
@@ -125,6 +140,10 @@ def configuration_fingerprint(
     configuration: AIConfiguration, key_revision: str = ""
 ) -> str:
     payload = configuration.model_dump(mode="json")
+    if configuration.fallback_main is None:
+        # Preserve fingerprints of saved v2 configurations created before this
+        # optional field existed; upgrades must not invalidate their AI gate.
+        payload.pop("fallback_main", None)
     payload["validated_at"] = None
     payload["configuration_fingerprint"] = ""
     payload["key_revision"] = key_revision

@@ -41,8 +41,10 @@ def model_availability_alerts(session: Session) -> list[dict]:
         .order_by(ModelInvocationRecord.id.desc())
         .limit(1000)
     ).all()
-    for role in ("main", "embedding", "judge", "hipporag"):
-        slot = getattr(configuration, role)
+    for role in ("main", "fallback_main", "embedding", "judge", "hipporag"):
+        slot = getattr(configuration, role, None)
+        if slot is None:
+            continue
         if not getattr(slot, "enabled", True) or not slot.model_id:
             continue
         key = (slot.provider_id, slot.model_id)

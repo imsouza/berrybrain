@@ -2,16 +2,19 @@ import json
 import re
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
+from berrybrain_api.confidence import parse_unit_confidence
+from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, get_session
 from berrybrain_api.graph_inference_service import (
     create_insight_from_persisted_inference,
     persist_graph_inference,
+    request_inference_owner_id,
 )
 from berrybrain_api.jobs import GENERATE_GRAPH_INSIGHTS, create_job
 from berrybrain_api.learning import record_learning_event
@@ -127,12 +130,8 @@ def _as_list(value: object) -> list:
     return value if isinstance(value, list) else []
 
 
-def _as_float(value: object, default: float = 0.7) -> float:
-    try:
-        parsed = float(value or default)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(0.0, min(0.95, parsed))
+def _optional_confidence(value: object) -> float | None:
+    return parse_unit_confidence(value)
 
 
 def _as_int(value: object, default: int = 5) -> int:
@@ -149,13 +148,20 @@ def _normalize_text(value: str) -> str:
 def _resolve_related_note_ids(
     session: Session, values: list, evidence: list
 ) -> list[int]:
-    notes = list(session.query(NoteRecord).all())
-    note_by_reference: dict[str, int] = {}
+    notes = list(
+        session.query(NoteRecord).filter(NoteRecord.evidence_status != "draft").all()
+    )
+    eligible_ids = {note.id for note in notes}
+    note_by_path: dict[str, set[int]] = {}
+    note_by_label: dict[str, set[int]] = {}
     for note in notes:
-        for reference in (note.path, note.title, note.slug):
+        path = _normalize_text(note.path or "")
+        if path:
+            note_by_path.setdefault(path, set()).add(note.id)
+        for reference in (note.title, note.slug):
             normalized = _normalize_text(reference or "")
             if normalized:
-                note_by_reference[normalized] = note.id
+                note_by_label.setdefault(normalized, set()).add(note.id)
 
     resolved: set[int] = set()
     for value in values:
@@ -171,21 +177,31 @@ def _resolve_related_note_ids(
         )
         for candidate in candidates:
             if str(candidate or "").isdigit():
-                resolved.add(int(candidate))
+                note_id = int(candidate)
+                if note_id in eligible_ids:
+                    resolved.add(note_id)
                 continue
-            note_id = note_by_reference.get(_normalize_text(str(candidate or "")))
-            if note_id is not None:
-                resolved.add(note_id)
+            normalized = _normalize_text(str(candidate or ""))
+            by_path = note_by_path.get(normalized)
+            if by_path is not None:
+                if len(by_path) == 1:
+                    resolved.update(by_path)
+                continue
+            matching_ids = note_by_label.get(normalized, set())
+            if len(matching_ids) == 1:
+                resolved.update(matching_ids)
 
     evidence_text = _normalize_text(" ".join(_evidence_text(item) for item in evidence))
     if evidence_text:
         for note in notes:
-            references = (
-                _normalize_text(note.path or ""),
-                _normalize_text(note.title or ""),
-            )
-            if any(
-                reference and reference in evidence_text for reference in references
+            path = _normalize_text(note.path or "")
+            title = _normalize_text(note.title or "")
+            if (
+                path and path in evidence_text and len(note_by_path.get(path, ())) == 1
+            ) or (
+                title
+                and title in evidence_text
+                and len(note_by_label.get(title, ())) == 1
             ):
                 resolved.add(note.id)
     return sorted(resolved)
@@ -382,15 +398,7 @@ def sync_insights_from_ai(payload: SyncInsightsRequest) -> dict:
             related = _as_list(item.get("related_notes", []) or [])
             related_note_ids = _resolve_related_note_ids(session, related, evidence)
             evidence_count = len(evidence)
-            confidence_raw = item.get("confidence")
-            try:
-                confidence = (
-                    max(0.0, min(1.0, float(confidence_raw)))
-                    if confidence_raw is not None
-                    else None
-                )
-            except (TypeError, ValueError):
-                confidence = None
+            confidence = _optional_confidence(item.get("confidence"))
             if priority == 0 or priority == 5:
                 priority = min(9, 3 + evidence_count)
             # Diversify types if model only generates knowledge_gap
@@ -505,10 +513,14 @@ def list_insights(limit: int = 10) -> dict:
 @router.post("/from-inference")
 async def create_insight_from_inference(
     payload: InferenceInsightRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> dict:
+    owner_user_id = request_inference_owner_id(session, request, get_settings())
     if payload.inferenceId is not None:
-        return create_insight_from_persisted_inference(session, payload.inferenceId)
+        return create_insight_from_persisted_inference(
+            session, payload.inferenceId, owner_user_id=owner_user_id
+        )
 
     # Compatibility path for older clients. The server deliberately ignores the
     # supplied inference JSON and regenerates a canonical, persisted result.
@@ -516,8 +528,12 @@ async def create_insight_from_inference(
     if not question:
         raise HTTPException(status_code=422, detail="Question is required")
     result = await answer_cognitive_query(session, question)
-    inference = persist_graph_inference(session, question, result)
-    return create_insight_from_persisted_inference(session, inference.id)
+    inference = persist_graph_inference(
+        session, question, result, owner_user_id=owner_user_id
+    )
+    return create_insight_from_persisted_inference(
+        session, inference.id, owner_user_id=owner_user_id
+    )
 
 
 @router.post("/{insight_id}/dismiss")

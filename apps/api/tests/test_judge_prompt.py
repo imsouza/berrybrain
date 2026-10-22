@@ -113,11 +113,15 @@ class JudgePromptTest(unittest.TestCase):
                 "provider": "cloud",
                 "judge_provider": "nvidia-nim",
                 "judge_model": "judge-model",
+                "fallback_provider": "opencode-zen",
+                "fallback_model": "main-backup-not-a-judge",
+                "fallback_api_key": "fake-key",
             }
         )
 
         self.assertEqual(routed["provider"], "cloud")
         self.assertEqual(routed["cloud_model"], "judge-model")
+        self.assertFalse(any(key.startswith("fallback_") for key in routed))
 
     def test_rejects_mixed_judge_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "cannot mix"):

@@ -23,6 +23,8 @@ type FolderInfo = {
   note_count?: number;
   total_note_count?: number;
   has_subfolders?: boolean;
+  protected?: boolean;
+  kind?: "vault" | "folder";
 };
 function encodeFolder(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 function encodeVaultPath(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
@@ -391,7 +393,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                   </button>
                   <button className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setExpanded((current) => ({ ...current, [folder.path]: !isOpen }))}>
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folder.kind === "vault" ? "var(--color-brand-red)" : folderColor }} aria-hidden="true" />
                       <span className="truncate" title={folder.path}>{folder.name}</span>
                     </span>
                   </button>
@@ -399,8 +401,8 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                     {folder.note_count ?? folderNotes.length}
                   </span>
                   <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => createFolder(folder.path)} title="Create subfolder">+</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>}
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>}
                 </div>
                 {isOpen && (
                   <div style={{ marginLeft: `${22 + depth * 14}px` }}>

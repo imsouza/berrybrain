@@ -9,7 +9,12 @@ from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.filesystem import serialized_vault
 from berrybrain_api.jobs import PENDING, RUNNING, SUPERSEDED, enqueue_note_changed_jobs
-from berrybrain_api.models import JobRecord, NoteAttachmentRecord, NoteRecord
+from berrybrain_api.models import (
+    JobRecord,
+    NoteAttachmentRecord,
+    NoteRecord,
+    VaultRecord,
+)
 from berrybrain_api.sync import sync_note_record
 
 router = APIRouter(prefix="/api/v1/folders", tags=["folders"])
@@ -46,7 +51,21 @@ def _resolve_folder(vault_path: Path, folder_path: str) -> Path:
     return Path(full_path)
 
 
-def _folder_payload(vault_path: Path, item: Path) -> dict:
+def _protected_boundaries(session) -> set[str]:
+    boundaries: set[str] = set()
+    for path in session.scalars(select(VaultRecord.path)):
+        if not path:
+            continue
+        current = Path(path)
+        while current.as_posix() != ".":
+            boundaries.add(current.as_posix())
+            current = current.parent
+    return boundaries
+
+
+def _folder_payload(
+    vault_path: Path, item: Path, protected_boundaries: set[str] | None = None
+) -> dict:
     md_files = list(item.glob("*.md"))
     children = [
         child
@@ -64,6 +83,7 @@ def _folder_payload(vault_path: Path, item: Path) -> dict:
         "note_count": len(md_files),
         "total_note_count": len(list(item.rglob("*.md"))),
         "has_subfolders": bool(children),
+        "protected": relative in (protected_boundaries or set()),
     }
 
 
@@ -78,7 +98,27 @@ def _list_folders(vault_path: Path) -> list[dict]:
 @router.get("")
 def list_folders() -> dict:
     settings = get_settings()
-    return {"folders": _list_folders(settings.vault_path)}
+    with SessionLocal() as session:
+        protected = _protected_boundaries(session)
+        vault_names = {
+            item.path: item.name
+            for item in session.scalars(select(VaultRecord))
+            if item.path
+        }
+    return {
+        "folders": [
+            {
+                **folder,
+                "name": vault_names.get(
+                    folder["path"],
+                    "Named vaults" if folder["path"] == "vaults" and vault_names else folder["name"],
+                ),
+                "protected": folder["path"] in protected,
+                "kind": "vault" if folder["path"] in vault_names else "folder",
+            }
+            for folder in _list_folders(settings.vault_path)
+        ]
+    }
 
 
 @router.post("", status_code=201)
@@ -137,6 +177,8 @@ def rename_folder(folder_path: str, payload: dict) -> dict:
     old_prefix = full_path.relative_to(root).as_posix() + "/"
     new_prefix = new_path.relative_to(root).as_posix() + "/"
     with SessionLocal() as session:
+        if full_path.relative_to(root).as_posix() in _protected_boundaries(session):
+            raise HTTPException(status_code=409, detail="Cannot rename a registered vault")
         records = [
             row
             for row in session.scalars(select(NoteRecord))
@@ -193,6 +235,10 @@ def delete_folder(folder_path: str) -> dict:
 
     if not full_path.exists() or not full_path.is_dir():
         raise HTTPException(status_code=404, detail="Folder not found")
+
+    with SessionLocal() as session:
+        if full_path.relative_to(settings.vault_path.resolve()).as_posix() in _protected_boundaries(session):
+            raise HTTPException(status_code=409, detail="Cannot delete a registered vault")
 
     if any(f.is_file() for f in full_path.rglob("*")):
         raise HTTPException(status_code=400, detail="Cannot delete folder with notes")

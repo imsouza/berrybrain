@@ -6,10 +6,11 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.artifact_state import accepted_node_clause
+from berrybrain_api.confidence import DERIVED_NODE_CONFIDENCE_TYPES
 from berrybrain_api.jobs import create_job
 from berrybrain_api.models import (
     GraphNodeRecord,
@@ -71,13 +72,29 @@ def execute_research_run(
                     GraphNodeRecord.semantic_state.in_(
                         ["failed", "stale", "needs_review"]
                     ),
-                    GraphNodeRecord.confidence < 0.65,
+                    and_(
+                        GraphNodeRecord.type.in_(DERIVED_NODE_CONFIDENCE_TYPES),
+                        GraphNodeRecord.confidence_sample_size > 0,
+                        GraphNodeRecord.confidence < 0.65,
+                    ),
                     GraphNodeRecord.validation_status.in_(
                         ["unvalidated", "needs_review", "conflict_found"]
                     ),
                 )
             )
-            .order_by(GraphNodeRecord.confidence.asc(), GraphNodeRecord.id.asc())
+            .order_by(
+                case(
+                    (
+                        and_(
+                            GraphNodeRecord.type.in_(DERIVED_NODE_CONFIDENCE_TYPES),
+                            GraphNodeRecord.confidence_sample_size > 0,
+                        ),
+                        GraphNodeRecord.confidence,
+                    ),
+                    else_=1.0,
+                ).asc(),
+                GraphNodeRecord.id.asc(),
+            )
             .limit(MAX_RESEARCH_QUERIES)
         ).scalars()
     )

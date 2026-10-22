@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Route } from "next";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -9,7 +9,7 @@ import { t, tf } from "@/i18n";
 import { VoicePromptButton } from "@/components/voice-prompt-button";
 import { ThemedProgressBar } from "./themed-progress-bar";
 import { CircleHelp, ExternalLink } from "lucide-react";
-import { readResource } from "@/lib/read-resource";
+import { currentWorkspaceReadScope, readResource } from "@/lib/read-resource";
 import { WorkspaceCharts } from "./workspace-charts";
 
 type StatusKind = "running" | "completed" | "failed" | "offline" | "queued" | "waiting_provider";
@@ -83,11 +83,19 @@ type PipelineProgress = { notePath: string; completed: number; total: number; pe
 const HOME_CACHE_TTL_MS = 15_000;
 const homeCache = new Map<string, { summary: HomeSummary; pipeline: PipelineProgress[]; updatedAt: number }>();
 
+function homeCacheKey(api: string): string | null {
+  const scope = currentWorkspaceReadScope();
+  return scope ? `${api}\0${scope}` : null;
+}
+
 export function HomeView() {
   const w = useWorkspace();
   const router = useRouter();
-  const cachedHome = homeCache.get(w.api);
-  const [summary, setSummary] = useState<HomeSummary | null>(() => cachedHome?.summary || null);
+  const readScope = homeCacheKey(w.api);
+  const cachedHome = readScope ? homeCache.get(readScope) : undefined;
+  const [storedSummary, setSummary] = useState<HomeSummary | null>(() => cachedHome?.summary || null);
+  const [summaryScope, setSummaryScope] = useState(readScope);
+  const summary = summaryScope === readScope ? storedSummary : null;
   const [loading, setLoading] = useState(() => !cachedHome);
   const [error, setError] = useState(false);
   const [starterText, setStarterText] = useState("");
@@ -95,10 +103,14 @@ export function HomeView() {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [operationsTab, setOperationsTab] = useState<"processing" | "connections" | "activity">("processing");
   const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress[]>(() => cachedHome?.pipeline || []);
+  const loadRequestRef = useRef(0);
 
   const loadSummary = useCallback(async (force = false) => {
-    const cached = homeCache.get(w.api);
+    const requestId = ++loadRequestRef.current;
+    const cacheKey = readScope;
+    const cached = cacheKey ? homeCache.get(cacheKey) : undefined;
     if (!force && cached && Date.now() - cached.updatedAt < HOME_CACHE_TTL_MS) {
+      setSummaryScope(cacheKey);
       setSummary(cached.summary);
       setPipelineProgress(cached.pipeline);
       setLoading(false);
@@ -120,21 +132,28 @@ export function HomeView() {
         5_000,
       ).catch(() => null);
       const nextSummary = await readResource<HomeSummary>(`${w.api}/api/v1/home/summary`, 15_000);
+      if (requestId !== loadRequestRef.current || cacheKey !== homeCacheKey(w.api)) return;
+      setSummaryScope(cacheKey);
       setSummary(nextSummary);
-      homeCache.set(w.api, { summary: nextSummary, pipeline: cached?.pipeline || [], updatedAt: Date.now() });
+      if (cacheKey) {
+        homeCache.delete(cacheKey);
+        homeCache.set(cacheKey, { summary: nextSummary, pipeline: cached?.pipeline || [], updatedAt: Date.now() });
+        while (homeCache.size > 4) homeCache.delete(homeCache.keys().next().value!);
+      }
       setLoading(false);
       const pipelinePayload = await pipelinePromise;
+      if (requestId !== loadRequestRef.current || cacheKey !== homeCacheKey(w.api)) return;
       const nextPipeline = pipelinePayload
         ? (pipelinePayload.notes || []) as PipelineProgress[]
         : cached?.pipeline || [];
-      homeCache.set(w.api, { summary: nextSummary, pipeline: nextPipeline, updatedAt: Date.now() });
+      if (cacheKey) homeCache.set(cacheKey, { summary: nextSummary, pipeline: nextPipeline, updatedAt: Date.now() });
       setPipelineProgress(nextPipeline);
     } catch {
-      setError(!cached);
+      if (requestId === loadRequestRef.current && cacheKey === homeCacheKey(w.api)) setError(!cached);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current && cacheKey === homeCacheKey(w.api)) setLoading(false);
     }
-  }, [w.api, w.demo]);
+  }, [w.api, w.demo, readScope]);
 
   const updateConnectionStatus = useCallback(
     async (id: number, action: "confirm" | "ignore") => {
@@ -179,20 +198,52 @@ export function HomeView() {
     }
   }
 
-  if (loading) {
+  if (!summary || error) {
+    const overviewFailed = error || !loading;
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-sm text-muted/40 animate-pulse-soft">{t("loadingSummary")}</div>
-      </div>
-    );
-  }
-
-  if (error || !summary) {
-    return (
-      <div className="flex-1 flex items-center justify-center px-6">
-        <div className="text-center">
-          <div className="text-sm font-medium">{t("loadHomeFailed")}</div>
-          <button className="bb-action mt-3 h-9 px-4 text-xs font-medium" onClick={() => void loadSummary(true)}>{t("retry")}</button>
+      <div className="bb-brain-view flex-1 overflow-y-auto">
+        <div className="bb-page-shell px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="mb-6">
+            <p className="text-xs font-semibold uppercase tracking-wide text-accent">BerryBrain</p>
+            <h1 className="mt-2 text-2xl font-semibold text-foreground">Your knowledge workspace</h1>
+            <p className="mt-1 text-sm text-muted">Your notes and Ask remain available while the knowledge overview is unavailable.</p>
+          </div>
+          <HomeAskBar
+            value={askText}
+            onChange={setAskText}
+            onSubmit={() => {
+              if (askText.trim()) router.push(appPath(`/ask?q=${encodeURIComponent(askText.trim())}`) as Route);
+            }}
+            onOpenWorkspace={() => router.push(appPath("/ask") as Route)}
+          />
+          <div className="mt-5 grid items-stretch gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
+            <ComposeCard
+              noNotes={w.notes.length === 0}
+              value={starterText}
+              disabled={creatingDraft}
+              onChange={updateStarterText}
+              onSubmit={() => createNote(starterText)}
+              onCreateEmpty={() => createNote()}
+              creating={creatingDraft}
+            />
+            <section className="flex min-h-44 flex-col justify-center rounded-xl border border-border bg-panel p-5" aria-label={overviewFailed ? "Knowledge overview unavailable" : "Knowledge overview loading"} aria-busy={!overviewFailed}>
+              {overviewFailed ? (
+                <>
+                  <div className="text-sm font-medium text-foreground">{t("loadHomeFailed")}</div>
+                  <p className="mt-2 text-xs leading-5 text-muted">Ask and quick capture are still available. Retry the overview when the server responds.</p>
+                  <button className="bb-action mt-4 h-9 self-start px-4 text-xs font-medium" onClick={() => void loadSummary(true)}>{t("retry")}</button>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3" role="status" aria-live="polite">
+                    <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-accent" aria-hidden="true" />
+                    <span className="text-sm font-medium text-foreground">Loading knowledge overview...</span>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted">Statistics and processing activity appear here when ready. You can keep working in the meantime.</p>
+                </>
+              )}
+            </section>
+          </div>
         </div>
       </div>
     );

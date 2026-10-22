@@ -82,7 +82,11 @@ async def hipporag_rebuild():
 @router.post("/sync-graph")
 async def hipporag_sync_graph() -> dict:
     with SessionLocal() as session:
-        notes = list(session.execute(select(NoteRecord)).scalars())
+        notes = list(
+            session.execute(
+                select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+            ).scalars()
+        )
         nodes = list(
             session.execute(
                 select(GraphNodeRecord).where(
