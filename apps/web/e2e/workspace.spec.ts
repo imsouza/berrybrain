@@ -498,7 +498,7 @@ test.describe("Authenticated workspace quality", () => {
 
     await page.getByRole("button", { name: "Graph", exact: true }).click();
     await expect(page).toHaveURL(/\/brain\?graph=open$/);
-    await expect(page.getByRole("button", { name: "Open Ask workspace" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" })).toBeVisible();
     expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");
   });
 
