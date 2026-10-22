@@ -357,6 +357,13 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 7h.01M12 17h.01M7 7l5 10m5-10-5 10m-5-10h10" /></svg>
           <span className="flex-1 text-left">Knowledge graph</span>
         </button>
+        <button
+          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
+          onClick={() => { onMobileClose?.(); router.push(appPath("/ask") as Route); }}
+        >
+          <MessageSquare className="size-4" aria-hidden="true" />
+          <span className="flex-1 text-left">Ask</span>
+        </button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
