@@ -456,7 +456,7 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByText("AI setup could not be loaded.")).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Navigation" })).toBeVisible();
 
-    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Ask", exact: true }).click();
+    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" }).click();
     await expect(page).toHaveURL(/\/ask$/, { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Mode" })).toHaveCount(0);
@@ -469,7 +469,7 @@ test.describe("Authenticated workspace quality", () => {
       (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation = "retained";
     });
 
-    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Ask", exact: true }).click();
+    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" }).click();
     await expect(page).toHaveURL(/\/ask$/);
     await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
     expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");

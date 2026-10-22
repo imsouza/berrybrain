@@ -358,6 +358,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <span className="flex-1 text-left">Knowledge graph</span>
         </button>
         <button
+          aria-label="Open Ask workspace"
           className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
           onClick={() => { onMobileClose?.(); router.push(appPath("/ask") as Route); }}
         >
