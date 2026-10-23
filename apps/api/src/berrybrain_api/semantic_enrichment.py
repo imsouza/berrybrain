@@ -14,6 +14,7 @@ from berrybrain_api.ai_configuration import AIConfiguration, load_configuration
 from berrybrain_api.confidence import (
     ConfidenceSignal,
     estimate_confidence,
+    node_confidence_applicable,
     persist_confidence,
 )
 from berrybrain_api.jobs import ENRICH_GRAPH_NODE, create_job
@@ -247,7 +248,8 @@ def persist_semantic_analysis(
     )
     session.add_all([history, profile])
     node.ai_summary = analysis.meaning_in_context
-    persist_confidence(node, confidence_estimate)
+    if node_confidence_applicable(node.type):
+        persist_confidence(node, confidence_estimate)
     node.ai_context = analysis.why_it_matters_here
     # Analysis evidence belongs to the versioned profile/history. Replacing the
     # source evidence here changes the fingerprint of the input just evaluated

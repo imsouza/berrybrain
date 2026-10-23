@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { appPath, getApiUrl } from "@/contexts/workspace-context";
+import { apiFetch, appPath, getApiUrl } from "@/contexts/workspace-context";
 import { t, locale } from "@/i18n";
 
 type Alert = {
@@ -70,7 +70,7 @@ export default function NotificationsPage() {
     setRetryingJobId(jobId);
     setActionStatus("");
     try {
-      const response = await fetch(`${api}/api/v1/jobs/${jobId}/retry`, { method: "POST" });
+      const response = await apiFetch(`${api}/api/v1/jobs/${jobId}/retry`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.detail || "Retry failed.");
       await load();
@@ -83,13 +83,26 @@ export default function NotificationsPage() {
   }
 
   async function markRead(alert: Alert) {
-    await fetch(`${api}/api/v1/notifications/${alert.id}/read`, { method: "POST" });
-    setAlerts((items) => items.map((item) => item.id === alert.id ? { ...item, read: true } : item));
+    try {
+      const response = await apiFetch(`${api}/api/v1/notifications/${alert.id}/read`, { method: "POST" });
+      if (!response.ok) throw new Error("Could not mark the notification as read.");
+      setAlerts((items) => items.map((item) => item.id === alert.id ? { ...item, read: true } : item));
+      window.dispatchEvent(new Event("bb:notifications-changed"));
+    } catch (error) {
+      setActionStatus(error instanceof Error ? error.message : "Could not mark the notification as read.");
+    }
   }
 
   async function markAllRead() {
-    await fetch(`${api}/api/v1/notifications/read-all`, { method: "POST" });
-    setAlerts((items) => items.map((item) => ({ ...item, read: true })));
+    try {
+      const response = await apiFetch(`${api}/api/v1/notifications/read-all`, { method: "POST" });
+      if (!response.ok) throw new Error("Could not mark notifications as read.");
+      setAlerts((items) => items.map((item) => ({ ...item, read: true })));
+      window.dispatchEvent(new Event("bb:notifications-changed"));
+      setActionStatus("");
+    } catch (error) {
+      setActionStatus(error instanceof Error ? error.message : "Could not mark notifications as read.");
+    }
   }
 
   if (loading) {
@@ -107,6 +120,7 @@ export default function NotificationsPage() {
           <div><h1 className="text-xl font-semibold">{t("alertsAndStatus")}</h1><p className="mt-1 text-sm text-muted/60">{t("alertsAndStatusDesc")}</p></div>
           {alerts.some((alert) => !alert.read) && <button className="bb-action px-3 py-2 text-xs" onClick={markAllRead}>Mark all as read</button>}
         </header>
+        {actionStatus && <p className="mb-3 rounded-lg bg-surface px-3 py-2 text-xs" role="status">{actionStatus}</p>}
 
         {alerts.length === 0 && failedJobs.length === 0 ? (
           <div className="rounded-xl bg-surface p-6 text-center text-xs text-muted/60 ring-1 ring-border/35">
@@ -127,7 +141,10 @@ export default function NotificationsPage() {
                       <a
                         href={appPath(a.actionUrl || "/activity")}
                         className="bb-action mt-2 inline-block px-3 py-1 text-[11px] font-medium"
-                        onClick={() => { void markRead(a); }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void markRead(a).finally(() => { window.location.href = appPath(a.actionUrl || "/activity"); });
+                        }}
                       >
                         {a.action}
                       </a>
@@ -140,11 +157,6 @@ export default function NotificationsPage() {
             {failedJobs.length > 0 && (
               <section>
                 <h2 className="mb-3 text-sm font-semibold">{t("failedJobsSection")}</h2>
-                {actionStatus && (
-                  <div className="mb-3 rounded-lg bg-accent/10 px-3 py-2 text-xs text-foreground ring-1 ring-accent/20">
-                    {actionStatus}
-                  </div>
-                )}
                 <div className="space-y-1">
                   {failedJobs.map((j) => (
                     <div key={j.id} className="rounded-lg bg-red-500/5 px-3 py-2 text-xs ring-1 ring-red-500/15">

@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, defer
@@ -21,13 +21,25 @@ from berrybrain_api.artifact_state import (
     processable_edge_clause,
     processable_node_clause,
 )
+from berrybrain_api.ask_references import (
+    append_verified_reference_links,
+    capture_ask_references,
+    resolve_ask_references,
+)
 from berrybrain_api.automation_logs import create_automation_log
 from berrybrain_api.cognitive_layer import answer_cognitive_query
-from berrybrain_api.confidence import serialize_confidence
+from berrybrain_api.confidence import (
+    active_node_confidence,
+    node_confidence_applicable,
+    parse_unit_confidence,
+    serialize_confidence,
+)
 from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal, get_session
 from berrybrain_api.graph_inference_service import (
+    get_owned_inference,
     persist_graph_inference,
+    request_inference_owner_id,
     serialize_graph_inference,
 )
 from berrybrain_api.graph_semantic_service import (
@@ -196,7 +208,7 @@ def _serialize_paged_node(node: GraphNodeRecord) -> dict[str, Any]:
         "folder": metadata.get("folder", ""),
         "sourceId": node.source_id,
         "status": node.status,
-        "confidence": node.confidence if node.confidence_sample_size else None,
+        "confidence": active_node_confidence(node),
         "confidenceInterval": serialize_confidence(node),
         "createdBy": node.created_by,
         "createdByModel": node.created_by_model,
@@ -573,6 +585,7 @@ def rebuild_graph(dry_run: bool = True) -> dict:
 @router.post("/infer", response_model=GraphInference)
 async def infer_graph(
     payload: GraphInferRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> dict:
     question = payload.question.strip()
@@ -596,19 +609,40 @@ async def infer_graph(
                 "message": "The configured AI provider did not return an answer.",
             },
         )
-    inference = persist_graph_inference(session, question, result)
-    return serialize_graph_inference(inference)
+    references = resolve_ask_references(
+        session, capture_ask_references(session, result.get("evidence"))
+    )
+    result = {
+        **result,
+        "answer": append_verified_reference_links(
+            str(result.get("answer") or ""), references
+        ),
+    }
+    inference = persist_graph_inference(
+        session,
+        question,
+        result,
+        owner_user_id=request_inference_owner_id(session, request, get_settings()),
+    )
+    return {
+        **serialize_graph_inference(inference),
+        "fallbackUsed": bool(result.get("fallbackUsed")),
+        "references": references,
+    }
 
 
 @router.post("/inferences/{inference_id}/feedback")
 def record_inference_feedback(
     inference_id: int,
     payload: InferenceFeedbackRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
-    inference = session.get(GraphInferenceRecord, inference_id)
-    if inference is None:
-        raise HTTPException(status_code=404, detail="Graph inference not found")
+    inference = get_owned_inference(
+        session,
+        inference_id,
+        request_inference_owner_id(session, request, get_settings()),
+    )
     if payload.action == "corrected" and not payload.correction.strip():
         raise HTTPException(
             status_code=422,
@@ -953,7 +987,7 @@ def update_graph_node(node_id: int, payload: UpdateGraphNodeRequest) -> dict:
             "summary": node.summary,
             "source": node.source,
             "status": node.status,
-            "confidence": node.confidence if node.confidence_sample_size else None,
+            "confidence": active_node_confidence(node),
             "confidenceInterval": serialize_confidence(node),
             "semanticStatus": node.semantic_status,
             "ontology": {
@@ -1560,13 +1594,9 @@ async def generate_connection_insight(edge_id: int) -> dict:
         if existing:
             return {"status": "exists", "insight": serialize_insight(existing)}
 
-        raw_confidence = result.get("confidence")
-        try:
-            confidence = float(raw_confidence) if raw_confidence is not None else None
-        except (TypeError, ValueError):
-            confidence = None
+        confidence = parse_unit_confidence(result.get("confidence"))
         if confidence is None and edge.confidence_sample_size:
-            confidence = edge.confidence
+            confidence = parse_unit_confidence(edge.confidence)
         insight = create_insight(
             session,
             "connection_insight",
@@ -1578,9 +1608,7 @@ async def generate_connection_insight(edge_id: int) -> dict:
             evidence=[str(item) for item in evidence[:8]],
             suggested_action=str(result.get("suggested_action") or ""),
             graph_impact=str(result.get("graph_impact") or ""),
-            confidence=(
-                max(0.0, min(1.0, confidence)) if confidence is not None else None
-            ),
+            confidence=confidence,
             status="suggested",
             provider=config.get("provider", ""),
             model=model,
@@ -1776,6 +1804,13 @@ def recalculate_graph_confidence(
             "status": "completed",
             "nodes": len(nodes),
             "edges": len(edges),
-            "nodesUnavailable": sum(not node.confidence_sample_size for node in nodes),
+            "nodesUnavailable": sum(
+                node_confidence_applicable(node.type)
+                and not node.confidence_sample_size
+                for node in nodes
+            ),
+            "nodesNotApplicable": sum(
+                not node_confidence_applicable(node.type) for node in nodes
+            ),
             "edgesUnavailable": sum(not edge.confidence_sample_size for edge in edges),
         }

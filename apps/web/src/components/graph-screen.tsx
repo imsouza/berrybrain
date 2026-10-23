@@ -10,7 +10,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GraphCanvas, useGraphData, type GraphLayoutMode } from "./graph-view";
 import { formatEvidenceLabel } from "./graph-formatters";
-import { AskMarkdown } from "./ask-markdown";
+import { AskMarkdown, askNoteHref, askReferenceHref, type AskReference } from "./ask-markdown";
+import { AskNotePlan } from "./ask-note-plan";
+import { AskDraftRecovery } from "./ask-draft-recovery";
+import { AskFailedRecovery } from "./ask-failed-recovery";
 import { t } from "@/i18n";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
 import { diagnosticMessages, isFilterHidden, type PipelineDiagnostic } from "@/lib/diagnostics";
@@ -185,9 +188,12 @@ type InferenceResult = {
   relatedNodes?: Array<string | { id?: number | string; title?: string; label?: string; type?: string; path?: string }>;
   connections?: { id?: number; type: string; reason: string; confidence?: number }[];
   evidence?: Array<string | { source?: string; title?: string; text?: string; reference?: string; data?: unknown; metadata?: Record<string, unknown> }>;
+  references?: AskReference[];
   actions?: string[];
   provider?: string;
   model?: string;
+  fallbackUsed?: boolean;
+  fallbackReason?: string;
 };
 
 type FlowTurn = {
@@ -195,8 +201,11 @@ type FlowTurn = {
   role: "user" | "assistant";
   content: string;
   evidenceIds: string[];
+  references?: AskReference[];
   provider?: string;
   model?: string;
+  fallbackUsed?: boolean;
+  fallbackReason?: string;
   status: string;
 };
 
@@ -224,11 +233,6 @@ type ResearchRun = {
   error?: string;
 };
 
-function relatedNodeLabel(item: NonNullable<InferenceResult["relatedNodes"]>[number]): string {
-  if (typeof item === "string") return item;
-  return item.title || item.label || String(item.id || "Related node");
-}
-
 function resolveRelatedInferenceNodes(
   inference: InferenceResult | null,
   graphData: { nodes: GraphNode[]; edges: GraphEdge[]; stats?: any } | null,
@@ -236,16 +240,12 @@ function resolveRelatedInferenceNodes(
   if (!inference?.relatedNodes?.length || !graphData) return [];
   const resolved = new Map<string, { id: string; label: string }>();
   for (const item of inference.relatedNodes) {
-    const label = relatedNodeLabel(item);
     const objectId = typeof item === "object" ? item.id : undefined;
     const objectType = typeof item === "object" ? item.type : undefined;
-    const objectPath = typeof item === "object" ? item.path : undefined;
     const found = graphData.nodes.find((node) => {
-      if (objectId && node.recordId === Number(objectId)) return true;
-      if (objectId && node.sourceId === Number(objectId)) return true;
-      if (objectId && objectType && node.id === `${objectType}_${objectId}`) return true;
-      if (objectPath && node.path === objectPath) return true;
-      return node.label === label || node.title === label;
+      if (typeof item === "string") return node.id === item;
+      return objectId != null && node.recordId === Number(objectId)
+        && (!objectType || node.type === objectType);
     });
     if (found) resolved.set(found.id, { id: found.id, label: found.label });
   }
@@ -256,6 +256,25 @@ function formatInferenceEvidence(
   item: NonNullable<InferenceResult["evidence"]>[number],
 ): string {
   return formatEvidenceLabel(item);
+}
+
+function AskReferenceList({ references }: { references?: AskReference[] }) {
+  if (!references?.length) return null;
+  return <div className="mt-4 flex flex-wrap gap-2" aria-label="Verified BerryBrain references">
+    {references.map((reference) => {
+      const href = askReferenceHref(reference);
+      if (!href) return null;
+      const kind = reference.kind === "note" ? "Note" : reference.kind === "attachment" ? "Attachment" : `Graph ${reference.nodeType || "node"}`;
+      return <div key={`${reference.kind}:${reference.stableId}`} className="flex max-w-full flex-wrap gap-2">
+        <a href={href} className="bb-action inline-flex max-w-full items-center gap-1.5 px-3 py-1.5 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Open ${kind}: ${reference.title}`}>
+          <span className="shrink-0 font-semibold text-accent">{kind}</span><span className="truncate">{reference.title}</span>{!reference.current && <span className="shrink-0 text-muted">changed</span>}
+        </a>
+        {reference.kind === "graph_node" && reference.sourceNotes?.map((note) => <a key={note.id} href={askNoteHref(note.path)} className="bb-action inline-flex max-w-full items-center gap-1.5 px-3 py-1.5 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Open source note: ${note.title}`}>
+          <span className="shrink-0 font-semibold text-accent">Source note</span><span className="truncate">{note.title}</span>
+        </a>)}
+      </div>;
+    })}
+  </div>;
 }
 
 function graphNodeRecordId(node: GraphNode | undefined): number | null {
@@ -337,7 +356,7 @@ function GraphListView({
                   }}
                 >
                   <span className="block text-sm text-foreground">{source?.label || edge.source} → {target?.label || edge.target}</span>
-                  <span className="block text-[10px] uppercase text-muted">{edge.type} · {edge.status || "suggested"} · {Math.round((edge.confidence || 0) * 100)}%</span>
+                  <span className="block text-[10px] uppercase text-muted">{edge.type} · {edge.status || "suggested"} · {typeof edge.confidence === "number" ? `${Math.round(edge.confidence * 100)}%` : "Not evaluated"}</span>
                   {edge.reason && <span className="mt-1 block text-xs text-muted">{edge.reason}</span>}
                 </Link>
               );
@@ -388,6 +407,10 @@ export function GraphScreen({
   });
   const [query, setQuery] = useState("");
   const askInputRef = useRef<HTMLInputElement>(null);
+  const flowStartingRef = useRef(false);
+  const flowExitingRef = useRef(false);
+  const inferenceRunningRef = useRef(false);
+  const inferenceRequestIdRef = useRef(0);
   const autoSubmittedQueryRef = useRef("");
   const [filterType, setFilterType] = useState("brain_view");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -607,7 +630,18 @@ export function GraphScreen({
       if (filterProvider === "deterministic") return p === "system" || p === "deterministic" || p === "backlink" || p === "metadata-parser";
       return p === filterProvider;
     });
-    if (filterConfidence > 0) nodes = nodes.filter((n) => (n.confidence || 0) >= filterConfidence / 100);
+    if (filterConfidence > 0) {
+      const passing = new Set(nodes
+        .filter((node) => typeof node.confidence === "number" && node.confidence >= filterConfidence / 100)
+        .map((node) => node.id));
+      const sourceTypes = new Set(["note", "vault", "source", "web_source", "attachment"]);
+      const adjacentSources = new Set<string>();
+      for (const edge of edges) {
+        if (passing.has(edge.source)) adjacentSources.add(edge.target);
+        if (passing.has(edge.target)) adjacentSources.add(edge.source);
+      }
+      nodes = nodes.filter((node) => passing.has(node.id) || (sourceTypes.has(node.type) && adjacentSources.has(node.id)));
+    }
     if (orphanFilter === "1") {
       const degree = new Map<string, number>();
       for (const n of graphData.nodes) degree.set(n.id, 0);
@@ -787,8 +821,9 @@ export function GraphScreen({
 
   async function runInference(questionOverride?: string) {
     const text = (questionOverride ?? query).trim();
-    if (!text) return;
-    if (apiUrl === "__demo__") return;
+    if (!text || apiUrl === "__demo__" || inferenceRunningRef.current || flowExitingRef.current) return;
+    inferenceRunningRef.current = true;
+    const requestId = ++inferenceRequestIdRef.current;
     if (questionOverride) setQuery(text);
     setInferLoading(true);
     setInferenceSaveStatus("");
@@ -801,6 +836,7 @@ export function GraphScreen({
           body: JSON.stringify({ content: text }),
         });
         const payload = await response.json().catch(() => ({}));
+        if (inferenceRequestIdRef.current !== requestId) return;
         if (!response.ok) {
           const detail = payload.detail;
           if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
@@ -821,6 +857,7 @@ export function GraphScreen({
           question: text,
           answer: assistantTurn.content,
           evidence: assistantTurn.evidenceIds,
+          references: assistantTurn.references,
           provider: assistantTurn.provider,
           model: assistantTurn.model,
         });
@@ -833,6 +870,7 @@ export function GraphScreen({
         body: JSON.stringify({ question: text }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (inferenceRequestIdRef.current !== requestId) return;
       if (!response.ok) {
         const detail = payload.detail;
         if (response.status === 503 && typeof detail === "object" && detail?.code === "provider_unavailable") {
@@ -850,13 +888,17 @@ export function GraphScreen({
       }
       setInference(payload as InferenceResult);
     } catch (error) {
+      if (inferenceRequestIdRef.current !== requestId) return;
       setInference({
         status: "error",
         question: text,
         answer: error instanceof Error ? error.message : "Could not query the graph right now.",
       });
     } finally {
-      setInferLoading(false);
+      if (inferenceRequestIdRef.current === requestId) {
+        inferenceRunningRef.current = false;
+        setInferLoading(false);
+      }
     }
   }
 
@@ -883,41 +925,76 @@ export function GraphScreen({
   }
 
   async function startFlow() {
-    if (apiUrl === "__demo__") return;
-    const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode: "flow",
-        title: query.trim().slice(0, 120),
-        inference_id: inference?.inferenceId,
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.session?.id) {
-      setInferenceSaveStatus(payload.detail || "Could not start Flow.");
-      return;
+    if (apiUrl === "__demo__" || flowActive || flowStartingRef.current || flowExitingRef.current) return;
+    flowStartingRef.current = true;
+    const previousQuery = query;
+    try {
+      const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "flow",
+          title: previousQuery.trim().slice(0, 120),
+          inference_id: inference?.inferenceId,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.session?.id) {
+        setInferenceSaveStatus(typeof payload.detail === "string" ? payload.detail : "Could not start Flow.");
+        return;
+      }
+      setFlowSessionId(payload.session.id);
+      setFlowTurns(payload.turns || []);
+      setFlowActive(true);
+      setQuery((current) => current === previousQuery ? "" : current);
+      sessionStorage.setItem("bb_flow_session_id", payload.session.id);
+      requestAnimationFrame(() => askInputRef.current?.focus());
+    } catch {
+      setInferenceSaveStatus("Could not start Flow. Your question is still in the input; please retry.");
+    } finally {
+      flowStartingRef.current = false;
     }
-    setFlowSessionId(payload.session.id);
-    setFlowTurns(payload.turns || []);
-    setFlowActive(true);
-    sessionStorage.setItem("bb_flow_session_id", payload.session.id);
   }
 
   async function exitFlow() {
+    if (flowExitingRef.current) return;
+    flowExitingRef.current = true;
+    const wasRunning = inferenceRunningRef.current;
+    inferenceRequestIdRef.current += 1;
+    inferenceRunningRef.current = false;
+    setInferLoading(false);
     if (flowSessionId) {
-      await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/close`, { method: "POST" });
+      try {
+        if (wasRunning) {
+          await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/cancel`, { method: "POST" });
+        }
+        const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/close`, { method: "POST" });
+        if (!response.ok) throw new Error("Flow could not be closed.");
+      } catch {
+        setInferenceSaveStatus("Could not close Flow. Please retry.");
+        flowExitingRef.current = false;
+        return;
+      }
     }
     setFlowSessionId(null);
     setFlowTurns([]);
     setFlowActive(false);
     sessionStorage.removeItem("bb_flow_session_id");
+    flowExitingRef.current = false;
   }
 
   async function cancelFlowRequest() {
-    if (!flowSessionId) return;
-    await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/cancel`, { method: "POST" });
-    setInferenceSaveStatus("Flow request cancellation requested.");
+    if (!flowSessionId || !inferenceRunningRef.current) return;
+    inferenceRequestIdRef.current += 1;
+    inferenceRunningRef.current = false;
+    setInferLoading(false);
+    try {
+      const response = await apiFetch(`${apiUrl}/api/v1/ask/sessions/${flowSessionId}/cancel`, { method: "POST" });
+      if (!response.ok) throw new Error("Flow request cancellation was not confirmed.");
+      setInferenceSaveStatus("Flow request cancelled.");
+    } catch {
+      setInferenceSaveStatus("Cancellation was not confirmed. Refresh Flow to check its status.");
+    }
   }
 
   async function startOnlineResearch() {
@@ -1136,7 +1213,7 @@ export function GraphScreen({
               </span>
               <span className="rounded-full bg-panel px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
             </div>
-            <AskMarkdown content={inference.answer} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
+            <AskMarkdown content={inference.answer} references={inference.references} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
             {["error", "provider_unavailable"].includes(inference.status) && (
               <p className="mt-2 rounded-lg bg-panel px-2 py-1 text-[11px] text-muted">
                 No BerryBrain answer was created. Retry the request or review the active provider and model in Settings.
@@ -1167,9 +1244,10 @@ export function GraphScreen({
                 ))}
               </div>
             )}
+            <AskReferenceList references={inference.references} />
             {(inference.provider || inference.model) && (
               <div className="mt-1 text-[10px] text-muted/60">
-                {t("ai")}: {inference.provider || "provider"} {inference.model ? `· ${inference.model}` : ""}
+                {t("ai")}: {inference.provider || "provider"} {inference.model ? `· ${inference.model}` : ""}{inference.fallbackUsed ? " · fallback after primary failure" : ""}
               </div>
             )}
             <div className="mt-2 flex flex-wrap gap-1">
@@ -1260,6 +1338,9 @@ export function GraphScreen({
               </form>
             </section>
 
+            <AskDraftRecovery apiUrl={apiUrl} />
+            <AskFailedRecovery apiUrl={apiUrl} />
+
             {inferLoading && (
               <div className="mx-auto flex max-w-4xl items-center justify-center gap-3 border-y border-border py-5" role="status">
                 <span className="size-5 animate-spin rounded-full border-2 border-border border-t-accent" />
@@ -1276,7 +1357,8 @@ export function GraphScreen({
                   </span>
                   <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
                 </div>
-                <AskMarkdown content={inference.answer} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
+                <AskMarkdown content={inference.answer} references={inference.references} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
+                <AskReferenceList references={inference.references} />
                 {inference.status === "provider_unavailable" && (
                   <p className="mt-2 text-sm leading-6 text-muted">No answer was created or added to the conversation. Retry the request or review the active provider and model.</p>
                 )}
@@ -1312,8 +1394,9 @@ export function GraphScreen({
                     <button className={`bb-action grid size-8 place-items-center p-0 ${askFeedback === "downvoted" ? "text-danger" : ""}`} aria-label="Mark answer as not useful" title="Mark answer as not useful" onClick={() => void recordAskFeedback("downvoted")}><ThumbsDown className="size-3.5" /></button>
                   </>}
                   <button className="px-2 py-1.5 text-xs text-muted hover:text-foreground" onClick={() => setInference(null)}>{inference.status === "provider_unavailable" ? "Dismiss" : "Clear answer"}</button>
-                  {(inference.provider || inference.model) && <span className="ml-auto text-[10px] text-muted">{inference.provider || "provider"}{inference.model ? ` · ${inference.model}` : ""}</span>}
+                  {(inference.provider || inference.model) && <span className="ml-auto text-[10px] text-muted">{inference.provider || "provider"}{inference.model ? ` · ${inference.model}` : ""}{inference.fallbackUsed ? ` · fallback used (${inference.fallbackReason?.replaceAll("_", " ") || "primary unavailable"})` : ""}</span>}
                 </div>
+                {inference.answer.trim() && !["error", "provider_unavailable"].includes(inference.status) && <AskNotePlan key={flowActive && flowTurns.length ? `turn-${flowTurns[flowTurns.length - 1].id}` : `inference-${inference.inferenceId ?? inference.answer}`} answer={inference.answer} question={inference.question} references={inference.references} apiUrl={apiUrl} />}
                 {inferenceSaveStatus && <p className="mt-3 text-xs text-muted">{inferenceSaveStatus}</p>}
                 {askFeedback === "error" && <p className="mt-3 text-xs text-danger">Answer feedback could not be recorded.</p>}
                 {["upvoted", "downvoted"].includes(askFeedback) && <p className="mt-3 text-xs text-muted">Feedback recorded for future context-aware validation.</p>}
@@ -1328,7 +1411,7 @@ export function GraphScreen({
                     <div className="mb-1 text-[10px] font-semibold uppercase text-muted">{turn.role === "user" ? "You" : "BerryBrain"}</div>
                     {turn.role === "user"
                       ? <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{turn.content}</p>
-                      : <AskMarkdown content={turn.content} className="text-foreground" />}
+                      : <><AskMarkdown content={turn.content} references={turn.references} className="text-foreground" /><AskReferenceList references={turn.references} />{(turn.provider || turn.model) && <p className="mt-2 text-[10px] text-muted">{turn.provider || "provider"}{turn.model ? ` · ${turn.model}` : ""}{turn.fallbackUsed ? ` · fallback used (${turn.fallbackReason?.replaceAll("_", " ") || "primary unavailable"})` : ""}</p>}</>}
                   </article>)}
                 </div>
               </section>

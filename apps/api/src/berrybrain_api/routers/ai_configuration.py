@@ -287,7 +287,9 @@ def _queue_embedding_reindex(
     )
     session.execute(delete(EmbeddingRecord))
     jobs_queued = 0
-    for note in session.execute(select(NoteRecord)).scalars():
+    for note in session.execute(
+        select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+    ).scalars():
         if not (note.content or "").strip():
             continue
         create_job(
@@ -327,6 +329,7 @@ def _validate_requested_models(
         for slot, provider_id, model, _ in requested_slots
         if contexts[provider_id]["models"]
         and model not in contexts[provider_id]["models"]
+        and not (slot == "main" and contexts[provider_id].get("allow_degraded_main"))
     ]
     if missing:
         raise HTTPException(
@@ -345,6 +348,14 @@ def _probe_requested_capabilities(
     def probe(item: tuple[str, str, str, str]) -> tuple[str, dict[str, object]]:
         slot, provider_id, model, capability = item
         context = contexts[provider_id]
+        if slot == "main" and context.get("catalog_unavailable"):
+            return slot, {
+                "available": False,
+                "model": model,
+                "capability": capability,
+                "status": None,
+                "reason": "The saved primary provider is temporarily unavailable.",
+            }
         return slot, _probe_model_capability(
             provider_id=provider_id,
             endpoint=str(context["endpoint"]),
@@ -355,10 +366,34 @@ def _probe_requested_capabilities(
 
     with ThreadPoolExecutor(max_workers=len(slots)) as executor:
         results = list(executor.map(probe, slots))
+    by_slot = dict(results)
+    primary = by_slot["main"]
+    primary_status = primary.get("status")
+    primary_reason = str(primary.get("reason") or "")
+    primary_degradable = bool(
+        configuration.fallback_main
+        and contexts[configuration.main.provider_id].get("allow_degraded_main")
+        and by_slot.get("fallback_main", {}).get("available")
+        and (
+            primary_status is None
+            or primary_status in {404, 410, 429}
+            or isinstance(primary_status, int)
+            and primary_status >= 500
+            or primary_status == 400
+            and re.search(
+                r"\bmodel\b.{0,120}\b(?:not found|unavailable|retired|"
+                r"not supported|does not provide chat)\b",
+                primary_reason,
+                re.IGNORECASE,
+            )
+        )
+    )
+    if not primary.get("available") and primary_degradable:
+        primary["degraded"] = True
     failures = [
         {"slot": slot, **result}
         for slot, result in results
-        if not result.get("available")
+        if not result.get("available") and not (slot == "main" and primary_degradable)
     ]
     if failures:
         raise HTTPException(
@@ -371,7 +406,7 @@ def _probe_requested_capabilities(
 def _slot_specs(
     configuration: AIConfiguration,
 ) -> tuple[tuple[str, str, str, str], ...]:
-    return (
+    slots = (
         (
             "main",
             configuration.main.provider_id,
@@ -397,6 +432,16 @@ def _slot_specs(
             "chat",
         ),
     )
+    if configuration.fallback_main is not None:
+        slots += (
+            (
+                "fallback_main",
+                configuration.fallback_main.provider_id,
+                configuration.fallback_main.model_id,
+                "chat",
+            ),
+        )
+    return slots
 
 
 def _supplied_api_keys(
@@ -420,6 +465,14 @@ def _provider_contexts(
     supplied = _supplied_api_keys(payload, configuration)
     contexts: dict[str, dict[str, Any]] = {}
     provider_ids = {provider_id for _, provider_id, _, _ in _slot_specs(configuration)}
+    saved = load_configuration(session)
+    saved_main_can_degrade = bool(
+        configuration.fallback_main
+        and saved is not None
+        and configuration_gate(session)["valid"]
+        and saved.main.provider_id == configuration.main.provider_id
+        and saved.main.model_id == configuration.main.model_id
+    )
     for provider_id in sorted(provider_ids):
         endpoint = provider_endpoint(configuration, provider_id)
         _validate_provider_endpoint(provider_id, endpoint)
@@ -432,17 +485,42 @@ def _provider_contexts(
         try:
             models = _fetch_models(provider_id, endpoint, api_key)
         except (OSError, ValueError, urllib.error.URLError) as exc:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "code": "provider_compatibility_failed",
-                    "provider": provider_id,
-                },
-            ) from exc
+            primary_only = provider_id == configuration.main.provider_id and all(
+                slot_provider != provider_id
+                for slot_provider in (
+                    configuration.embedding.provider_id,
+                    configuration.judge.provider_id,
+                    configuration.hipporag.provider_id,
+                    configuration.fallback_main.provider_id
+                    if configuration.fallback_main
+                    else "",
+                )
+            )
+            temporary = not isinstance(exc, urllib.error.HTTPError) or (
+                exc.code == 429 or exc.code >= 500
+            )
+            if not (saved_main_can_degrade and primary_only and temporary):
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "provider_compatibility_failed",
+                        "provider": provider_id,
+                    },
+                ) from exc
+            contexts[provider_id] = {
+                "endpoint": endpoint,
+                "api_key": api_key,
+                "models": [],
+                "allow_degraded_main": True,
+                "catalog_unavailable": True,
+            }
+            continue
         contexts[provider_id] = {
             "endpoint": endpoint,
             "api_key": api_key,
             "models": models,
+            "allow_degraded_main": saved_main_can_degrade
+            and provider_id == configuration.main.provider_id,
         }
     return contexts
 

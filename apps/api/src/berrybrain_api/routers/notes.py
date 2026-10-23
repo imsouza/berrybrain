@@ -45,6 +45,7 @@ from berrybrain_api.models import (
     NoteAttachmentRecord,
     NoteRecord,
     SettingRecord,
+    VaultRecord,
 )
 from berrybrain_api.sync import remove_note_record, sync_note_record
 from berrybrain_api.vault import (
@@ -72,6 +73,7 @@ class CreateNoteRequest(BaseModel):
     title: str | None = Field(default=None, max_length=160)
     folder: str = "inbox"
     content: str = ""
+    vault_id: str = Field(default="default", max_length=36)
 
 
 class UpdateNoteRequest(BaseModel):
@@ -185,6 +187,7 @@ def organize_note_endpoint(note_path: str) -> dict:
         nodes = session.execute(
             select(GraphNodeRecord).where(
                 GraphNodeRecord.type.in_(("topic", "context")),
+                GraphNodeRecord.confidence_sample_size > 0,
                 GraphNodeRecord.confidence >= 0.72,
                 accepted_node_clause(),
             )
@@ -220,9 +223,28 @@ def organize_note_endpoint(note_path: str) -> dict:
 def list_notes(
     limit: Annotated[int | None, Query(ge=1, le=200)] = None,
     offset: Offset = 0,
+    vault_id: Annotated[str | None, Query(max_length=36)] = None,
 ) -> dict:
     settings = get_settings()
     notes = list_markdown_notes(settings.vault_path)
+    with SessionLocal() as session:
+        registered = {
+            item.path: item.id
+            for item in session.scalars(select(VaultRecord))
+            if item.path
+        }
+        if (
+            vault_id is not None
+            and vault_id != "default"
+            and vault_id not in registered.values()
+        ):
+            raise HTTPException(status_code=404, detail="Vault not found")
+    for note in notes:
+        parts = note["path"].split("/")
+        namespace = "/".join(parts[:2]) if len(parts) >= 3 else ""
+        note["vaultId"] = registered.get(namespace, "default")
+    if vault_id is not None:
+        notes = [note for note in notes if note["vaultId"] == vault_id]
     page = notes[offset:] if limit is None else notes[offset : offset + limit]
     end = offset + len(page)
     return {
@@ -237,14 +259,26 @@ def list_notes(
 )
 def create_note_endpoint(payload: CreateNoteRequest) -> dict:
     settings = get_settings()
+    namespace_path = ""
+    if payload.vault_id != "default":
+        with SessionLocal() as session:
+            vault = session.get(VaultRecord, payload.vault_id)
+            if vault is None:
+                raise HTTPException(status_code=404, detail="Vault not found")
+            namespace_path = vault.path
     note = create_note(
-        settings.vault_path, payload.title or "", payload.folder, payload.content
+        settings.vault_path,
+        payload.title or "",
+        payload.folder,
+        payload.content,
+        namespace_path=namespace_path,
     )
     with SessionLocal() as session:
         record = sync_note_record(session, settings.vault_path, str(note["path"]))
         note["id"] = record.id
         note["stableId"] = record.stable_id
         note["sourceVersion"] = record.source_version
+        note["vaultId"] = record.vault_id
         enqueue_note_changed_jobs(
             session, record.path, "NOTE_CREATED", record.content_hash
         )
@@ -675,6 +709,7 @@ def read_note_endpoint(note_path: str) -> dict:
             note["id"] = record.id
             note["stableId"] = record.stable_id
             note["sourceVersion"] = record.source_version
+            note["vaultId"] = record.vault_id
     return note
 
 
@@ -886,7 +921,7 @@ def delete_note_endpoint(note_path: str) -> dict:
     settings = get_settings()
     result = delete_note(settings.vault_path, note_path)
     with SessionLocal() as session:
-        jobs_created = remove_note_record(session, note_path)
+        jobs_created = remove_note_record(session, note_path, settings.vault_path)
     return {**result, "graphMaintenanceJobsCreated": jobs_created}
 
 

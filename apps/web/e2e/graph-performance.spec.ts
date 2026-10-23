@@ -89,7 +89,21 @@ test("renders and interacts with a 10k-node progressive graph inside runtime bud
   const coldStarted = performance.now();
   await page.goto("/brain?graph=open");
   const firstCanvas = page.locator("canvas[aria-label^='Knowledge graph with']");
-  await expect(firstCanvas).toBeVisible();
+  try {
+    await expect(firstCanvas).toBeVisible();
+  } catch (error) {
+    const coldProfile = await page.evaluate(() => ({
+      location: window.location.pathname,
+      graphChunkPending: document.body.innerText.includes("Loading graph..."),
+      scripts: performance.getEntriesByType("resource")
+        .filter((entry) => entry.name.includes("/_next/static/chunks/"))
+        .map((entry) => ({ name: entry.name.split("/").at(-1), duration: Math.round(entry.duration) }))
+        .sort((left, right) => right.duration - left.duration)
+        .slice(0, 5),
+    }));
+    console.log(`[graph-cold-profile] ${JSON.stringify(coldProfile)}`);
+    throw error;
+  }
   const coldFirstVisualMs = performance.now() - coldStarted;
   expect(coldFirstVisualMs).toBeLessThanOrEqual(5_000);
 

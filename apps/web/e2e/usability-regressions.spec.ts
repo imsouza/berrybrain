@@ -58,6 +58,31 @@ test("Alerts counts unread items and opening does not dismiss them", async ({ pa
   await expect(badge).not.toContainText("7");
 });
 
+test("Notifications page sends CSRF and keeps unread state after a rejected write", async ({ page }) => {
+  let rejectWrite = true;
+  await page.addInitScript(() => { document.cookie = "bb_csrf=fixture-csrf; path=/"; });
+  await page.route("**/api/v1/notifications**", (route) => {
+    const request = route.request();
+    if (request.method() === "POST") {
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      return route.fulfill({ status: rejectWrite ? 403 : 200, contentType: "application/json", body: "{}" });
+    }
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      unreadCount: 1,
+      notifications: [{ id: 7, type: "job_failed", title: "Retry needs attention", description: "Provider unavailable", action: "Open Monitor", read: false }],
+    }) });
+  });
+  await page.goto("/notifications");
+  const markAll = page.getByRole("button", { name: "Mark all as read" });
+  await expect(markAll).toBeVisible();
+  await markAll.click();
+  await expect(page.getByRole("status")).toContainText("Could not mark notifications as read.");
+  await expect(markAll).toBeVisible();
+  rejectWrite = false;
+  await markAll.click();
+  await expect(markAll).toHaveCount(0);
+});
+
 test("Home charts use real counts and operations switch compact views", async ({ page }) => {
   await page.goto("/brain");
   const charts = page.getByTestId("workspace-charts");

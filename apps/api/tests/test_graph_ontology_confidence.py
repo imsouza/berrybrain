@@ -6,8 +6,11 @@ from pydantic import ValidationError
 
 from berrybrain_api.confidence import (
     ConfidenceSignal,
+    active_node_confidence,
     estimate_confidence,
     evidence_coverage_signal,
+    node_confidence_applicable,
+    parse_unit_confidence,
     persist_confidence,
     persist_judge_confidence,
     serialize_confidence,
@@ -15,10 +18,59 @@ from berrybrain_api.confidence import (
 )
 from berrybrain_api.graph_contracts import canonical_edge_type
 from berrybrain_api.graph_ontology import validate_edge_types, validate_node_name
+from berrybrain_api.graph_write_service import recalculate_node_confidence
 from berrybrain_api.routers.graph import UpdateGraphNodeRequest
 
 
 class GraphOntologyConfidenceTest(unittest.TestCase):
+    def test_model_score_parser_keeps_real_zero_and_rejects_nonfinite_values(
+        self,
+    ) -> None:
+        self.assertEqual(parse_unit_confidence(0), 0.0)
+        self.assertEqual(parse_unit_confidence("0.5"), 0.5)
+        self.assertEqual(parse_unit_confidence(1), 1.0)
+        for value in (None, True, "invalid", -0.1, 1.1, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(parse_unit_confidence(value))
+
+    def test_source_nodes_have_no_active_confidence(self) -> None:
+        for node_type in (
+            "note",
+            "vault",
+            "source",
+            "web_source",
+            "attachment",
+            "cluster",
+            "unknown",
+        ):
+            with self.subTest(node_type=node_type):
+                node = SimpleNamespace(
+                    __tablename__="graph_nodes",
+                    type=node_type,
+                    confidence=0.95,
+                    confidence_sample_size=3,
+                    confidence_method="evidence-support-mean-v2",
+                )
+                self.assertFalse(node_confidence_applicable(node_type))
+                self.assertIsNone(active_node_confidence(node))
+                self.assertEqual(serialize_confidence(node)["method"], "not_applicable")
+                self.assertIsNone(serialize_confidence(node)["score"])
+                recalculate_node_confidence(node)
+                persist_judge_confidence(node, 1.0)
+                self.assertEqual(node.confidence, 0.95)
+
+    def test_derived_node_can_keep_a_measured_zero(self) -> None:
+        node = SimpleNamespace(
+            __tablename__="graph_nodes",
+            type="concept",
+            confidence=0.0,
+            confidence_sample_size=1,
+            confidence_method="evidence-support-mean-v2",
+        )
+        self.assertTrue(node_confidence_applicable(node.type))
+        self.assertEqual(active_node_confidence(node), 0.0)
+        self.assertEqual(serialize_confidence(node)["score"], 0.0)
+
     def test_confidence_is_unavailable_without_evidence(self) -> None:
         estimate = estimate_confidence([])
         self.assertIsNone(estimate.score)

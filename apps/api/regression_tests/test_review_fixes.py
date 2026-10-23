@@ -1,7 +1,7 @@
 """Product-only regressions. No benchmark, provider, production DB or vault.
 
 Run this module directly in a separate process; it sets an empty project root
-before importing application configuration. It deliberately is not research evidence.
+before importing application configuration. It is not evaluation evidence.
 """
 
 import asyncio

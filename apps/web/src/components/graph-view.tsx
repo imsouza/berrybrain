@@ -97,6 +97,7 @@ function humanEdgeType(type: string) {
 }
 
 function formatTooltipConfidence(value: unknown, method?: string) {
+  if (method === "not_applicable") return "Not applicable";
   if (method === "empirical-bernstein-bounded-signals-v1") return "Needs recalculation";
   if (typeof value !== "number" || !Number.isFinite(value)) return "Not evaluated";
   const normalized = value > 1 ? value / 100 : value;
@@ -1279,7 +1280,7 @@ export function GraphCanvas({
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-white/10 pt-2 text-[9px]">
             <div><dt className="opacity-55">Connections</dt><dd className="font-medium opacity-90">{tooltip.n.degree ?? 0}</dd></div>
-            <div><dt className="opacity-55">Evidence support</dt><dd className="font-medium opacity-90">{formatTooltipConfidence(tooltip.n.confidenceInterval?.score ?? tooltip.n.confidence, tooltip.n.confidenceInterval?.method)}</dd></div>
+            {["concept", "entity", "topic", "context", "insight", "gap", "study_path"].includes(tooltip.n.type) && tooltip.n.confidenceInterval?.method !== "not_applicable" && <div><dt className="opacity-55">Evidence support</dt><dd className="font-medium opacity-90">{formatTooltipConfidence(tooltip.n.confidenceInterval?.score ?? tooltip.n.confidence, tooltip.n.confidenceInterval?.method)}</dd></div>}
             <div><dt className="opacity-55">Semantic state</dt><dd className="truncate font-medium opacity-90">{tooltip.n.semanticState || "pending"}</dd></div>
             <div><dt className="opacity-55">Context cluster</dt><dd className="truncate font-medium opacity-90">{tooltip.n.clusterId != null ? `Cluster ${tooltip.n.clusterId}` : "Pending"}</dd></div>
           </dl>

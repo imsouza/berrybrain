@@ -146,7 +146,11 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
 def expand_knowledge_graph(session: Session) -> dict[str, int]:
     _merge_duplicate_nodes(session)
 
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     metadata = list(session.execute(select(GeneratedMetadataRecord)).scalars())
     metadata_by_note: dict[int, list[GeneratedMetadataRecord]] = defaultdict(list)
     for record in metadata:
@@ -563,11 +567,12 @@ def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
     metadata = {
         "path": note.path,
         "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
+        "vaultId": note.vault_id,
         "status": note.status,
     }
     from berrybrain_api.graph_write_service import GraphWriteService
 
-    return GraphWriteService(session, autocommit=False).upsert_node(
+    node = GraphWriteService(session, autocommit=False).upsert_node(
         node_type="note",
         label=note.title,
         title=note.title,
@@ -586,6 +591,8 @@ def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
         learning_value="source",
         graph_metadata=metadata,
     )
+    node.vault_id = note.vault_id
+    return node
 
 
 def sync_note_graph_node(session: Session, note: NoteRecord) -> GraphNodeRecord:

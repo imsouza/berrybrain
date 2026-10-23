@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from berrybrain_api.automation_logs import create_automation_log
@@ -13,6 +13,7 @@ from berrybrain_api.confidence import (
     persist_confidence,
     serialize_confidence,
 )
+from berrybrain_api.config import Settings, get_settings
 from berrybrain_api.jobs import EXPAND_KNOWLEDGE_GRAPH, create_job
 from berrybrain_api.models import GraphInferenceRecord, InsightRecord
 from berrybrain_api.modules.graph_inference.domain import (
@@ -21,6 +22,7 @@ from berrybrain_api.modules.graph_inference.domain import (
     MissingGroundedEvidenceError,
     build_insight_draft,
 )
+from berrybrain_api.security import get_session_user
 from berrybrain_api.services import create_insight, serialize_insight
 
 PROMPT_VERSION = "graph-inference.v2"
@@ -30,12 +32,16 @@ def persist_graph_inference(
     session: Session,
     question: str,
     result: dict[str, Any],
+    *,
+    owner_user_id: int | None = None,
 ) -> GraphInferenceRecord:
     raw_evidence = result.get("evidence")
     evidence: list[Any] = list(raw_evidence) if isinstance(raw_evidence, list) else []
     provider = str(result.get("provider") or "")
     model = str(result.get("model") or "")
     record = GraphInferenceRecord(
+        owner_user_id=owner_user_id,
+        access_scope="browser" if owner_user_id is not None else "service",
         question=question.strip(),
         answer=str(result.get("answer") or "").strip(),
         status=str(result.get("status") or "insufficient_evidence"),
@@ -46,6 +52,8 @@ def persist_graph_inference(
         suggestions=_json(result.get("suggestions")),
         provider=provider,
         model=model,
+        fallback_used=bool(result.get("fallbackUsed")),
+        fallback_reason=str(result.get("fallbackReason") or "")[:40],
         prompt_version=PROMPT_VERSION,
     )
     estimate = estimate_connection_confidence(
@@ -62,6 +70,28 @@ def persist_graph_inference(
     return record
 
 
+def request_inference_owner_id(
+    session: Session, request: Request, settings: Settings | None = None
+) -> int | None:
+    """Browser answers stay private; service-token answers have no user owner."""
+    identity = get_session_user(session, settings or get_settings(), request)
+    return identity[0].id if identity is not None else None
+
+
+def get_owned_inference(
+    session: Session, inference_id: int, owner_user_id: int | None
+) -> GraphInferenceRecord:
+    inference = session.get(GraphInferenceRecord, inference_id)
+    expected_scope = "browser" if owner_user_id is not None else "service"
+    if (
+        inference is None
+        or inference.owner_user_id != owner_user_id
+        or inference.access_scope != expected_scope
+    ):
+        raise HTTPException(status_code=404, detail="Graph inference not found")
+    return inference
+
+
 def serialize_graph_inference(record: GraphInferenceRecord) -> dict[str, Any]:
     return {
         "inferenceId": record.id,
@@ -76,6 +106,8 @@ def serialize_graph_inference(record: GraphInferenceRecord) -> dict[str, Any]:
         "confidenceInterval": serialize_confidence(record),
         "provider": record.provider,
         "model": record.model,
+        "fallbackUsed": record.fallback_used,
+        "fallbackReason": record.fallback_reason,
         "promptVersion": record.prompt_version,
         "insightId": record.insight_id,
         "createdAt": record.created_at.isoformat() if record.created_at else None,
@@ -85,10 +117,10 @@ def serialize_graph_inference(record: GraphInferenceRecord) -> dict[str, Any]:
 def create_insight_from_persisted_inference(
     session: Session,
     inference_id: int,
+    *,
+    owner_user_id: int | None = None,
 ) -> dict[str, Any]:
-    inference = session.get(GraphInferenceRecord, inference_id)
-    if inference is None:
-        raise HTTPException(status_code=404, detail="Graph inference not found")
+    inference = get_owned_inference(session, inference_id, owner_user_id)
     if inference.confidence_updated_at is None:
         persist_confidence(
             inference,

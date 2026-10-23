@@ -11,6 +11,7 @@ from berrybrain_api.assimilation import note_assimilation_map
 from berrybrain_api.database import Base
 from berrybrain_api.jobs import calculate_pipeline_progress
 from berrybrain_api.models import (
+    GeneratedMetadataRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
     JobRecord,
@@ -79,6 +80,42 @@ class ReadPerformanceTest(unittest.TestCase):
                 [actual[n.id]["assimilated"] for n in notes],
                 [True, True, False, False, True, False],
             )
+
+    def test_assimilated_notes_do_not_scan_historical_jobs(self):
+        with self.factory() as session:
+            note = NoteRecord(
+                title="Verified",
+                slug="verified",
+                path="verified.md",
+                content="Saved content",
+                content_hash="current",
+            )
+            session.add(note)
+            session.flush()
+            session.add(
+                GeneratedMetadataRecord(
+                    note_id=note.id,
+                    generation_type="summary",
+                    content_hash="current",
+                    content="{}",
+                )
+            )
+            session.commit()
+            statements: list[str] = []
+
+            def listener(_c, _u, sql, _p, _x, _m):
+                statements.append(sql)
+
+            event.listen(self.engine, "before_cursor_execute", listener)
+            try:
+                result = note_assimilation_map(
+                    session, [note], complete_job_signals=False
+                )
+            finally:
+                event.remove(self.engine, "before_cursor_execute", listener)
+            self.assertTrue(result[note.id]["assimilated"])
+            self.assertIsNone(result[note.id]["signals"]["completedPipelineJob"])
+            self.assertFalse(any(" jobs " in f" {sql.lower()} " for sql in statements))
 
     def test_compact_edges_keep_topology_bounds_and_full_default(self):
         with self.factory() as session:

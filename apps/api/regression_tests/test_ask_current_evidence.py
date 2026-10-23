@@ -81,6 +81,7 @@ class AskCurrentEvidenceTests(unittest.IsolatedAsyncioTestCase):
                         vault_path=self.root,
                         flow_recent_turns=6,
                         flow_context_token_budget=1024,
+                        session_cookie_name="berrybrain_session",
                     )
                 },
             ),
@@ -155,6 +156,8 @@ class AskCurrentEvidenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_graph_ask_searches_the_user_question_without_internal_instructions(
         self,
     ):
+        from starlette.requests import Request
+
         from berrybrain_api.routers.graph import GraphInferRequest, infer_graph
 
         question = "crie um guia de estudo sobre computação"
@@ -162,7 +165,9 @@ class AskCurrentEvidenceTests(unittest.IsolatedAsyncioTestCase):
             cognitive_layer, "orchestrate_retrieval", return_value=self.retrieval
         ) as retrieve:
             result = await infer_graph(
-                GraphInferRequest(question=question), self.session
+                GraphInferRequest(question=question),
+                Request({"type": "http", "method": "POST", "headers": []}),
+                self.session,
             )
         retrieve.assert_called_once_with(self.session, question)
         self.assertEqual(result["status"], "answered")

@@ -12,6 +12,9 @@ const nextConfig = {
   experimental: {
     // Graph inference may legitimately wait up to 80s for the configured model.
     proxyTimeout,
+    // Keep builds viable on the small local-first host without starving services.
+    cpus: 1,
+    webpackMemoryOptimizations: true,
   },
   images: {
     path: `${assetPrefix}/_next/image`,

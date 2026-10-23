@@ -535,6 +535,8 @@ def enqueue_note_changed_jobs(
     event_type: str,
     content_hash: str,
     affected_job_types: set[str] | None = None,
+    *,
+    autocommit: bool = True,
 ) -> list[JobRecord]:
     if event_type == "NOTE_DELETED":
         return enqueue_note_deleted_jobs(session, note_path, 0)
@@ -557,6 +559,8 @@ def enqueue_note_changed_jobs(
     note = session.execute(
         select(NoteRecord).where(NoteRecord.path == note_path)
     ).scalar_one_or_none()
+    if note is not None and note.evidence_status == "draft":
+        return []
     note_id = note.id if note is not None else 0
     superseded = list(
         session.execute(
@@ -600,7 +604,13 @@ def enqueue_note_changed_jobs(
             "note_id": note_id,
             "note_path": note_path,
         }
-        job = create_job(session, job_type, payload, max_attempts=max_attempts)
+        job = create_job(
+            session,
+            job_type,
+            payload,
+            max_attempts=max_attempts,
+            autocommit=autocommit,
+        )
         jobs.append(job)
         create_automation_log(
             session,
@@ -611,6 +621,7 @@ def enqueue_note_changed_jobs(
             before_state={},
             after_state={"job_id": job.id, "job_type": job_type, "payload": payload},
             reversible=False,
+            autocommit=autocommit,
         )
 
     return jobs
@@ -729,6 +740,11 @@ def claim_next_job(
             )
             references_changed = True
             continue
+        if reference_status == "draft":
+            candidate.status = SUPERSEDED
+            candidate.error_message = "Superseded because the note awaits human review"
+            references_changed = True
+            continue
         if reference_status == "refreshed":
             references_changed = True
         if _job_dependencies_satisfied(session, candidate):
@@ -781,10 +797,19 @@ def canonicalize_job_note_reference(session: Session, job: JobRecord) -> str:
     except (TypeError, ValueError):
         return "unchanged"
     if not note_id:
+        note_path = str(job.note_path or payload.get("note_path") or "")
+        if note_path:
+            note = session.scalar(
+                select(NoteRecord).where(NoteRecord.path == note_path)
+            )
+            if note is not None and note.evidence_status == "draft":
+                return "draft"
         return "unchanged"
     note = session.get(NoteRecord, note_id)
     if note is None:
         return "note_missing"
+    if note.evidence_status == "draft":
+        return "draft"
     content_hash = str(job.content_hash or payload.get("content_hash") or "")
     if content_hash and note.content_hash and content_hash != note.content_hash:
         return "content_changed"

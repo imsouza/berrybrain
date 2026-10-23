@@ -12,10 +12,20 @@ type Provider = {
   capabilities?: string[];
 };
 type ModelSlot = "main" | "embedding" | "judge" | "hipporag";
+type ModelPickerSlot = ModelSlot | "fallback_main";
 type ConfigurationGate = {
   required: boolean;
   valid: boolean;
   reason?: string;
+};
+type SavedConfiguration = {
+  mode?: Mode;
+  endpoint_url?: string;
+  main?: { provider_id?: string; model_id?: string };
+  fallback_main?: { provider_id?: string; model_id?: string } | null;
+  embedding?: { provider_id?: string; model_id?: string };
+  judge?: { provider_id?: string; model_id?: string };
+  hipporag?: { provider_id?: string; model_id?: string };
 };
 
 const STEPS = [
@@ -58,6 +68,10 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     judge: "",
     hipporag: "",
   });
+  const [fallbackEnabled, setFallbackEnabled] = useState(false);
+  const [savedMainLoaded, setSavedMainLoaded] = useState(false);
+  const [fallbackProviderId, setFallbackProviderId] = useState("");
+  const [fallbackModel, setFallbackModel] = useState("");
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
@@ -70,6 +84,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     [mode, providers],
   );
   const activeProvider = providers.find((provider) => provider.id === providerId);
+  const primaryDegraded = Boolean((capabilities.slots as Record<string, { degraded?: boolean }> | undefined)?.main?.degraded);
   const required = Boolean(gate.required);
   const open = !demo && (required || forcedOpen);
 
@@ -107,8 +122,38 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       }
       const providerPayload = await providerResponse.json();
       const nextProviders = providerPayload.providers || [];
-      setProviders(nextProviders);
       if (!nextProviders.length) throw new Error("No AI providers are available.");
+      const configurationResponse = await apiFetch(`${apiUrl}/api/v1/ai/configuration`);
+      if (!configurationResponse.ok) {
+        throw new Error("Saved AI configuration could not be loaded.");
+      }
+      const configurationPayload = await configurationResponse.json();
+      const saved = configurationPayload.configuration as SavedConfiguration | null;
+      if (saved && (saved.mode === "cloud" || saved.mode === "local")) {
+        const mainProvider = nextProviders.find((item: Provider) => item.id === saved.main?.provider_id && item.mode === saved.mode);
+        if (mainProvider) {
+          setMode(saved.mode);
+          setProviderId(mainProvider.id);
+          setEndpointUrl(saved.endpoint_url || mainProvider.url);
+          setSlotProviders({
+            main: mainProvider.id,
+            embedding: saved.embedding?.provider_id || mainProvider.id,
+            judge: saved.judge?.provider_id || mainProvider.id,
+            hipporag: saved.hipporag?.provider_id || mainProvider.id,
+          });
+          setSlots({
+            main: saved.main?.model_id || "",
+            embedding: saved.embedding?.model_id || "",
+            judge: saved.judge?.model_id || "",
+            hipporag: saved.hipporag?.model_id || "",
+          });
+          setFallbackEnabled(Boolean(saved.fallback_main));
+          setSavedMainLoaded(true);
+          setFallbackProviderId(saved.fallback_main?.provider_id || nextProviders.find((item: Provider) => item.mode === saved.mode && item.id !== mainProvider.id && item.id !== "custom-cloud")?.id || mainProvider.id);
+          setFallbackModel(saved.fallback_main?.model_id || "");
+        }
+      }
+      setProviders(nextProviders);
     } catch (caught) {
       setInitializationError(
         caught instanceof Error ? caught.message : "AI setup could not be loaded.",
@@ -164,6 +209,12 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       hipporag: provider.id,
     });
     setSlots({ main: "", embedding: "", judge: "", hipporag: "" });
+    setFallbackEnabled(false);
+    setSavedMainLoaded(false);
+    setFallbackProviderId(
+      providers.find((item) => item.mode === provider.mode && item.id !== provider.id && item.id !== "custom-cloud")?.id || provider.id,
+    );
+    setFallbackModel("");
     setCapabilities({});
     setError("");
   }
@@ -184,7 +235,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     if (nextProviderId === providerId) setApiKey(value);
   }
 
-  async function loadModels(targetProviderId = providerId, slot?: ModelSlot) {
+  async function loadModels(targetProviderId = providerId, slot?: ModelPickerSlot) {
     const targetProvider = providers.find((provider) => provider.id === targetProviderId);
     const targetEndpoint = targetProviderId === providerId
       ? endpointUrl.trim()
@@ -239,6 +290,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       mode,
       endpoint_url: endpointUrl.trim(),
       main: { provider_id: slotProviders.main, model_id: slots.main.trim() },
+      fallback_main: fallbackEnabled
+        ? { provider_id: fallbackProviderId, model_id: fallbackModel.trim() }
+        : null,
       embedding: { provider_id: slotProviders.embedding, model_id: slots.embedding.trim() },
       judge: {
         enabled: true,
@@ -316,10 +370,13 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       return Boolean(
         providerId &&
           endpointUrl.trim() &&
-          models.length,
+          (models.length || savedMainLoaded),
       );
     }
-    if (step === 2) return Boolean(slots.main.trim());
+    if (step === 2) return Boolean(slots.main.trim()) && (!fallbackEnabled || Boolean(
+      fallbackProviderId && fallbackModel.trim()
+      && (fallbackProviderId !== slotProviders.main || fallbackModel.trim() !== slots.main.trim()),
+    ));
     if (step === 3) return Boolean(slots.embedding.trim());
     if (step === 4) return Boolean(slots.judge.trim());
     if (step === 5) return Boolean(slots.hipporag.trim());
@@ -475,6 +532,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
               {models.length > 0 && (
                 <p className="text-sm text-success">{models.length} models available.</p>
               )}
+              {savedMainLoaded && models.length === 0 && (
+                <p className="text-xs text-muted">Saved main model retained. Final validation will verify all available roles and the alternate model.</p>
+              )}
             </div>
           )}
 
@@ -482,6 +542,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             const slot = (["main", "embedding", "judge", "hipporag"] as ModelSlot[])[step - 2];
             const selectedProvider = slotProviders[slot] || providerId;
             return (
+              <div className="space-y-5">
               <SlotModelPicker
                 label={STEPS[step]}
                 slot={slot}
@@ -498,12 +559,37 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                 onLoadModels={() => void loadModels(selectedProvider, slot)}
                 onChange={(value) => setSlot(slot, value)}
               />
+              {step === 2 && <div className="space-y-4 border-t border-border pt-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={fallbackEnabled} onChange={(event) => setFallbackEnabled(event.target.checked)} />
+                  <span>Use a verified alternate chat model if the main provider is temporarily unavailable.</span>
+                </label>
+                {fallbackEnabled && <SlotModelPicker
+                  label="Fallback"
+                  slot="fallback_main"
+                  mode={mode}
+                  providerId={fallbackProviderId}
+                  providers={activeProviders.filter((provider) => provider.id !== "custom-cloud")}
+                  apiKey={apiKeys[fallbackProviderId] || ""}
+                  value={fallbackModel}
+                  models={modelsByProvider[`${fallbackProviderId}:fallback_main`] || []}
+                  busy={busy}
+                  lockProvider={false}
+                  onProviderChange={(value) => { setFallbackProviderId(value); setFallbackModel(""); }}
+                  onApiKeyChange={(value) => setProviderKey(fallbackProviderId, value)}
+                  onLoadModels={() => void loadModels(fallbackProviderId, "fallback_main")}
+                  onChange={setFallbackModel}
+                />}
+                <p className="text-xs text-muted">Fallback stays within the selected local/cloud mode. Cloud content is sent only to the alternate provider you configure and test here; authentication and policy refusals do not trigger a retry.</p>
+              </div>}
+              </div>
             );
           })()}
 
           {step === 6 && (
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
+              {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}. It will be used only for eligible primary failures.</p>}
               <button
                 type="button"
                 onClick={validateConfiguration}
@@ -518,8 +604,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           {step === 7 && (
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
+              {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}.</p>}
               <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
-                Provider and model compatibility verified.
+                {primaryDegraded ? "Alternate model verified. The saved primary is currently unavailable; BerryBrain will use the alternate for eligible failures." : "Provider and model compatibility verified."}
               </p>
             </div>
           )}
@@ -592,7 +679,7 @@ function SlotModelPicker({
   onChange,
 }: {
   label: string;
-  slot: ModelSlot;
+  slot: ModelPickerSlot;
   mode: Mode;
   providerId: string;
   providers: Provider[];

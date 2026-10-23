@@ -1,18 +1,45 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.filesystem import serialized_vault
-from berrybrain_api.models import NoteRecord
-from berrybrain_api.vault import parse_markdown_note, resolve_note_path
+from berrybrain_api.models import AskActionPlanRecord, NoteRecord, VaultRecord
+from berrybrain_api.vault import (
+    parse_markdown_note,
+    planned_ask_note_in_vault_path,
+    planned_ask_note_path,
+    resolve_note_path,
+)
+
+
+def vault_id_for_note_path(session: Session, relative_path: str) -> str:
+    """Assign only registered physical namespaces; never downgrade Ask vaults."""
+    parts = relative_path.split("/")
+    if len(parts) < 3 or parts[0] != "vaults":
+        return "default"
+    vault = session.scalar(
+        select(VaultRecord).where(VaultRecord.path == "/".join(parts[:2]))
+    )
+    if vault is None and "--ask-" in parts[1]:
+        raise ValueError(
+            "Unregistered Ask vault namespace; reconcile it before indexing"
+        )
+    return vault.id if vault is not None else "default"
 
 
 @serialized_vault
-def sync_note_record(session: Session, vault_path: Path, note_path: str) -> NoteRecord:
+def sync_note_record(
+    session: Session,
+    vault_path: Path,
+    note_path: str,
+    *,
+    evidence_status: str | None = None,
+) -> NoteRecord:
     path = resolve_note_path(vault_path, note_path)
     content = path.read_text(encoding="utf-8")
     metadata = parse_markdown_note(content)
@@ -34,9 +61,60 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     )
     previous_hash = record.content_hash if record is not None else ""
     created = record is None
+    # A vault scan can race an Ask write or run after its file was edited.
+    # An approved plan's exact deterministic path remains uncitable until
+    # explicit review, regardless of whether its current content still matches.
+    if evidence_status is None:
+        match = re.search(r"--ask-([0-9a-f-]{12})\.md$", relative_path)
+        if match:
+            plans = session.scalars(
+                select(AskActionPlanRecord).where(
+                    AskActionPlanRecord.id.like(f"{match.group(1)}%")
+                )
+            )
+            for plan in plans:
+                if plan.status not in {"executing", "completed", "partial", "failed"}:
+                    continue
+                arguments = json.loads(plan.arguments_json)
+                planned_path = (
+                    planned_ask_note_in_vault_path(
+                        arguments["folder"],
+                        arguments["title"],
+                        arguments["newVaultName"],
+                        plan.id,
+                    )
+                    if arguments.get("newVaultName")
+                    else (
+                        f"{arguments['targetVaultPath']}/"
+                        f"{planned_ask_note_path(arguments['folder'], arguments['title'], plan.id)}"
+                        if arguments.get("targetVaultPath")
+                        else planned_ask_note_path(
+                            arguments["folder"], arguments["title"], plan.id
+                        )
+                    )
+                )
+                if relative_path == planned_path and (
+                    record is None or plan.status in {"executing", "failed"}
+                ):
+                    evidence_status = "draft"
+                    break
     if record is None:
-        record = NoteRecord(path=relative_path, slug=path.stem, title=title)
+        record = NoteRecord(
+            path=relative_path,
+            vault_id=vault_id_for_note_path(session, relative_path),
+            slug=path.stem,
+            title=title,
+            evidence_status=evidence_status or "eligible",
+        )
         session.add(record)
+    elif evidence_status == "draft" and record.evidence_status != "draft":
+        # A legacy scan may already have indexed an interrupted Ask file.
+        # Revoke derived evidence before leaving the record as a draft.
+        from berrybrain_api.vector_cleanup import queue_vector_cleanup
+
+        queue_vector_cleanup(session, record)
+        _detach_note_graph_provenance(session, record.id, delete_note_node=True)
+        record.evidence_status = "draft"
     elif record.content_hash and record.content_hash != metadata.content_hash:
         from berrybrain_api.vector_cleanup import queue_vector_cleanup
 
@@ -53,6 +131,7 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
             _detach_note_graph_provenance(session, record.id, delete_note_node=False)
 
     record.title = title
+    record.vault_id = vault_id_for_note_path(session, relative_path)
     record.slug = path.stem
     record.content = content
     record.content_hash = metadata.content_hash
@@ -86,14 +165,17 @@ def sync_note_record(session: Session, vault_path: Path, note_path: str) -> Note
     session.flush()
     from berrybrain_api.graph_expansion import sync_note_graph_node
 
-    sync_note_graph_node(session, record)
+    if record.evidence_status != "draft":
+        sync_note_graph_node(session, record)
     session.commit()
     session.refresh(record)
     return record
 
 
 @serialized_vault
-def remove_note_record(session: Session, note_path: str) -> int:
+def remove_note_record(
+    session: Session, note_path: str, vault_path: Path | None = None
+) -> int:
     from berrybrain_api.attachment_cleanup import (
         drain_attachment_cleanup,
         queue_attachment_cleanup,
@@ -165,7 +247,7 @@ def remove_note_record(session: Session, note_path: str) -> int:
     queue_attachment_cleanup(session, attachments)
     session.delete(record)
     session.commit()
-    drain_attachment_cleanup(session, get_settings().vault_path)
+    drain_attachment_cleanup(session, vault_path or get_settings().vault_path)
     from berrybrain_api.jobs import enqueue_note_deleted_jobs
 
     return len(enqueue_note_deleted_jobs(session, note_path, note_id))

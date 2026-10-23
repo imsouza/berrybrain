@@ -1,15 +1,19 @@
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from berrybrain_api.database import Base
+from berrybrain_api.models import NoteRecord
 from berrybrain_api.routers.insights import (
     SyncInsightsRequest,
-    _as_float,
     _as_int,
     _as_list,
     _has_knowledge_evidence,
     _is_system_diagnostic_item,
     _is_valid_generated_insight,
+    _optional_confidence,
     _resolve_related_note_ids,
     sync_insights_from_ai,
 )
@@ -17,30 +21,57 @@ from berrybrain_api.routers.insights import (
 
 class InsightFilterTest(unittest.TestCase):
     def test_related_note_paths_are_resolved_to_persisted_ids(self) -> None:
-        session = MagicMock()
-        session.query.return_value.all.return_value = [
-            SimpleNamespace(
-                id=7,
-                path="notes/docker.md",
-                title="Docker Operations",
-                slug="docker-operations",
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(
+                NoteRecord(
+                    id=7,
+                    path="notes/docker.md",
+                    title="Docker Operations",
+                    slug="docker-operations",
+                    evidence_status="eligible",
+                )
             )
-        ]
+            session.add(
+                NoteRecord(
+                    id=8,
+                    path="notes/draft.md",
+                    title="Draft only",
+                    slug="draft-only",
+                    evidence_status="draft",
+                )
+            )
+            session.add(
+                NoteRecord(
+                    id=9,
+                    path="notes/docker-copy.md",
+                    title="Docker Operations",
+                    slug="docker-operations-copy",
+                    evidence_status="eligible",
+                )
+            )
+            session.commit()
 
-        resolved = _resolve_related_note_ids(
-            session,
-            ["notes/docker.md"],
-            ["Docker Operations describes repeatable containers."],
-        )
+            resolved = _resolve_related_note_ids(
+                session,
+                [7, 8, 999, "notes/docker.md", "notes/draft.md"],
+                ["Docker Operations describes repeatable containers."],
+            )
+        engine.dispose()
 
         self.assertEqual(resolved, [7])
 
-    def test_payload_helpers_fail_closed_and_clamp_confidence(self) -> None:
+    def test_payload_helpers_reject_invalid_confidence_without_fabricating_score(
+        self,
+    ) -> None:
         self.assertEqual(_as_list("not-a-list"), [])
         self.assertEqual(_as_list(["note.md"]), ["note.md"])
-        self.assertEqual(_as_float("invalid", 0.6), 0.6)
-        self.assertEqual(_as_float(2), 0.95)
-        self.assertEqual(_as_float(-1), 0.0)
+        for value in ("invalid", 2, -1, float("nan"), float("inf"), True, None):
+            self.assertIsNone(_optional_confidence(value))
+        self.assertEqual(_optional_confidence(0), 0.0)
+        self.assertEqual(_optional_confidence("0.5"), 0.5)
+        self.assertEqual(_optional_confidence(1), 1.0)
         self.assertEqual(_as_int("invalid", 4), 4)
         self.assertEqual(_as_int("7"), 7)
 
@@ -110,6 +141,10 @@ class InsightFilterTest(unittest.TestCase):
         project_insights: MagicMock,
     ) -> None:
         session = session_local.return_value.__enter__.return_value
+        session.query.return_value.filter.return_value.all.return_value = [
+            NoteRecord(id=10, path="notes/docker.md", title="Docker", slug="docker"),
+            NoteRecord(id=11, path="notes/shell.md", title="Shell", slug="shell"),
+        ]
         create_insight.return_value.id = 42
         payload = SyncInsightsRequest(
             payload={
@@ -156,6 +191,7 @@ class InsightFilterTest(unittest.TestCase):
         args, kwargs = create_insight.call_args
         self.assertIs(args[0], session)
         self.assertEqual(args[1], "new_connection")
+        self.assertEqual(args[4], [10, 11])
         self.assertAlmostEqual(kwargs["confidence"], 0.5)
         self.assertEqual(args[5], 5)
         self.assertEqual(kwargs["provider"], "nvidia-nim")
@@ -218,6 +254,17 @@ class InsightFilterTest(unittest.TestCase):
         project_insights: MagicMock,
     ) -> None:
         session = session_local.return_value.__enter__.return_value
+        session.query.return_value.filter.return_value.all.return_value = [
+            NoteRecord(
+                id=1,
+                path="notes/docker-compose.md",
+                title="Docker Compose",
+                slug="docker-compose",
+            ),
+            NoteRecord(
+                id=2, path="notes/kubernetes.md", title="Kubernetes", slug="kubernetes"
+            ),
+        ]
         create_insight.return_value.id = 51
         result = sync_insights_from_ai(
             SyncInsightsRequest(
@@ -245,6 +292,7 @@ class InsightFilterTest(unittest.TestCase):
         self.assertEqual(result["insights_created"], 1)
         args, kwargs = create_insight.call_args
         self.assertEqual(args[1], "knowledge_gap")
+        self.assertEqual(args[4], [1, 2])
         self.assertEqual(args[5], 5)
         self.assertIsNone(kwargs["confidence"])
         project_insights.assert_called_once_with(session, {51})

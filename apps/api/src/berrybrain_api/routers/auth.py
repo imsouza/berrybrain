@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -113,6 +114,22 @@ class AdminProfileUpdate(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=120)
     vault_subpath: str | None = Field(default=None, max_length=500)
     status: str | None = Field(default=None, max_length=40)
+
+
+def _normalize_profile_subpath(value: str) -> str:
+    """Keep profile metadata a safe relative name, not a filesystem capability."""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    parts = normalized.split("/")
+    if (
+        PurePosixPath(normalized).is_absolute()
+        or "\\" in normalized
+        or any(part in {"", ".", ".."} for part in parts)
+        or any(":" in part or any(ord(char) < 32 for char in part) for part in parts)
+    ):
+        raise HTTPException(status_code=422, detail="Invalid profile vault subpath")
+    return normalized
 
 
 class UpdateProfileRequest(BaseModel):
@@ -828,7 +845,7 @@ def admin_create_profile(payload: AdminProfileCreate, request: Request) -> dict:
         profile = ProfileRecord(
             name=payload.name.strip(),
             slug=slug,
-            vault_subpath=payload.vault_subpath.strip().strip("/"),
+            vault_subpath=_normalize_profile_subpath(payload.vault_subpath),
             source="manual",
             status="active",
         )
@@ -884,7 +901,7 @@ def admin_update_profile(
                 profile.slug = slug
                 changes["slug"] = slug
         if payload.vault_subpath is not None:
-            profile.vault_subpath = payload.vault_subpath.strip().strip("/")
+            profile.vault_subpath = _normalize_profile_subpath(payload.vault_subpath)
             changes["vaultSubpath"] = profile.vault_subpath
         if payload.status is not None:
             status = _validate_profile_status(payload.status)

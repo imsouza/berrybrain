@@ -1089,8 +1089,8 @@ confirmatory release certificate.`,
     title: "Research use",
     md: `## Research use
 
-The candidate research theme evaluates ontology-aware graph-augmented retrieval and continuous
-knowledge enrichment in a local-first personal knowledge system. The mixed-method design combines
+The architecture can be evaluated for ontology-aware graph-augmented retrieval and continuous
+knowledge enrichment in a local-first personal knowledge system. A mixed-method design combines
 paired technical ablations, external datasets, task-level comparison, and an optional longitudinal
 study. Primary hypotheses, smallest effect of interest, exclusions, metrics, and statistical tests
 must be preregistered after pilot work and before confirmatory collection.

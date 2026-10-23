@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { pollResource } from "@/lib/poll-resource";
 import packageMetadata from "../../../package.json";
-import { useWorkspace, appPath } from "@/contexts/workspace-context";
+import { useWorkspace, appPath, apiFetch } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 import { workerHeartbeatStale } from "@/lib/diagnostics";
@@ -23,6 +23,8 @@ type FolderInfo = {
   note_count?: number;
   total_note_count?: number;
   has_subfolders?: boolean;
+  protected?: boolean;
+  kind?: "vault" | "folder";
 };
 function encodeFolder(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 function encodeVaultPath(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
@@ -87,7 +89,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       return;
     }
     try {
-      const response = await fetch(`${w.api}/api/v1/folders`);
+      const response = await apiFetch(`${w.api}/api/v1/folders`);
       if (!response.ok) return;
       const payload = await response.json();
       setFolders(payload.folders || []);
@@ -133,7 +135,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const name = window.prompt(parentPath ? `New folder inside ${parentPath}:` : "Folder name:");
     if (!name?.trim()) return;
-    const response = await fetch(`${w.api}/api/v1/folders`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), parent_path: parentPath }),
@@ -150,7 +152,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const name = window.prompt("New folder name:", currentName);
     if (!name?.trim() || name.trim() === currentName) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() }),
@@ -167,7 +169,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteFolder(path: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete empty folder "${path}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Only empty folders can be deleted.", "error");
       return;
@@ -239,7 +241,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function moveNoteToFolder(notePath: string, folderPath: string) {
     if (w.demo || !notePath || !folderPath) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder: folderPath }),
@@ -257,7 +259,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const title = window.prompt("New note title:", currentTitle);
     if (!title?.trim() || title.trim() === currentTitle) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: title.trim() }),
@@ -277,7 +279,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteNoteInSidebar(notePath: string, currentTitle: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete note "${currentTitle}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Failed to delete note.", "error");
       return;
@@ -355,6 +357,14 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 7h.01M12 17h.01M7 7l5 10m5-10-5 10m-5-10h10" /></svg>
           <span className="flex-1 text-left">Knowledge graph</span>
         </button>
+        <button
+          aria-label="Open Ask workspace"
+          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
+          onClick={() => { onMobileClose?.(); router.push(appPath("/ask") as Route); }}
+        >
+          <MessageSquare className="size-4" aria-hidden="true" />
+          <span className="flex-1 text-left">Ask</span>
+        </button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
@@ -391,7 +401,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                   </button>
                   <button className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setExpanded((current) => ({ ...current, [folder.path]: !isOpen }))}>
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folder.kind === "vault" ? "var(--color-brand-red)" : folderColor }} aria-hidden="true" />
                       <span className="truncate" title={folder.path}>{folder.name}</span>
                     </span>
                   </button>
@@ -399,8 +409,8 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                     {folder.note_count ?? folderNotes.length}
                   </span>
                   <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => createFolder(folder.path)} title="Create subfolder">+</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>}
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>}
                 </div>
                 {isOpen && (
                   <div style={{ marginLeft: `${22 + depth * 14}px` }}>

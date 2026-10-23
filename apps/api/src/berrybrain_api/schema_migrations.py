@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.engine import Connection
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 25
 MIN_SUPPORTED_SCHEMA_VERSION = 0
 IDENTITY_NAMESPACE = UUID("a5f2308d-83a5-4cba-a14a-12942a074af7")
 
@@ -116,6 +116,77 @@ MIGRATIONS = (
         name="indexed-job-health-and-home-history",
         description="Adds covering indexes for job counters, recent history and attempt diagnostics.",
     ),
+    SchemaMigration(
+        version=15,
+        name="typed-ask-references",
+        description="Stores source-verified, typed Ask references without changing legacy evidence IDs.",
+    ),
+    SchemaMigration(
+        version=16,
+        name="ai-fallback-provenance",
+        description="Records actual chat fallback use and a safe reason on Ask turns and graph inferences.",
+    ),
+    SchemaMigration(
+        version=17,
+        name="ask-action-plans",
+        description="Adds durable, session-bound Ask write proposals and approval state.",
+    ),
+    SchemaMigration(
+        version=18,
+        name="note-evidence-review-state",
+        description="Keeps Ask-assisted drafts outside automatic evidence and graph processing until explicit review.",
+    ),
+    SchemaMigration(
+        version=19,
+        name="ask-plan-result-identity",
+        description="Binds an approved Ask action to a stable note identity across rename and move.",
+    ),
+    SchemaMigration(
+        version=20,
+        name="bounded-ask-action-recovery",
+        description="Counts Ask action execution attempts to prevent unbounded crash retries.",
+    ),
+    SchemaMigration(
+        version=21,
+        name="owned-ask-flow-and-evaluation-index",
+        description=(
+            "Binds Ask Flow sessions to their browser owner; legacy history is "
+            "assigned only when exactly one user exists. Indexes evaluation "
+            "lookups used by Home backlog counts."
+        ),
+    ),
+    SchemaMigration(
+        version=22,
+        name="indexed-graph-node-identity",
+        description=(
+            "Backfills canonical graph labels and indexes type plus canonical "
+            "label for bounded node upserts."
+        ),
+    ),
+    SchemaMigration(
+        version=23,
+        name="physical-vault-namespaces",
+        description=(
+            "Registers named physical Markdown vaults and assigns stable vault "
+            "identities to notes while preserving the existing default vault."
+        ),
+    ),
+    SchemaMigration(
+        version=24,
+        name="owned-graph-inferences",
+        description=(
+            "Binds persisted Ask graph answers to their browser owner. Legacy "
+            "answers are assigned only when exactly one user exists."
+        ),
+    ),
+    SchemaMigration(
+        version=25,
+        name="serialized-ask-flow-turns",
+        description=(
+            "Marks interrupted Flow requests as failed and enforces one "
+            "processing user turn per session at the SQLite boundary."
+        ),
+    ),
 )
 
 
@@ -174,6 +245,258 @@ def apply_schema_migrations(bind: Engine) -> dict[str, object]:
 
 
 def _apply_migration_ddl(connection: Connection, version: int) -> None:
+    if version == 25:
+        if "ask_turns" not in inspect(connection).get_table_names():
+            return
+        columns = {
+            str(row[1])
+            for row in connection.execute(text("PRAGMA table_info(ask_turns)"))
+        }
+        if not {"session_id", "role", "status"}.issubset(columns):
+            return
+        connection.execute(
+            text(
+                "UPDATE ask_turns SET status = 'failed' "
+                "WHERE role = 'user' AND status = 'processing'"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ux_ask_turns_processing_user_per_session "
+                "ON ask_turns (session_id) "
+                "WHERE role = 'user' AND status = 'processing'"
+            )
+        )
+        return
+    if version == 24:
+        if "graph_inferences" not in inspect(connection).get_table_names():
+            return
+        _add_columns(
+            connection,
+            "graph_inferences",
+            {
+                "owner_user_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+                "access_scope": "VARCHAR(24) NOT NULL DEFAULT 'legacy_unassigned'",
+            },
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_graph_inferences_owner_user_id "
+                "ON graph_inferences (owner_user_id)"
+            )
+        )
+        if "users" in inspect(connection).get_table_names():
+            owners = (
+                connection.execute(text("SELECT id FROM users LIMIT 2")).scalars().all()
+            )
+            if len(owners) == 1:
+                connection.execute(
+                    text(
+                        "UPDATE graph_inferences SET owner_user_id = :owner_id, "
+                        "access_scope = 'browser' "
+                        "WHERE owner_user_id IS NULL AND access_scope = 'legacy_unassigned'"
+                    ),
+                    {"owner_id": owners[0]},
+                )
+        return
+    if version == 23:
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS vaults ("
+                "id VARCHAR(36) PRIMARY KEY, "
+                "name VARCHAR(160) NOT NULL, "
+                "path TEXT NOT NULL UNIQUE, "
+                "created_at DATETIME NOT NULL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT OR IGNORE INTO vaults (id, name, path, created_at) "
+                "VALUES ('default', 'Default', '', CURRENT_TIMESTAMP)"
+            )
+        )
+        if "notes" in inspect(connection).get_table_names():
+            _add_columns(
+                connection,
+                "notes",
+                {"vault_id": "VARCHAR(36) NOT NULL DEFAULT 'default'"},
+            )
+            connection.execute(
+                text("CREATE INDEX IF NOT EXISTS ix_notes_vault_id ON notes (vault_id)")
+            )
+        return
+    if version == 22:
+        if "graph_nodes" not in inspect(connection).get_table_names():
+            return
+        columns = {
+            str(row[1])
+            for row in connection.execute(text("PRAGMA table_info(graph_nodes)"))
+        }
+        if not {"id", "type", "label", "canonical_label"}.issubset(columns):
+            return
+        from berrybrain_api.graph_ontology import canonical_label
+
+        rows = connection.execute(
+            text("SELECT id, label FROM graph_nodes WHERE canonical_label = ''")
+        ).all()
+        if rows:
+            connection.execute(
+                text(
+                    "UPDATE graph_nodes SET canonical_label = :canonical_label "
+                    "WHERE id = :id AND canonical_label = ''"
+                ),
+                [
+                    {
+                        "id": row.id,
+                        "canonical_label": canonical_label(row.label).casefold(),
+                    }
+                    for row in rows
+                ],
+            )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_graph_nodes_type_canonical_label "
+                "ON graph_nodes (type, canonical_label)"
+            )
+        )
+        return
+    if version == 21:
+        if "artifact_evaluations" in inspect(connection).get_table_names():
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_artifact_evaluations_type_id "
+                    "ON artifact_evaluations (artifact_type, artifact_id)"
+                )
+            )
+        if "ask_sessions" not in inspect(connection).get_table_names():
+            return
+        _add_columns(
+            connection,
+            "ask_sessions",
+            {"owner_user_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL"},
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ask_sessions_owner_user_id "
+                "ON ask_sessions (owner_user_id)"
+            )
+        )
+        # A single-account installation has an unambiguous owner. Never infer
+        # ownership when two or more accounts exist; their old histories stay
+        # preserved but inaccessible until a separate audited recovery flow.
+        if "users" in inspect(connection).get_table_names():
+            user_ids = list(
+                connection.execute(text("SELECT id FROM users LIMIT 2")).scalars()
+            )
+            if len(user_ids) == 1:
+                connection.execute(
+                    text(
+                        "UPDATE ask_sessions SET owner_user_id = :user_id "
+                        "WHERE owner_user_id IS NULL"
+                    ),
+                    {"user_id": user_ids[0]},
+                )
+        return
+    if version == 20:
+        _add_columns(
+            connection,
+            "ask_action_plans",
+            {"execution_attempts": "INTEGER NOT NULL DEFAULT 0"},
+        )
+        return
+    if version == 19:
+        _add_columns(
+            connection,
+            "ask_action_plans",
+            {
+                "result_note_id": "INTEGER NOT NULL DEFAULT 0",
+                "result_note_stable_id": "VARCHAR(36) NOT NULL DEFAULT ''",
+            },
+        )
+        plan_columns = {
+            str(row[1])
+            for row in connection.execute(text("PRAGMA table_info(ask_action_plans)"))
+        }
+        note_columns = {
+            str(row[1]) for row in connection.execute(text("PRAGMA table_info(notes)"))
+        }
+        if {"id", "result_path", "arguments_json"} <= plan_columns and {
+            "id",
+            "path",
+            "stable_id",
+            "content",
+        } <= note_columns:
+            plans = list(
+                connection.execute(
+                    text(
+                        "SELECT id, result_path, arguments_json FROM ask_action_plans "
+                        "WHERE result_path != '' AND result_note_id = 0"
+                    )
+                ).mappings()
+            )
+            for plan in plans:
+                path = str(plan["result_path"])
+                if not path.endswith(f"--ask-{str(plan['id'])[:12]}.md"):
+                    continue
+                try:
+                    expected = json.loads(str(plan["arguments_json"]))["content"]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                note = (
+                    connection.execute(
+                        text(
+                            "SELECT id, stable_id, content FROM notes WHERE path = :path"
+                        ),
+                        {"path": path},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if note is None or note["content"] != expected:
+                    continue
+                connection.execute(
+                    text(
+                        "UPDATE ask_action_plans SET result_note_id = :note_id, "
+                        "result_note_stable_id = :stable_id WHERE id = :plan_id"
+                    ),
+                    {
+                        "note_id": note["id"],
+                        "stable_id": note["stable_id"],
+                        "plan_id": plan["id"],
+                    },
+                )
+        return
+    if version == 18:
+        _add_columns(
+            connection,
+            "notes",
+            {"evidence_status": "VARCHAR(24) NOT NULL DEFAULT 'eligible'"},
+        )
+        return
+    if version == 17:
+        from berrybrain_api.models import AskActionPlanRecord
+
+        AskActionPlanRecord.__table__.create(bind=connection, checkfirst=True)
+        return
+    if version == 16:
+        for table in ("ask_turns", "graph_inferences"):
+            _add_columns(
+                connection,
+                table,
+                {
+                    "fallback_used": "BOOLEAN NOT NULL DEFAULT 0",
+                    "fallback_reason": "VARCHAR(40) NOT NULL DEFAULT ''",
+                },
+            )
+        return
+    if version == 15:
+        _add_columns(
+            connection,
+            "ask_turns",
+            {"references_json": "TEXT NOT NULL DEFAULT '[]'"},
+        )
+        return
     if version == 14:
         from berrybrain_api.models import JobAttemptRecord, JobRecord
 

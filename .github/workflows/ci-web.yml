@@ -43,8 +43,8 @@ jobs:
         run: pip install -e .
       - name: Install dependencies
         run: npm ci
-      - name: Polling regression tests
-        run: node --test scripts/poll-resource.test.mjs scripts/manual-insight-highlight.test.mjs
+      - name: Web unit regressions
+        run: node --test scripts/poll-resource.test.mjs scripts/manual-insight-highlight.test.mjs scripts/ask-markdown.test.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Lint

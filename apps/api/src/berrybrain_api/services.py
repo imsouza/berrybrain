@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
 from berrybrain_api.confidence import (
+    active_node_confidence,
     estimate_connection_confidence,
     persist_confidence,
     persist_percentage_confidence,
+    serialize_confidence,
     serialize_percentage_confidence,
 )
 from berrybrain_api.graph_quality import (
@@ -330,6 +332,8 @@ def _parse_json_dict(value: str) -> dict[str, Any]:
 
 
 def _compact_confidence(target: Any) -> dict[str, Any] | None:
+    if isinstance(target, GraphNodeRecord):
+        return serialize_confidence(target, compact=True)
     sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
     if sample_size <= 0:
         return {
@@ -479,9 +483,7 @@ def build_graph(
                         "source": getattr(node, "source", ""),
                         "sourceId": node.source_id,
                         "status": getattr(node, "status", "suggested"),
-                        "confidence": (
-                            node.confidence if node.confidence_sample_size else None
-                        ),
+                        "confidence": active_node_confidence(node),
                         "confidenceInterval": _compact_confidence(node),
                         "createdBy": getattr(node, "created_by", "system"),
                         "aiSummary": getattr(node, "ai_summary", ""),
@@ -557,7 +559,11 @@ def build_graph(
             },
         }
 
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     conns = list(session.execute(select(ConnectionRecord)).scalars())
 
     nodes = []
@@ -621,7 +627,11 @@ def build_graph(
 
 
 def sync_knowledge_graph(session: Session) -> dict[str, int]:
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     writer = GraphWriteService(session, autocommit=False)
 
     node_map: dict[str, int] = {}
@@ -639,8 +649,10 @@ def sync_knowledge_graph(session: Session) -> dict[str, int]:
             graph_metadata={
                 "path": note.path,
                 "folder": note.path.split("/")[0] if "/" in note.path else "inbox",
+                "vaultId": note.vault_id,
             },
         )
+        node.vault_id = note.vault_id
         node_map[f"note_{note.id}"] = node.id
 
     concepts = list(session.execute(select(ConceptRecord)).scalars())

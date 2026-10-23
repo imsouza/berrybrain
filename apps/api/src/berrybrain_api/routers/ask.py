@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -22,15 +22,18 @@ from berrybrain_api.ask_flow import (
     serialize_ask_session,
     serialize_ask_turn,
 )
+from berrybrain_api.config import get_settings
 from berrybrain_api.database import SessionLocal
 from berrybrain_api.learning import record_learning_event
 from berrybrain_api.models import (
+    AskSessionRecord,
     AskTurnRecord,
     GraphEdgeRecord,
     GraphNodeRecord,
     SemanticClusterRecord,
     SettingRecord,
 )
+from berrybrain_api.security import assert_csrf, require_session_user
 
 router = APIRouter(prefix="/api/v1/ask", tags=["ask"])
 logger = logging.getLogger(__name__)
@@ -52,6 +55,22 @@ class CreateAskTurnRequest(BaseModel):
 class AskTurnFeedbackRequest(BaseModel):
     action: str = Field(pattern="^(upvoted|downvoted|corrected)$")
     correction: str = Field(default="", max_length=8000)
+
+
+def _flow_user_id(request: Request) -> int:
+    """Flow history is browser-owned; a shared service token cannot impersonate it."""
+    settings = get_settings()
+    with SessionLocal() as session:
+        user, browser_session = require_session_user(session, settings, request)
+        assert_csrf(settings, request, browser_session)
+        return user.id
+
+
+def _owned_flow(session, session_id: str, user_id: int) -> AskSessionRecord:
+    item = session.get(AskSessionRecord, session_id)
+    if item is None or item.owner_user_id != user_id:
+        raise HTTPException(status_code=404, detail="Flow session not found")
+    return item
 
 
 def _suggestion_id(prompt: str) -> str:
@@ -560,26 +579,34 @@ async def get_suggestions(background_tasks: BackgroundTasks, limit: int = 8) -> 
 
 
 @router.post("/sessions", status_code=201)
-def create_session(payload: CreateAskSessionRequest) -> dict:
+def create_session(payload: CreateAskSessionRequest, request: Request) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
         item = create_ask_session(
             session,
             mode=payload.mode,
             title=payload.title,
             inference_id=payload.inference_id,
+            owner_user_id=user_id,
         )
         return get_ask_session_payload(session, item.id)
 
 
 @router.get("/sessions/{session_id}")
-def get_session(session_id: str) -> dict:
+def get_session(session_id: str, request: Request) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         return get_ask_session_payload(session, session_id)
 
 
 @router.post("/sessions/{session_id}/turns")
-async def create_turn(session_id: str, payload: CreateAskTurnRequest) -> dict:
+async def create_turn(
+    session_id: str, payload: CreateAskTurnRequest, request: Request
+) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         try:
             user_turn, assistant_turn = await append_ask_turn(
                 session, session_id, payload.content
@@ -593,16 +620,18 @@ async def create_turn(session_id: str, payload: CreateAskTurnRequest) -> dict:
                 detail="Flow could not complete with the configured AI provider.",
             ) from exc
         return {
-            "userTurn": serialize_ask_turn(user_turn),
-            "assistantTurn": serialize_ask_turn(assistant_turn),
+            "userTurn": serialize_ask_turn(user_turn, session=session),
+            "assistantTurn": serialize_ask_turn(assistant_turn, session=session),
         }
 
 
 @router.post("/sessions/{session_id}/turns/{turn_id}/feedback")
 def record_turn_feedback(
-    session_id: str, turn_id: int, payload: AskTurnFeedbackRequest
+    session_id: str, turn_id: int, payload: AskTurnFeedbackRequest, request: Request
 ) -> dict[str, Any]:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         turn = session.get(AskTurnRecord, turn_id)
         if turn is None or turn.session_id != session_id:
             raise HTTPException(status_code=404, detail="Ask turn not found")
@@ -636,20 +665,26 @@ def record_turn_feedback(
 
 
 @router.post("/sessions/{session_id}/cancel")
-def cancel_session(session_id: str) -> dict:
+def cancel_session(session_id: str, request: Request) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         item = cancel_ask_session(session, session_id)
         return {"session": serialize_ask_session(item)}
 
 
 @router.post("/sessions/{session_id}/close")
-def close_session(session_id: str) -> dict:
+def close_session(session_id: str, request: Request) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         item = close_ask_session(session, session_id)
         return {"session": serialize_ask_session(item)}
 
 
 @router.post("/sessions/{session_id}/insight")
-def create_session_insight(session_id: str) -> dict:
+def create_session_insight(session_id: str, request: Request) -> dict:
+    user_id = _flow_user_id(request)
     with SessionLocal() as session:
+        _owned_flow(session, session_id, user_id)
         return create_insight_from_flow_session(session, session_id)

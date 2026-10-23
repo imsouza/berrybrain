@@ -4,6 +4,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import time
 from contextlib import closing
 from datetime import UTC, datetime
 from io import BytesIO
@@ -72,13 +73,27 @@ def _db_path() -> str:
     )
 
 
-def _copy_sqlite_snapshot(source: Path, destination: Path) -> None:
+def _copy_sqlite_snapshot(
+    source: Path, destination: Path, *, timeout_seconds: float | None = None
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     with (
-        closing(sqlite3.connect(source)) as source_db,
+        closing(
+            sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
+        ) as source_db,
         closing(sqlite3.connect(destination)) as dest_db,
     ):
-        source_db.backup(dest_db)
+        if timeout_seconds is None:
+            source_db.backup(dest_db)
+            return
+
+        deadline = time.monotonic() + max(0, timeout_seconds)
+
+        def progress(_status: int, _remaining: int, _total: int) -> None:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("SQLite backup exceeded its progress deadline")
+
+        source_db.backup(dest_db, pages=1024, progress=progress, sleep=0.1)
 
 
 def _sha256_file(path: Path) -> str:
@@ -185,11 +200,24 @@ def create_backup() -> dict[str, object]:
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     _id = f"backup-{ts}-{uuid4().hex[:8]}"
     dest = _backup_dir() / _id
-    dest.mkdir(parents=True)
+    staging = dest.with_name(f".{_id}.incomplete")
+    staging.mkdir()
+    try:
+        meta = _write_backup_payload(staging, _id)
+        staging.rename(dest)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return {"id": _id, "path": str(dest), "metadata": meta}
 
+
+def _write_backup_payload(dest: Path, backup_id: str) -> dict[str, object]:
     db = Path(_db_path())
     if db.exists():
         with database_lease(db):
+            # A multi-step SQLite backup can restart from page zero whenever
+            # another process writes. Under a busy WAL workload that may never
+            # converge, so take this online snapshot in one backup step.
             _copy_sqlite_snapshot(db, dest / db.name)
 
     vault = get_settings().vault_path
@@ -212,7 +240,7 @@ def create_backup() -> dict[str, object]:
         else SessionLocal() as session
     ):
         meta = {
-            "id": _id,
+            "id": backup_id,
             "createdAt": datetime.now(UTC).isoformat(),
             "berryBrainVersion": __version__,
             "schemaVersion": get_schema_version(session.get_bind()),
@@ -265,11 +293,7 @@ def create_backup() -> dict[str, object]:
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    return {
-        "id": _id,
-        "path": str(dest),
-        "metadata": meta,
-    }
+    return meta
 
 
 def restore_backup(backup_id: str) -> dict[str, object]:

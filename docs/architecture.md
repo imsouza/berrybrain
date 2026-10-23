@@ -11,6 +11,23 @@ or writing SQLite directly. See the [API integration contract](api.md), live
 Service credentials are independently issued and revocable, with explicit expiry.
 They grant trusted application access to a shared workspace, not tenant isolation.
 Owner-only configuration and recovery use browser-session/CSRF authorization.
+Profiles are administrative metadata: `vault_subpath` currently neither creates
+separate Markdown storage nor partitions graph, indexes, jobs, or permissions.
+Named vaults created through an approved Ask plan are different: each has a
+stable database identity and a physical Markdown directory under the canonical
+root. Notes and their source graph nodes carry that identity. Named vaults
+organize content but still share the installation's authorization, graph,
+retrieval, worker queue, and backup boundary. The folder API protects their
+registered directories from rename/delete; a manual filesystem rename needs
+explicit reconciliation rather than silently reassigning identities.
+The installation, not a profile, is the present isolation boundary. Flow history
+and approved Ask plans have user ownership inside that shared workspace.
+In Docker Compose, API and worker place the advisory vault lock in the shared
+`/app/data/locks` volume through `BERRYBRAIN_VAULT_LOCK_DIR`. A lock in
+`/app` would be private to each container and would not coordinate a backup,
+restore, or write across services. Standalone installs without this setting
+retain the lock beside the vault; independently deployed processes must use
+the same shared lock directory and the same resolved vault path.
 Note updates use a content-hash precondition; derived processing is asynchronous;
 graph pagination carries a version so clients can detect inconsistent snapshots.
 Public HTTP availability does not imply a fully typed SDK, fine-grained scopes,
@@ -141,7 +158,7 @@ flowchart LR
   O --> A[Statistical analysis]
   A --> E[Checksummed evidence bundle]
   E --> M[Maturity V3]
-  E --> T[README, Docs, and research tables]
+  E --> T[README, Docs, and evaluation reports]
 ```
 
 ## Active Specifications
