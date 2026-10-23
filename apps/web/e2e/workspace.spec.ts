@@ -154,7 +154,7 @@ test.describe("Authenticated workspace quality", () => {
     );
     await page.getByTitle("Create folder", { exact: true }).click();
     const createResponse = await created;
-    expect(createResponse.status(), await createResponse.text()).toBe(201);
+    expect(createResponse.status()).toBe(201);
     expect(createResponse.request().headers()["x-csrf-token"]).toBeTruthy();
 
     const folder = page.getByRole("complementary", { name: "Navigation" })
@@ -167,7 +167,7 @@ test.describe("Authenticated workspace quality", () => {
     );
     await folder.getByRole("button", { name: "Delete" }).click();
     const deleteResponse = await deleted;
-    expect(deleteResponse.ok(), await deleteResponse.text()).toBeTruthy();
+    expect(deleteResponse.ok()).toBeTruthy();
     expect(deleteResponse.request().headers()["x-csrf-token"]).toBeTruthy();
     await expect(folder).toHaveCount(0);
   });
