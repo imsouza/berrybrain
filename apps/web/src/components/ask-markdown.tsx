@@ -9,21 +9,27 @@ import { appPath } from "@/contexts/workspace-context";
 import { MermaidDiagram } from "./editor/mermaid-diagram";
 
 export type AskReference = {
-  kind: "note" | "graph_node" | "attachment";
-  id: number;
+  kind: "note" | "graph_node" | "attachment" | "vault";
+  id: number | string;
   stableId: string;
   title: string;
   path?: string;
   nodeType?: string;
   noteTitle?: string;
   vaultId?: string;
+  vaultName?: string;
+  vaultPath?: string;
   current: boolean;
   evidenceIds: string[];
-  sourceNotes?: Array<{ id: number; title: string; path: string; vaultId?: string }>;
+  sourceNotes?: Array<{ id: number; title: string; path: string; vaultId?: string; vaultName?: string; vaultPath?: string }>;
 };
 
 export function askNoteHref(path: string): string {
   return appPath(`/brain?note=${encodeURIComponent(path)}`);
+}
+
+export function askVaultHref(path: string): string {
+  return appPath(`/brain?vault=${encodeURIComponent(path)}`);
 }
 
 export function askReferenceHref(reference: AskReference): string | null {
@@ -33,21 +39,59 @@ export function askReferenceHref(reference: AskReference): string | null {
   if (reference.kind === "attachment" && reference.path) {
     return askNoteHref(reference.path);
   }
-  if (reference.kind === "graph_node" && Number.isSafeInteger(reference.id) && reference.id > 0) {
-    return appPath(`/graph/nodes/${reference.id}`);
+  if (reference.kind === "vault") {
+    const vaultPath = reference.vaultPath || reference.path;
+    return vaultPath ? askVaultHref(vaultPath) : null;
+  }
+  if (reference.kind === "graph_node") {
+    const id = typeof reference.id === "number" ? reference.id : Number(reference.id);
+    if (Number.isSafeInteger(id) && id > 0) {
+      return appPath(`/graph/nodes/${id}`);
+    }
   }
   return null;
 }
 
-function verifiedReference(marker: string, references: AskReference[]): AskReference | undefined {
+export function verifiedReference(marker: string, references: AskReference[]): AskReference | undefined {
+  const resolvedVault = /^resolved:vault:([A-Za-z0-9][A-Za-z0-9._-]{0,35})$/.exec(marker);
+  if (resolvedVault) {
+    return references.find((item) => item.kind === "vault" && String(item.id) === resolvedVault[1]);
+  }
   const resolved = /^resolved:(note|graph_node|attachment):([1-9]\d*)$/.exec(marker);
   if (resolved) {
     const id = Number(resolved[2]);
     return Number.isSafeInteger(id)
-      ? references.find((item) => item.kind === resolved[1] && item.id === id)
+      ? references.find((item) => item.kind === resolved[1] && Number(item.id) === id)
       : undefined;
   }
   return references.find((item) => item.evidenceIds.includes(marker));
+}
+
+export function formatAskReferenceLabel(reference: AskReference, references: AskReference[] = []): string {
+  const title = (reference.title || "Reference").trim().replace(/\s+/g, " ");
+  const sameTitle = references.filter(
+    (item) => (item.title || "Reference").trim().replace(/\s+/g, " ").toLocaleLowerCase() === title.toLocaleLowerCase(),
+  );
+  if (sameTitle.length <= 1) return title;
+  const kindLabel = reference.kind === "note"
+    ? "note"
+    : reference.kind === "attachment"
+      ? "attachment"
+      : reference.kind === "vault"
+        ? "vault"
+        : `graph ${reference.nodeType || "node"}`;
+  const qualifiers = [kindLabel];
+  if (reference.vaultName && reference.kind !== "vault") {
+    qualifiers.push(reference.vaultName);
+  }
+  if (reference.path && (reference.kind === "note" || reference.kind === "attachment")) {
+    const slash = reference.path.lastIndexOf("/");
+    const folder = slash > 0 ? reference.path.slice(0, slash) : "";
+    if (folder && folder !== reference.vaultName) {
+      qualifiers.push(folder);
+    }
+  }
+  return `${title} (${qualifiers.join(" · ")})`;
 }
 
 /** Model output is untrusted: no raw HTML or automatic remote image requests. */
@@ -79,8 +123,16 @@ export function AskMarkdown({ content, className = "", references = [] }: { cont
             const evidenceId = href?.startsWith("bbref:") ? href.slice(6) : "";
             const reference = evidenceId ? verifiedReference(evidenceId, references) : undefined;
             const target = reference ? askReferenceHref(reference) : null;
+            const label = reference ? formatAskReferenceLabel(reference, references) : "Reference";
+            const kindDescription = reference?.kind === "note"
+              ? "note"
+              : reference?.kind === "attachment"
+                ? "attachment in note"
+                : reference?.kind === "vault"
+                  ? "vault"
+                  : "graph node";
             return target
-              ? <a href={target} className="text-accent underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Open ${reference?.kind === "note" ? "note" : reference?.kind === "attachment" ? "attachment in note" : "graph node"}: ${reference?.title || "reference"}`}>{reference?.title || "Reference"}</a>
+              ? <a href={target} className="text-accent underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Open ${kindDescription}: ${label}`}>{label}</a>
               : <span title="Unverified link; verified BerryBrain references appear below">{children}</span>;
           },
           img: ({ alt }) => <span className="text-muted">[Imagem: {alt || "não carregada automaticamente"}]</span>,

@@ -2,6 +2,7 @@
 
 import { useWorkspace, apiFetch } from "@/contexts/workspace-context";
 import { pollResource } from "@/lib/poll-resource";
+import type { EditorSelectionContext } from "../ask-editor-diff-plan";
 import dynamic from "next/dynamic";
 const MarkdownPreview = dynamic(() => import("./markdown-preview").then(module => module.MarkdownPreview), {
   loading: () => <p className="p-4 text-sm text-muted">Loading Markdown preview…</p>,
@@ -101,7 +102,15 @@ function Backlinks({ notePath }: { notePath: string }) {
   );
 }
 
-export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
+export function NoteEditor({
+  onOpenAsk,
+  onSelectionChange,
+  onRegisterCommitDraft,
+}: {
+  onOpenAsk?: (selection?: EditorSelectionContext | null) => void;
+  onSelectionChange?: (selection: EditorSelectionContext | null) => void;
+  onRegisterCommitDraft?: (fn: ((nextText: string) => void) | null) => void;
+} = {}) {
   const w = useWorkspace();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -134,7 +143,8 @@ export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
   useEffect(() => {
     setMenuOpen(false);
     historyRef.current = { past: [], future: [] };
-  }, [w.active?.path]);
+    onSelectionChange?.(null);
+  }, [onSelectionChange, w.active?.path]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -177,6 +187,22 @@ export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
       readingMinutes: words ? Math.max(1, Math.ceil(words / 225)) : 0,
     };
   }, [w.draft]);
+
+  function commitDraft(nextText: string) {
+    if (nextText === w.draft) return;
+    const history = historyRef.current;
+    history.past = [...history.past.slice(-99), w.draft];
+    history.future = [];
+    w.setDraft(nextText);
+  }
+
+  const commitDraftRef = useRef(commitDraft);
+  commitDraftRef.current = commitDraft;
+  useEffect(() => {
+    onRegisterCommitDraft?.((nextText: string) => commitDraftRef.current(nextText));
+    return () => onRegisterCommitDraft?.(null);
+  }, [onRegisterCommitDraft]);
+
   if (!w.active) return null;
   const isDirty = w.draft !== w.active.content;
 
@@ -207,12 +233,22 @@ export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
     });
   }
 
-  function commitDraft(nextText: string) {
-    if (nextText === w.draft) return;
-    const history = historyRef.current;
-    history.past = [...history.past.slice(-99), w.draft];
-    history.future = [];
-    w.setDraft(nextText);
+  function captureSelection(): EditorSelectionContext | null {
+    const el = textareaRef.current;
+    if (!el || !w.active) return null;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (end <= start) return null;
+    const text = w.draft.slice(start, end);
+    if (!text.trim()) return null;
+    return {
+      text,
+      start,
+      end,
+      notePath: w.active.path,
+      noteRevision: w.active.content_hash || "",
+      isUnsavedDraft: w.draft !== w.active.content,
+    };
   }
 
   function undoDraft() {
@@ -504,7 +540,7 @@ export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
         </div>
 
         <div className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto">
-          {onOpenAsk && <button className="bb-action inline-flex h-8 items-center gap-1.5 px-2.5 text-xs" onClick={onOpenAsk} aria-label="Ask BerryBrain about this note" title="Open Ask beside this note; unsaved text is not sent automatically"><Sparkles className="size-3.5" />Ask BerryBrain</button>}
+          {onOpenAsk && <button className="bb-action inline-flex h-8 items-center gap-1.5 px-2.5 text-xs" onClick={() => onOpenAsk(captureSelection())} aria-label="Ask BerryBrain about this note" title="Open Ask beside this note; unsaved text is not sent automatically"><Sparkles className="size-3.5" />Ask BerryBrain</button>}
           <div className="flex rounded-lg bg-surface p-0.5">
             {(["edit", "preview", "split"] as const).map(m => (
               <button
@@ -654,6 +690,7 @@ export function NoteEditor({ onOpenAsk }: { onOpenAsk?: () => void } = {}) {
             className={`min-h-0 resize-none bg-transparent px-4 py-5 leading-[1.85] outline-none placeholder:text-muted/20 lg:px-10 ${lineWrap ? "whitespace-pre-wrap" : "whitespace-pre overflow-x-auto"} ${focusMode ? "mx-auto w-full max-w-3xl" : ""} ${w.viewMode === "split" ? "flex-1 border-b border-border/50 lg:border-b-0 lg:border-r" : "flex-1"}`}
             value={w.draft}
             onChange={e => commitDraft(e.target.value)}
+            onSelect={() => onSelectionChange?.(captureSelection())}
             onKeyDown={onEditorKeyDown}
             onPaste={(event) => {
               const files = event.clipboardData.files;

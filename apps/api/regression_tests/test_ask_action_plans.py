@@ -172,13 +172,13 @@ class AskActionPlanTests(unittest.TestCase):
         url = f"/api/v1/ask/action-plans/{plan['id']}/approve"
         wrong = self.client.post(url, json={"arguments_hash": "0" * 64})
         self.assertEqual(wrong.status_code, 409)
-        approved = self.client.post(
-            url, json={"arguments_hash": plan["argumentsHash"]}
-        )
+        approved = self.client.post(url, json={"arguments_hash": plan["argumentsHash"]})
         self.assertEqual(approved.status_code, 200, approved.text)
         result = approved.json()
         self.assertEqual(result["vaultId"], plan["id"])
-        self.assertTrue(result["resultPath"].startswith("vaults/projetos-da-feira--ask-"))
+        self.assertTrue(
+            result["resultPath"].startswith("vaults/projetos-da-feira--ask-")
+        )
         self.assertEqual(result["evidenceStatus"], "draft")
         self.assertTrue((self.cfg.vault_path / result["resultPath"]).is_file())
         with self.sessions() as session:
@@ -200,6 +200,14 @@ class AskActionPlanTests(unittest.TestCase):
         )
         replay = self.client.post(url, json={"arguments_hash": plan["argumentsHash"]})
         self.assertEqual(replay.status_code, 200, replay.text)
+        with self.sessions() as session:
+            approve_logs = (
+                session.query(AutomationLogRecord)
+                .filter(AutomationLogRecord.action_type == "APPROVE_ASK_PLAN")
+                .all()
+            )
+            self.assertEqual(len(approve_logs), 1)
+            self.assertNotIn("Citations", approve_logs[0].after_state)
         self.assertEqual(len(list(self.cfg.vault_path.rglob("*.md"))), 1)
         second = self.client.post(
             "/api/v1/notes",
@@ -216,8 +224,12 @@ class AskActionPlanTests(unittest.TestCase):
         page = self.client.get(f"/api/v1/notes?vault_id={plan['id']}&limit=10")
         self.assertEqual(page.status_code, 200, page.text)
         self.assertEqual(page.json()["total"], 2)
-        self.assertTrue(all(item["vaultId"] == plan["id"] for item in page.json()["notes"]))
-        self.assertEqual(self.client.get("/api/v1/notes?vault_id=default").json()["total"], 0)
+        self.assertTrue(
+            all(item["vaultId"] == plan["id"] for item in page.json()["notes"])
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/notes?vault_id=default").json()["total"], 0
+        )
         folder_tree = self.client.get("/api/v1/folders")
         self.assertEqual(folder_tree.status_code, 200, folder_tree.text)
         protected = {
@@ -329,6 +341,14 @@ class AskActionPlanTests(unittest.TestCase):
         )
         replay = self.client.post(url, json={"arguments_hash": plan["argumentsHash"]})
         self.assertEqual(replay.status_code, 200, replay.text)
+        with self.sessions() as session:
+            approve_logs = (
+                session.query(AutomationLogRecord)
+                .filter(AutomationLogRecord.action_type == "APPROVE_ASK_PLAN")
+                .all()
+            )
+            self.assertEqual(len(approve_logs), 1)
+            self.assertNotIn("Citations", approve_logs[0].after_state)
         self.assertEqual(replay.json()["resultPath"], note_path)
         self.assertEqual(len(list(self.cfg.vault_path.rglob("*.md"))), 1)
         with self.sessions() as session:
@@ -471,7 +491,9 @@ class AskActionPlanTests(unittest.TestCase):
             (vault_path / note_path).write_text("Second user edit", encoding="utf-8")
             return original_sync(session, vault_path, note_path, **kwargs)
 
-        with patch.object(ask_actions, "sync_note_record", side_effect=edit_during_sync):
+        with patch.object(
+            ask_actions, "sync_note_record", side_effect=edit_during_sync
+        ):
             response = self.client.post(
                 f"/api/v1/ask/action-plans/{plan['id']}/review-draft",
                 json={"reviewed": True, "content_hash": approved_hash},
@@ -504,7 +526,9 @@ class AskActionPlanTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 409, response.text)
         with self.sessions() as session:
-            self.assertEqual(session.scalar(select(NoteRecord)).evidence_status, "draft")
+            self.assertEqual(
+                session.scalar(select(NoteRecord)).evidence_status, "draft"
+            )
 
     def test_review_requires_same_user_and_csrf(self):
         plan = self._propose()
@@ -770,6 +794,13 @@ class AskActionPlanTests(unittest.TestCase):
             self.assertEqual(
                 session.scalar(select(AskActionPlanRecord).limit(1)).status, "cancelled"
             )
+            cancel_log = session.scalar(
+                select(AutomationLogRecord).where(
+                    AutomationLogRecord.action_type == "CANCEL_ASK_PLAN"
+                )
+            )
+            self.assertIsNotNone(cancel_log)
+            self.assertNotIn("Citations", cancel_log.after_state)
         self.assertEqual(list(self.cfg.vault_path.rglob("*.md")), [])
 
     def test_proposal_request_key_is_idempotent_and_immutable(self):
@@ -842,7 +873,11 @@ class AskActionPlanTests(unittest.TestCase):
     def test_interrupted_write_resumes_once_without_duplicate_note(self):
         plan = self._propose()
         with (
-            patch.object(ask_actions, "sync_note_record", side_effect=RuntimeError("temporary sync failure")),
+            patch.object(
+                ask_actions,
+                "sync_note_record",
+                side_effect=RuntimeError("temporary sync failure"),
+            ),
             self.assertRaises(RuntimeError),
         ):
             self.client.post(
@@ -851,7 +886,9 @@ class AskActionPlanTests(unittest.TestCase):
             )
         with self.sessions() as session:
             stored = session.get(AskActionPlanRecord, plan["id"])
-            self.assertEqual((stored.status, stored.execution_attempts), ("executing", 1))
+            self.assertEqual(
+                (stored.status, stored.execution_attempts), ("executing", 1)
+            )
             stored.approved_at = datetime.now(UTC) - timedelta(minutes=3)
             session.commit()
         response = self.client.post(
@@ -859,14 +896,20 @@ class AskActionPlanTests(unittest.TestCase):
             json={"arguments_hash": plan["argumentsHash"]},
         )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual((response.json()["status"], response.json()["attempts"]), ("completed", 2))
+        self.assertEqual(
+            (response.json()["status"], response.json()["attempts"]), ("completed", 2)
+        )
         self.assertEqual(len(list(self.cfg.vault_path.rglob("*.md"))), 1)
 
     def test_second_unknown_failure_stops_automatic_retries(self):
         plan = self._propose()
         for attempt in range(2):
             with (
-                patch.object(ask_actions, "sync_note_record", side_effect=RuntimeError("persistent sync failure")),
+                patch.object(
+                    ask_actions,
+                    "sync_note_record",
+                    side_effect=RuntimeError("persistent sync failure"),
+                ),
                 self.assertRaises(RuntimeError),
             ):
                 self.client.post(
@@ -880,7 +923,9 @@ class AskActionPlanTests(unittest.TestCase):
                     session.commit()
         stored = self.client.get(f"/api/v1/ask/action-plans/{plan['id']}")
         self.assertEqual(stored.status_code, 200, stored.text)
-        self.assertEqual((stored.json()["status"], stored.json()["attempts"]), ("failed", 2))
+        self.assertEqual(
+            (stored.json()["status"], stored.json()["attempts"]), ("failed", 2)
+        )
         self.assertEqual(stored.json()["errorCode"], "execution_attempts_exhausted")
         self.assertEqual(
             stored.json()["recoveryPath"],
@@ -898,7 +943,9 @@ class AskActionPlanTests(unittest.TestCase):
         self.assertEqual(recovered.json()["status"], "partial")
         self.assertEqual(recovered.json()["evidenceStatus"], "draft")
         self.assertEqual(
-            self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/reconcile").json()["id"],
+            self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/reconcile").json()[
+                "id"
+            ],
             plan["id"],
         )
         with self.sessions() as session:
@@ -917,7 +964,9 @@ class AskActionPlanTests(unittest.TestCase):
             session.commit()
         result = self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/reconcile")
         self.assertEqual(result.status_code, 409, result.text)
-        self.assertEqual(path.read_text(encoding="utf-8"), "Another editor changed this")
+        self.assertEqual(
+            path.read_text(encoding="utf-8"), "Another editor changed this"
+        )
         visible = self.client.get(f"/api/v1/ask/action-plans/{plan['id']}").json()
         self.assertIsNone(visible["recoveryPath"])
         self.assertEqual(visible["orphanPath"], relative)
@@ -935,7 +984,9 @@ class AskActionPlanTests(unittest.TestCase):
         self.assertEqual(recovered.json()["status"], "partial")
         self.assertEqual(recovered.json()["evidenceStatus"], "draft")
         self.assertEqual(recovered.json()["errorCode"], "recovered_changed_file")
-        self.assertEqual(path.read_text(encoding="utf-8"), "Another editor changed this")
+        self.assertEqual(
+            path.read_text(encoding="utf-8"), "Another editor changed this"
+        )
         with self.sessions() as session:
             self.assertEqual(session.query(GraphNodeRecord).count(), 0)
             self.assertEqual(
@@ -958,15 +1009,25 @@ class AskActionPlanTests(unittest.TestCase):
         original_sync = ask_actions.sync_note_record
 
         def edit_during_sync(session, vault_path, note_path, **kwargs):
-            (vault_path / note_path).write_text("Changed during recovery", encoding="utf-8")
+            (vault_path / note_path).write_text(
+                "Changed during recovery", encoding="utf-8"
+            )
             return original_sync(session, vault_path, note_path, **kwargs)
 
-        with patch.object(ask_actions, "sync_note_record", side_effect=edit_during_sync):
-            rejected = self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/reconcile")
+        with patch.object(
+            ask_actions, "sync_note_record", side_effect=edit_during_sync
+        ):
+            rejected = self.client.post(
+                f"/api/v1/ask/action-plans/{plan['id']}/reconcile"
+            )
         self.assertEqual(rejected.status_code, 409, rejected.text)
         with self.sessions() as session:
-            self.assertEqual(session.get(AskActionPlanRecord, plan["id"]).status, "failed")
-            self.assertEqual(session.scalar(select(NoteRecord)).evidence_status, "draft")
+            self.assertEqual(
+                session.get(AskActionPlanRecord, plan["id"]).status, "failed"
+            )
+            self.assertEqual(
+                session.scalar(select(NoteRecord)).evidence_status, "draft"
+            )
         visible = self.client.get(f"/api/v1/ask/action-plans/{plan['id']}").json()
         self.assertIsNone(visible["recoveryPath"])
         self.assertEqual(visible["orphanPath"], relative)
@@ -994,7 +1055,9 @@ class AskActionPlanTests(unittest.TestCase):
         self.assertIsNone(visible["recoveryPath"])
         result = self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/reconcile")
         self.assertEqual(result.status_code, 409, result.text)
-        self.assertEqual(target.read_text(encoding="utf-8"), plan["arguments"]["content"])
+        self.assertEqual(
+            target.read_text(encoding="utf-8"), plan["arguments"]["content"]
+        )
 
     def test_failed_plans_are_paginated_and_reopen_only_for_same_user(self):
         plans = [self._propose() for _ in range(3)]
@@ -1016,7 +1079,10 @@ class AskActionPlanTests(unittest.TestCase):
         rows = first.json() + second.json()
         self.assertEqual(len(rows), 3)
         self.assertEqual({row["id"] for row in rows}, {plan["id"] for plan in plans})
-        self.assertEqual(next(row for row in rows if row["id"] == plans[0]["id"])["orphanPath"], relative)
+        self.assertEqual(
+            next(row for row in rows if row["id"] == plans[0]["id"])["orphanPath"],
+            relative,
+        )
         self.assertNotIn("content", json.dumps(rows))
         self._login("other@example.test")
         self.assertEqual(self.client.get("/api/v1/ask/action-plans/failed").json(), [])
@@ -1131,6 +1197,103 @@ class AskActionPlanTests(unittest.TestCase):
         self.assertEqual(reviewed.status_code, 200, reviewed.text)
         self.assertEqual(reviewed.json()["status"], "completed")
         self.assertEqual(reviewed.json()["evidenceStatus"], "eligible")
+
+    def test_supervised_step_by_step_approval_requires_vault_step_before_note_step(
+        self,
+    ):
+        proposed = self.client.post(
+            "/api/v1/ask/action-plans",
+            json={
+                "title": "Artigo supervisionado",
+                "folder": "study",
+                "content": "# Artigo supervisionado\n\nConteúdo revisado em etapas.",
+                "new_vault_name": "Vault Supervisionado",
+                "approval_mode": "ask_for_approval",
+            },
+        )
+        self.assertEqual(proposed.status_code, 201, proposed.text)
+        plan = proposed.json()
+        self.assertEqual(plan["approvalMode"], "ask_for_approval")
+        self.assertEqual(
+            [(step["id"], step["status"]) for step in plan["steps"]],
+            [("create_vault", "pending"), ("create_note", "pending")],
+        )
+        url = f"/api/v1/ask/action-plans/{plan['id']}/approve"
+        # Dependent step 2 cannot run before step 1 is confirmed
+        premature = self.client.post(
+            url,
+            json={"arguments_hash": plan["argumentsHash"], "step": "create_note"},
+        )
+        self.assertEqual(premature.status_code, 409, premature.text)
+        self.assertEqual(list(self.cfg.vault_path.rglob("*.md")), [])
+
+        # Confirm step 1 (create_vault)
+        step1 = self.client.post(
+            url,
+            json={"arguments_hash": plan["argumentsHash"], "step": "create_vault"},
+        )
+        self.assertEqual(step1.status_code, 200, step1.text)
+        step1_body = step1.json()
+        self.assertEqual(step1_body["status"], "proposed")
+        self.assertEqual(step1_body["vaultId"], plan["id"])
+        self.assertIsNone(step1_body["resultPath"])
+        self.assertEqual(
+            [(step["id"], step["status"]) for step in step1_body["steps"]],
+            [("create_vault", "completed"), ("create_note", "pending")],
+        )
+        self.assertEqual(list(self.cfg.vault_path.rglob("*.md")), [])
+
+        # Confirm step 2 (create_note)
+        step2 = self.client.post(
+            url,
+            json={"arguments_hash": plan["argumentsHash"], "step": "create_note"},
+        )
+        self.assertEqual(step2.status_code, 200, step2.text)
+        step2_body = step2.json()
+        self.assertEqual(step2_body["status"], "completed")
+        self.assertEqual(step2_body["vaultId"], plan["id"])
+        self.assertIsNotNone(step2_body["resultPath"])
+        self.assertEqual(step2_body["evidenceStatus"], "draft")
+        self.assertEqual(
+            [(step["id"], step["status"]) for step in step2_body["steps"]],
+            [("create_vault", "completed"), ("create_note", "completed")],
+        )
+        with self.sessions() as session:
+            step_logs = (
+                session.query(AutomationLogRecord)
+                .filter(AutomationLogRecord.action_type == "APPROVE_ASK_PLAN_STEP")
+                .all()
+            )
+            self.assertEqual(len(step_logs), 1)
+
+    def test_cancel_after_supervised_vault_step_compensates_only_empty_vault(self):
+        proposed = self.client.post(
+            "/api/v1/ask/action-plans",
+            json={
+                "title": "Artigo cancelado",
+                "folder": "study",
+                "content": "# Artigo cancelado\n\nRascunho.",
+                "new_vault_name": "Vault Temporário",
+                "approval_mode": "ask_for_approval",
+            },
+        )
+        self.assertEqual(proposed.status_code, 201, proposed.text)
+        plan = proposed.json()
+        url = f"/api/v1/ask/action-plans/{plan['id']}/approve"
+        step1 = self.client.post(
+            url,
+            json={"arguments_hash": plan["argumentsHash"], "step": "create_vault"},
+        )
+        self.assertEqual(step1.status_code, 200, step1.text)
+        with self.sessions() as session:
+            self.assertIsNotNone(session.get(VaultRecord, plan["id"]))
+
+        cancelled = self.client.post(f"/api/v1/ask/action-plans/{plan['id']}/cancel")
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertIsNone(cancelled.json()["vaultId"])
+        with self.sessions() as session:
+            self.assertIsNone(session.get(VaultRecord, plan["id"]))
 
 
 if __name__ == "__main__":

@@ -100,6 +100,18 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     loadFolders();
   }, [loadFolders, notes.length]);
 
+  useEffect(() => {
+    if (!w.focusedFolder) return;
+    const parts = w.focusedFolder.split("/").filter(Boolean);
+    setExpanded((current) => {
+      const next = { ...current };
+      for (let index = 1; index <= parts.length; index += 1) {
+        next[parts.slice(0, index).join("/")] = true;
+      }
+      return next;
+    });
+  }, [w.focusedFolder]);
+
   const notesByFolder = useMemo(() => {
     const map = new Map<string, typeof notes>();
     for (const note of notes) {
@@ -382,8 +394,9 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
             return (
               <div key={folder.path} className="mb-1">
                 <div
-                  className={`group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70 ${dragOverFolder === folder.path ? "bg-accent-soft text-foreground" : ""}`}
+                  className={`group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70 ${dragOverFolder === folder.path || w.focusedFolder === folder.path ? "bg-accent-soft text-foreground ring-1 ring-accent/40" : ""}`}
                   style={{ paddingLeft: `${8 + depth * 14}px` }}
+                  aria-current={w.focusedFolder === folder.path ? "location" : undefined}
                   draggable
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";

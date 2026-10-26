@@ -212,3 +212,239 @@ test("dragged graph node stays pinned after physics settles", async ({ page }) =
   const settled = await page.evaluate(() => JSON.parse(sessionStorage.getItem("bb_graph_layout:stable:brain")!).note_0);
   expect(settled).toEqual(pinned);
 });
+
+test("editor Ask panel captures selection context, blocks stale diff on concurrent edit, and integrates with Undo", async ({ page }) => {
+  await page.route("**/api/v1/graph/infer", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      inferenceId: 91,
+      status: "answered",
+      question: "Summarize selection",
+      answer: "## Resumo verificado\n\nVeja o [Vault da Feira](bbref:resolved:vault:feira-1).",
+      references: [
+        {
+          kind: "vault",
+          id: "feira-1",
+          stableId: "vault:feira-1:vaults/feira--ask-1",
+          title: "Projetos da Feira",
+          path: "vaults/feira--ask-1",
+          vaultId: "feira-1",
+          vaultName: "Projetos da Feira",
+          vaultPath: "vaults/feira--ask-1",
+          current: true,
+          evidenceIds: ["vault:feira-1"],
+        },
+      ],
+    }),
+  }));
+
+  await page.goto("/brain?note=inbox%2Ftest.md");
+  const editor = page.getByRole("textbox", { name: "Editor" });
+  await expect(editor).toBeVisible();
+  const initialDraft = await editor.inputValue();
+
+  // Select the first line in the editor and open Ask beside note
+  await editor.evaluate((el: HTMLTextAreaElement) => {
+    el.focus();
+    el.setSelectionRange(0, 6);
+    el.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await page.getByRole("button", { name: "Ask BerryBrain about this note" }).click();
+
+  const panel = page.getByRole("complementary", { name: "Ask BerryBrain beside note" });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("button", { name: /Selection \(6 chars/ })).toHaveAttribute("aria-pressed", "true");
+
+  await panel.getByRole("button", { name: "Summarize", exact: true }).click();
+  await panel.getByRole("button", { name: "Ask", exact: true }).click();
+
+  const vaultLink = panel.getByRole("link", { name: "Open Vault: Projetos da Feira", exact: true });
+  await expect(vaultLink).toBeVisible();
+  await expect(vaultLink).toHaveAttribute("href", /\/brain\?vault=vaults%2Ffeira--ask-1$/);
+
+  await panel.getByRole("button", { name: "Review diff for editor" }).click();
+  const diffSection = panel.getByRole("region", { name: "Review editor diff" });
+  await expect(diffSection).toBeVisible();
+  await diffSection.getByLabel("Diff placement mode").selectOption("append");
+
+  // Edit the note concurrently while the diff preview is open: approval must block
+  await editor.fill(`${initialDraft}\n\nConcurrent edit.`);
+  const approveButton = diffSection.getByRole("button", { name: "Approve and apply to editor" });
+  await expect(approveButton).toBeDisabled();
+  await expect(diffSection.getByRole("alert")).toContainText("The editor draft or saved note changed since this diff was prepared.");
+
+  // Refresh the diff preview against the updated editor state and approve
+  await diffSection.getByRole("button", { name: "Refresh diff preview" }).click();
+  await expect(approveButton).toBeEnabled();
+  await approveButton.click();
+
+  await expect(editor).toHaveValue(/## Resumo verificado/);
+  await expect(editor).toHaveValue(/\[Vault da Feira\]\((?:\/berrybrain)?\/brain\?vault=vaults%2Ffeira--ask-1\)/);
+
+  // Undo in the editor toolbar must revert the applied Ask diff cleanly
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(editor).toHaveValue(`${initialDraft}\n\nConcurrent edit.`);
+});
+
+test("focusNode selects and centers an out-of-page graph_node in the visual graph and Ask supports step-by-step approval", async ({ page }) => {
+  await page.route("**/api/v1/graph/nodes/99/summary", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: 99,
+        type: "concept",
+        label: "Linux Namespaces",
+        title: "Linux Namespaces",
+        summary: "Kernel isolation mechanism",
+        status: "confirmed",
+        semanticState: "ready",
+        confidenceInterval: { score: 0.92, lower: 0.85, upper: 0.97, sampleSize: 4, method: "mean" },
+      }),
+    });
+  });
+
+  await page.goto("/brain?graph=open&focusNode=99", { waitUntil: "domcontentloaded" });
+  const canvas = page.getByRole("img", { name: /Knowledge graph/ });
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute("data-selected-node", "concept_99");
+  await expect(page.getByRole("status", { name: "Focused graph node" })).toContainText("Focused node: Linux Namespaces");
+
+  // Clear focus and verify the node is unselected without leaving the visual graph
+  await page.getByRole("button", { name: "Clear focus" }).click();
+  await expect(canvas).toHaveAttribute("data-selected-node", "");
+
+  // Verify supervised step-by-step approval (create_vault -> create_note) in /ask
+  const stepsExecuted: string[] = [];
+  const expiresAt = new Date(Date.now() + 600_000).toISOString();
+  const argumentsValue = {
+    title: "Artigo",
+    folder: "study",
+    content: "# Artigo\n\nConteúdo supervisionado.",
+    newVaultName: "Vault Supervisionado",
+  };
+  await page.route("**/api/v1/graph/infer", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "answered",
+        question: "Elabore um artigo",
+        answer: argumentsValue.content,
+        evidence: [],
+        references: [
+          {
+            evidenceId: "ev-node-99",
+            kind: "graph_node",
+            id: 99,
+            stableId: "node-stable-99",
+            title: "Linux Namespaces",
+            nodeType: "concept",
+            current: true,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/v1/ask/action-plans", async (route) => {
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "plan-step",
+        action: "create_note",
+        approvalMode: "ask_for_approval",
+        steps: [
+          { id: "create_vault", action: "create_vault", target: "vaults/vault-supervisionado--ask-plan-step", status: "pending" },
+          { id: "create_note", action: "create_note", target: "vaults/vault-supervisionado--ask-plan-step/study/artigo--ask-plan-step.md", status: "pending" },
+        ],
+        arguments: argumentsValue,
+        argumentsHash: "a".repeat(64),
+        status: "proposed",
+        expiresAt,
+        approvedAt: null,
+        resultPath: null,
+        vaultId: null,
+        evidenceStatus: null,
+      }),
+    });
+  });
+  await page.route("**/api/v1/ask/action-plans/plan-step/approve", async (route) => {
+    const body = route.request().postDataJSON() as { step?: string };
+    stepsExecuted.push(body.step || "all");
+    if (body.step === "create_vault") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "plan-step",
+          action: "create_note",
+          approvalMode: "ask_for_approval",
+          steps: [
+            { id: "create_vault", action: "create_vault", target: "vaults/vault-supervisionado--ask-plan-step", status: "completed" },
+            { id: "create_note", action: "create_note", target: "vaults/vault-supervisionado--ask-plan-step/study/artigo--ask-plan-step.md", status: "pending" },
+          ],
+          arguments: argumentsValue,
+          argumentsHash: "a".repeat(64),
+          status: "proposed",
+          expiresAt,
+          approvedAt: null,
+          resultPath: null,
+          vaultId: "plan-step",
+          evidenceStatus: null,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "plan-step",
+        action: "create_note",
+        approvalMode: "ask_for_approval",
+        steps: [
+          { id: "create_vault", action: "create_vault", target: "vaults/vault-supervisionado--ask-plan-step", status: "completed" },
+          { id: "create_note", action: "create_note", target: "vaults/vault-supervisionado--ask-plan-step/study/artigo--ask-plan-step.md", status: "completed" },
+        ],
+        arguments: argumentsValue,
+        argumentsHash: "a".repeat(64),
+        status: "completed",
+        expiresAt,
+        approvedAt: new Date().toISOString(),
+        resultPath: "vaults/vault-supervisionado--ask-plan-step/study/artigo--ask-plan-step.md",
+        vaultId: "plan-step",
+        evidenceStatus: "draft",
+      }),
+    });
+  });
+  await page.route("**/api/v1/notes/vaults/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ content: argumentsValue.content, content_hash: "b".repeat(64) }),
+    });
+  });
+
+  await page.goto("/ask", { waitUntil: "domcontentloaded" });
+  await page.getByPlaceholder(/ask your graph/i).fill("Elabore um artigo");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Focus in Graph: Linux Namespaces" })).toHaveAttribute(
+    "href",
+    /\/brain\?graph=open&focusNode=99$/,
+  );
+
+  await page.getByRole("button", { name: "Save answer as note" }).click();
+  await page.getByRole("textbox", { name: "Note filename" }).fill("Artigo");
+  await page.getByLabel("Destination").selectOption("new_vault");
+  await page.getByRole("textbox", { name: "New vault name" }).fill("Vault Supervisionado");
+  await page.getByRole("button", { name: "Review exact preview" }).click();
+
+  await expect(page.getByRole("list", { name: "Action plan steps" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve step 1: Create vault" }).click();
+  await expect(page.getByRole("button", { name: "Approve step 2: Save note" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve step 2: Save note" }).click();
+  await expect(page.getByRole("link", { name: "Open saved note" })).toBeVisible();
+  expect(stepsExecuted).toEqual(["create_vault", "create_note"]);
+});

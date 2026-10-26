@@ -27,6 +27,7 @@ from berrybrain_api.ask_flow import (
 from berrybrain_api.ask_references import (
     append_verified_reference_links,
     capture_ask_references,
+    format_reference_label,
     resolve_ask_references,
 )
 from berrybrain_api.cognitive_query import retrieve_graph
@@ -38,6 +39,7 @@ from berrybrain_api.models import (
     InsightRecord,
     NoteAttachmentRecord,
     NoteRecord,
+    VaultRecord,
 )
 from berrybrain_api.routers.graph import GraphInferRequest, infer_graph
 
@@ -421,6 +423,121 @@ class AskFlowTest(unittest.IsolatedAsyncioTestCase):
                 for ref in capture_ask_references(self.session, [mismatched])
             )
         )
+
+    async def test_named_vault_reference_and_duplicate_title_disambiguation(
+        self,
+    ) -> None:
+        vault = VaultRecord(
+            id="feira-vault-1",
+            name="Projetos da Feira",
+            path="vaults/projetos-da-feira--ask-1",
+        )
+        default_note = NoteRecord(
+            title="Experimento",
+            slug="experimento-default",
+            path="inbox/Experimento.md",
+            content="Experimento no vault padrão",
+            content_hash="v-default",
+            vault_id="default",
+        )
+        vault_note = NoteRecord(
+            title="Experimento",
+            slug="experimento-feira",
+            path="vaults/projetos-da-feira--ask-1/study/Experimento.md",
+            content="Experimento no vault da feira",
+            content_hash="v-feira",
+            vault_id=vault.id,
+        )
+        self.session.add_all([vault, default_note, vault_note])
+        self.session.commit()
+
+        # Mismatched vaultId metadata on a default-vault note must be rejected.
+        forged_vault = [
+            {
+                "evidenceId": "ev-default",
+                "metadata": {"noteId": default_note.id, "vaultId": vault.id},
+                "citationStatus": "source_verified",
+            }
+        ]
+        forged_captured = capture_ask_references(self.session, forged_vault)
+        self.assertEqual([item["kind"] for item in forged_captured], ["note"])
+
+        evidence = [
+            {
+                "evidenceId": "ev-default",
+                "metadata": {"noteId": default_note.id},
+                "citationStatus": "source_verified",
+            },
+            {
+                "evidenceId": "ev-feira",
+                "metadata": {"noteId": vault_note.id, "vaultId": vault.id},
+                "citationStatus": "source_verified",
+            },
+        ]
+        flow = create_ask_session(self.session)
+        with patch(
+            "berrybrain_api.ask_flow.answer_cognitive_query",
+            AsyncMock(
+                return_value={
+                    "answer": "Compare os dois experimentos.",
+                    "evidence": evidence,
+                }
+            ),
+        ):
+            await append_ask_turn(self.session, flow.id, "Quais experimentos?")
+
+        turn = get_ask_session_payload(self.session, flow.id)["turns"][1]
+        refs = turn["references"]
+        self.assertEqual(
+            {ref["kind"] for ref in refs},
+            {"note", "vault"},
+        )
+        vault_ref = next(ref for ref in refs if ref["kind"] == "vault")
+        self.assertEqual(vault_ref["id"], vault.id)
+        self.assertEqual(vault_ref["title"], "Projetos da Feira")
+        self.assertEqual(vault_ref["path"], vault.path)
+        self.assertTrue(vault_ref["current"])
+        named_note_ref = next(
+            ref for ref in refs if ref["kind"] == "note" and ref["id"] == vault_note.id
+        )
+        self.assertEqual(named_note_ref["vaultName"], "Projetos da Feira")
+        self.assertEqual(named_note_ref["vaultPath"], vault.path)
+        self.assertIn(
+            f"[Experimento (note · inbox)](bbref:resolved:note:{default_note.id})",
+            turn["content"],
+        )
+        self.assertIn(
+            f"[Experimento (note · Projetos da Feira · {vault.path}/study)](bbref:resolved:note:{vault_note.id})",
+            turn["content"],
+        )
+        self.assertIn(
+            f"[Projetos da Feira](bbref:resolved:vault:{vault.id})",
+            turn["content"],
+        )
+        self.assertEqual(
+            format_reference_label(vault_ref, refs),
+            "Projetos da Feira",
+        )
+
+        # Follow-up link request preserves disambiguated labels and vault link.
+        with patch(
+            "berrybrain_api.ask_flow.answer_cognitive_query", new_callable=AsyncMock
+        ) as model:
+            await append_ask_turn(
+                self.session, flow.id, "Consegue linkar as notas para mim?"
+            )
+            model.assert_not_awaited()
+        followup = get_ask_session_payload(self.session, flow.id)["turns"][3]
+        self.assertIn(f"bbref:resolved:vault:{vault.id}", followup["content"])
+        self.assertIn("Experimento (note · Projetos da Feira", followup["content"])
+
+        # Removing the vault record invalidates the vault reference cleanly.
+        self.session.delete(vault)
+        self.session.commit()
+        after_delete = get_ask_session_payload(self.session, flow.id)["turns"][1][
+            "references"
+        ]
+        self.assertFalse(any(ref["kind"] == "vault" for ref in after_delete))
 
     def test_legacy_note_confidence_does_not_change_retrieval(self) -> None:
         node = GraphNodeRecord(

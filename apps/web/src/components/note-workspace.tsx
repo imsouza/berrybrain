@@ -4,10 +4,11 @@ import { WorkspaceProvider, useWorkspace, appPath } from "@/contexts/workspace-c
 import { RequiredAiSetup } from "./required-ai-setup";
 import { WorkspaceSidebar } from "./sidebar/workspace-sidebar";
 import { NoteEditor } from "./editor/note-editor";
+import type { EditorSelectionContext } from "./ask-editor-diff-plan";
 import { HomeView } from "./home/home-view";
 import { RightPanel } from "./panel/right-panel";
 import { ResizeHandle } from "./sidebar/resize-handle";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -54,8 +55,22 @@ function Shell({ children }: { children?: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [editorAskOpen, setEditorAskOpen] = useState(false);
+  const [editorSelection, setEditorSelection] = useState<EditorSelectionContext | null>(null);
+  const [editorContextScope, setEditorContextScope] = useState<"saved_note" | "selection" | "vault">("saved_note");
+  const [editorPromptSeed, setEditorPromptSeed] = useState("");
+  const [focusedGraphNodeId, setFocusedGraphNodeId] = useState("");
+  const editorCommitDraftRef = useRef<((nextText: string) => void) | null>(null);
 
-  useEffect(() => setEditorAskOpen(false), [w.active?.path]);
+  const registerEditorCommitDraft = useCallback((fn: ((nextText: string) => void) | null) => {
+    editorCommitDraftRef.current = fn;
+  }, []);
+
+  useEffect(() => {
+    setEditorAskOpen(false);
+    setEditorSelection(null);
+    setEditorContextScope("saved_note");
+    setEditorPromptSeed("");
+  }, [w.active?.path]);
 
   useEffect(() => {
     if (!/\/(brain|demo)\/?$/.test(pathname)) w.setGraphOpen(false);
@@ -63,12 +78,20 @@ function Shell({ children }: { children?: ReactNode }) {
     if (params.get("settings") === "open") w.setSettingsOpen(true);
     setAskInitialQuery(params.get("q")?.trim() || "");
     const notePath = params.get("note");
+    const vaultPath = params.get("vault")?.trim();
     const newNote = params.get("newNote");
     if (notePath) {
       const url = new URL(window.location.href);
       url.searchParams.delete("note");
       window.history.replaceState({}, "", url.toString());
       w.openNote(notePath);
+    }
+    if (vaultPath) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("vault");
+      window.history.replaceState({}, "", url.toString());
+      w.setGraphOpen(false);
+      w.setFocusedFolder(vaultPath);
     }
     if (newNote === "1") {
       const url = new URL(window.location.href);
@@ -78,6 +101,14 @@ function Shell({ children }: { children?: ReactNode }) {
     }
     const graph = params.get("graph");
     if (graph === "open" || graph === "1") {
+      w.setGraphOpen(true);
+    }
+    const focusNode = params.get("focusNode")?.trim();
+    if (focusNode) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("focusNode");
+      window.history.replaceState({}, "", url.toString());
+      setFocusedGraphNodeId(focusNode);
       w.setGraphOpen(true);
     }
     const monitor = params.get("monitor");
@@ -146,35 +177,161 @@ function Shell({ children }: { children?: ReactNode }) {
             onNavigate={(path) => { void w.openNote(path); router.push(appPath("/brain") as Route); }}
           />
         ) : w.graphOpen ? (
-          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
+          <GraphScreen apiUrl={w.api} autoFocusAsk={w.askRequested} initialAskQuery={w.askQuery} focusNodeId={focusedGraphNodeId} onFocusNodeConsumed={() => setFocusedGraphNodeId("")} onAskFocused={w.consumeAskRequest} onClose={() => w.setGraphOpen(false)} onOpenSettings={() => w.setSettingsOpen(true)} onNavigate={(path) => { w.setGraphOpen(false); w.openNote(path); }} />
         ) : children ? children : w.active ? (
-          <NoteEditor onOpenAsk={() => setEditorAskOpen(true)} />
+          <NoteEditor
+            onOpenAsk={(selection) => {
+              if (selection) {
+                setEditorSelection(selection);
+                setEditorContextScope("selection");
+              } else {
+                setEditorContextScope("saved_note");
+              }
+              setEditorPromptSeed("");
+              setEditorAskOpen(true);
+            }}
+            onSelectionChange={setEditorSelection}
+            onRegisterCommitDraft={registerEditorCommitDraft}
+          />
         ) : (
           <HomeView />
         )}
       </section>
 
-      {editorAskOpen && w.active && !isAskPage && !w.graphOpen && (
-        <aside className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-background shadow-2xl lg:w-[min(620px,65vw)]" aria-label="Ask BerryBrain beside note">
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-panel px-4 py-2 text-xs">
-            <span className="truncate font-semibold">Ask beside: {w.active.title}</span>
-            <button className="bb-action px-2 py-1" onClick={() => setEditorAskOpen(false)} aria-label="Close Ask panel">Close</button>
-          </div>
-          <p className="shrink-0 border-b border-border px-4 py-2 text-[11px] text-muted">Only saved BerryBrain content is retrieved. Unsaved editor text is not sent automatically.</p>
-          <GraphScreen
-            key={w.active.path}
-            apiUrl={w.api}
-            askOnly
-            autoFocusAsk
-            initialAskQuery={`Sobre a nota "${w.active.title}": `}
-            onClose={() => setEditorAskOpen(false)}
-            onOpenHome={() => setEditorAskOpen(false)}
-            onOpenGraph={() => { setEditorAskOpen(false); w.setGraphOpen(true); }}
-            onOpenSettings={() => w.setSettingsOpen(true)}
-            onNavigate={(path) => { setEditorAskOpen(false); void w.openNote(path); }}
-          />
-        </aside>
-      )}
+      {editorAskOpen && w.active && !isAskPage && !w.graphOpen && (() => {
+        const activeNote = w.active;
+        const isUnsavedDraft = w.draft !== activeNote.content;
+        const activeSelection =
+          editorSelection && editorSelection.notePath === activeNote.path && editorSelection.text.trim()
+            ? editorSelection
+            : null;
+        const currentFolder = activeNote.folder || (activeNote.path.includes("/") ? activeNote.path.slice(0, activeNote.path.lastIndexOf("/")) : "inbox");
+        const baseQuery = editorPromptSeed || (
+          editorContextScope === "selection" && activeSelection
+            ? `Sobre o trecho selecionado da nota "${activeNote.title}" (${activeSelection.isUnsavedDraft ? "rascunho local não salvo" : `revisão salva ${(activeSelection.noteRevision || "local").slice(0, 8)}`}): "${activeSelection.text.slice(0, 400)}" — `
+            : editorContextScope === "vault"
+              ? `Considerando o vault/pasta "${currentFolder}" e a nota "${activeNote.title}": `
+              : `Sobre a nota "${activeNote.title}": `
+        );
+        const buildIntentPrompt = (intent: "explain" | "summarize" | "reorganize" | "connections" | "suggest") => {
+          const targetDesc =
+            editorContextScope === "selection" && activeSelection
+              ? `o trecho selecionado ("${activeSelection.text.slice(0, 400)}") da nota "${activeNote.title}"`
+              : editorContextScope === "vault"
+                ? `a nota "${activeNote.title}" no contexto de "${currentFolder}"`
+                : `a nota "${activeNote.title}"`;
+          switch (intent) {
+            case "explain":
+              return `Explique ${targetDesc} usando as fontes verificadas.`;
+            case "summarize":
+              return `Resuma ${targetDesc} destacando os pontos principais.`;
+            case "reorganize":
+              return `Reorganize ${targetDesc} em seções Markdown claras.`;
+            case "connections":
+              return `Quais conexões verificadas existem no grafo para ${targetDesc}?`;
+            case "suggest":
+              return `Sugira um complemento fundamentado para ${targetDesc}.`;
+          }
+        };
+        return (
+          <aside className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-background shadow-2xl lg:w-[min(620px,65vw)]" aria-label="Ask BerryBrain beside note">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-panel px-4 py-2 text-xs">
+              <span className="truncate font-semibold">Ask beside: {activeNote.title}</span>
+              <button className="bb-action px-2 py-1" onClick={() => setEditorAskOpen(false)} aria-label="Close Ask panel">Close</button>
+            </div>
+            <div className="shrink-0 space-y-2 border-b border-border bg-surface/40 px-4 py-2.5 text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-muted">
+                <span>
+                  Only saved BerryBrain content is retrieved. Unsaved editor text is not sent automatically.
+                </span>
+                <span className="rounded border border-border bg-panel px-2 py-0.5 font-mono text-[10px] text-foreground">
+                  {isUnsavedDraft
+                    ? `Unsaved draft · base rev ${(activeNote.content_hash || "local").slice(0, 8)}`
+                    : `Saved rev ${(activeNote.content_hash || "local").slice(0, 8)}`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Ask context scope">
+                <span className="text-muted">Context:</span>
+                <button
+                  type="button"
+                  aria-pressed={editorContextScope === "saved_note"}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] ${editorContextScope === "saved_note" ? "border-accent bg-accent-soft text-accent font-medium" : "border-border bg-panel text-muted hover:text-foreground"}`}
+                  onClick={() => { setEditorContextScope("saved_note"); setEditorPromptSeed(""); }}
+                >
+                  Saved note
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={editorContextScope === "vault"}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] ${editorContextScope === "vault" ? "border-accent bg-accent-soft text-accent font-medium" : "border-border bg-panel text-muted hover:text-foreground"}`}
+                  onClick={() => { setEditorContextScope("vault"); setEditorPromptSeed(""); }}
+                >
+                  Current vault/folder ({currentFolder})
+                </button>
+                <button
+                  type="button"
+                  disabled={!activeSelection}
+                  aria-pressed={editorContextScope === "selection"}
+                  className={`rounded-md border px-2 py-0.5 text-[11px] disabled:opacity-45 ${editorContextScope === "selection" ? "border-accent bg-accent-soft text-accent font-medium" : "border-border bg-panel text-muted hover:text-foreground"}`}
+                  onClick={() => { if (activeSelection) { setEditorContextScope("selection"); setEditorPromptSeed(""); } }}
+                >
+                  {activeSelection
+                    ? `Selection (${activeSelection.text.length} chars · ${activeSelection.isUnsavedDraft ? "unsaved draft" : "saved"})`
+                    : "Selection (none)"}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Editor Ask actions">
+                <span className="text-muted">Intent:</span>
+                {(
+                  [
+                    ["explain", "Explain"],
+                    ["summarize", "Summarize"],
+                    ["reorganize", "Reorganize"],
+                    ["connections", "Connections"],
+                    ["suggest", "Suggest"],
+                  ] as const
+                ).map(([intent, label]) => (
+                  <button
+                    key={intent}
+                    type="button"
+                    className="bb-action px-2 py-0.5 text-[11px]"
+                    onClick={() => setEditorPromptSeed(buildIntentPrompt(intent))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <GraphScreen
+              key={activeNote.path}
+              apiUrl={w.api}
+              askOnly
+              autoFocusAsk
+              initialAskQuery={baseQuery}
+              editorTarget={{
+                notePath: activeNote.path,
+                noteTitle: activeNote.title,
+                noteRevision: activeNote.content_hash || "",
+                draft: w.draft,
+                isUnsavedDraft,
+                selection: activeSelection,
+                applyDraft: (nextText: string) => {
+                  if (editorCommitDraftRef.current) {
+                    editorCommitDraftRef.current(nextText);
+                  } else {
+                    w.setDraft(nextText);
+                  }
+                },
+              }}
+              onClose={() => setEditorAskOpen(false)}
+              onOpenHome={() => setEditorAskOpen(false)}
+              onOpenGraph={() => { setEditorAskOpen(false); w.setGraphOpen(true); }}
+              onOpenSettings={() => w.setSettingsOpen(true)}
+              onNavigate={(path) => { setEditorAskOpen(false); void w.openNote(path); }}
+            />
+          </aside>
+        );
+      })()}
 
       {w.rightOpen && (
         <>

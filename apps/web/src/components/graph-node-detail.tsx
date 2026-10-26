@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Home } from "lucide-react";
+import { ArrowLeft, Focus, Home } from "lucide-react";
 import { apiFetch, appPath, useWorkspace } from "@/contexts/workspace-context";
 import { humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
 
@@ -130,6 +130,11 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
     window.location.replace(appPath(`/brain?${query.toString()}`));
   }
 
+  function focusInGraph() {
+    const query = new URLSearchParams({ graph: "open", focusNode: String(nodeId) });
+    window.location.assign(appPath(`/brain?${query.toString()}`));
+  }
+
   function editCurrent() {
     if (!node) return;
     if (node.type === "note" && node.notes?.[0]?.path) {
@@ -239,8 +244,9 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
     <main className="min-h-0 flex-1 overflow-y-auto bg-background">
       <header className="border-b border-border/60 px-5 py-5 sm:px-8">
         <div className="mx-auto max-w-7xl">
-          <nav className="mb-5 flex items-center gap-2" aria-label="Node navigation">
+          <nav className="mb-5 flex flex-wrap items-center gap-2" aria-label="Node navigation">
             <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => backToGraph()}><ArrowLeft className="size-4" />Back to Graph</button>
+            <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={focusInGraph}><Focus className="size-4" />Focus in Graph</button>
             <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => { window.location.href = appPath("/brain"); }}><Home className="size-4" />Back to Home</button>
           </nav>
           <div className="flex flex-col items-start justify-between gap-5 sm:flex-row">

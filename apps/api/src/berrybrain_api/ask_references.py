@@ -15,7 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.artifact_state import accepted_node_clause
-from berrybrain_api.models import GraphNodeRecord, NoteAttachmentRecord, NoteRecord
+from berrybrain_api.models import (
+    GraphNodeRecord,
+    NoteAttachmentRecord,
+    NoteRecord,
+    VaultRecord,
+)
+
+_VAULT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,35}$")
 
 
 def _record_id(value: object) -> int | None:
@@ -28,11 +35,30 @@ def _record_id(value: object) -> int | None:
     return parsed if parsed > 0 and str(value).strip() == str(parsed) else None
 
 
+def _vault_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned == "default" or not _VAULT_ID_RE.match(cleaned):
+        return None
+    return cleaned
+
+
+def _vault_info(session: Session, vault_id: object) -> dict[str, str]:
+    cleaned = _vault_id(vault_id)
+    if cleaned is None:
+        return {}
+    vault = session.get(VaultRecord, cleaned)
+    if vault is None or not vault.path:
+        return {}
+    return {"vaultName": vault.name, "vaultPath": vault.path}
+
+
 def capture_ask_references(session: Session, evidence: object) -> list[dict[str, Any]]:
     """Capture only identities that came from validated, cited evidence."""
     if not isinstance(evidence, list):
         return []
-    captured: dict[tuple[str, int], dict[str, Any]] = {}
+    captured: dict[tuple[str, int | str], dict[str, Any]] = {}
     for item in evidence[:40]:
         if not isinstance(item, dict):
             continue
@@ -42,6 +68,8 @@ def capture_ask_references(session: Session, evidence: object) -> list[dict[str,
         if not isinstance(metadata, dict):
             metadata = item
         evidence_id = str(item.get("evidenceId") or item.get("id") or "")[:160]
+        matched_primary = False
+        authoritative_vault_id: str | None = None
         for kind, field in (
             ("attachment", "attachmentId"),
             ("note", "noteId"),
@@ -62,12 +90,16 @@ def capture_ask_references(session: Session, evidence: object) -> list[dict[str,
                     continue
                 stable_id = f"{owner.stable_id}:{record.checksum}:{record.stored_path}"
                 version = record.checksum
+                matched_primary = True
+                authoritative_vault_id = owner.vault_id
             elif kind == "note":
                 record = session.get(NoteRecord, identity)
                 if record is None or record.evidence_status == "draft":
                     continue
                 stable_id = record.stable_id
                 version = record.content_hash
+                matched_primary = True
+                authoritative_vault_id = record.vault_id
             else:
                 record = session.scalar(
                     select(GraphNodeRecord).where(
@@ -78,7 +110,9 @@ def capture_ask_references(session: Session, evidence: object) -> list[dict[str,
                     continue
                 stable_id = record.stable_id
                 version = str(record.artifact_version)
-            key = (kind, identity)
+                matched_primary = True
+                authoritative_vault_id = record.vault_id
+            key: tuple[str, int | str] = (kind, identity)
             if key not in captured:
                 captured[key] = {
                     "kind": kind,
@@ -89,6 +123,37 @@ def capture_ask_references(session: Session, evidence: object) -> list[dict[str,
                 }
             if evidence_id and evidence_id not in captured[key]["evidenceIds"]:
                 captured[key]["evidenceIds"].append(evidence_id)
+        claimed_vault_id = _vault_id(metadata.get("vaultId"))
+        if matched_primary:
+            if (
+                claimed_vault_id is not None
+                and claimed_vault_id != authoritative_vault_id
+            ):
+                candidate_vault_id = None
+            else:
+                candidate_vault_id = _vault_id(authoritative_vault_id)
+        else:
+            candidate_vault_id = claimed_vault_id
+        if candidate_vault_id is not None:
+            vault = session.get(VaultRecord, candidate_vault_id)
+            if vault is not None and vault.path:
+                vault_key: tuple[str, int | str] = ("vault", vault.id)
+                if vault_key not in captured:
+                    captured[vault_key] = {
+                        "kind": "vault",
+                        "id": vault.id,
+                        "stableId": f"vault:{vault.id}:{vault.path}",
+                        "sourceVersion": f"{vault.name}\x00{vault.path}",
+                        "evidenceIds": [],
+                    }
+                vault_evidence_id = (
+                    evidence_id if not matched_primary else f"vault:{vault.id}"
+                )
+                if (
+                    vault_evidence_id
+                    and vault_evidence_id not in captured[vault_key]["evidenceIds"]
+                ):
+                    captured[vault_key]["evidenceIds"].append(vault_evidence_id)
     return list(captured.values())
 
 
@@ -101,9 +166,38 @@ def resolve_ask_references(session: Session, stored: object) -> list[dict[str, A
         if not isinstance(item, dict):
             continue
         kind = item.get("kind")
-        identity = _record_id(item.get("id"))
         stable_id = item.get("stableId")
-        if identity is None or not isinstance(stable_id, str) or not stable_id:
+        if not isinstance(stable_id, str) or not stable_id:
+            continue
+        if kind == "vault":
+            vault_id = _vault_id(item.get("id"))
+            if vault_id is None:
+                continue
+            vault = session.get(VaultRecord, vault_id)
+            if vault is None or not vault.path:
+                continue
+            current_stable_id = f"vault:{vault.id}:{vault.path}"
+            if current_stable_id != stable_id:
+                continue
+            current_version = f"{vault.name}\x00{vault.path}"
+            result.append(
+                {
+                    "kind": "vault",
+                    "id": vault.id,
+                    "stableId": current_stable_id,
+                    "title": vault.name,
+                    "path": vault.path,
+                    "vaultId": vault.id,
+                    "vaultName": vault.name,
+                    "vaultPath": vault.path,
+                    "sourceVersion": item.get("sourceVersion"),
+                    "current": item.get("sourceVersion") == current_version,
+                    "evidenceIds": _evidence_ids(item),
+                }
+            )
+            continue
+        identity = _record_id(item.get("id"))
+        if identity is None:
             continue
         if kind == "attachment":
             attachment = session.get(NoteAttachmentRecord, identity)
@@ -127,6 +221,7 @@ def resolve_ask_references(session: Session, stored: object) -> list[dict[str, A
                     "noteId": note.id,
                     "noteTitle": note.title,
                     "vaultId": note.vault_id,
+                    **_vault_info(session, note.vault_id),
                     "sourceVersion": item.get("sourceVersion"),
                     "current": item.get("sourceVersion") == attachment.checksum,
                     "evidenceIds": _evidence_ids(item),
@@ -148,6 +243,7 @@ def resolve_ask_references(session: Session, stored: object) -> list[dict[str, A
                     "title": note.title,
                     "path": note.path,
                     "vaultId": note.vault_id,
+                    **_vault_info(session, note.vault_id),
                     "sourceVersion": item.get("sourceVersion"),
                     "current": item.get("sourceVersion") == note.content_hash,
                     "evidenceIds": _evidence_ids(item),
@@ -169,6 +265,7 @@ def resolve_ask_references(session: Session, stored: object) -> list[dict[str, A
                     "title": node.title or node.label,
                     "nodeType": node.type,
                     "vaultId": node.vault_id,
+                    **_vault_info(session, node.vault_id),
                     "sourceNotes": _graph_source_notes(session, node),
                     "sourceVersion": item.get("sourceVersion"),
                     "current": item.get("sourceVersion") == str(node.artifact_version),
@@ -207,6 +304,7 @@ def _graph_source_notes(
             "title": notes[note_id].title,
             "path": notes[note_id].path,
             "vaultId": notes[note_id].vault_id,
+            **_vault_info(session, notes[note_id].vault_id),
         }
         for note_id in note_ids
         if note_id in notes
@@ -218,6 +316,38 @@ def _evidence_ids(item: dict[str, Any]) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [value[:160] for value in raw[:20] if isinstance(value, str) and value]
+
+
+def format_reference_label(
+    reference: dict[str, Any], references: list[dict[str, Any]]
+) -> str:
+    """Format a human-readable reference title, disambiguating collisions."""
+    title = " ".join(str(reference.get("title") or "Reference").split())
+    same_title = [
+        item
+        for item in references
+        if " ".join(str(item.get("title") or "Reference").split()).casefold()
+        == title.casefold()
+    ]
+    if len(same_title) <= 1:
+        return title
+    kind = str(reference.get("kind") or "reference")
+    kind_label = {
+        "note": "note",
+        "graph_node": f"graph {reference.get('nodeType') or 'node'}",
+        "attachment": "attachment",
+        "vault": "vault",
+    }.get(kind, kind)
+    qualifiers: list[str] = [kind_label]
+    vault_name = str(reference.get("vaultName") or "").strip()
+    if vault_name and kind != "vault":
+        qualifiers.append(vault_name)
+    path = str(reference.get("path") or "").strip()
+    if path and kind in {"note", "attachment"}:
+        folder = path.rsplit("/", 1)[0] if "/" in path else ""
+        if folder and folder != vault_name:
+            qualifiers.append(folder)
+    return f"{title} ({' · '.join(qualifiers)})"
 
 
 def append_verified_reference_links(
@@ -233,13 +363,19 @@ def append_verified_reference_links(
     missing: list[str] = []
     for reference in references[:40]:
         kind = reference.get("kind")
-        identity = _record_id(reference.get("id"))
-        if kind not in {"note", "graph_node", "attachment"} or identity is None:
+        identity: int | str | None
+        if kind == "vault":
+            identity = _vault_id(reference.get("id"))
+        elif kind in {"note", "graph_node", "attachment"}:
+            identity = _record_id(reference.get("id"))
+        else:
+            identity = None
+        if identity is None:
             continue
         markers = [f"resolved:{kind}:{identity}", *_evidence_ids(reference)]
         if any(f"](bbref:{marker})" in answer for marker in markers):
             continue
-        title = " ".join(str(reference.get("title") or "Reference").split())
+        title = format_reference_label(reference, references)
         label = re.sub(r"([\\\[\]])", r"\\\1", title)
         missing.append(f"[{label}](bbref:resolved:{kind}:{identity})")
     if not missing:

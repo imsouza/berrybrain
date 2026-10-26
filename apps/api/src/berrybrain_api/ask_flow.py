@@ -16,6 +16,7 @@ from berrybrain_api.ai_configuration import load_configuration
 from berrybrain_api.ask_references import (
     append_verified_reference_links,
     capture_ask_references,
+    format_reference_label,
     resolve_ask_references,
 )
 from berrybrain_api.cognitive_layer import answer_cognitive_query
@@ -133,7 +134,7 @@ async def append_ask_turn(
                 label = re.sub(
                     r"([\\\[\]])",
                     r"\\\1",
-                    " ".join(str(reference["title"]).split()),
+                    format_reference_label(reference, live_references),
                 )
                 linked_sources.append(f"{index}. [{label}](bbref:{marker})")
             result = {

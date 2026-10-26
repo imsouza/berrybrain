@@ -541,6 +541,7 @@ export function GraphCanvas({
   const cameraAnimatingRef = useRef(false);
   const cameraCommitTimerRef = useRef(0);
   const onOpenRef = useRef(onOpen);
+  const selectedIdRef = useRef(selectedId);
   const pendingOpenNodeRef = useRef<LN | null>(null);
   const viewRef = useRef({ zoom, pan });
   const renderedViewRef = useRef({ zoom, pan });
@@ -570,6 +571,7 @@ export function GraphCanvas({
     tctx.current = tooltipCtx({ nodes: data.nodes, edges: data.edges });
   }, [data.nodes, data.edges]);
   useEffect(() => { onOpenRef.current = onOpen; }, [onOpen]);
+  useLayoutEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useLayoutEffect(() => { viewRef.current = { zoom, pan }; }, [pan, zoom]);
   const highlighted = useMemo(() => new Set(highlightedIds), [highlightedIds]);
   const adjacency = useMemo(() => {
@@ -599,9 +601,11 @@ export function GraphCanvas({
   useEffect(() => {
     if (!selectedId || !containerRef.current) return;
     const pendingNode = pendingOpenNodeRef.current;
+    const shouldOpen = pendingNode?.node.id === selectedId;
     const node = layoutByIdRef.current.get(selectedId)
-      || (pendingNode?.node.id === selectedId ? pendingNode : undefined);
+      || (shouldOpen ? pendingNode : undefined);
     if (!node) {
+      if (!shouldOpen) return;
       const fallbackTimer = window.setTimeout(
         () => onOpenRef.current?.(selectedId),
         650,
@@ -624,7 +628,7 @@ export function GraphCanvas({
         cameraAnimatingRef.current = false;
         selection.call(behavior.transform, target);
         pendingOpenNodeRef.current = null;
-        onOpenRef.current?.(selectedId);
+        if (shouldOpen) onOpenRef.current?.(selectedId);
       } else {
         cameraAnimatingRef.current = true;
         let completed = false;
@@ -635,7 +639,7 @@ export function GraphCanvas({
           if (fallbackTimer) window.clearTimeout(fallbackTimer);
           cameraAnimatingRef.current = false;
           pendingOpenNodeRef.current = null;
-          onOpenRef.current?.(selectedId);
+          if (shouldOpen) onOpenRef.current?.(selectedId);
         };
         fallbackTimer = window.setTimeout(finish, 650);
         selection
@@ -650,8 +654,8 @@ export function GraphCanvas({
     setZoom(targetZoom);
     setPan({ x: (W / 2 - node.x) * targetZoom, y: (H / 2 - node.y) * targetZoom });
     pendingOpenNodeRef.current = null;
-    onOpenRef.current?.(selectedId);
-  }, [selectedId, setPan, setZoom]);
+    if (shouldOpen) onOpenRef.current?.(selectedId);
+  }, [data.nodes, selectedId, setPan, setZoom]);
 
   useEffect(() => {
     const clearFocus = (event: KeyboardEvent) => {
@@ -883,7 +887,7 @@ export function GraphCanvas({
     layoutWorkerRef.current?.terminate();
     layoutWorkerRef.current = null;
     initialWorkerSettledRef.current = false;
-    userMovedCameraRef.current = false;
+    userMovedCameraRef.current = Boolean(selectedIdRef.current);
     if (layoutMode !== "brain" || !layoutRef.current.length) {
       setRenderRevision((value) => value + 1);
       return;
@@ -1112,7 +1116,7 @@ export function GraphCanvas({
 
         pathNodeShape(ct, n.x, n.y, r, shape);
         ct.fillStyle = colors.fill; ct.fill();
-        const labelIsReadable = !isHovered && showFilteredLabels && renderZoom >= 0.7;
+        const labelIsReadable = !isHovered && (showFilteredLabels || isSel) && renderZoom >= 0.7;
         if (labelIsReadable) {
           drawNetworkNodeLabel(ct, n.node, n.x, n.y, r, isSel || isHighlighted);
         }

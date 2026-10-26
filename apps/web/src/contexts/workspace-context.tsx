@@ -40,12 +40,14 @@ type Ctx = {
   insights: Insight[];
   sidebarWidth: number; rightOpen: boolean;
   cmdOpen: boolean; monitorOpen: boolean; settingsOpen: boolean; graphOpen: boolean; askRequested: boolean; askQuery: string; guideOpen: boolean; notificationsOpen: boolean;
+  focusedFolder: string | null;
   creatingDraft: boolean;
   saveConflict: { currentContent: string; currentContentHash: string } | null;
   toasts: Toast[];
   setDraft: (v: string) => void; setViewMode: (v: "edit" | "preview" | "split") => void;
   setSidebarWidth: (w: number) => void; setRightOpen: (v: boolean) => void;
   setCmdOpen: (v: boolean) => void; setMonitorOpen: (v: boolean) => void; setSettingsOpen: (v: boolean) => void; setGraphOpen: (v: boolean) => void; openAsk: (query?: string) => void; consumeAskRequest: () => void; setGuideOpen: (v: boolean) => void; setNotificationsOpen: (v: boolean) => void;
+  setFocusedFolder: (folder: string | null) => void;
   openNote: (p: string) => Promise<void>; closeNote: () => void; save: () => Promise<void>; download: () => void; renameNote: () => Promise<void>;
   resolveSaveConflict: (strategy: "reload" | "overwrite") => Promise<void>;
   createDraft: (content?: string) => Promise<boolean>; deleteActive: () => Promise<void>; scanVault: () => Promise<void>;
@@ -76,6 +78,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   const [askQuery, setAskQuery] = useState("");
   const [guideOpen, setGuideOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [focusedFolder, setFocusedFolder] = useState<string | null>(null);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [saveConflict, setSaveConflict] = useState<{
     currentContent: string;
@@ -466,7 +469,7 @@ export function WorkspaceProvider({ children, demo = false }: { children: ReactN
   }, [active, closeNote, cmdOpen, save]);
 
   return (
-    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, askRequested, askQuery, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, openAsk: (query = "") => { setAskQuery(query.trim()); setAskRequested(true); setGraphOpen(true); }, consumeAskRequest: () => { setAskRequested(false); setAskQuery(""); }, setGuideOpen, setNotificationsOpen, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
+    <C.Provider value={{ api, demo, notes, stats, jobs, active, draft, autosave, viewMode, insights, sidebarWidth, rightOpen, graphOpen, askRequested, askQuery, guideOpen, cmdOpen, monitorOpen, settingsOpen, notificationsOpen, focusedFolder, creatingDraft, saveConflict, toasts, setDraft: handleDraft, setViewMode, setSidebarWidth, setRightOpen, setCmdOpen, setMonitorOpen, setSettingsOpen, setGraphOpen, openAsk: (query = "") => { setAskQuery(query.trim()); setAskRequested(true); setGraphOpen(true); }, consumeAskRequest: () => { setAskRequested(false); setAskQuery(""); }, setGuideOpen, setNotificationsOpen, setFocusedFolder, openNote, closeNote, save, resolveSaveConflict, download, renameNote, createDraft, deleteActive, scanVault, loadAll, toast }}>
       {children}
       {creatingDraft && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-background/60 backdrop-blur-sm">

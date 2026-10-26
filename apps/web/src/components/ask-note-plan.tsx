@@ -2,10 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, appPath } from "@/contexts/workspace-context";
-import { askReferenceHref, type AskReference } from "./ask-markdown";
+import { askReferenceHref, verifiedReference, type AskReference } from "./ask-markdown";
+
+type ActionPlanStep = {
+  id: "create_vault" | "create_note";
+  action: "create_vault" | "create_note";
+  target: string;
+  status: "pending" | "completed" | "cancelled";
+};
 
 type ActionPlan = {
   id: string;
+  approvalMode?: "ask_for_approval" | "approve_full";
+  steps?: ActionPlanStep[];
   arguments: { title: string; folder: string; content: string; newVaultName?: string | null; targetVaultId?: string | null; targetVaultName?: string | null };
   argumentsHash: string;
   attempts?: number;
@@ -26,8 +35,8 @@ const folders = ["inbox", "study", "permanent", "review", "templates"];
 
 function noteContent(answer: string, references: AskReference[]): string {
   const linked = answer.replace(/\[([^\]]+)\]\(bbref:([^)]*)\)/g, (_match, label: string, evidenceId: string) => {
-    const reference = references.find((item) => item.current && item.evidenceIds.includes(evidenceId));
-    const href = reference ? askReferenceHref(reference) : null;
+    const reference = verifiedReference(evidenceId, references);
+    const href = reference?.current ? askReferenceHref(reference) : null;
     return href ? `[${label.replaceAll("]", "\\]")}](${href})` : label;
   });
   return linked.trim();
@@ -200,7 +209,7 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
     }
   }
 
-  async function approve() {
+  async function approve(step?: "create_vault" | "create_note") {
     if (!plan) return;
     setBusy(true);
     setMessage("");
@@ -208,7 +217,10 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
       const response = await apiFetch(`${apiUrl}/api/v1/ask/action-plans/${plan.id}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ arguments_hash: plan.argumentsHash }),
+        body: JSON.stringify({
+          arguments_hash: plan.argumentsHash,
+          ...(step ? { step } : {}),
+        }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Note could not be saved.");
@@ -298,6 +310,21 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
             {plan.arguments.newVaultName && <div><dt className="text-muted">New vault</dt><dd>{plan.arguments.newVaultName} · shared workspace</dd></div>}
             {plan.arguments.targetVaultId && <div><dt className="text-muted">Existing vault</dt><dd>{plan.arguments.targetVaultName || plan.arguments.targetVaultId} · shared workspace</dd></div>}
           </dl>
+          {plan.arguments.newVaultName && plan.steps && plan.steps.length > 1 && (
+            <ol className="mb-3 space-y-1 rounded-lg border border-border bg-surface/60 p-2.5 text-xs" aria-label="Action plan steps">
+              {plan.steps.map((step, index) => (
+                <li key={step.id} className="flex items-center justify-between gap-2">
+                  <span>
+                    <strong className="font-semibold text-foreground">Step {index + 1}:</strong>{" "}
+                    {step.id === "create_vault" ? `Create named vault "${plan.arguments.newVaultName}"` : `Save draft note "${plan.arguments.title}"`}
+                  </span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${step.status === "completed" ? "bg-accent-soft text-accent" : "bg-panel text-muted"}`}>
+                    {step.status}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
           <p className="mb-1 text-[11px] text-muted">Original approved preview</p>
           <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-3 text-xs">{plan.arguments.content}</pre>
           {["completed", "partial"].includes(plan.status) && plan.resultPath ? (
@@ -338,7 +365,16 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
             </div>
           ) : (
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="bb-action bb-action--primary px-3 py-1.5 text-xs" disabled={busy || plan.status !== "proposed"} onClick={() => void approve()}>{busy ? "Saving..." : plan.arguments.newVaultName ? "Approve vault and note" : "Approve and save note"}</button>
+              {plan.arguments.newVaultName && (plan.vaultId || plan.steps?.some((s) => s.id === "create_vault" && s.status === "completed")) ? (
+                <button className="bb-action bb-action--primary px-3 py-1.5 text-xs" disabled={busy || plan.status !== "proposed"} onClick={() => void approve("create_note")}>{busy ? "Saving..." : "Approve step 2: Save note"}</button>
+              ) : (
+                <>
+                  <button className="bb-action bb-action--primary px-3 py-1.5 text-xs" disabled={busy || plan.status !== "proposed"} onClick={() => void approve()}>{busy ? "Saving..." : plan.arguments.newVaultName ? "Approve vault and note" : "Approve and save note"}</button>
+                  {plan.arguments.newVaultName && (
+                    <button className="bb-action px-3 py-1.5 text-xs" disabled={busy || plan.status !== "proposed"} onClick={() => void approve("create_vault")}>{busy ? "Creating vault..." : "Approve step 1: Create vault"}</button>
+                  )}
+                </>
+              )}
               <button className="bb-action px-3 py-1.5 text-xs" disabled={busy} onClick={() => void cancel()}>Reject plan</button>
             </div>
           )}

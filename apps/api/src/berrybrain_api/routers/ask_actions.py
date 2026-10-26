@@ -44,6 +44,7 @@ class CreateNotePlanRequest(BaseModel):
     content: str = Field(min_length=1, max_length=50000)
     new_vault_name: str | None = Field(default=None, max_length=160)
     vault_id: str | None = Field(default=None, max_length=36)
+    approval_mode: Literal["ask_for_approval", "approve_full"] | None = None
     request_key: UUID | None = None
 
 
@@ -51,6 +52,7 @@ class ApprovePlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     arguments_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    step: Literal["create_vault", "create_note"] | None = None
 
 
 class ReviewDraftRequest(BaseModel):
@@ -75,11 +77,21 @@ class NotePlanArguments(BaseModel):
     targetVaultId: str | None = None
     targetVaultPath: str | None = None
     targetVaultName: str | None = None
+    approvalMode: Literal["ask_for_approval", "approve_full"] | None = None
+
+
+class ActionPlanStep(BaseModel):
+    id: Literal["create_vault", "create_note"]
+    action: Literal["create_vault", "create_note"]
+    target: str
+    status: Literal["pending", "completed", "cancelled"]
 
 
 class ActionPlanResponse(BaseModel):
     id: str
     action: Literal["create_note"]
+    approvalMode: Literal["ask_for_approval", "approve_full"] = "ask_for_approval"
+    steps: list[ActionPlanStep] = Field(default_factory=list)
     arguments: NotePlanArguments
     argumentsHash: str
     attempts: int
@@ -122,6 +134,7 @@ class ActionCapabilities(BaseModel):
     supportedActions: list[Literal["create_note"]]
     availableActions: list[Literal["create_note"]]
     approvalMode: Literal["one_note_per_approval"]
+    supportedApprovalModes: list[Literal["ask_for_approval", "approve_full"]]
     requiresBrowserSession: bool
     requiresCsrfForWrites: bool
     serviceTokenCanApprove: bool
@@ -156,6 +169,8 @@ def _arguments(payload: CreateNotePlanRequest) -> dict[str, str]:
         if not name or re.search(r"[/\\:\x00-\x1f\x7f]", name):
             raise HTTPException(status_code=422, detail="Invalid vault name")
         arguments["newVaultName"] = name
+    if payload.approval_mode is not None:
+        arguments["approvalMode"] = payload.approval_mode
     return arguments
 
 
@@ -258,10 +273,42 @@ def _recovery_path(plan: AskActionPlanRecord) -> str | None:
 
 def _view(session, plan: AskActionPlanRecord) -> dict:
     note = _result_note(session, plan)
+    arguments = json.loads(plan.arguments_json)
+    approval_mode = arguments.get(
+        "approvalMode",
+        "approve_full" if arguments.get("newVaultName") else "ask_for_approval",
+    )
+    vault_record = (
+        session.get(VaultRecord, plan.id) if arguments.get("newVaultName") else None
+    )
+    steps: list[dict[str, str]] = []
+    if arguments.get("newVaultName"):
+        steps.append(
+            {
+                "id": "create_vault",
+                "action": "create_vault",
+                "target": planned_ask_vault_path(arguments["newVaultName"], plan.id),
+                "status": "completed"
+                if vault_record is not None
+                else ("cancelled" if plan.status == "cancelled" else "pending"),
+            }
+        )
+    steps.append(
+        {
+            "id": "create_note",
+            "action": "create_note",
+            "target": _planned_relative_path(plan),
+            "status": "completed"
+            if note is not None
+            else ("cancelled" if plan.status == "cancelled" else "pending"),
+        }
+    )
     return {
         "id": plan.id,
         "action": plan.action,
-        "arguments": json.loads(plan.arguments_json),
+        "approvalMode": approval_mode,
+        "steps": steps,
+        "arguments": arguments,
         "argumentsHash": plan.arguments_hash,
         "attempts": plan.execution_attempts,
         "status": plan.status,
@@ -270,7 +317,9 @@ def _view(session, plan: AskActionPlanRecord) -> dict:
         if plan.approved_at
         else None,
         "resultPath": note.path if note is not None else None,
-        "vaultId": note.vault_id if note is not None else None,
+        "vaultId": note.vault_id
+        if note is not None
+        else (vault_record.id if vault_record is not None else None),
         "recoveryPath": _recovery_path(plan) if note is None else None,
         "orphanPath": _orphan_path(plan) if note is None else None,
         "errorCode": plan.error_code or None,
@@ -301,7 +350,9 @@ def _owned_plan(
 
 
 @serialized_vault
-def _write_once(vault_path: Path, plan: AskActionPlanRecord) -> tuple[str, str]:
+def _write_once(
+    vault_path: Path, plan: AskActionPlanRecord, *, vault_registered: bool = False
+) -> tuple[str, str]:
     arguments = json.loads(plan.arguments_json)
     relative_path = _planned_relative_path(plan)
     path = resolve_note_path(vault_path, relative_path)
@@ -311,7 +362,7 @@ def _write_once(vault_path: Path, plan: AskActionPlanRecord) -> tuple[str, str]:
         vault_dir = vault_path.resolve() / planned_ask_vault_path(
             arguments["newVaultName"], plan.id
         )
-        if vault_dir.exists() and not path.is_file():
+        if vault_dir.exists() and not path.is_file() and not vault_registered:
             raise HTTPException(
                 status_code=409, detail="Planned vault directory is occupied"
             )
@@ -408,6 +459,7 @@ def action_capabilities(request: Request) -> dict:
         "supportedActions": ["create_note"],
         "availableActions": ["create_note"] if has_browser_session else [],
         "approvalMode": "one_note_per_approval",
+        "supportedApprovalModes": ["ask_for_approval", "approve_full"],
         "requiresBrowserSession": True,
         "requiresCsrfForWrites": True,
         "serviceTokenCanApprove": False,
@@ -516,10 +568,46 @@ def get_plan(plan_id: str, request: Request) -> dict:
 @router.post("/{plan_id}/cancel", response_model=ActionPlanResponse)
 def cancel_plan(plan_id: str, request: Request) -> dict:
     user_id, browser_session_id = _identity(request)
+    vault_path = get_settings().vault_path
     with SessionLocal() as session:
         plan = _owned_plan(session, plan_id, user_id, browser_session_id)
         if plan.status == "proposed":
+            arguments = json.loads(plan.arguments_json)
+            compensated_vault = False
+            if arguments.get("newVaultName") and not plan.result_note_id:
+                with vault_lock(vault_path):
+                    vault_record = session.get(VaultRecord, plan.id)
+                    has_notes = (
+                        session.scalar(
+                            select(NoteRecord.id).where(NoteRecord.vault_id == plan.id)
+                        )
+                        is not None
+                    )
+                    if vault_record is not None and not has_notes:
+                        vault_dir = vault_path.resolve() / vault_record.path
+                        if vault_dir.is_dir() and not any(vault_dir.iterdir()):
+                            vault_dir.rmdir()
+                        if not vault_dir.exists():
+                            session.delete(vault_record)
+                            compensated_vault = True
             plan.status = "cancelled"
+            create_automation_log(
+                session,
+                action_type="CANCEL_ASK_PLAN",
+                target_type="ask_action_plan",
+                target_id=plan.id,
+                description="User cancelled a proposed Ask action plan before write",
+                before_state={"planStatus": "proposed", "planId": plan.id},
+                after_state={
+                    "planStatus": "cancelled",
+                    "planId": plan.id,
+                    "userId": user_id,
+                    "argumentsHash": plan.arguments_hash,
+                    "compensatedEmptyVault": compensated_vault,
+                },
+                reversible=False,
+                autocommit=False,
+            )
             session.commit()
         return _view(session, plan)
 
@@ -540,6 +628,73 @@ def approve_plan(plan_id: str, payload: ApprovePlanRequest, request: Request) ->
             plan.status = "expired"
             session.commit()
             raise HTTPException(status_code=409, detail="Plan expired")
+        arguments = json.loads(plan.arguments_json)
+        has_new_vault = bool(arguments.get("newVaultName"))
+        if payload.step == "create_vault" and not has_new_vault:
+            raise HTTPException(
+                status_code=422, detail="Plan does not include a create_vault step"
+            )
+        vault_already_registered = (
+            session.get(VaultRecord, plan.id) is not None if has_new_vault else False
+        )
+        supervised_vault_step = has_new_vault and (
+            payload.step == "create_vault"
+            or (
+                arguments.get("approvalMode") == "ask_for_approval"
+                and not vault_already_registered
+                and payload.step != "create_note"
+            )
+        )
+        if (
+            has_new_vault
+            and payload.step == "create_note"
+            and not vault_already_registered
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Step create_vault must be approved before create_note",
+            )
+        if supervised_vault_step:
+            if vault_already_registered:
+                return _view(session, plan)
+            vault_path = get_settings().vault_path
+            with vault_lock(vault_path):
+                vault_rel = planned_ask_vault_path(arguments["newVaultName"], plan.id)
+                vault_dir = vault_path.resolve() / vault_rel
+                if vault_dir.exists():
+                    plan.error_code = "write_conflict"
+                    plan.status = "failed"
+                    session.commit()
+                    raise HTTPException(
+                        status_code=409, detail="Planned vault directory is occupied"
+                    )
+                vault_dir.mkdir(parents=True, exist_ok=True)
+                _register_vault(session, plan)
+                create_automation_log(
+                    session,
+                    action_type="APPROVE_ASK_PLAN_STEP",
+                    target_type="vault",
+                    target_id=plan.id,
+                    description="User approved step 1 (create_vault) of a supervised Ask action plan",
+                    before_state={
+                        "planStatus": "proposed",
+                        "planId": plan.id,
+                        "step": "create_vault",
+                        "argumentsHash": plan.arguments_hash,
+                    },
+                    after_state={
+                        "planStatus": "proposed",
+                        "planId": plan.id,
+                        "step": "create_vault",
+                        "stepStatus": "completed",
+                        "vaultId": plan.id,
+                        "userId": user_id,
+                    },
+                    reversible=False,
+                    autocommit=False,
+                )
+                session.commit()
+            return _view(session, plan)
         # Compare-and-set prevents two requests from executing the same proposal.
         # A stale execution can be resumed using the deterministic note path.
         stale_before = now - timedelta(seconds=90)
@@ -582,7 +737,14 @@ def approve_plan(plan_id: str, payload: ApprovePlanRequest, request: Request) ->
             vault_path = get_settings().vault_path
             with vault_lock(vault_path):
                 _validate_target_vault(session, plan, vault_path)
-                note_path, content_hash = _write_once(vault_path, plan)
+                vault_registered = (
+                    session.get(VaultRecord, plan.id) is not None
+                    if has_new_vault
+                    else False
+                )
+                note_path, content_hash = _write_once(
+                    vault_path, plan, vault_registered=vault_registered
+                )
                 _register_vault(session, plan)
                 record = sync_note_record(
                     session, vault_path, note_path, evidence_status="draft"
@@ -606,6 +768,28 @@ def approve_plan(plan_id: str, payload: ApprovePlanRequest, request: Request) ->
                 plan.result_note_stable_id = record.stable_id
                 plan.status = "completed"
                 plan.completed_at = datetime.now(UTC)
+                create_automation_log(
+                    session,
+                    action_type="APPROVE_ASK_PLAN",
+                    target_type="note",
+                    target_id=record.path,
+                    description="User approved and saved an Ask-assisted draft",
+                    before_state={
+                        "planStatus": "proposed",
+                        "planId": plan.id,
+                        "argumentsHash": plan.arguments_hash,
+                    },
+                    after_state={
+                        "planStatus": "completed",
+                        "planId": plan.id,
+                        "userId": user_id,
+                        "vaultId": record.vault_id,
+                        "evidenceStatus": record.evidence_status,
+                        "contentHash": record.content_hash,
+                    },
+                    reversible=False,
+                    autocommit=False,
+                )
                 session.commit()
             return _view(session, plan)
         except HTTPException:

@@ -120,13 +120,20 @@ cannot use browser-owned answers. Migration 24 assigns legacy answers to a
 browser only when exactly one user exists. Ambiguous older answers remain
 stored but inaccessible by inference ID, including to service tokens.
 
-Flow assistant turns return a `references` array with verified resource kind,
-ID, current path/title and evidence IDs. A follow-up asking to link earlier
-sources may put `bbref:resolved:<kind>:<id>` markers in the answer text. These
+Flow assistant turns and `POST /graph/infer` responses return a `references`
+array with verified resource `kind` (`note`, `graph_node`, `attachment`, or
+`vault` for registered named physical vaults), ID, `stableId`, current
+path/title, `vaultId` (plus `vaultName` and `vaultPath` when the source belongs
+to a named vault), and `evidenceIds`. When multiple verified references share
+the same title, appended or follow-up `bbref:resolved:<kind>:<id>` labels are
+disambiguated with their resource kind, named vault, and folder path. A
+follow-up asking to link earlier sources may put `bbref:resolved:<kind>:<id>`
+markers in the answer text. These
 are internal reference markers, **not URLs**: clients should turn one into a
 navigation link only when the same turn's `references` contains that exact
-kind and ID, and should use the current path/ID from that record. If a note is
-deleted or loses eligibility, its reference is omitted on the next resolution.
+kind and ID, and should use the current path/ID from that record. If a note or
+named vault is deleted or loses eligibility, its reference is omitted on the
+next resolution.
 Generated HTTP links in model text are not authoritative resource links.
 
 ## Core workflow
@@ -245,6 +252,7 @@ permission for ordinary Ask to silently use arbitrary web content.
 `GET /api/v1/ask/action-plans/capabilities` lets an authenticated external
 client inspect the current action contract. It reports the shared-workspace
 model, supported and currently available actions, one-note-per-approval mode,
+`supportedApprovalModes` (`ask_for_approval` and `approve_full`),
 allowed folders, content limit, and whether an independent vault can be
 created. A trusted service token can read the contract but receives an empty
 `availableActions` list: it cannot propose or approve a human Ask plan.
@@ -256,18 +264,22 @@ The Ask UI can turn an answer into an editable Markdown draft in the current
 vault or a **new named physical vault**. The latter is still part of the shared
 workspace; no per-vault ACL is implied. It does not silently write on a model
 response. The browser
-first calls `POST /ask/action-plans` with `title`, `folder`, `content`, and an
+first calls `POST /ask/action-plans` with `title`, `folder`, `content`, an
+optional `approval_mode` (`ask_for_approval` or `approve_full`), and an
 optional UUID `request_key`. To create a named vault and its first note in the
-same approval, include `new_vault_name` (1–160 characters, no slash, backslash,
+same plan, include `new_vault_name` (1–160 characters, no slash, backslash,
 colon, or control characters).
 For a subsequent note in an existing named vault, send `vault_id` from
 `GET /vault/namespaces` instead; `new_vault_name` and `vault_id` are mutually
 exclusive. The plan captures the registered target path and approval checks
 that it still belongs to the same ID and is a real directory.
-The response contains the exact preview, `argumentsHash`, a 15-minute expiry,
-and a plan ID. The user then sends
-`POST /ask/action-plans/{id}/approve` with `arguments_hash`, or rejects via
-`POST /ask/action-plans/{id}/cancel`. `GET /ask/action-plans/{id}` retrieves its
+The response contains the exact preview, `argumentsHash`, `steps`, a 15-minute
+expiry, and a plan ID. The user then sends
+`POST /ask/action-plans/{id}/approve` with `arguments_hash` (and optional
+`step`: `"create_vault"` or `"create_note"` for step-by-step supervised
+execution of a 2-step vault+note plan), or rejects via
+`POST /ask/action-plans/{id}/cancel` (which compensates and removes an empty
+vault created in step 1 if step 2 has not executed). `GET /ask/action-plans/{id}` retrieves its
 state. Approval writes canonical Markdown once as an **unreviewed draft**; it
 does not enqueue graph/embedding jobs or make the draft citable by Ask. The
 returned `resultPath` links to the created note, and `vaultId` identifies the
@@ -276,9 +288,11 @@ plan ID, so replay cannot create another vault. After checking its claims and
 links, the user explicitly calls `POST /ask/action-plans/{id}/review-draft`
 with `{"reviewed":true,"content_hash":"<current SHA-256>"}` after displaying
 the current `GET /notes/{path}` content and `content_hash`. Only then is the
-note eligible for retrieval and normal note processing. The release is recorded
-in the automation audit log with the plan ID, user ID, and content hash, but not
-the note body. If the file changes
+note eligible for retrieval and normal note processing. Plan approval
+(`APPROVE_ASK_PLAN`, `APPROVE_ASK_PLAN_STEP`), cancellation (`CANCEL_ASK_PLAN`), orphan reconciliation
+(`RECONCILE_ASK_DRAFT`), and draft release (`REVIEW_ASK_DRAFT`) are recorded in
+the automation audit log with the plan ID, user ID, and hashes/metadata, but
+never the private note body. If the file changes
 after display, the review returns HTTP 409; reload and review its current
 content. The hash is checked again after database sync, so an edit during
 review also returns HTTP 409 without promoting the draft. An edited draft can

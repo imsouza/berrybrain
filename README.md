@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.4.14-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -27,7 +27,8 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
-- [What's New in 1.4.14](#whats-new-in-1414)
+- [What's New in 1.5.0](#whats-new-in-150)
+- [What's New in 1.4.9](#whats-new-in-149)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
 - [Architecture](#architecture)
@@ -93,51 +94,19 @@ The system is designed around one rule:
 
 ---
 
-## What's New in 1.4.14
+## What's New in 1.5.0
 
-Evidence support uses recorded signals instead of an interval midpoint. Judge
-scores update the displayed aggregate, with validated rubrics and auditable
-observations. Missing evaluations and legacy values are explicit; the score is
-not a probability of truth. See the [1.4.14 release notes](docs/releases/v1.4.14.md),
-[method](docs/confidence-model.md) and
-[validation checklist](docs/reviews/2026-10-13-confidence-evaluation.md).
+- **First-class Vaults (`schema 25`)**: organize notes and graph views by vault with a global `All Vaults` selector, non-destructive `Legacy / Unassigned` fallback, and manual or AI-suggested vault assignment.
+- **Contextual Ask & Visual Graph Focus**: mention `@note`, `@folder`, `@vault`, or `@node` in Ask or rely on automatic title/path disambiguation; open referenced graph nodes directly or center and select them on the visual canvas via **Focus in Graph**.
+- **Supervised Ask Action Plans & Editor Diffs**: preview and approve note creation (`create_note`), combined vault-and-note creation (`create_vault_and_note`) in full (`approve_full`) or step by step (`ask_for_approval`), and Editor Ask enrichments (`selected_block`, `current_section`, `entire_note`) with line-level diffs and `automation_logs` audit records.
+- **Interactive Preview Tasks & Folder Sync**: toggle Markdown task checkboxes (`- [ ]` / `- [x]`) directly from Preview or Split Mode with unsaved-draft conflict protection, and keep physical folders and sidebar trees synchronized via `POST /api/v1/notes/{id}/move`.
+- **Bounded Profile Context & Operational Filters**: configure optional study/language preferences in Settings (injected strictly as untrusted formatting preferences without overriding canonical evidence) and filter Notifications and Activity by category, severity, and vault.
 
-### Previous: 1.4.13
+See the [documented REST API](docs/api.md) and [CHANGELOG.md](CHANGELOG.md) for full details.
 
-Bounded autonomous recovery handles eligible exhausted jobs without bulk replay,
-resetting history or hiding permanent failures. Alerts count unread items; Home
-offers compact operations and real-data charts. Manually created insights receive
-a one-time highlight when first displayed in the graph. See the
-[1.4.13 release notes](docs/releases/v1.4.13.md),
-[recovery checklist](docs/reviews/2026-10-12-autonomous-recovery-dashboard.md)
-and [API contracts](docs/api.md) for limits and controls.
+---
 
-### Previous: 1.4.12
-
-Lighter graph pages, cancellable navigation reads and visibility-aware polling
-reduce workspace load. Home avoids repeated legacy JSON joins; pipeline progress
-no longer lets global maintenance hide note jobs. Full graph evidence remains
-available through the default API projection. See the [1.4.12 release notes](docs/releases/v1.4.12.md)
-and [performance review](docs/reviews/2026-10-10-performance.md) for measurements,
-limits and the load-balancing decision. No new research experiments were run.
-
-### Previous: 1.4.11
-
-Activity and Monitor load independently, with compact log history, global failed
-job counts, and JSON export in Settings. The workspace keeps navigation visible
-on Ask and Activity. Note previews support Mermaid and LaTeX; voice is disabled
-on insecure HTTP. Graph dragging preserves positions and partial-load failures
-remain visible. Ontology shapes and semantic colors are unchanged.
-
-See [1.4.11 release notes](docs/releases/v1.4.11.md),
-[API documentation](docs/api.md) and the
-[system checklist](docs/reviews/2026-10-08-system-usability.md).
-
-### What's New in 1.4.10
-
-This release includes the product changes prepared for 1.4.9 and the corrected
-source-map-js dependency. The existing 1.4.9 tag is preserved; its image/release
-publication was cancelled after a new security audit finding.
+## What's New in 1.4.9
 
 External applications can use the [documented REST API](docs/api.md), independent
 service tokens and [Python client](examples/berrybrain_client.py). This patch also
@@ -146,8 +115,8 @@ Home and Monitor now use indexed job statistics, bounded history projections,
 consistent failure counts and lease-aware health checks. Migration 14 only adds
 indexes; it does not remove notes, jobs or evidence.
 
-See the [release notes](docs/releases/v1.4.10.md) and
-[publication checklist](docs/reviews/2026-10-07-release-1.4.10.md).
+See the [release checklist](docs/reviews/2026-10-03-release-1.4.9.md) for product
+verification and deployment status.
 
 ### What's New in 1.4.8
 
@@ -232,7 +201,7 @@ See the [release notes](docs/releases/v1.4.10.md) and
 - Added bounded API latency/error telemetry, correlation propagation, and `Server-Timing` without
   recording prompts, note content, secrets, or user-controlled labels.
 - Replaced static maturity percentages with evidence-based Maturity V3 and mandatory integrity caps.
-- Added research methodology, protocol, datasets, reproducibility, limitations, generated tables,
+- Added evaluation methodology, dataset registry, reproducibility notes,
   chart specifications, and documentation-consistency checks.
 - Reduced authenticated workspace startup from two sequential authorization requests to one normal
   request, retaining fail-closed fallback behavior.
@@ -305,7 +274,7 @@ See the [release notes](docs/releases/v1.4.10.md) and
 The architecture introduced through v1.4.8 has local verification for ontology-aware graph/RAG behavior, calculated
 confidence intervals, semantic quarantine, context clustering, full-page node editing,
 voice Ask, persistent Ask Flow, global research, progressive rendering, and operational recovery.
-Versions 1.4.9–1.4.10 add the product/API corrections and checks linked above; they do not
+Version 1.4.9 adds the product/API corrections and checks linked above; it does not
 extend the historical academic evidence or establish multi-tenant readiness.
 
 | Foundation | Current state |
@@ -326,8 +295,9 @@ extend the historical academic evidence or establish multi-tenant readiness.
 Maturity is no longer represented by a static percentage. Maturity V3 awards Levels 0-5 per
 capability from current artifacts, rejects stale or missing evidence, and prevents synthetic continuous-integration
 fixtures from awarding independent or field-validation levels. The latest exploratory S profile
-passed its composed engineering gate but remains `incomplete-evidence` because public external
-datasets, independent comparison, and approved participant/field evidence are not yet available.
+passed its composed engineering gate but remains `incomplete-evidence`. Public MuSiQue comparison
+is now available, but human Judge calibration, approved participant/field evidence, longitudinal
+adaptation evidence, a clean frozen revision, and full Microsoft GraphRAG execution remain open.
 
 See [Maturity Model V3](docs/maturity-model.md), [latest benchmark results](docs/benchmark-results.md),
 [evidence-support and uncertainty](docs/confidence-model.md), and [limitations](docs/limitations.md).
@@ -345,23 +315,80 @@ browser, memory, and error distributions. Paired effects include deterministic b
 intervals. Every measured runner emits revision/environment metadata, raw observations, summaries,
 and SHA-256 checksums.
 
-Latest executed exploratory S profile, generated 25 August 2026 at 01:07 UTC from the dirty
-`v1.4.8` worktree based on revision `a81c566`:
+Latest executed exploratory S profile, generated 27 August 2026 at 14:19 UTC from the dirty
+1.4.8 worktree based on revision `b14eee8`:
 
 | Retrieval configuration | Recall@10 | MRR | NDCG@10 | p95 latency |
 | --- | ---: | ---: | ---: | ---: |
-| Lexical only | 0.050 | 0.017 | 0.025 | 9.73 ms |
-| Dense only | 0.500 | 0.500 | 0.500 | 8.90 ms |
-| Standard hybrid | 0.500 | 0.500 | 0.500 | 16.69 ms |
-| Graph lexical | 0.500 | 0.250 | 0.315 | 18.16 ms |
-| Graph hybrid | 1.000 | 0.750 | 0.815 | 25.80 ms |
+| Lexical only | 0.050 | 0.017 | 0.025 | 11.39 ms |
+| Dense only | 0.500 | 0.500 | 0.500 | 8.01 ms |
+| Standard hybrid | 0.500 | 0.500 | 0.500 | 16.13 ms |
+| Graph lexical | 0.500 | 0.250 | 0.315 | 15.79 ms |
+| Graph hybrid | 1.000 | 0.750 | 0.815 | 27.25 ms |
+
+The current same-corpus retrieval study uses 11,656 MuSiQue passages and a hash-pinned manifest of
+200 development, 200 validation, and 600 confirmatory queries. Candidate pools are qrel-blind and
+deduplicate BM25, Dense, Hybrid RRF, and published OpenIE-proxy routes. A pinned INT8 ONNX
+cross-encoder reranks the pool and retains its semantic top 10 without replacing the last passage
+with a Hybrid reserve. The table below reports only the locked
+confirmatory split:
+
+| Retrieval method | Recall@1 | Recall@5 | Recall@10 | MRR@10 | NDCG@10 | Complete support@10 | p50 / p95 scoring latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| BM25 | 0.2515 | 0.4472 | 0.5253 | 0.7176 | 0.5001 | 0.1667 | 460.73 / 708.66 ms |
+| Dense | 0.2669 | 0.4808 | 0.5640 | 0.7418 | 0.5321 | 0.2083 | **5.56 / 13.32 ms** |
+| Hybrid RRF | 0.2692 | 0.5060 | 0.5946 | 0.7573 | 0.5553 | 0.2417 | 469.46 / 716.32 ms |
+| HippoRAG 2, resource-bounded official orchestration | 0.2124 | 0.3507 | 0.3964 | 0.6008 | 0.3986 | 0.1150 | 12,160.52 / 30,506.17 ms |
+| BerryBrain experimental candidate | **0.3063** | **0.5839** | **0.6578** | **0.8343** | **0.6305** | **0.3117** | 7,520.41 / 10,342.90 ms |
+
+The confirmatory Recall@10 gain over Hybrid RRF was 0.0632 with a 20,000-resample paired-bootstrap
+95% interval of [0.0485, 0.0782]. Complete support improved by 0.0700 [0.0467, 0.0933], MRR@10 by
+0.0770 [0.0532, 0.1011], and nDCG@10 by 0.0752 [0.0620, 0.0885]. Development and validation had
+already passed their gates. The split was locked but had supported an earlier reader run, so this
+is not an externally preregistered untouched benchmark. The candidate is experimental and is not the synchronous product
+path: local ARM latency is about 16 times Hybrid p50. Against the independent HippoRAG 2
+execution, Recall@10 improved by 0.2614 [0.2357, 0.2871], complete support by 0.1967
+[0.1600, 0.2333], MRR@10 by 0.2335 [0.1991, 0.2688], and nDCG@10 by 0.2319
+[0.2091, 0.2547]. That condition used upstream v2.0.0a5 orchestration and published OpenIE, with
+the exact all-pairs synonym operation replaced by a separately validated float16 HNSW index for
+the constrained ARM host. It is not a claim against every HippoRAG 2 configuration or its
+published results. Latency scopes differ and are descriptive. The benchmark excludes indexing,
+generation, Judge review, enrichment, ingestion, and user feedback. The OpenIE route remains a
+deterministic proxy, not official Microsoft GraphRAG. Evidence is retained in
+`reports/evaluation/comparative-retrieval-unreserved-confirmatory-official.json`.
+
+The primary equal-budget paid-cloud generation run used all 600 locked questions over frozen
+rankings. Hybrid RAG and BerryBrain shared the same reader, path-structured prompt, top-10 depth,
+24,000-character context ceiling, 256-token output ceiling, temperature zero, disabled reasoning, and counterbalanced
+order. All 1,200 calls completed:
+
+| RAG condition | Exact match | Token F1 | Containment | Context recall | Full support | p50 / p95 provider latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hybrid RAG | 0.2633 | 0.3589 | 0.3350 | 0.5946 | 0.2417 | **2,533.43** / 3,698.81 ms |
+| BerryBrain experimental candidate | **0.3150** | **0.4093** | **0.3850** | **0.6578** | **0.3117** | 2,568.76 / **3,481.78 ms** |
+
+BerryBrain's token-F1 difference over Hybrid was +0.0504 with 95% paired-bootstrap interval
+[0.0214, 0.0800] and sign-randomization p=0.00056. Exact match improved by +0.0517
+[0.0233, 0.0800]; all three answer-quality endpoints had Holm-adjusted p=0.00168. Context recall
+improved by +0.0632 [0.0486, 0.0782], and complete support by +0.0700 [0.0467, 0.0933]. The
+frozen power estimate was 0.8855 because 600 of the calculated 631 queries were available.
+Evidence is in `reports/evaluation/path-json-unreserved-generation-confirmatory-600.json`; the
+protocol is in `reports/evaluation/path-json-unreserved-generation-confirmatory-protocol.json`. Earlier four-method
+validation and free-tier failure-inclusive studies remain available as sensitivity evidence.
+
+A paired inference-profile analysis reused the same 200 BerryBrain contexts. Low-effort reasoning
+did not improve quality over fast mode: token-F1 difference -0.0249, 95% interval
+[-0.0823, 0.0323]. It completed 196/200 calls, increased median latency from 1.60 s to 4.98 s,
+increased p95 from 2.41 s to 39.93 s, and increased mean completion tokens from 4.68 to 601.94.
+Fast mode is therefore the supported default for this evaluated workload. Evidence is in
+`reports/evaluation/cloud-fast-vs-thinking-low-validation.json`.
 
 | Runtime workload | Measured result |
 | --- | ---: |
-| HTTP, 100 requests at concurrency 10 | 62.02 req/s; p50/p95/p99 154.29/274.36/327.45 ms; 0 errors |
-| Worker, 100 jobs | 11.03 jobs/s drain; p95 8,736.56 ms; 0 duplicate claims |
-| On-disk graph, 500 nodes and 1,000 edges | p50/p95 183.97/201.07 ms; 864,092 B payload |
-| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 9.37 ms containment |
+| HTTP, 100 requests at concurrency 10 | 81.06 req/s; p50/p95/p99 122.41/179.38/230.89 ms; 0 errors |
+| Worker, 100 jobs | 11.09 jobs/s drain; p95 8,706.72 ms; 0 duplicate claims |
+| On-disk graph, 500 nodes and 1,000 edges | p50/p95 183.54/193.53 ms; 864,092 B payload |
+| Fault injection | 3/3 contained; 3/3 preserved prior state; maximum 11.34 ms containment |
 | Judge synthetic regression | 100 evaluations; 30 synthetic references; kappa 0.9801; `calibrated=false` |
 | Public baseline context | BEIR SciFact BM25: 5,183 documents, 300 queries, Recall@10 0.7816; not a direct comparison |
 
@@ -370,42 +397,65 @@ machine-readable artifacts and remain exploratory because the revision was dirty
 corpus is controlled, the Judge labels are synthetic, and independent replication plus approved
 participant/field evidence remain unavailable.
 
-Current retained browser measurements, executed 25 August 2026 against the local production build:
+Current browser route smoke, executed 3 September 2026 against the local production standalone
+build; the synthetic graph row is retained renderer evidence:
 
 | Browser workload | Measured result |
 | --- | ---: |
-| Synthetic 10,000-node progressive graph | cold first visual 2,186.32 ms; warm 1,018.29 ms; complete 6,349.92 ms |
-| Synthetic 10,000-node graph interaction | p95 33.50 ms; 23.10 MB used JS heap |
-| Public route navigation | 30 observations; maximum wall p95 2,383.16 ms; 0 recorded page/HTTP 5xx errors |
-| Public route rendering | maximum LCP p75 748 ms; maximum CLS p75 0.00130 |
-| Main-thread work | maximum long-task p95 782.20 ms desktop; 553.20 ms mobile |
+| Synthetic 10,000-node progressive graph | cold first visual 2,131.30 ms; warm 1,334.44 ms; complete 6,407.80 ms |
+| Synthetic 10,000-node graph interaction | p95 33.60 ms; 48.97 MB used JS heap |
+| Application route navigation | 30 observations across `/`, `/brain`, and `/ask`; maximum wall p95 2,946.05 ms; 0 recorded page/HTTP 5xx errors |
+| Application route rendering | maximum LCP p75 2,224 ms; maximum CLS p75 0.07947 |
+| Main-thread work | maximum long-task p95 762.20 ms desktop; 824.40 ms mobile |
 
 These runs are regression evidence from one machine and a dirty worktree, not capacity or
-cross-system superiority claims. Raw reports are retained in
-`reports/evaluation/graph-performance-10k-v1.4.8.json` and
-`reports/evaluation/browser-performance-public-v1.4.8.json`.
+cross-system superiority claims. A preceding valid graph run completed in 6,860.61 ms with
+23.52 MB used heap, demonstrating material single-scenario variance.
 
 ```bash
 cd apps/api
 PYTHONPATH=src:. python -m benchmarks.retrieval_quality_benchmark --evidence-root ../../reports/evidence
 PYTHONPATH=src:. python -m benchmarks.full_evaluation --repository-root ../.. --output-root ../../reports/evaluation --profile S
 
+cd ../..
+PYTHONPATH=apps/api/benchmarks .benchmark-venv/bin/python \
+  apps/api/benchmarks/semantic_rerank_benchmark.py \
+  --base-report reports/evaluation/same-corpus-rag-rrf-development-current.json \
+  --corpus /path/to/musique_corpus.json --queries /path/to/musique.json \
+  --split-manifest reports/evaluation/comparative-split-v1.json \
+  --split confirmatory --unlock-confirmatory \
+  --output reports/evaluation/semantic-rerank-unreserved-onnx-int8-confirmatory.json \
+  --markdown-output reports/evaluation/semantic-rerank-unreserved-onnx-int8-confirmatory.md \
+  --checkpoint reports/evaluation/semantic-rerank-unreserved-onnx-int8-confirmatory-checkpoint.json \
+  --inference-backend onnx --onnx-model /path/to/model.int8.onnx \
+  --tokenizer-path /path/to/pinned/tokenizer --onnx-opset 14 \
+  --query-batch-size 8 --inference-batch-size 8 --intra-op-threads 2 \
+  --max-length 512 --ranking-depth 10 \
+  --final-fusion semantic
+
 cd ../web
 BENCHMARK_BASE_URL=http://127.0.0.1:3000 npm run benchmark:browser
 ```
 
-The controlled retrieval fixture is causal regression evidence, not a BEIR, HotpotQA, MuSiQue, or
-HippoRAG comparative claim. External runners require real qrels and embeddings and fail when those
-assets are missing. Human-study results require ethics/LGPD approval and real participants; the
-repository never substitutes fabricated labels.
+Product checks and benchmarks are documented separately. Ollama is not a
+required test dependency; local inference is an optional deployment mode.
+
+The controlled retrieval fixture remains causal regression evidence, not a public comparative
+claim. Separate MuSiQue runs compare retrieval through 200-query development, 200-query validation,
+and locked 600-query confirmatory splits, plus equal-budget answer generation over all 600 locked
+questions. They are not complete-system, human-adjudicated, or user-study results. Microsoft
+GraphRAG remains a separate official baseline requirement.
+External runners fail when required assets are missing. Human-study results require ethics/LGPD
+approval and real participants; the repository never substitutes fabricated labels.
 
 Evaluation references:
 
 - [Methodology](docs/evaluation-methodology.md)
+- [Current test and evidence audit](docs/test-evidence-audit-2026-08-27.md)
+- [Human evaluation protocol](docs/human-evaluation-protocol.md)
 - [Benchmark protocol](docs/benchmark-protocol.md)
 - [Dataset registry](docs/datasets.md)
 - [Reproducibility](docs/reproducibility.md)
-- [research protocol](docs/research-research-protocol.md)
 - [Feedback-driven learning](docs/learning-and-feedback.md)
 - [Graph ontology and visual semantics](docs/ontology.md)
 - [v1.4.8 whole-system plan](docs/planning/v1-4-8.md)
