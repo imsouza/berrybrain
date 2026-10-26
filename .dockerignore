@@ -10,6 +10,8 @@
 !apps/hipporag/**
 !prompts
 !prompts/**
+!skills
+!skills/**
 !scripts
 !scripts/validate-env.sh
 !scripts/prepare-runtime-dirs.sh

@@ -15,6 +15,10 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.agent_skills import (
+    format_active_skills_prompt,
+    select_skills_for_context,
+)
 from berrybrain_api.ai_gateway import (
     GraphAIUnavailable,
     generate_graph_answer,
@@ -135,6 +139,47 @@ def _query_tokens(question: str) -> set[str]:
         "estudo",
         "plano",
         "roteiro",
+        "artigo",
+        "artigos",
+        "cientifico",
+        "cientifica",
+        "paper",
+        "imrad",
+        "abnt",
+        "ieee",
+        "sbc",
+        "revisao",
+        "literatura",
+        "sistematica",
+        "bibliografica",
+        "tcc",
+        "monografia",
+        "dissertacao",
+        "tese",
+        "documentacao",
+        "rfc",
+        "adr",
+        "especificacao",
+        "resumo",
+        "executivo",
+        "briefing",
+        "relatorio",
+        "sintese",
+        "didatica",
+        "feynman",
+        "aula",
+        "escreva",
+        "escrever",
+        "redija",
+        "redigir",
+        "gere",
+        "gerar",
+        "produza",
+        "produzir",
+        "estruturado",
+        "estruturada",
+        "completo",
+        "completa",
         "create",
         "make",
         "write",
@@ -154,6 +199,13 @@ def _query_tokens(question: str) -> set[str]:
         "study",
         "guide",
         "plan",
+        "scientific",
+        "article",
+        "academic",
+        "review",
+        "documentation",
+        "summary",
+        "report",
         "according",
         "based",
         "context",
@@ -214,10 +266,14 @@ async def answer_cognitive_query(
         }
 
     config = get_config_fn(session)
+    active_skills = select_skills_for_context(question, task_type="ask", max_skills=2)
+    active_skill_summaries = [skill.to_summary() for skill in active_skills]
+    skills_prompt_block = format_active_skills_prompt(active_skills)
     system = (
         "You are BerryBrain's assistant. Respond in the user's language and fulfill "
         "the user's actual request using the supplied note content and verified graph evidence. "
-        "You may synthesize explanations, study guides, outlines and learning activities "
+        "You may synthesize explanations, study guides, scientific articles, literature reviews, "
+        "technical documentation, outlines and learning activities "
         "from that content; a ready-made answer need not exist in a note. "
         "If asked to save a document, draft it in the answer. This model call cannot "
         "write files. The user can choose Save answer as note, select the current "
@@ -232,6 +288,8 @@ async def answer_cognitive_query(
         "use insufficient_evidence only when the supplied content cannot support the request. "
         "Return evidence IDs before the answer field and keep the JSON complete."
     )
+    if skills_prompt_block:
+        system = f"{system}\n\n{skills_prompt_block}"
     # Optional indexes can lag behind the canonical vault. One stale result must
     # not veto current evidence from the other retrievers. Filter before bounding
     # so an invalid result cannot consume the prompt's evidence budget.
@@ -265,6 +323,7 @@ async def answer_cognitive_query(
         {
             "question": question,
             "conversationContext": conversation_context,
+            "activeSkills": active_skill_summaries,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
             "evidence": prompt_evidence,
@@ -278,6 +337,7 @@ async def answer_cognitive_query(
                 "Cite only the supplied evidenceId values.",
                 "Return evidence as a list of objects containing evidenceId. Do not invent IDs or quotes.",
                 "When naming a supplied note or graph node in the answer, link its title with Markdown [title](bbref:<evidenceId>) using that exact supplied evidenceId. Never invent a BerryBrain link or use a numeric ID as a URL.",
+                "When activeSkills are present, strictly follow the document structure, section headings, and methodological rigor defined in those skills using the supplied evidence.",
                 "For study guides, provide a practical ordered guide with topics and proposed exercises grounded in the notes, not just instructions to consult a map.",
                 "Use complementary evidence when the question requires multiple hops.",
                 "Keep the answer useful for learning and graph navigation.",
@@ -298,9 +358,22 @@ async def answer_cognitive_query(
             "detalhado",
             "detalhada",
             "detailed",
+            "artigo",
+            "cientifico",
+            "paper",
+            "revisao",
+            "tcc",
+            "monografia",
+            "dissertacao",
+            "documentacao",
+            "relatorio",
         }
         else 1024
     )
+    if active_skills:
+        max_tokens = max(
+            max_tokens, *(skill.recommended_max_tokens for skill in active_skills)
+        )
     started = time.monotonic()
     try:
         for attempt in range(2):
@@ -404,6 +477,7 @@ async def answer_cognitive_query(
         if actual_route.get("fallback")
         else "",
         "retrievers": orchestrated.get("retrievers", []),
+        "activeSkills": active_skill_summaries,
         "embedding_type": orchestrated.get("embedding_type", "unknown"),
         "judge_status": "pending",
         "trace_id": f"query_{int(time.time())}",

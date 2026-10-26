@@ -3,6 +3,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -174,13 +175,15 @@ def resolve_note_path(vault_path: Path, note_path: str) -> Path:
 
 
 @serialized_vault
-def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
+def list_markdown_notes(vault_path: Path) -> list[dict[str, Any]]:
+    from datetime import UTC, datetime
+
     ensure_vault(vault_path)
 
     if not vault_path.exists():
         return []
 
-    notes: list[dict[str, str]] = []
+    notes: list[dict[str, Any]] = []
     for path in sorted(vault_path.rglob("*.md")):
         if (
             not path.is_file()
@@ -189,11 +192,23 @@ def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
         ):
             continue
         relative_path = path.relative_to(vault_path).as_posix()
+        try:
+            stat = path.stat()
+            updated_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
+            created_at = datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat()
+            size_bytes = int(stat.st_size)
+        except OSError:
+            updated_at = None
+            created_at = None
+            size_bytes = 0
         notes.append(
             {
                 "title": path.stem,
                 "path": relative_path,
                 "folder": path.parent.relative_to(vault_path).as_posix(),
+                "updatedAt": updated_at,
+                "createdAt": created_at,
+                "sizeBytes": size_bytes,
             }
         )
     return notes

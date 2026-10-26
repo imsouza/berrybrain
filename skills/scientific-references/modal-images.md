@@ -1,0 +1,270 @@
+---
+id: sciref-modal-images
+name: "Scientific Ref: Modal Container Images"
+category: scientific-reference
+source_repo: K-Dense-AI/claude-scientific-skills
+description: "Specialized scientific reference skill (modal): Modal Container Images"
+priority_tier: 3
+recommended_max_tokens: 3584
+task_types:
+  - ask
+  - synthesis
+triggers:
+  - "modal images"
+  - "modal container images"
+keywords:
+  - "modal"
+  - "images"
+  - "specialized"
+  - "scientific"
+  - "reference"
+  - "container"
+---
+
+# Modal Container Images
+
+Reviewed against SDK 1.6.0 and official [Images](https://modal.com/docs/guide/images)
+and [existing Images](https://modal.com/docs/guide/existing-images) guides.
+Image definitions were checked locally; builds and workload dependency compatibility
+were not executed. Package versions below are illustrative pins, not a tested ML stack.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Base Images](#base-images)
+- [Installing Packages](#installing-packages)
+- [System Packages](#system-packages)
+- [Shell Commands](#shell-commands)
+- [Running Python During Build](#running-python-during-build)
+- [Adding Local Files](#adding-local-files)
+- [Environment Variables](#environment-variables)
+- [Dockerfiles](#dockerfiles)
+- [Alternative Package Managers](#alternative-package-managers)
+- [Image Caching](#image-caching)
+- [Handling Remote-Only Imports](#handling-remote-only-imports)
+
+## Overview
+
+Every Modal function runs inside a container built from an `Image`. By default, Modal uses a Debian Linux image with the same Python minor version as your local interpreter.
+
+Defining an Image is lazy and performs no remote build. Modal resolves/builds it when
+running or deploying the App (before inputs execute), or when creating a Sandbox.
+Layers are cached for fast rebuilds.
+
+## Base Images
+
+```python
+# Default: Debian slim with your local Python version
+image = modal.Image.debian_slim()
+
+# Specific Python version
+image = modal.Image.debian_slim(python_version="3.11")
+
+# From Docker Hub
+image = modal.Image.from_registry("nvidia/cuda:12.4.0-devel-ubuntu22.04", add_python="3.11")
+
+# From a Dockerfile
+image = modal.Image.from_dockerfile("./Dockerfile")
+```
+
+## Installing Packages
+
+### uv (Recommended)
+
+`uv_pip_install` uses the uv package manager for fast, reliable installs:
+
+```python
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .uv_pip_install(
+        "torch==2.12.0",
+        "transformers==5.9.0",
+        "accelerate==1.13.0",
+        "scipy==1.17.1",
+    )
+)
+```
+
+Pin versions for reproducibility. uv resolves dependencies faster than pip.
+
+### pip (Fallback)
+
+```python
+image = modal.Image.debian_slim(python_version="3.11").pip_install(
+    "numpy==1.26.0",
+    "pandas==2.1.0",
+)
+```
+
+### From requirements.txt
+
+```python
+image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
+```
+
+For a uv-managed project, `modal.Image.debian_slim().uv_sync(".")` reads its
+`pyproject.toml` and `uv.lock` (`frozen=True` by default). Keep the lockfile in sync.
+
+### Private Packages
+
+```python
+image = (
+    modal.Image.debian_slim()
+    .pip_install_private_repos(
+        "github.com/org/private-repo",
+        git_user="username",
+        secrets=[modal.Secret.from_name("github-token")],
+    )
+)
+```
+
+For GitHub, the named Secret must contain `GITHUB_TOKEN`; do not embed tokens in URLs.
+
+## System Packages
+
+Install Linux packages via apt:
+
+```python
+image = (
+    modal.Image.debian_slim()
+    .apt_install("ffmpeg", "libsndfile1", "git", "curl")
+    .uv_pip_install("librosa", "soundfile")
+)
+```
+
+## Shell Commands
+
+Run arbitrary commands during image build:
+
+```python
+image = (
+    modal.Image.debian_slim()
+    .run_commands("mkdir -p /opt/data")
+)
+```
+
+### With GPU
+
+Some build steps require GPU access (e.g., compiling CUDA kernels):
+
+```python
+image = (
+    modal.Image.debian_slim()
+    .uv_pip_install("torch")
+    .run_commands("python -c 'import torch; assert torch.cuda.is_available()'", gpu="A100")
+)
+```
+
+## Running Python During Build
+
+Execute Python functions as build steps — useful for downloading model weights:
+
+```python
+def download_model():
+    from huggingface_hub import snapshot_download
+    snapshot_download("openai-community/gpt2", local_dir="/models/gpt2")
+
+image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .uv_pip_install("huggingface_hub", "torch", "transformers")
+    .run_function(download_model, secrets=[modal.Secret.from_name("huggingface")])
+)
+```
+
+The resulting filesystem (including downloaded files) is snapshotted into the image.
+For gated models, accept the model license and pass an `HF_TOKEN` Secret explicitly.
+Pin the model revision for reproducible production builds.
+
+## Adding Local Files
+
+### Local Directories
+
+```python
+image = modal.Image.debian_slim().add_local_dir(
+    local_path="./config",
+    remote_path="/root/config",
+)
+```
+
+By default, files are added at container startup (not baked into the image layer). Use `copy=True` to bake them in.
+
+### Local Python Modules
+
+```python
+image = modal.Image.debian_slim().add_local_python_source("my_module")
+```
+
+This uses Python's import system to find and include the module.
+
+> As of v1.0, Modal no longer "automounts" imported local modules. You must explicitly
+> include local dependencies with `add_local_python_source` (the App's own source is
+> still included automatically; set `include_source=False` on the App/Function to opt
+> out). The deprecated `modal.Mount` object and the `mount=`/`context_mount=` parameters
+> have been replaced by these `Image.add_local_*` methods.
+
+### Individual Files
+
+```python
+image = modal.Image.debian_slim().add_local_file(
+    local_path="./model_config.json",
+    remote_path="/root/config.json",
+)
+```
+
+## Environment Variables
+
+```python
+image = (
+    modal.Image.debian_slim()
+    .env({
+        "TOKENIZERS_PARALLELISM": "false",
+        "HF_HOME": "/cache/huggingface",
+    })
+)
+```
+
+Names and values must be strings.
+
+## Dockerfiles
+
+Build from existing Dockerfiles:
+
+```python
+image = modal.Image.from_dockerfile("./Dockerfile")
+```
+
+The build context is now inferred automatically from the Dockerfile's commands. The
+old `context_mount=` parameter — along with the `modal.Mount` object it relied on — is
+deprecated and was enforced as removed in v1.0; do not pass it.
+
+## Alternative Package Managers
+
+### Micromamba / Conda
+
+For packages requiring coordinated system and Python package installs:
+
+```python
+image = (
+    modal.Image.micromamba(python_version="3.11")
+    .micromamba_install("numpy", "scipy", channels=["conda-forge"])
+)
+```
+
+## Image Caching
+
+Modal caches images per layer (per method call). Breaking the cache on one layer cascades to all subsequent layers.
+
+### Optimization Tips
+
+1. **Order layers by change frequency**: Put stable dependencies first, frequently changing code last
+2. **Pin versions**: Unpinned versions may resolve differently and break cache
+3. **Separate large installs**: Put heavy packages (torch, ten
+
+*(Instruções condensadas para caber no orçamento de contexto do BerryBrain)*
+
+---
+## Protocolo Epistêmico Obrigatório do BerryBrain (Vault-First & Enrich AI 24h)
+1. **Soberania do Próprio Conteúdo (Vault & Grafo):** Aplique a metodologia e estrutura desta skill utilizando **exclusivamente** os fatos, trechos, conceitos e conexões presentes nas notas do usuário e no Grafo de Conhecimento fornecidos no pacote de evidências.
+2. **Integração com Enrich AI 24h & Fontes Web Verificadas:** Caso o pacote de evidências contenha nós validados ou expandidos pelo monitoramento contínuo 24h (`source_supports`, `source_expands`, `source_contradicts`, `externalResearch`), incorpore essas fontes verificadas com transparência.
+3. **Citação Verificável Obrigatória:** Toda afirmação factual extraída das evidências deve conter o link canônico `[Título da Fonte](bbref:<evidenceId>)`. Nunca invente citações ou dados fora das evidências fornecidas.
+

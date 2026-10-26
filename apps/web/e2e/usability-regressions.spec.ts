@@ -254,6 +254,7 @@ test("editor Ask panel captures selection context, blocks stale diff on concurre
 
   const panel = page.getByRole("complementary", { name: "Ask BerryBrain beside note" });
   await expect(panel).toBeVisible();
+  await expect(panel.getByText("Suggested next questions")).toHaveCount(0);
   await expect(panel.getByRole("button", { name: /Selection \(6 chars/ })).toHaveAttribute("aria-pressed", "true");
 
   await panel.getByRole("button", { name: "Summarize", exact: true }).click();
@@ -586,4 +587,209 @@ test("AI setup shows progress bar during compatibility test and Settings support
   await expect(page.getByRole("progressbar", { name: "Configuration compatibility progress", exact: true })).toBeVisible();
   await expect(page.getByText("Provider and model compatibility verified.")).toBeVisible();
   await expect(page.getByText(/Auto-adjusted rate-limited or unavailable slots/)).toBeVisible();
+});
+
+test("Review exact preview works over HTTP non-secure contexts without crypto.randomUUID and shows active Skill badge", async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      Object.defineProperty(window.crypto, "randomUUID", {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+    } catch {}
+  });
+
+  await page.route("**/api/v1/graph/infer", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        inferenceId: 301,
+        status: "answered",
+        question: "Crie um artigo científico sobre Fotossíntese",
+        answer: "# Estudo Experimental da Fotossíntese\n\n## Resumo\nSíntese fundamentada em [Test note](bbref:ev-1).",
+        evidence: [{ evidenceId: "ev-1", source: "knowledge_base", title: "Test note", text: "Clorofila" }],
+        references: [{ kind: "note", id: 1, stableId: "note-1", title: "Test note", path: "inbox/test.md", current: true, evidenceIds: ["ev-1"] }],
+        activeSkills: [
+          {
+            id: "scientific-article",
+            name: "Scientific Article & Academic Paper (IMRaD / ABNT / IEEE / SBC)",
+            category: "academic",
+          },
+        ],
+      }),
+    });
+  });
+
+  let receivedRequestKey = "";
+  await page.route("**/api/v1/ask/action-plans", async (route) => {
+    if (route.request().method() === "POST") {
+      const payload = JSON.parse(route.request().postData() || "{}") as {
+        title?: string;
+        folder?: string;
+        content?: string;
+        request_key?: string;
+      };
+      receivedRequestKey = payload.request_key || "";
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "plan-http-lan",
+          approvalMode: "approve_full",
+          steps: [{ id: "create_note", action: "create_note", target: "study/artigo-fotossintese.md", status: "pending" }],
+          arguments: {
+            title: payload.title || "Artigo Fotossintese",
+            folder: payload.folder || "study",
+            content: payload.content || "# Estudo",
+          },
+          argumentsHash: "f".repeat(64),
+          status: "proposed",
+          expiresAt: "2099-01-01T00:00:00Z",
+          approvedAt: null,
+          resultPath: null,
+          evidenceStatus: null,
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [], total: 0 }),
+    });
+  });
+
+  await page.goto("/ask", { waitUntil: "domcontentloaded" });
+  await page.getByPlaceholder(/ask your graph/i).fill("Crie um artigo científico sobre Fotossíntese");
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
+
+  await expect(page.getByTestId("active-skill-badge")).toContainText("Skill: Scientific Article & Academic Paper");
+
+  await page.getByRole("button", { name: "Save answer as note" }).click();
+  await page.getByRole("textbox", { name: "Note filename" }).fill("Artigo Fotossintese");
+  await page.getByRole("button", { name: "Review exact preview" }).click();
+
+  await expect(page.getByText("Original approved preview")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and save note" })).toBeVisible();
+  expect(receivedRequestKey).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+});
+
+test("Vault sidebar sort arrow icon cycles sort modes for folders, subfolders, and notes", async ({ page }) => {
+  await page.route("**/api/v1/folders", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        folders: [
+          {
+            name: "alpha",
+            path: "alpha",
+            parent_path: "",
+            depth: 0,
+            note_count: 1,
+            total_note_count: 1,
+            total_size_bytes: 120,
+            updated_at: "2026-01-10T10:00:00Z",
+            has_subfolders: false,
+          },
+          {
+            name: "zeta",
+            path: "zeta",
+            parent_path: "",
+            depth: 0,
+            note_count: 2,
+            total_note_count: 3,
+            total_size_bytes: 9500,
+            updated_at: "2026-10-25T18:00:00Z",
+            has_subfolders: true,
+          },
+          {
+            name: "lab",
+            path: "zeta/lab",
+            parent_path: "zeta",
+            depth: 1,
+            note_count: 1,
+            total_note_count: 1,
+            total_size_bytes: 4000,
+            updated_at: "2026-10-25T18:00:00Z",
+            has_subfolders: false,
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/notes**", async (route) => {
+    const reqUrl = new URL(route.request().url());
+    if (reqUrl.pathname.endsWith("/notes")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          notes: [
+            {
+              title: "Older Alpha Note",
+              path: "alpha/older.md",
+              folder: "alpha",
+              updatedAt: "2026-01-10T10:00:00Z",
+              sizeBytes: 120,
+            },
+            {
+              title: "Zeta Older Note",
+              path: "zeta/z-old.md",
+              folder: "zeta",
+              updatedAt: "2026-05-01T10:00:00Z",
+              sizeBytes: 500,
+            },
+            {
+              title: "Zeta Newest Note",
+              path: "zeta/a-new.md",
+              folder: "zeta",
+              updatedAt: "2026-10-25T18:00:00Z",
+              sizeBytes: 5000,
+            },
+            {
+              title: "Subfolder Lab Note",
+              path: "zeta/lab/exp.md",
+              folder: "zeta/lab",
+              updatedAt: "2026-10-25T18:00:00Z",
+              sizeBytes: 4000,
+            },
+          ],
+          total: 4,
+          nextOffset: null,
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/brain", { waitUntil: "domcontentloaded" });
+  const sortBtn = page.getByTestId("vault-sort-toggle");
+  await expect(sortBtn).toBeVisible();
+  await expect(sortBtn).toHaveAttribute("data-sort-mode", "recent_desc");
+
+  const sidebar = page.getByRole("complementary", { name: "Navigation" });
+  await expect(sidebar.getByText("Zeta Newest Note")).toBeVisible();
+  await expect(sidebar.getByText("Older Alpha Note")).toBeVisible();
+  const textRecentDesc = (await sidebar.textContent()) ?? "";
+  expect(textRecentDesc.indexOf("Zeta Newest Note")).toBeGreaterThan(-1);
+  expect(textRecentDesc.indexOf("zeta")).toBeLessThan(textRecentDesc.indexOf("alpha"));
+  expect(textRecentDesc.indexOf("Zeta Newest Note")).toBeLessThan(textRecentDesc.indexOf("Zeta Older Note"));
+
+  await sortBtn.click();
+  await expect(sortBtn).toHaveAttribute("data-sort-mode", "recent_asc");
+  const textRecentAsc = (await sidebar.textContent()) ?? "";
+  expect(textRecentAsc.indexOf("alpha")).toBeLessThan(textRecentAsc.indexOf("zeta"));
+  expect(textRecentAsc.indexOf("Zeta Older Note")).toBeLessThan(textRecentAsc.indexOf("Zeta Newest Note"));
+
+  await sortBtn.click();
+  await expect(sortBtn).toHaveAttribute("data-sort-mode", "content_desc");
+  await sortBtn.click();
+  await expect(sortBtn).toHaveAttribute("data-sort-mode", "alpha_asc");
+  await sortBtn.click();
+  await expect(sortBtn).toHaveAttribute("data-sort-mode", "alpha_desc");
 });

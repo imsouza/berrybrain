@@ -26,6 +26,7 @@ services:
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
+      - ./skills:/app/skills:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
@@ -82,6 +83,7 @@ services:
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
+      - ./skills:/app/skills:ro
     depends_on:
       api:
         condition: service_healthy

@@ -37,6 +37,9 @@ class NoteSummary(BaseModel):
     path: str
     folder: str
     vaultId: str = "default"
+    updatedAt: str | None = None
+    createdAt: str | None = None
+    sizeBytes: int | None = None
 
 
 class NotePage(BaseModel):

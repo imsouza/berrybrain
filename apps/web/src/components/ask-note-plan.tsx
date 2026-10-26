@@ -42,6 +42,41 @@ function noteContent(answer: string, references: AskReference[]): string {
   return linked.trim();
 }
 
+function generateUuidv4(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fallback for non-secure HTTP LAN contexts where randomUUID may throw or be unavailable.
+    }
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < 16; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+function extractErrorDetail(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0];
+    if (first && typeof first === "object" && "msg" in first && typeof first.msg === "string") {
+      return first.msg;
+    }
+  }
+  return fallback;
+}
+
 export function AskNotePlan({ answer, question, references = [], apiUrl, resumePlanId, onReleased, onClose }: {
   answer: string;
   question: string;
@@ -185,11 +220,11 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
   }, [apiUrl, plan]);
 
   async function propose() {
-    const key = requestKey ?? crypto.randomUUID();
-    setRequestKey(key);
     setBusy(true);
     setMessage("");
     try {
+      const key = requestKey ?? generateUuidv4();
+      setRequestKey(key);
       const response = await apiFetch(`${apiUrl}/api/v1/ask/action-plans`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -199,8 +234,8 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
           ...(destination === "existing_vault" ? { vault_id: existingVaultId } : {}),
         }),
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Could not prepare note preview.");
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(extractErrorDetail(payload, "Could not prepare note preview."));
       setPlan(payload as ActionPlan);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not prepare note preview.");
@@ -398,7 +433,7 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
           <button className="bb-action bb-action--primary mt-3 px-3 py-1.5 text-xs" disabled={busy || !title.trim() || !content.trim() || (destination === "new_vault" && !newVaultName.trim()) || (destination === "existing_vault" && !existingVaultId)} onClick={() => void propose()}>{busy ? "Preparing..." : "Review exact preview"}</button>
         </>
       )}
-      {message && plan && <p className="mt-3 text-xs text-danger" role="alert">{message}</p>}
+      {message && (plan || !resumePlanId) && <p className="mt-3 text-xs text-danger" role="alert">{message}</p>}
     </section>
   );
 }

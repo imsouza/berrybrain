@@ -195,6 +195,7 @@ type InferenceResult = {
   model?: string;
   fallbackUsed?: boolean;
   fallbackReason?: string;
+  activeSkills?: Array<{ id: string; name: string; category?: string }>;
 };
 
 type FlowTurn = {
@@ -790,7 +791,7 @@ export function GraphScreen({
   }, [apiUrl]);
 
   useEffect(() => {
-    if (!askOnly || apiUrl === "__demo__") return;
+    if (!askOnly || Boolean(editorTarget) || apiUrl === "__demo__") return;
     let cancelled = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     setSuggestionsLoading(true);
@@ -811,11 +812,11 @@ export function GraphScreen({
       }
     };
     void loadSuggestions(0);
-    return () => {
+      return () => {
       cancelled = true;
       if (refreshTimer) clearTimeout(refreshTimer);
     };
-  }, [apiUrl, askOnly]);
+  }, [apiUrl, askOnly, editorTarget]);
 
   useEffect(() => {
     if (apiUrl === "__demo__" || typeof window === "undefined") return;
@@ -1387,8 +1388,8 @@ export function GraphScreen({
       )}
 
       {askOnly ? (
-        <div className="flex flex-1 flex-col overflow-y-auto bg-background px-4 py-8 sm:px-6 sm:py-12 lg:px-10">
-          <div className="mx-auto w-full max-w-6xl space-y-10">
+        <div className={`flex flex-1 flex-col overflow-y-auto bg-background ${editorTarget ? "px-4 py-5 sm:px-5" : "px-4 py-8 sm:px-6 sm:py-12 lg:px-10"}`}>
+          <div className={`mx-auto w-full max-w-6xl ${editorTarget ? "space-y-6" : "space-y-10"}`}>
             <section className="mx-auto w-full max-w-4xl text-center" aria-labelledby="ask-workspace-title">
               <div className="mx-auto mb-4 grid size-12 place-items-center rounded-xl border border-accent/30 bg-accent-soft text-lg font-semibold text-accent" aria-hidden="true">ASK</div>
               <h1 id="ask-workspace-title" className="text-3xl font-semibold leading-tight text-foreground sm:text-4xl">Ask BerryBrain</h1>
@@ -1448,6 +1449,17 @@ export function GraphScreen({
                     {inference.status === "provider_unavailable" ? "Provider unavailable" : "BerryBrain answer"}
                   </span>
                   <span className="rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] text-muted">{inference.status}</span>
+                  {inference.activeSkills?.map((skill) => (
+                    <span
+                      key={skill.id}
+                      data-testid="active-skill-badge"
+                      className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent"
+                      title={`Skill triggered automatically: ${skill.name}`}
+                    >
+                      <Sparkles className="size-2.5" aria-hidden="true" />
+                      Skill: {skill.name}
+                    </span>
+                  ))}
                 </div>
                 <AskMarkdown content={inference.answer} references={inference.references} className={["error", "provider_unavailable"].includes(inference.status) ? "text-danger" : "text-foreground"} />
                 <AskReferenceList references={inference.references} />
@@ -1510,7 +1522,7 @@ export function GraphScreen({
               </section>
             )}
 
-            {(suggestionsLoading || (askSuggestions?.questions.length || 0) > 0) && (
+            {!editorTarget && (suggestionsLoading || (askSuggestions?.questions.length || 0) > 0) && (
               <section aria-label="Suggested questions">
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
@@ -1530,7 +1542,7 @@ export function GraphScreen({
               </section>
             )}
 
-            {(askSuggestions?.topics.length || 0) > 0 && (
+            {!editorTarget && (askSuggestions?.topics.length || 0) > 0 && (
               <section className="border-t border-border pt-7 text-center" aria-label="Graph topics">
                 <h2 className="mb-4 text-xs font-semibold uppercase text-muted">Topic cloud</h2>
                 <div className="flex flex-wrap items-center justify-center gap-2">

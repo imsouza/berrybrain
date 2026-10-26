@@ -627,6 +627,7 @@ async def infer_graph(
     return {
         **serialize_graph_inference(inference),
         "fallbackUsed": bool(result.get("fallbackUsed")),
+        "activeSkills": result.get("activeSkills") or [],
         "references": references,
     }
 

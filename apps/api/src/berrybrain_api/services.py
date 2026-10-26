@@ -998,20 +998,127 @@ def decode_embedding_vector(embedding: EmbeddingRecord) -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+def _public_web_research_fallback(query: str, max_results: int = 5) -> list[dict]:
+    """Resilient scholarly & encyclopedic fallback when local SearxNG is not running.
+
+    Queries public Wikipedia Action APIs (PT/EN) and Crossref Works API so 24h
+    Enrich AI web validation and research runs always retrieve verifiable external sources.
+    """
+    import html
+    import re
+
+    import httpx
+
+    cleaned_query = " ".join((query or "").split()).strip()
+    if not cleaned_query:
+        return []
+
+    headers = {
+        "User-Agent": "BerryBrain/1.5 (SecondBrain Epistemic Verification; https://github.com/berrybrain)"
+    }
+    collected: list[dict] = []
+    seen_urls: set[str] = set()
+
+    for wiki_lang in ("pt", "en"):
+        if len(collected) >= max_results:
+            break
+        try:
+            resp = httpx.get(
+                f"https://{wiki_lang}.wikipedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": cleaned_query,
+                    "format": "json",
+                    "utf8": "1",
+                    "srlimit": min(3, max_results),
+                },
+                headers=headers,
+                timeout=4.0,
+            )
+            if resp.status_code == 200:
+                items = resp.json().get("query", {}).get("search", [])
+                for item in items:
+                    title = str(item.get("title") or "").strip()
+                    if not title:
+                        continue
+                    url = f"https://{wiki_lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
+                    if url in seen_urls:
+                        continue
+                    raw_snippet = str(item.get("snippet") or "")
+                    snippet = html.unescape(re.sub(r"<[^>]+>", "", raw_snippet)).strip()
+                    seen_urls.add(url)
+                    collected.append(
+                        {
+                            "title": f"{title} ({wiki_lang.upper()} Wikipedia)",
+                            "url": url,
+                            "content": snippet or title,
+                        }
+                    )
+                    if len(collected) >= max_results:
+                        break
+        except Exception:
+            continue
+
+    if len(collected) < max_results:
+        try:
+            resp = httpx.get(
+                "https://api.crossref.org/works",
+                params={"query": cleaned_query, "rows": min(3, max_results)},
+                headers=headers,
+                timeout=4.0,
+            )
+            if resp.status_code == 200:
+                items = resp.json().get("message", {}).get("items", [])
+                for item in items:
+                    titles = item.get("title") or []
+                    title = str(titles[0] if titles else "").strip()
+                    doi = str(item.get("DOI") or "").strip()
+                    url = (
+                        f"https://doi.org/{doi}"
+                        if doi
+                        else str(item.get("URL") or "").strip()
+                    )
+                    if not title or not url or url in seen_urls:
+                        continue
+                    abstract = str(item.get("abstract") or "")
+                    snippet = html.unescape(re.sub(r"<[^>]+>", "", abstract)).strip()
+                    container = (item.get("container-title") or [""])[0]
+                    content = (
+                        snippet[:500]
+                        if snippet
+                        else f"Academic publication in {container or 'Crossref'} ({url})."
+                    )
+                    seen_urls.add(url)
+                    collected.append(
+                        {
+                            "title": title[:250],
+                            "url": url,
+                            "content": content,
+                        }
+                    )
+                    if len(collected) >= max_results:
+                        break
+        except Exception:
+            pass
+
+    return collected[:max_results]
+
+
 def searxng_search(query: str, searxng_url: str, max_results: int = 5) -> list[dict]:
-    """Search via SearxNG instance. Returns list of {title, url, content}."""
+    """Search via SearxNG instance with automatic public reference/scholarly fallback."""
     import httpx
 
     try:
         resp = httpx.get(
             f"{searxng_url}/search",
             params={"q": query, "format": "json", "categories": "general"},
-            timeout=10.0,
+            timeout=5.0,
         )
         resp.raise_for_status()
         data = resp.json()
         results = data.get("results", [])[:max_results]
-        return [
+        parsed = [
             {
                 "title": r.get("title", ""),
                 "url": r.get("url", ""),
@@ -1019,8 +1126,11 @@ def searxng_search(query: str, searxng_url: str, max_results: int = 5) -> list[d
             }
             for r in results
         ]
+        if parsed:
+            return parsed
     except Exception:
-        return []
+        pass
+    return _public_web_research_fallback(query, max_results=max_results)
 
 
 def validate_node_with_web(

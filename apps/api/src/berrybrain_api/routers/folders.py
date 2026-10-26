@@ -66,13 +66,48 @@ def _protected_boundaries(session) -> set[str]:
 def _folder_payload(
     vault_path: Path, item: Path, protected_boundaries: set[str] | None = None
 ) -> dict:
-    md_files = list(item.glob("*.md"))
+    from datetime import UTC, datetime
+
+    md_files = [
+        p
+        for p in item.glob("*.md")
+        if p.is_file()
+        and ".attachments" not in p.parts
+        and ".berrybrain-restore" not in p.parts
+    ]
+    all_md_files = [
+        p
+        for p in item.rglob("*.md")
+        if p.is_file()
+        and ".attachments" not in p.parts
+        and ".berrybrain-restore" not in p.parts
+    ]
     children = [
         child
         for child in item.iterdir()
         if child.is_dir() and not child.name.startswith(".")
     ]
     relative = str(item.relative_to(vault_path))
+    latest_mtime = 0.0
+    total_size_bytes = 0
+    for md_path in all_md_files:
+        try:
+            st = md_path.stat()
+            if st.st_mtime > latest_mtime:
+                latest_mtime = st.st_mtime
+            total_size_bytes += int(st.st_size)
+        except OSError:
+            continue
+    if latest_mtime <= 0.0:
+        try:
+            latest_mtime = item.stat().st_mtime
+        except OSError:
+            latest_mtime = 0.0
+    updated_at = (
+        datetime.fromtimestamp(latest_mtime, tz=UTC).isoformat()
+        if latest_mtime > 0
+        else None
+    )
     return {
         "name": item.name,
         "path": relative,
@@ -81,7 +116,9 @@ def _folder_payload(
         else "",
         "depth": 0 if relative == "." else len(Path(relative).parts) - 1,
         "note_count": len(md_files),
-        "total_note_count": len(list(item.rglob("*.md"))),
+        "total_note_count": len(all_md_files),
+        "total_size_bytes": total_size_bytes,
+        "updated_at": updated_at,
         "has_subfolders": bool(children),
         "protected": relative in (protected_boundaries or set()),
     }

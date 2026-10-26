@@ -1,4 +1,11 @@
-export type NoteSummary = { title: string; path: string; folder: string };
+export type NoteSummary = {
+  title: string;
+  path: string;
+  folder: string;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+  sizeBytes?: number | null;
+};
 export type NoteDetail = NoteSummary & { content: string; content_hash?: string };
 export type JobSummary = { id: number; type: string; status: string; payload: { note_path?: string }; error_message: string | null };
 export type Toast = { id: number; text: string; kind: "info" | "error" | "success" };

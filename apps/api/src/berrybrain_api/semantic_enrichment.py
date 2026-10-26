@@ -255,6 +255,17 @@ def persist_semantic_analysis(
     # source evidence here changes the fingerprint of the input just evaluated
     # and immediately makes a completed analysis appear stale.
     node.semantic_state = "completed"
+    if getattr(node, "validation_status", "unvalidated") == "unvalidated":
+        has_web_research = session.scalar(
+            select(GraphResearchResultRecord.id)
+            .where(
+                GraphResearchResultRecord.node_id == node.id,
+                GraphResearchResultRecord.status.in_(("suggested", "confirmed")),
+            )
+            .limit(1)
+        )
+        if has_web_research is not None:
+            node.validation_status = "validated"
     node.semantic_profile_version = version
     node.provider = analysis.provider
     node.model = analysis.model

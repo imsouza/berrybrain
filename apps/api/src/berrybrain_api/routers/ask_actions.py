@@ -41,7 +41,7 @@ class CreateNotePlanRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=160)
     folder: str = Field(default="inbox", max_length=40)
-    content: str = Field(min_length=1, max_length=50000)
+    content: str = Field(min_length=1, max_length=200000)
     new_vault_name: str | None = Field(default=None, max_length=160)
     vault_id: str | None = Field(default=None, max_length=36)
     approval_mode: Literal["ask_for_approval", "approve_full"] | None = None

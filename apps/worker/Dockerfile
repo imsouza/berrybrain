@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir --no-deps --force-reinstall ./apps/worker
 
 WORKDIR /app
 COPY prompts ./prompts
+COPY skills ./skills
 COPY scripts/validate-env.sh scripts/prepare-runtime-dirs.sh ./scripts/
 RUN mkdir -p /app/data/sqlite /app/data/jobs /app/data/logs /app/data/backups /app/vault
 

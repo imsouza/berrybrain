@@ -14,6 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
+from berrybrain_api.agent_skills import (
+    list_agent_skills,
+    resolve_skills_dir,
+    select_skills_for_context,
+)
 from berrybrain_api.ai_configuration import (
     PREFERRED_CHAT_MODELS,
     PREFERRED_EMBEDDING_MODELS,
@@ -80,6 +85,28 @@ def _require_admin_csrf(request: Request) -> None:
 @router.get("/providers")
 def list_providers() -> dict[str, object]:
     return {"providers": provider_catalog()}
+
+
+@router.get("/skills")
+def get_agent_skills(
+    query: str = "",
+    task_type: str = "ask",
+) -> dict[str, object]:
+    skills = list_agent_skills()
+    matched = (
+        [
+            skill.to_summary()
+            for skill in select_skills_for_context(query, task_type=task_type)
+        ]
+        if query.strip()
+        else []
+    )
+    return {
+        "skillsDir": str(resolve_skills_dir()),
+        "total": len(skills),
+        "skills": skills,
+        "matchedSkills": matched,
+    }
 
 
 @router.get("/providers/{provider_id}/models")

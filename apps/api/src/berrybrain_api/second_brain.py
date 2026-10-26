@@ -1333,6 +1333,20 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         source_note_ids=node_source_note_ids(node),
     )
 
+    from berrybrain_api.models import GraphResearchResultRecord
+
+    external_research = list(
+        session.execute(
+            select(GraphResearchResultRecord)
+            .where(
+                GraphResearchResultRecord.node_id == node.id,
+                GraphResearchResultRecord.status.in_(["suggested", "confirmed"]),
+            )
+            .order_by(GraphResearchResultRecord.id.desc())
+            .limit(8)
+        ).scalars()
+    )
+
     return {
         "id": node.id,
         "stableId": node.stable_id,
@@ -1383,8 +1397,20 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
                 "sourceVersion": note.source_version,
                 "title": note.title,
                 "path": note.path,
+                "snippet": (note.content or "")[:600],
             }
             for note in note_records
+        ],
+        "externalResearch": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "sourceUrl": item.source_url,
+                "evidence": item.evidence,
+                "query": item.query,
+                "status": item.status,
+            }
+            for item in external_research
         ],
         "connections": [_serialize_edge(edge) for edge in edges],
         "whyThisExists": _why_node_exists(node, note_records),
