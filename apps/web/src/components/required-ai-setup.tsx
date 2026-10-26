@@ -78,6 +78,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   const [initializationError, setInitializationError] = useState("");
   const [error, setError] = useState("");
   const [capabilities, setCapabilities] = useState<Record<string, unknown>>({});
+  const [testProgress, setTestProgress] = useState(0);
+  const [testPhase, setTestPhase] = useState("");
+  const [autoResolvedNotice, setAutoResolvedNotice] = useState("");
 
   const activeProviders = useMemo(
     () => providers.filter((provider) => provider.mode === mode),
@@ -233,6 +236,117 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   function setProviderKey(nextProviderId: string, value: string) {
     setApiKeys((current) => ({ ...current, [nextProviderId]: value }));
     if (nextProviderId === providerId) setApiKey(value);
+    const trimmed = value.trim();
+    if (mode === "cloud" && trimmed.startsWith("AIza") && providerId !== "gemini" && providerId !== "custom-cloud") {
+      const geminiProvider = providers.find((item) => item.id === "gemini");
+      if (geminiProvider) {
+        setProviderId(geminiProvider.id);
+        setEndpointUrl(geminiProvider.url);
+        setApiKey(value);
+        setApiKeys((current) => ({ ...current, [geminiProvider.id]: value }));
+        setSlotProviders({
+          main: geminiProvider.id,
+          embedding: geminiProvider.id,
+          judge: geminiProvider.id,
+          hipporag: geminiProvider.id,
+        });
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!busy || testProgress <= 0 || testProgress >= 100) return;
+    const stages: Array<{ until: number; label: string }> = [
+      { until: 30, label: "1/5 Discovering provider model catalog..." },
+      { until: 55, label: "2/5 Validating Main chat model..." },
+      { until: 75, label: "3/5 Validating Embeddings vector model..." },
+      { until: 92, label: "4/5 Validating Judge & HippoRAG compatibility (anti-429)..." },
+      { until: 96, label: "5/5 Finalizing 100% compatible configuration..." },
+    ];
+    const timer = window.setInterval(() => {
+      setTestProgress((prev) => {
+        if (prev >= 96) return prev;
+        const next = Math.min(96, prev + 7);
+        const stage = stages.find((item) => next <= item.until) || stages[stages.length - 1];
+        setTestPhase(stage.label);
+        return next;
+      });
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [busy, testProgress]);
+
+  function applyResolvedConfiguration(resolved: SavedConfiguration | null | undefined) {
+    if (!resolved) return;
+    if (resolved.mode === "cloud" || resolved.mode === "local") {
+      setMode(resolved.mode);
+    }
+    if (resolved.endpoint_url) {
+      setEndpointUrl(resolved.endpoint_url);
+    }
+    if (resolved.main?.provider_id) {
+      setProviderId(resolved.main.provider_id);
+    }
+    setSlotProviders((current) => ({
+      main: resolved.main?.provider_id || current.main,
+      embedding: resolved.embedding?.provider_id || current.embedding,
+      judge: resolved.judge?.provider_id || current.judge,
+      hipporag: resolved.hipporag?.provider_id || current.hipporag,
+    }));
+    setSlots((current) => ({
+      main: resolved.main?.model_id || current.main,
+      embedding: resolved.embedding?.model_id || current.embedding,
+      judge: resolved.judge?.model_id || current.judge,
+      hipporag: resolved.hipporag?.model_id || current.hipporag,
+    }));
+  }
+
+  async function autoConfigure(saveImmediately = false) {
+    setBusy(true);
+    setError("");
+    setAutoResolvedNotice("");
+    setTestProgress(15);
+    setTestPhase("1/5 Auto-detecting provider & best predefined models...");
+    try {
+      const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/auto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey.trim() || String(apiKeys[providerId] || "").trim(),
+          provider_id: providerId,
+          endpoint_url: endpointUrl.trim(),
+          mode,
+          save: saveImmediately,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(readError(payload));
+      applyResolvedConfiguration(payload.configuration as SavedConfiguration);
+      if (Array.isArray(payload.catalogModels) && payload.catalogModels.length) {
+        setModels(payload.catalogModels.map((item: unknown) => String(item)));
+      }
+      setCapabilities(payload.capabilitySnapshot || { validated: true });
+      setTestProgress(100);
+      setTestPhase("100% — Auto configuration & compatibility test passed!");
+      setAutoResolvedNotice(
+        "Auto Config selected and verified the best predefined models for Main, Embeddings, Judge, and HippoRAG (100% compatible).",
+      );
+      if (saveImmediately && payload.saved) {
+        setGate(payload.configurationGate || { required: false, valid: true });
+        setForcedOpen(false);
+        setApiKey("");
+        setApiKeys({});
+        await refreshGate();
+        window.dispatchEvent(new Event("bb:ai-configuration-changed"));
+      } else {
+        setStep(7);
+      }
+    } catch (caught) {
+      setTestProgress(0);
+      setTestPhase("");
+      setError(caught instanceof Error ? caught.message : "Auto configuration failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function loadModels(targetProviderId = providerId, slot?: ModelPickerSlot) {
@@ -312,6 +426,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   async function validateConfiguration() {
     setBusy(true);
     setError("");
+    setAutoResolvedNotice("");
+    setTestProgress(15);
+    setTestPhase("1/5 Connecting to provider & checking model catalog...");
     try {
       const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/validate`, {
         method: "POST",
@@ -320,13 +437,28 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           configuration: configuration(),
           api_key: apiKey.trim(),
           api_keys: apiKeys,
+          auto_resolve: true,
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(readError(payload));
+      applyResolvedConfiguration(payload.configuration as SavedConfiguration);
+      const resolvedMap = (payload.autoResolvedSlots || {}) as Record<string, string>;
+      const resolvedEntries = Object.entries(resolvedMap);
+      if (resolvedEntries.length > 0) {
+        setAutoResolvedNotice(
+          `Auto-adjusted rate-limited or unavailable slots to verified models: ${resolvedEntries
+            .map(([slotName, modelName]) => `${slotName} → ${modelName}`)
+            .join(", ")}.`,
+        );
+      }
       setCapabilities(payload.capabilitySnapshot || {});
+      setTestProgress(100);
+      setTestPhase("100% — Compatibility test passed!");
       setStep(7);
     } catch (caught) {
+      setTestProgress(0);
+      setTestPhase("");
       setError(caught instanceof Error ? caught.message : "Compatibility test failed.");
     } finally {
       setBusy(false);
@@ -347,6 +479,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           },
           api_key: apiKey.trim(),
           api_keys: apiKeys,
+          auto_resolve: true,
         }),
       });
       const payload = await response.json();
@@ -521,14 +654,45 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                   </span>
                 </Field>
               )}
-              <button
-                type="button"
-                onClick={() => void loadModels()}
-                disabled={busy || !endpointUrl.trim()}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {busy ? "Testing..." : "Load models"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadModels()}
+                  disabled={busy || !endpointUrl.trim()}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy && testProgress === 0 ? "Testing..." : "Load models"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void autoConfigure(false)}
+                  disabled={busy || !endpointUrl.trim()}
+                  className="rounded-md border border-accent bg-accent-soft px-4 py-2 text-sm font-semibold text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                >
+                  {busy && testProgress > 0 ? "Auto configuring..." : "Auto Config (Best Predefined Models)"}
+                </button>
+              </div>
+              {testProgress > 0 && busy && (
+                <div className="space-y-1.5 rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                    <span>{testPhase || "Testing configuration..."}</span>
+                    <span>{testProgress}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={testProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-surface"
+                  >
+                    <div
+                      className="h-full bg-accent transition-all duration-300"
+                      style={{ width: `${testProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {models.length > 0 && (
                 <p className="text-sm text-success">{models.length} models available.</p>
               )}
@@ -590,14 +754,45 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
               {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}. It will be used only for eligible primary failures.</p>}
-              <button
-                type="button"
-                onClick={validateConfiguration}
-                disabled={busy}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {busy ? "Testing configuration..." : "Run compatibility tests"}
-              </button>
+              {testProgress > 0 && (
+                <div className="space-y-1.5 rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                    <span>{testPhase || "Testing configuration..."}</span>
+                    <span>{testProgress}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={testProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-surface"
+                  >
+                    <div
+                      className="h-full bg-accent transition-all duration-300"
+                      style={{ width: `${testProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={validateConfiguration}
+                  disabled={busy}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy ? "Testing configuration..." : "Run compatibility tests"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void autoConfigure(false)}
+                  disabled={busy}
+                  className="rounded-md border border-accent bg-accent-soft px-4 py-2 text-sm font-semibold text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                >
+                  {busy ? "Auto configuring..." : "Auto Config & Test"}
+                </button>
+              </div>
             </div>
           )}
 
@@ -605,6 +800,29 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
               {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}.</p>}
+              {testProgress > 0 && (
+                <div className="space-y-1.5 rounded-md border border-success/40 bg-success/10 p-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-success">
+                    <span>{testPhase || "100% — Compatibility test passed!"}</span>
+                    <span>100%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={100}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-background/60"
+                  >
+                    <div className="h-full w-full bg-emerald-600 transition-all duration-300" />
+                  </div>
+                </div>
+              )}
+              {autoResolvedNotice && (
+                <p className="rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-foreground">
+                  {autoResolvedNotice}
+                </p>
+              )}
               <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
                 {primaryDegraded ? "Alternate model verified. The saved primary is currently unavailable; BerryBrain will use the alternate for eligible failures." : "Provider and model compatibility verified."}
               </p>

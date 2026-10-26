@@ -448,3 +448,142 @@ test("focusNode selects and centers an out-of-page graph_node in the visual grap
   await expect(page.getByRole("link", { name: "Open saved note" })).toBeVisible();
   expect(stepsExecuted).toEqual(["create_vault", "create_note"]);
 });
+
+test("AI setup shows progress bar during compatibility test and Settings supports API-key-only Auto Config", async ({ page }) => {
+  await page.route("**/api/v1/ai/providers", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        providers: [
+          {
+            id: "gemini",
+            label: "Google Gemini",
+            mode: "cloud",
+            url: "https://generativelanguage.googleapis.com/v1beta/openai",
+            capabilities: ["chat", "embeddings", "judge", "hipporag"],
+          },
+          {
+            id: "custom-cloud",
+            label: "Custom OpenAI-compatible",
+            mode: "cloud",
+            url: "",
+            capabilities: ["chat", "embeddings", "judge", "hipporag"],
+          },
+          {
+            id: "ollama",
+            label: "Ollama",
+            mode: "local",
+            url: "http://localhost:11434",
+            capabilities: ["chat", "embeddings", "judge", "hipporag"],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/ai/configuration", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          configuration: {
+            schema_version: 2,
+            mode: "cloud",
+            endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+            main: { provider_id: "custom-cloud", model_id: "models/gemini-4-argon" },
+            embedding: { provider_id: "custom-cloud", model_id: "models/gemini-embedding-2" },
+            judge: { provider_id: "custom-cloud", model_id: "models/gemini-3.8-flash", enabled: true, mode: "single_model" },
+            hipporag: { provider_id: "custom-cloud", model_id: "models/gemini-3.1-pro-preview", enabled: true },
+          },
+          configurationGate: { required: false, valid: true },
+          credentialProviders: ["custom-cloud"],
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        configurationGate: { required: false, valid: true },
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/ai/configuration/validate", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        valid: true,
+        configuration: {
+          schema_version: 2,
+          mode: "cloud",
+          endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+          main: { provider_id: "custom-cloud", model_id: "models/gemini-2.5-flash" },
+          embedding: { provider_id: "custom-cloud", model_id: "models/gemini-embedding-2" },
+          judge: { provider_id: "custom-cloud", model_id: "models/gemini-2.5-flash", enabled: true, mode: "single_model" },
+          hipporag: { provider_id: "custom-cloud", model_id: "models/gemini-2.5-flash", enabled: true },
+        },
+        autoResolvedSlots: {
+          main: "models/gemini-2.5-flash",
+          judge: "models/gemini-2.5-flash",
+          hipporag: "models/gemini-2.5-flash",
+        },
+        capabilitySnapshot: {
+          chat: true,
+          embeddings: true,
+          validated: true,
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/v1/ai/configuration/auto", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        valid: true,
+        saved: true,
+        configuration: {
+          schema_version: 2,
+          mode: "cloud",
+          endpoint_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+          main: { provider_id: "gemini", model_id: "models/gemini-2.5-flash" },
+          embedding: { provider_id: "gemini", model_id: "models/gemini-embedding-001" },
+          judge: { provider_id: "gemini", model_id: "models/gemini-2.5-flash", enabled: true, mode: "single_model" },
+          hipporag: { provider_id: "gemini", model_id: "models/gemini-2.5-flash", enabled: true },
+        },
+        configurationGate: { required: false, valid: true },
+        capabilitySnapshot: { validated: true },
+        catalogModels: ["models/gemini-2.5-flash", "models/gemini-embedding-001"],
+      }),
+    });
+  });
+
+  await page.goto("/brain", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Settings" }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(settingsDialog).toBeVisible();
+
+  await settingsDialog.getByRole("button", { name: "AI & execution" }).click();
+  await settingsDialog.getByPlaceholder("Paste API key for automatic setup").fill("AIzaSyTestAutoConfigKey");
+  await settingsDialog.getByRole("button", { name: "Auto Config & Test" }).click();
+  await expect(settingsDialog.getByRole("progressbar", { name: "Auto configuration compatibility progress" })).toBeVisible();
+  await expect(settingsDialog.getByText(/Auto Config completed \(100% compatibility pass\)/)).toBeVisible();
+
+  await settingsDialog.getByRole("button", { name: "Configure AI providers and models" }).click();
+  await expect(page.getByRole("dialog", { name: "Mode" })).toBeVisible();
+  for (let i = 0; i < 6; i += 1) {
+    await page.getByRole("button", { name: "Continue" }).click();
+  }
+  await page.getByRole("button", { name: "Run compatibility tests" }).click();
+  await expect(page.getByRole("progressbar", { name: "Configuration compatibility progress", exact: true })).toBeVisible();
+  await expect(page.getByText("Provider and model compatibility verified.")).toBeVisible();
+  await expect(page.getByText(/Auto-adjusted rate-limited or unavailable slots/)).toBeVisible();
+});

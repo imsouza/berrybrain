@@ -15,11 +15,18 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
 from berrybrain_api.ai_configuration import (
+    PREFERRED_CHAT_MODELS,
+    PREFERRED_EMBEDDING_MODELS,
     PROVIDERS,
     AIConfiguration,
+    HippoRagSlot,
+    JudgeSlot,
+    ModelSlot,
     configuration_gate,
+    detect_provider_from_key_or_url,
     load_configuration,
     load_provider_credentials,
+    normalize_provider_endpoint,
     provider_api_key,
     provider_catalog,
     provider_endpoint,
@@ -44,6 +51,15 @@ class ConfigurationPayload(BaseModel):
     configuration: AIConfiguration
     api_key: str = ""
     api_keys: dict[str, str] = Field(default_factory=dict)
+    auto_resolve: bool = False
+
+
+class AutoConfigurationPayload(BaseModel):
+    api_key: str = ""
+    provider_id: str = ""
+    endpoint_url: str = ""
+    mode: Literal["cloud", "local"] = "cloud"
+    save: bool = True
 
 
 class ProviderModelsPayload(BaseModel):
@@ -139,8 +155,15 @@ def validate_configuration(payload: ConfigurationPayload) -> dict[str, object]:
     configuration = payload.configuration
     with SessionLocal() as session:
         contexts = _provider_contexts(session, configuration, payload)
-    requested = _validate_requested_models(configuration, contexts)
-    slot_capabilities = _probe_requested_capabilities(configuration, contexts)
+    auto_resolved: dict[str, str] = {}
+    if payload.auto_resolve:
+        configuration, slot_capabilities, auto_resolved = _auto_resolve_configuration(
+            configuration, contexts
+        )
+        requested = {model for _, _, model, _ in _slot_specs(configuration)}
+    else:
+        requested = _validate_requested_models(configuration, contexts)
+        slot_capabilities = _probe_requested_capabilities(configuration, contexts)
     capabilities = {
         "chat": True,
         "embeddings": True,
@@ -164,6 +187,8 @@ def validate_configuration(payload: ConfigurationPayload) -> dict[str, object]:
     )
     return {
         "valid": True,
+        "configuration": configuration.model_dump(mode="json"),
+        "autoResolvedSlots": auto_resolved,
         "capabilitySnapshot": capabilities,
         "judgeDefaults": {
             "mode": (
@@ -172,6 +197,209 @@ def validate_configuration(payload: ConfigurationPayload) -> dict[str, object]:
             "committeeSize": DEFAULT_COMMITTEE_SIZE,
             "committee": committee,
         },
+    }
+
+
+@router.post("/configuration/auto", dependencies=[Depends(_require_admin_csrf)])
+def auto_configure(payload: AutoConfigurationPayload) -> dict[str, object]:
+    steps: list[dict[str, object]] = []
+    with SessionLocal() as session:
+        existing = load_configuration(session)
+        resolved_provider, resolved_endpoint, resolved_mode = (
+            detect_provider_from_key_or_url(
+                api_key=payload.api_key,
+                provider_id=payload.provider_id
+                or (existing.main.provider_id if existing else ""),
+                endpoint_url=payload.endpoint_url
+                or (existing.endpoint_url if existing else ""),
+                mode=payload.mode,
+            )
+        )
+        _validate_provider_endpoint(resolved_provider, resolved_endpoint)
+        api_key = payload.api_key.strip() or provider_api_key(
+            session, resolved_provider
+        )
+        if resolved_mode == "cloud" and not api_key:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "provider_key_required", "provider": resolved_provider},
+            )
+        steps.append(
+            {
+                "step": "detect_provider",
+                "status": "ok",
+                "providerId": resolved_provider,
+                "endpointUrl": resolved_endpoint,
+                "mode": resolved_mode,
+            }
+        )
+        try:
+            catalog_models = _fetch_models(
+                resolved_provider, resolved_endpoint, api_key
+            )
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            raise HTTPException(
+                status_code=422, detail=_model_catalog_error(exc)
+            ) from exc
+        steps.append(
+            {
+                "step": "discover_catalog",
+                "status": "ok",
+                "modelsFound": len(catalog_models),
+            }
+        )
+        chat_model, chat_probe = _select_working_model(
+            provider_id=resolved_provider,
+            endpoint=resolved_endpoint,
+            api_key=api_key,
+            catalog_models=catalog_models,
+            capability="chat",
+        )
+        steps.append(
+            {
+                "step": "verify_chat",
+                "status": "ok",
+                "model": chat_model,
+            }
+        )
+        embed_provider = resolved_provider
+        embed_endpoint = resolved_endpoint
+        embed_key = api_key
+        embed_catalog = catalog_models
+        try:
+            if PROVIDERS.get(resolved_provider, {}).get("chat_only"):
+                raise ValueError("Primary provider is chat-only")
+            embed_model, embed_probe = _select_working_model(
+                provider_id=embed_provider,
+                endpoint=embed_endpoint,
+                api_key=embed_key,
+                catalog_models=embed_catalog,
+                capability="embeddings",
+            )
+        except (HTTPException, ValueError) as first_err:
+            if resolved_mode != "cloud":
+                raise
+            fallback_found = False
+            saved_creds = load_provider_credentials(session)
+            for candidate_provider in ("gemini", "nvidia-nim", "openai", "openrouter"):
+                if candidate_provider == resolved_provider:
+                    continue
+                cand_key = saved_creds.get(candidate_provider) or (
+                    _setting(session, "ai_api_key")
+                    if existing and existing.embedding.provider_id == candidate_provider
+                    else ""
+                )
+                if not cand_key:
+                    continue
+                cand_endpoint = str(PROVIDERS[candidate_provider]["url"])
+                try:
+                    cand_models = _fetch_models(
+                        candidate_provider, cand_endpoint, cand_key
+                    )
+                    embed_model, embed_probe = _select_working_model(
+                        provider_id=candidate_provider,
+                        endpoint=cand_endpoint,
+                        api_key=cand_key,
+                        catalog_models=cand_models,
+                        capability="embeddings",
+                    )
+                    embed_provider = candidate_provider
+                    embed_endpoint = cand_endpoint
+                    embed_key = cand_key
+                    fallback_found = True
+                    break
+                except Exception:
+                    continue
+            if not fallback_found:
+                if isinstance(first_err, HTTPException):
+                    raise first_err
+                raise HTTPException(
+                    status_code=422,
+                    detail="Selected provider does not offer an embeddings model and no backup embeddings provider is configured.",
+                ) from first_err
+        steps.append(
+            {
+                "step": "verify_embeddings",
+                "status": "ok",
+                "providerId": embed_provider,
+                "model": embed_model,
+                "dimensions": embed_probe.get("dimensions"),
+            }
+        )
+        slot_capabilities = {
+            "main": dict(chat_probe),
+            "embedding": dict(embed_probe),
+            "judge": dict(chat_probe),
+            "hipporag": dict(chat_probe),
+        }
+        capabilities = {
+            "chat": True,
+            "embeddings": True,
+            "structuredOutput": True,
+            "health": True,
+            "models": sorted({chat_model, embed_model}),
+            "slots": slot_capabilities,
+            "validated": True,
+        }
+        configuration = AIConfiguration(
+            mode=resolved_mode,
+            endpoint_url=resolved_endpoint,
+            main=ModelSlot(provider_id=resolved_provider, model_id=chat_model),
+            embedding=ModelSlot(provider_id=embed_provider, model_id=embed_model),
+            judge=JudgeSlot(
+                provider_id=resolved_provider,
+                model_id=chat_model,
+                enabled=True,
+                mode="single_model",
+            ),
+            hipporag=HippoRagSlot(
+                provider_id=resolved_provider,
+                model_id=chat_model,
+                enabled=True,
+            ),
+            capability_snapshot=capabilities,
+        )
+        if not payload.save:
+            return {
+                "valid": True,
+                "saved": False,
+                "configuration": configuration.model_dump(mode="json"),
+                "capabilitySnapshot": capabilities,
+                "catalogModels": catalog_models,
+                "steps": steps,
+            }
+        from berrybrain_api.settings_store import set_setting
+
+        if resolved_mode == "cloud":
+            supplied_keys = {resolved_provider: api_key}
+            if embed_provider != resolved_provider and embed_key:
+                supplied_keys[embed_provider] = embed_key
+            save_provider_credentials(session, supplied_keys)
+            set_setting(session, "ai_api_key", api_key)
+        set_setting(session, "onboarding_completed", "true")
+        from berrybrain_api.judge_committee import configure_provider_committee
+
+        configure_provider_committee(
+            session,
+            provider=resolved_provider,
+            available_models=[chat_model],
+            generator_model=chat_model,
+            primary_judge_model=chat_model,
+        )
+        saved = save_configuration(session, configuration, validated=True)
+        embedding_reindex = _queue_embedding_reindex(session, existing, saved)
+        session.commit()
+        gate = configuration_gate(session)
+        steps.append({"step": "save_configuration", "status": "ok"})
+    return {
+        "valid": True,
+        "saved": True,
+        "configuration": saved.model_dump(mode="json"),
+        "configurationGate": gate,
+        "capabilitySnapshot": capabilities,
+        "embeddingReindex": embedding_reindex,
+        "catalogModels": catalog_models,
+        "steps": steps,
     }
 
 
@@ -186,8 +414,13 @@ def put_configuration(payload: ConfigurationPayload) -> dict[str, object]:
     with SessionLocal() as session:
         previous_configuration = load_configuration(session)
         contexts = _provider_contexts(session, configuration, payload)
-        _validate_requested_models(configuration, contexts)
-        slot_capabilities = _probe_requested_capabilities(configuration, contexts)
+        if payload.auto_resolve:
+            configuration, slot_capabilities, _ = _auto_resolve_configuration(
+                configuration, contexts
+            )
+        else:
+            _validate_requested_models(configuration, contexts)
+            slot_capabilities = _probe_requested_capabilities(configuration, contexts)
         configuration = configuration.model_copy(
             update={
                 "capability_snapshot": {
@@ -217,24 +450,27 @@ def put_configuration(payload: ConfigurationPayload) -> dict[str, object]:
         )
 
         current_judge = load_judge_config(session)
-        candidates = judge_model_candidates(
-            available_models=contexts[configuration.judge.provider_id]["models"],
-            generator_model=configuration.main.model_id,
-            primary_judge_model=configuration.judge.model_id,
-            preferred_models=[
-                str(item.get("model") or "") for item in current_judge.committee
-            ],
-        )
-        validated_judge_models = _probe_judge_models(
-            configuration.judge.provider_id,
-            str(contexts[configuration.judge.provider_id]["endpoint"]),
-            str(contexts[configuration.judge.provider_id]["api_key"]),
-            candidates,
-            required=max(
-                DEFAULT_COMMITTEE_SIZE,
-                current_judge.committee_size,
-            ),
-        )
+        if configuration.judge.mode == "single_model":
+            validated_judge_models = [configuration.judge.model_id]
+        else:
+            candidates = judge_model_candidates(
+                available_models=contexts[configuration.judge.provider_id]["models"],
+                generator_model=configuration.main.model_id,
+                primary_judge_model=configuration.judge.model_id,
+                preferred_models=[
+                    str(item.get("model") or "") for item in current_judge.committee
+                ],
+            )
+            validated_judge_models = _probe_judge_models(
+                configuration.judge.provider_id,
+                str(contexts[configuration.judge.provider_id]["endpoint"]),
+                str(contexts[configuration.judge.provider_id]["api_key"]),
+                candidates,
+                required=max(
+                    DEFAULT_COMMITTEE_SIZE,
+                    current_judge.committee_size,
+                ),
+            )
 
         judge_config = configure_provider_committee(
             session,
@@ -318,6 +554,253 @@ def _queue_embedding_reindex(
     }
 
 
+def _rank_candidate_models(
+    provider_id: str,
+    endpoint: str,
+    catalog_models: list[str],
+    capability: Literal["chat", "embeddings"],
+) -> list[str]:
+    effective_provider = (
+        "gemini"
+        if "generativelanguage.googleapis.com" in endpoint.lower()
+        else provider_id
+    )
+    preferred = (
+        PREFERRED_EMBEDDING_MODELS.get(effective_provider, ())
+        if capability == "embeddings"
+        else PREFERRED_CHAT_MODELS.get(effective_provider, ())
+    )
+    catalog_set = set(catalog_models)
+    ranked: list[str] = []
+
+    def add(candidate: str) -> None:
+        cleaned = candidate.strip()
+        if cleaned and cleaned not in ranked:
+            ranked.append(cleaned)
+
+    for item in preferred:
+        if not catalog_models or item in catalog_set:
+            add(item)
+        prefixed = f"models/{item.removeprefix('models/')}"
+        stripped = item.removeprefix("models/")
+        if prefixed in catalog_set:
+            add(prefixed)
+        if stripped in catalog_set:
+            add(stripped)
+
+    non_chat_markers = (
+        "embed",
+        "tts",
+        "whisper",
+        "imagen",
+        "veo",
+        "aqa",
+        "moderation",
+        "rerank",
+        "bge-",
+        "nomic-embed",
+    )
+    if capability == "embeddings":
+        for model in catalog_models:
+            if "embed" in model.lower():
+                add(model)
+        if not ranked:
+            for model in catalog_models:
+                add(model)
+    else:
+        flash_candidates: list[str] = []
+        other_candidates: list[str] = []
+        for model in catalog_models:
+            lower = model.lower()
+            if any(marker in lower for marker in non_chat_markers):
+                continue
+            if "flash" in lower and "preview" not in lower and "exp" not in lower:
+                flash_candidates.append(model)
+            else:
+                other_candidates.append(model)
+        for model in flash_candidates + other_candidates:
+            add(model)
+
+    if not ranked:
+        for item in preferred:
+            add(item)
+    return ranked
+
+
+def _select_working_model(
+    *,
+    provider_id: str,
+    endpoint: str,
+    api_key: str,
+    catalog_models: list[str],
+    capability: Literal["chat", "embeddings"],
+) -> tuple[str, dict[str, object]]:
+    candidates = _rank_candidate_models(
+        provider_id, endpoint, catalog_models, capability
+    )
+    last_reason = f"No {capability} model passed the compatibility test."
+    for candidate in candidates[:10]:
+        probe = _probe_model_capability(
+            provider_id=provider_id,
+            endpoint=endpoint,
+            api_key=api_key,
+            model=candidate,
+            capability=capability,
+        )
+        if probe.get("available"):
+            resolved_model = str(probe.get("model") or candidate)
+            return resolved_model, probe
+        if probe.get("reason"):
+            last_reason = str(probe["reason"])
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "code": "model_capability_mismatch",
+            "failures": [
+                {
+                    "slot": "embedding" if capability == "embeddings" else "main",
+                    "available": False,
+                    "model": candidates[0] if candidates else "",
+                    "capability": capability,
+                    "status": None,
+                    "reason": last_reason,
+                }
+            ],
+        },
+    )
+
+
+def _auto_resolve_configuration(
+    configuration: AIConfiguration,
+    contexts: dict[str, dict[str, Any]],
+) -> tuple[AIConfiguration, dict[str, dict[str, object]], dict[str, str]]:
+    probe_cache: dict[tuple[str, str, str], dict[str, object]] = {}
+    verified_by_provider: dict[tuple[str, str], tuple[str, dict[str, object]]] = {}
+    slot_capabilities: dict[str, dict[str, object]] = {}
+    auto_resolved: dict[str, str] = {}
+    updated = configuration
+
+    for slot, provider_id, model, capability in _slot_specs(configuration):
+        context = contexts[provider_id]
+        endpoint = str(context["endpoint"])
+        api_key = str(context["api_key"])
+        catalog_models = list(context.get("models") or [])
+        cap_literal: Literal["chat", "embeddings"] = (
+            "embeddings" if capability == "embeddings" else "chat"
+        )
+
+        if slot == "main" and context.get("catalog_unavailable"):
+            slot_capabilities[slot] = {
+                "available": False,
+                "model": model,
+                "capability": capability,
+                "status": None,
+                "reason": "The saved primary provider is temporarily unavailable.",
+                "degraded": True,
+            }
+            continue
+
+        in_catalog = not catalog_models or model in catalog_models
+        probe_key = (provider_id, model, capability)
+        probe_result: dict[str, object] | None = None
+        if in_catalog:
+            if probe_key in probe_cache:
+                probe_result = dict(probe_cache[probe_key])
+            elif (provider_id, capability) in verified_by_provider and (
+                verified_by_provider[(provider_id, capability)][0] == model
+            ):
+                probe_result = dict(verified_by_provider[(provider_id, capability)][1])
+            else:
+                probe_result = _probe_model_capability(
+                    provider_id=provider_id,
+                    endpoint=endpoint,
+                    api_key=api_key,
+                    model=model,
+                    capability=capability,
+                )
+                probe_cache[probe_key] = dict(probe_result)
+
+        if probe_result and probe_result.get("available"):
+            resolved_model = str(probe_result.get("model") or model)
+            verified_by_provider[(provider_id, capability)] = (
+                resolved_model,
+                dict(probe_result),
+            )
+            slot_capabilities[slot] = dict(probe_result)
+            continue
+
+        if (
+            provider_id,
+            capability,
+        ) in verified_by_provider and slot != "fallback_main":
+            replacement_model, replacement_probe = verified_by_provider[
+                (provider_id, capability)
+            ]
+        else:
+            filtered_catalog = [
+                item
+                for item in catalog_models
+                if item != model
+                and (slot != "fallback_main" or item != updated.main.model_id)
+            ]
+            replacement_model, replacement_probe = _select_working_model(
+                provider_id=provider_id,
+                endpoint=endpoint,
+                api_key=api_key,
+                catalog_models=filtered_catalog or catalog_models,
+                capability=cap_literal,
+            )
+            verified_by_provider[(provider_id, capability)] = (
+                replacement_model,
+                dict(replacement_probe),
+            )
+
+        auto_resolved[slot] = replacement_model
+        slot_capabilities[slot] = dict(replacement_probe)
+        if slot == "main":
+            updated = updated.model_copy(
+                update={
+                    "main": updated.main.model_copy(
+                        update={"model_id": replacement_model}
+                    )
+                }
+            )
+        elif slot == "embedding":
+            updated = updated.model_copy(
+                update={
+                    "embedding": updated.embedding.model_copy(
+                        update={"model_id": replacement_model}
+                    )
+                }
+            )
+        elif slot == "judge":
+            updated = updated.model_copy(
+                update={
+                    "judge": updated.judge.model_copy(
+                        update={"model_id": replacement_model}
+                    )
+                }
+            )
+        elif slot == "hipporag":
+            updated = updated.model_copy(
+                update={
+                    "hipporag": updated.hipporag.model_copy(
+                        update={"model_id": replacement_model}
+                    )
+                }
+            )
+        elif slot == "fallback_main" and updated.fallback_main is not None:
+            updated = updated.model_copy(
+                update={
+                    "fallback_main": updated.fallback_main.model_copy(
+                        update={"model_id": replacement_model}
+                    )
+                }
+            )
+
+    return updated, slot_capabilities, auto_resolved
+
+
 def _validate_requested_models(
     configuration: AIConfiguration,
     contexts: dict[str, dict[str, Any]],
@@ -344,28 +827,36 @@ def _probe_requested_capabilities(
     contexts: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, object]]:
     slots = _slot_specs(configuration)
+    probe_cache: dict[tuple[str, str, str], dict[str, object]] = {}
+    results: list[tuple[str, dict[str, object]]] = []
 
-    def probe(item: tuple[str, str, str, str]) -> tuple[str, dict[str, object]]:
-        slot, provider_id, model, capability = item
+    for slot, provider_id, model, capability in slots:
         context = contexts[provider_id]
         if slot == "main" and context.get("catalog_unavailable"):
-            return slot, {
-                "available": False,
-                "model": model,
-                "capability": capability,
-                "status": None,
-                "reason": "The saved primary provider is temporarily unavailable.",
-            }
-        return slot, _probe_model_capability(
-            provider_id=provider_id,
-            endpoint=str(context["endpoint"]),
-            api_key=str(context["api_key"]),
-            model=model,
-            capability=capability,
-        )
+            results.append(
+                (
+                    slot,
+                    {
+                        "available": False,
+                        "model": model,
+                        "capability": capability,
+                        "status": None,
+                        "reason": "The saved primary provider is temporarily unavailable.",
+                    },
+                )
+            )
+            continue
+        cache_key = (provider_id, model, capability)
+        if cache_key not in probe_cache:
+            probe_cache[cache_key] = _probe_model_capability(
+                provider_id=provider_id,
+                endpoint=str(context["endpoint"]),
+                api_key=str(context["api_key"]),
+                model=model,
+                capability=capability,
+            )
+        results.append((slot, dict(probe_cache[cache_key])))
 
-    with ThreadPoolExecutor(max_workers=len(slots)) as executor:
-        results = list(executor.map(probe, slots))
     by_slot = dict(results)
     primary = by_slot["main"]
     primary_status = primary.get("status")
@@ -377,14 +868,15 @@ def _probe_requested_capabilities(
         and (
             primary_status is None
             or primary_status in {404, 410, 429}
-            or isinstance(primary_status, int)
-            and primary_status >= 500
-            or primary_status == 400
-            and re.search(
-                r"\bmodel\b.{0,120}\b(?:not found|unavailable|retired|"
-                r"not supported|does not provide chat)\b",
-                primary_reason,
-                re.IGNORECASE,
+            or (isinstance(primary_status, int) and primary_status >= 500)
+            or (
+                primary_status == 400
+                and re.search(
+                    r"\bmodel\b.{0,120}\b(?:not found|unavailable|retired|"
+                    r"not supported|does not provide chat)\b",
+                    primary_reason,
+                    re.IGNORECASE,
+                )
             )
         )
     )
@@ -542,8 +1034,9 @@ def _capability_http_error(exc: urllib.error.HTTPError, api_key: str) -> str:
             message = message.replace(api_key, "[REDACTED]")
         message = re.sub(r"(?i)bearer\s+\S+", "Bearer [REDACTED]", message)
         message = re.sub(
-            r"\b(?:sk|sk-or|sk-opencode)-[A-Za-z0-9_-]+", "[REDACTED]", message
+            r"\b(?:sk|sk-or|sk-opencode|nvapi)-[A-Za-z0-9_-]+", "[REDACTED]", message
         )
+        message = re.sub(r"\b(?:AIza|gsk_)[A-Za-z0-9_-]+", "[REDACTED]", message)
         message = re.sub(r"[\w.+-]+@[\w.-]+", "[EMAIL]", message)
         return f"{fallback} {' '.join(message.split())[:400]}"
     except (OSError, ValueError, TypeError):
@@ -568,7 +1061,12 @@ def _probe_model_capability(
             "status": None,
             "reason": "Zen supports documented Chat Completions models here. Select another cloud provider for embeddings.",
         }
-    base = endpoint.rstrip("/")
+    base = normalize_provider_endpoint(provider_id, endpoint).rstrip("/")
+    is_gemini = (
+        provider_id == "gemini"
+        or "generativelanguage.googleapis.com" in base.lower()
+        or "gemini" in model.lower()
+    )
     if capability == "embeddings":
         path = "/api/embed" if provider_id == "ollama" else "/embeddings"
         body: dict[str, object] = {"model": model, "input": "capability probe"}
@@ -580,7 +1078,7 @@ def _probe_model_capability(
                     "truncate": "END",
                 }
             )
-        timeout = 45
+        timeout = 30
     else:
         path = "/api/chat" if provider_id == "ollama" else "/chat/completions"
         body = {
@@ -591,9 +1089,9 @@ def _probe_model_capability(
         if provider_id == "ollama":
             body["stream"] = False
         else:
-            body.update({"temperature": 0, "max_tokens": 1})
+            body.update({"temperature": 0, "max_tokens": 32 if is_gemini else 1})
             body.update(cloud_chat_options(endpoint, model))
-        timeout = 90
+        timeout = 30 if is_gemini else 60
     request = urllib.request.Request(
         f"{base}{path}",
         data=json.dumps(body).encode("utf-8"),
@@ -780,6 +1278,7 @@ def _probe_judge_models(
                         "cloud_model": model,
                     },
                     "Return an object with probe set to true.",
+                    "Return one JSON object and no prose.",
                     12,
                     32,
                 )

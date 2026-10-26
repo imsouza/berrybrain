@@ -828,6 +828,12 @@ def _cloud_json(
     model = config.get("cloud_model", "")
     if not api_url or not api_key or not model:
         raise GraphAIUnavailable("Cloud provider is not configured")
+    effective_max_tokens = (
+        max(max_tokens, 256)
+        if "generativelanguage.googleapis.com" in api_url.lower()
+        or "gemini" in model.lower()
+        else max_tokens
+    )
     request = urllib.request.Request(
         f"{api_url}/chat/completions",
         data=json.dumps(
@@ -839,7 +845,7 @@ def _cloud_json(
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0,
-                "max_tokens": max_tokens,
+                "max_tokens": effective_max_tokens,
                 **cloud_chat_options(api_url, model),
             }
         ).encode("utf-8"),

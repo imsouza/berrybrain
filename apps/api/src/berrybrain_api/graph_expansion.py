@@ -570,11 +570,17 @@ def _upsert_note_node(session: Session, note: NoteRecord) -> GraphNodeRecord:
         "vaultId": note.vault_id,
         "status": note.status,
     }
+    from berrybrain_api.graph_ontology import validate_node_name
     from berrybrain_api.graph_write_service import GraphWriteService
 
+    node_label = (
+        f"{note.title} ({note.path})"
+        if validate_node_name("note", note.title)
+        else note.title
+    )
     node = GraphWriteService(session, autocommit=False).upsert_node(
         node_type="note",
-        label=note.title,
+        label=node_label,
         title=note.title,
         summary=f"Vault note: {note.path}",
         ai_notes=(
