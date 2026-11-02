@@ -174,7 +174,11 @@ def sync_note_record(
 
 @serialized_vault
 def remove_note_record(
-    session: Session, note_path: str, vault_path: Path | None = None
+    session: Session,
+    note_path: str,
+    vault_path: Path | None = None,
+    *,
+    enqueue_jobs: bool = True,
 ) -> int:
     from berrybrain_api.attachment_cleanup import (
         drain_attachment_cleanup,
@@ -248,6 +252,8 @@ def remove_note_record(
     session.delete(record)
     session.commit()
     drain_attachment_cleanup(session, vault_path or get_settings().vault_path)
+    if not enqueue_jobs:
+        return 0
     from berrybrain_api.jobs import enqueue_note_deleted_jobs
 
     return len(enqueue_note_deleted_jobs(session, note_path, note_id))

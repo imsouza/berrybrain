@@ -21,7 +21,7 @@ from berrybrain_api.graph_expansion import sync_note_graph_node
 from berrybrain_api.jobs import enqueue_note_changed_jobs
 from berrybrain_api.models import AskActionPlanRecord, NoteRecord, VaultRecord
 from berrybrain_api.security import assert_csrf, get_session_user, require_session_user
-from berrybrain_api.sync import sync_note_record
+from berrybrain_api.sync import remove_note_record, sync_note_record
 from berrybrain_api.vault import (
     SAFE_FOLDERS,
     planned_ask_note_in_vault_path,
@@ -1007,4 +1007,98 @@ def review_draft(plan_id: str, payload: ReviewDraftRequest, request: Request) ->
                     autocommit=False,
                 )
                 session.commit()
+            return _view(session, plan)
+
+
+@router.delete("/{plan_id}/draft", response_model=ActionPlanResponse)
+def delete_draft(plan_id: str, request: Request) -> dict:
+    """Delete an unreviewed Ask-saved draft without touching released notes."""
+    user_id, browser_session_id = _identity(request)
+    vault_path = get_settings().vault_path
+    with SessionLocal() as session:
+        plan = _owned_plan(
+            session, plan_id, user_id, browser_session_id, allow_saved=True
+        )
+        if plan.status not in {"completed", "partial"} or not plan.result_note_id:
+            raise HTTPException(status_code=409, detail="Draft has not been saved")
+        with vault_lock(vault_path):
+            session.refresh(plan)
+            if plan.status not in {"completed", "partial"} or not plan.result_note_id:
+                raise HTTPException(status_code=409, detail="Draft has not been saved")
+            note = _result_note(session, plan)
+            if note is None:
+                raise HTTPException(status_code=409, detail="Saved draft is missing")
+            if note.evidence_status != "draft":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Draft was already reviewed and released; delete it from Notes instead",
+                )
+            deleted_path = note.path
+            deleted_hash = note.content_hash
+            prior_status = plan.status
+            arguments = json.loads(plan.arguments_json)
+            abs_path = resolve_note_path(vault_path, deleted_path)
+            if abs_path != vault_path.resolve() / deleted_path:
+                raise HTTPException(status_code=409, detail="Draft path is unsafe")
+            if abs_path.exists():
+                if not abs_path.is_file() or abs_path.is_symlink():
+                    raise HTTPException(status_code=409, detail="Draft path is unsafe")
+                abs_path.unlink()
+            remove_note_record(session, deleted_path, vault_path, enqueue_jobs=False)
+            compensated_vault = False
+            if arguments.get("newVaultName"):
+                vault_record = session.get(VaultRecord, plan.id)
+                has_notes = (
+                    session.scalar(
+                        select(NoteRecord.id).where(NoteRecord.vault_id == plan.id)
+                    )
+                    is not None
+                )
+                if vault_record is not None and not has_notes:
+                    vault_dir = vault_path.resolve() / vault_record.path
+                    note_parent = abs_path.parent
+                    if (
+                        note_parent != vault_dir
+                        and note_parent.is_dir()
+                        and not note_parent.is_symlink()
+                        and not any(note_parent.iterdir())
+                    ):
+                        note_parent.rmdir()
+                    if (
+                        vault_dir.is_dir()
+                        and not vault_dir.is_symlink()
+                        and not any(vault_dir.iterdir())
+                    ):
+                        vault_dir.rmdir()
+                    if not vault_dir.exists():
+                        session.delete(vault_record)
+                        compensated_vault = True
+            plan.status = "cancelled"
+            plan.result_path = ""
+            plan.result_note_id = 0
+            plan.result_note_stable_id = ""
+            plan.error_code = ""
+            create_automation_log(
+                session,
+                action_type="DELETE_ASK_DRAFT",
+                target_type="note",
+                target_id=deleted_path,
+                description="User deleted an unreviewed Ask-assisted draft",
+                before_state={
+                    "planStatus": prior_status,
+                    "planId": plan.id,
+                    "evidenceStatus": "draft",
+                    "contentHash": deleted_hash,
+                },
+                after_state={
+                    "planStatus": "cancelled",
+                    "planId": plan.id,
+                    "userId": user_id,
+                    "deletedPath": deleted_path,
+                    "compensatedEmptyVault": compensated_vault,
+                },
+                reversible=False,
+                autocommit=False,
+            )
+            session.commit()
             return _view(session, plan)

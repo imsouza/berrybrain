@@ -1295,6 +1295,79 @@ class AskActionPlanTests(unittest.TestCase):
         with self.sessions() as session:
             self.assertIsNone(session.get(VaultRecord, plan["id"]))
 
+    def test_delete_reviewable_draft_removes_file_and_compensates_empty_vault_without_jobs(
+        self,
+    ):
+        proposed = self.client.post(
+            "/api/v1/ask/action-plans",
+            json={
+                "title": "Rascunho descartável",
+                "folder": "study",
+                "content": "# Rascunho descartável\n\nConteúdo ainda não revisado.",
+                "new_vault_name": "Vault Rascunho",
+            },
+        )
+        self.assertEqual(proposed.status_code, 201, proposed.text)
+        plan = proposed.json()
+        approved = self.client.post(
+            f"/api/v1/ask/action-plans/{plan['id']}/approve",
+            json={"arguments_hash": plan["argumentsHash"]},
+        )
+        self.assertEqual(approved.status_code, 200, approved.text)
+        saved_path = approved.json()["resultPath"]
+        self.assertTrue((self.cfg.vault_path / saved_path).is_file())
+
+        # Works even after a new browser session for the same owner
+        self._new_session_for_existing_user("owner@example.test")
+        reviewable = self.client.get("/api/v1/ask/action-plans/reviewable")
+        self.assertEqual([item["id"] for item in reviewable.json()], [plan["id"]])
+
+        deleted = self.client.delete(f"/api/v1/ask/action-plans/{plan['id']}/draft")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        body = deleted.json()
+        self.assertEqual(body["status"], "cancelled")
+        self.assertIsNone(body["resultPath"])
+        self.assertIsNone(body["vaultId"])
+        self.assertFalse((self.cfg.vault_path / saved_path).exists())
+
+        after = self.client.get("/api/v1/ask/action-plans/reviewable")
+        self.assertEqual(after.json(), [])
+        with self.sessions() as session:
+            self.assertEqual(session.query(NoteRecord).count(), 0)
+            self.assertIsNone(session.get(VaultRecord, plan["id"]))
+            self.assertEqual(session.query(JobRecord).count(), 0)
+            logs = (
+                session.query(AutomationLogRecord)
+                .filter(AutomationLogRecord.action_type == "DELETE_ASK_DRAFT")
+                .all()
+            )
+            self.assertEqual(len(logs), 1)
+
+    def test_delete_draft_rejects_released_note_or_missing_csrf(self):
+        plan = self._propose()
+        approved = self.client.post(
+            f"/api/v1/ask/action-plans/{plan['id']}/approve",
+            json={"arguments_hash": plan["argumentsHash"]},
+        )
+        self.assertEqual(approved.status_code, 200, approved.text)
+        saved_path = approved.json()["resultPath"]
+
+        # Missing CSRF header is rejected
+        csrf = self.client.headers.pop("X-CSRF-Token")
+        no_csrf = self.client.delete(f"/api/v1/ask/action-plans/{plan['id']}/draft")
+        self.assertEqual(no_csrf.status_code, 403, no_csrf.text)
+        self.client.headers["X-CSRF-Token"] = csrf
+
+        # Once reviewed & released, /draft delete refuses to delete the canonical note
+        released = self.client.post(
+            f"/api/v1/ask/action-plans/{plan['id']}/review-draft",
+            json=self._review_payload(),
+        )
+        self.assertEqual(released.status_code, 200, released.text)
+        refused = self.client.delete(f"/api/v1/ask/action-plans/{plan['id']}/draft")
+        self.assertEqual(refused.status_code, 409, refused.text)
+        self.assertTrue((self.cfg.vault_path / saved_path).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

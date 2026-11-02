@@ -490,6 +490,61 @@ test.describe("Graph UI tests - fix-new-version.md §11.4", () => {
     expect(released).toBe(true);
   });
 
+  test("Ask deletes saved drafts awaiting review individually and in bulk", async ({ page }) => {
+    test.setTimeout(120_000);
+    await mockPagedGraph(page, []);
+    let items = [
+      { id: "draft-1", title: "Draft Alpha", resultPath: "study/alpha.md", createdAt: new Date().toISOString() },
+      { id: "draft-2", title: "Draft Beta", resultPath: "study/beta.md", createdAt: new Date().toISOString() },
+      { id: "draft-3", title: "Draft Gamma", resultPath: "study/gamma.md", createdAt: new Date().toISOString() },
+    ];
+    await page.route("**/api/v1/ask/action-plans/reviewable?*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(items) }),
+    );
+    await page.route("**/api/v1/ask/action-plans/*/draft", async (route) => {
+      expect(route.request().method()).toBe("DELETE");
+      const match = route.request().url().match(/action-plans\/([^/]+)\/draft/);
+      const deletedId = match?.[1] || "";
+      items = items.filter((item) => item.id !== deletedId);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: deletedId,
+          action: "create_note",
+          arguments: { title: "Deleted", folder: "study", content: "# Deleted" },
+          argumentsHash: "a".repeat(64),
+          attempts: 1,
+          status: "cancelled",
+          expiresAt: new Date().toISOString(),
+          approvedAt: new Date().toISOString(),
+          resultPath: null,
+          vaultId: null,
+          recoveryPath: null,
+          orphanPath: null,
+          errorCode: null,
+          evidenceStatus: null,
+        }),
+      });
+    });
+
+    await page.goto("/ask", { waitUntil: "domcontentloaded" });
+    const section = page.getByRole("region", { name: "Ask drafts awaiting review" });
+    await expect(section.getByRole("button", { name: /Draft Alpha/ })).toBeVisible({ timeout: 30_000 });
+    await expect(section.getByRole("button", { name: "Delete all" })).toBeVisible();
+
+    // Delete Draft Alpha individually
+    await section.getByRole("button", { name: "Delete", exact: true }).first().click();
+    await section.getByRole("button", { name: "Confirm", exact: true }).click();
+    await expect(section.getByRole("button", { name: /Draft Alpha/ })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: /Draft Beta/ })).toBeVisible();
+
+    // Delete remaining drafts with Delete all
+    await section.getByRole("button", { name: "Delete all" }).click();
+    await section.getByRole("button", { name: "Confirm delete all" }).click();
+    await expect(section).toHaveCount(0);
+  });
+
   test("Ask links verified sources and entering Flow clears only the old question", async ({ page }) => {
     test.setTimeout(120_000);
     await mockPagedGraph(page, []);

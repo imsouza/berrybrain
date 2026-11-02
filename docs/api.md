@@ -337,7 +337,11 @@ authorize automatic reconciliation or evidence release.
 user's unreviewed saved drafts, with their current paths. `limit` accepts 1–100
 and defaults to 20; ordering is newest first with ID as the tie-breaker. A new browser session for
 that **same user** can retrieve a completed or partial plan and submit its review using
-the current note content hash. This supports recovery after session expiry;
+the current note content hash, or discard the unreviewed draft via
+`DELETE /ask/action-plans/{id}/draft` (which requires a browser session and CSRF,
+removes the unreviewed draft file and record without enqueuing graph maintenance jobs,
+compensates any now-empty vault created by that plan, and returns HTTP 409 if the note
+was already reviewed and released). This supports recovery after session expiry;
 the list does not expose draft bodies or grant access to another user's plans.
 `GET /ask/action-plans/failed?limit=20&offset=0` similarly lists only that
 user's approved failed `create_note` plans (title, error code, timestamp and

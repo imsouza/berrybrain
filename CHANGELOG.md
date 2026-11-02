@@ -27,7 +27,9 @@ All notable BerryBrain changes are documented here.
 - Add supervised Ask Action Plans (`create_note`, `create_vault_and_note`,
   `enrich_note`) with exact Markdown preview, full-plan approval (`approve_full`),
   step-by-step approval (`ask_for_approval`: `create_vault` then `create_note`
-  with empty-vault compensation on cancellation), audit trail in
+  with empty-vault compensation on cancellation), individual and bulk deletion
+  of unreviewed drafts in **Saved drafts awaiting review**
+  (`DELETE /api/v1/ask/action-plans/{id}/draft`), audit trail in
   `automation_logs`, and Editor Ask context scope (`selected_block`,
   `current_section`, `entire_note`) with line-level diff preview before applying
   changes.

@@ -77,13 +77,14 @@ function extractErrorDetail(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-export function AskNotePlan({ answer, question, references = [], apiUrl, resumePlanId, onReleased, onClose }: {
+export function AskNotePlan({ answer, question, references = [], apiUrl, resumePlanId, onReleased, onDeleted, onClose }: {
   answer: string;
   question: string;
   references?: AskReference[];
   apiUrl: string;
   resumePlanId?: string;
   onReleased?: () => void;
+  onDeleted?: (deletedPath: string | null) => void;
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(Boolean(resumePlanId));
@@ -100,6 +101,7 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
   const [requestKey, setRequestKey] = useState<string | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [savedDraft, setSavedDraft] = useState<SavedDraft | null>(null);
+  const [confirmDeleteDraft, setConfirmDeleteDraft] = useState(false);
   const [orphanDraft, setOrphanDraft] = useState<SavedDraft | null>(null);
   const [orphanReviewed, setOrphanReviewed] = useState(false);
 
@@ -302,6 +304,35 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
     }
   }
 
+  async function deleteSavedDraft() {
+    if (!plan) return;
+    const deletedPath = plan.resultPath;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await apiFetch(`${apiUrl}/api/v1/ask/action-plans/${plan.id}/draft`, {
+        method: "DELETE",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(extractErrorDetail(payload, "Could not delete the saved draft."));
+      setConfirmDeleteDraft(false);
+      setSavedDraft(null);
+      setReviewed(false);
+      setPlan(null);
+      setRequestKey(null);
+      setOpen(false);
+      if (onDeleted) {
+        onDeleted(deletedPath);
+      } else {
+        onClose?.();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete the saved draft.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function recoverSavedFile() {
     if (!plan || plan.status !== "failed" || (!plan.recoveryPath && !plan.orphanPath)) return;
     const changed = !plan.recoveryPath;
@@ -372,7 +403,17 @@ export function AskNotePlan({ answer, question, references = [], apiUrl, resumeP
                   <button className="bb-action mt-2 px-2 py-1 text-xs" disabled={busy} onClick={() => void refreshDraft()}>Refresh draft</button>
                   {savedDraft ? <><p className="mt-2 text-[11px] text-muted">Current saved content — review this exact version</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-panel p-3 text-xs">{savedDraft.content}</pre></> : <p className="mt-2 text-muted">Loading saved draft...</p>}
                   <label className="mt-2 flex items-start gap-2"><input type="checkbox" disabled={!savedDraft} checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />I reviewed the claims and source links in this note.</label>
-                  <button className="bb-action bb-action--primary mt-2 px-3 py-1.5 text-xs" disabled={busy || !reviewed || !savedDraft} onClick={() => void releaseDraft()}>{busy ? "Releasing..." : "Release to graph and Ask"}</button>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button className="bb-action bb-action--primary px-3 py-1.5 text-xs" disabled={busy || !reviewed || !savedDraft} onClick={() => void releaseDraft()}>{busy ? "Releasing..." : "Release to graph and Ask"}</button>
+                    {confirmDeleteDraft ? (
+                      <>
+                        <button type="button" className="bb-action border-danger/50 px-3 py-1.5 text-xs font-medium text-danger" disabled={busy} onClick={() => void deleteSavedDraft()}>{busy ? "Deleting..." : "Confirm delete"}</button>
+                        <button type="button" className="bb-action px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setConfirmDeleteDraft(false)}>Cancel</button>
+                      </>
+                    ) : (
+                      <button type="button" className="bb-action px-3 py-1.5 text-xs text-muted hover:border-danger/40 hover:text-danger" disabled={busy} onClick={() => setConfirmDeleteDraft(true)}>Delete draft</button>
+                    )}
+                  </div>
                 </div>
               ) : plan.evidenceStatus === "eligible" ? (
                 <p className="text-xs text-muted" role="status">Reviewed note released for processing and Ask evidence.</p>
