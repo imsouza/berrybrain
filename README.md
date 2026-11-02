@@ -28,6 +28,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 - [What BerryBrain Is](#what-berrybrain-is)
 - [Core Capabilities](#core-capabilities)
 - [What's New in 1.5.0](#whats-new-in-150)
+- [Incorporating BerryBrain Architecture into Your Project](#incorporating-berrybrain-architecture-into-your-project)
 - [What's New in 1.4.9](#whats-new-in-149)
 - [Current Maturity](#current-maturity)
 - [Evaluation and Benchmarking](#evaluation-and-benchmarking)
@@ -74,12 +75,12 @@ The system is designed around one rule:
 
 | Area | Capability |
 | --- | --- |
-| Markdown Vault | Real `.md` files, wiki links, frontmatter, folder organization, vault scan, file watcher |
-| Editor | Editor-first workflow, autosave, preview/split mode, backlinks, attachments |
-| Autopilot | Async job queue for parsing, classification, assimilation, embeddings, graph expansion, insights |
-| Knowledge Graph | Notes, concepts, topics, entities, contexts, gaps, insights, and explainable edges |
-| Cognitive Layer | Knowledge Base + Knowledge Graph + Semantic Data Layer + custom ontology-aware multi-hop sidecar |
-| AI Providers | NVIDIA NIM, OpenAI, OpenRouter, Groq, DeepSeek, custom OpenAI-compatible APIs, and Ollama/local |
+| Markdown Vault | Real `.md` files, first-class named physical Vaults (`All Vaults` filter + sort controls), wiki links, frontmatter, folder sync, vault scan, file watcher |
+| Editor | Editor-first workflow, autosave, preview/split mode, interactive `- [ ]` task checkboxes, Editor Ask with line-level diffs, backlinks, attachments |
+| Autopilot | Async job queue for parsing, classification, assimilation, embeddings, graph expansion, 24h continuous enrichment, and insights |
+| Knowledge Graph | Notes, concepts, topics, entities, contexts, gaps, insights, and explainable ontology-validated edges |
+| Cognitive Layer | Knowledge Base + Knowledge Graph + Semantic Data Layer + 1,576 standardized Markdown Agent Skills + optional HippoRAG sidecar |
+| AI Providers | 1-click Auto Config + manual per-role setup across NVIDIA NIM, OpenAI, OpenRouter, Groq, Gemini/OpenAI-compatible APIs, DeepSeek, and local Ollama |
 | Model Routing | Capability-based routing (Generation, Embedding, Judge, HippoRAG) with Fallback Chains |
 | RAG Judge | Deterministic, single-model, and committee evaluator with auditable quality gates |
 | Insights | Knowledge gaps, central concepts, recurring ideas, weak concepts, connections, study suggestions |
@@ -96,13 +97,53 @@ The system is designed around one rule:
 
 ## What's New in 1.5.0
 
-- **First-class Vaults (`schema 25`)**: organize notes and graph views by vault with a global `All Vaults` selector, non-destructive `Legacy / Unassigned` fallback, and manual or AI-suggested vault assignment.
+- **First-class Vaults & Sidebar Sort Controls (`schema 25`)**: organize notes and graph views by physical vault (`GET /api/v1/vault/namespaces`) with a global `All Vaults` selector, sidebar `Recent` vs. `A–Z` sort toggle, non-destructive `Legacy / Unassigned` fallback, and manual or AI-suggested vault assignment.
+- **1-Click Auto Config AI Setup**: automatically probe Local (Ollama) or Cloud OpenAI-compatible providers, assign capability-verified Main, Embedding, Judge, and HippoRAG slots, handle provider rate-limit fallbacks cleanly, and display a live step-by-step compatibility progress bar.
+- **1,576 Standardized Markdown Agent Skills (`skills/`)**: automatic context-routed skill library (`GET /api/v1/ai/skills`) combining 15 priority-1 BerryBrain core skills, 177 scientific skills, 1,100 scientific reference modules, 265 Fabric cognitive patterns, and 19 Anthropic workflow skills—enforcing domain structure while keeping canonical vault evidence authoritative (`[Title](bbref:<evidenceId>)`).
 - **Contextual Ask & Visual Graph Focus**: mention `@note`, `@folder`, `@vault`, or `@node` in Ask or rely on automatic title/path disambiguation; open referenced graph nodes directly or center and select them on the visual canvas via **Focus in Graph**.
-- **Supervised Ask Action Plans & Editor Diffs**: preview and approve note creation (`create_note`), combined vault-and-note creation (`create_vault_and_note`) in full (`approve_full`) or step by step (`ask_for_approval`), and Editor Ask enrichments (`selected_block`, `current_section`, `entire_note`) with line-level diffs and `automation_logs` audit records.
-- **Interactive Preview Tasks & Folder Sync**: toggle Markdown task checkboxes (`- [ ]` / `- [x]`) directly from Preview or Split Mode with unsaved-draft conflict protection, and keep physical folders and sidebar trees synchronized via `POST /api/v1/notes/{id}/move`.
-- **Bounded Profile Context & Operational Filters**: configure optional study/language preferences in Settings (injected strictly as untrusted formatting preferences without overriding canonical evidence) and filter Notifications and Activity by category, severity, and vault.
+- **Supervised Ask Action Plans & Editor Diffs**: preview exact Markdown and approve note creation (`create_note`), combined vault-and-note creation (`create_vault_and_note`, with empty-vault rollback on cancellation), or note enrichment (`enrich_note`) in full (`approve_full`) or step by step (`ask_for_approval`), plus Editor Ask scoped line-level diff previews (`selected_block`, `current_section`, `entire_note`) and `automation_logs` audit records.
+- **24h Enrich AI with Web-Source Verification**: continuous 24-hour background enrichment (`RESEARCH_GRAPH`, `VALIDATE_GRAPH_NODE_WITH_WEB`, `ENRICH_GRAPH_NODE`) verifies unresolved or low-support graph claims against external web sources and records traceable epistemic stances (`source_supports`, `source_expands`, `source_contradicts`) without overwriting canonical user Markdown.
+- **Interactive Preview Tasks, Bounded Profile Context & Operational Filters**: toggle Markdown task checkboxes (`- [ ]` / `- [x]`) directly from Preview or Split Mode with unsaved-draft conflict protection, configure optional bounded study/language preferences in Settings, and filter Notifications and Activity by category, severity, and vault.
+- **External Architecture Integration Kit**: comprehensive developer guide ([`docs/integrating-berrybrain-architecture.md`](docs/integrating-berrybrain-architecture.md)) and zero-dependency reference clients in Python ([`examples/berrybrain_client.py`](examples/berrybrain_client.py)) and Node.js / ESM ([`examples/berrybrain_client.mjs`](examples/berrybrain_client.mjs)).
 
-See the [documented REST API](docs/api.md) and [CHANGELOG.md](CHANGELOG.md) for full details.
+See the [release 1.5.0 notes](docs/releases/v1.5.0.md), [architecture integration guide](docs/integrating-berrybrain-architecture.md), [documented REST API](docs/api.md), and [CHANGELOG.md](CHANGELOG.md) for full details.
+
+---
+
+## Incorporating BerryBrain Architecture into Your Project
+
+BerryBrain's cognitive engine is decoupled from its Next.js UI. Developers, researchers, and AI product teams can incorporate BerryBrain into their own projects in **three concrete ways** (documented in full in [`docs/integrating-berrybrain-architecture.md`](docs/integrating-berrybrain-architecture.md)):
+
+| Incorporation Mode | Best For | Entry Point |
+| --- | --- | --- |
+| **1. Headless Cognitive Sidecar (`REST API v1`)** | Connecting a Python, Node.js/TypeScript, Go, CLI, editor plugin, or internal agent backend to BerryBrain's Markdown vault, OCR/PDF/Whisper pipeline, ontology graph, and grounded GraphRAG inference. | `docker compose up -d api worker` + owner-issued expiring `ServiceBearer` token (`POST /api/v1/security/service-tokens`) + [`examples/`](examples/README.md) |
+| **2. Domain Agent Skill Extension (`skills/*.md`)** | Adding custom domain synthesis templates (RFCs, clinical reviews, legal audits, postmortems) alongside BerryBrain's **1,576 Markdown Agent Skills** under strict vault-first `[Title](bbref:<id>)` citation rules. | Drop YAML-frontmatter `.md` files into [`skills/`](skills/README.md) and inspect via `GET /api/v1/ai/skills?query=...` |
+| **3. 5-Invariant Architectural Blueprint** | Implementing BerryBrain's consistency and governance model inside an existing PostgreSQL / Qdrant / LangGraph / custom RAG stack without adopting BerryBrain's containers. | Follow the 5 invariants in [`docs/integrating-berrybrain-architecture.md`](docs/integrating-berrybrain-architecture.md#mode-3-adopt-the-5-invariant-architectural-blueprint-in-your-own-stack) |
+
+### Quick Backend Integration (Zero Dependencies)
+
+```python
+# Python 3.11+ (examples/berrybrain_client.py)
+import os
+from examples.berrybrain_client import BerryBrainClient
+
+bb = BerryBrainClient(os.environ["BERRYBRAIN_URL"], os.environ["BERRYBRAIN_SERVICE_TOKEN"])
+note = bb.create_note("ADR-07", "# ADR-07\nDerived graph state must remain rebuildable from Markdown.")
+bb.wait_until_ready(note["path"], timeout_seconds=60)
+answer = bb.ask("Why must derived graph state remain rebuildable?")
+print(answer["status"], answer["answer"])
+```
+
+```javascript
+// Node.js 20+ / TypeScript ESM (examples/berrybrain_client.mjs)
+import { BerryBrainClient } from "./examples/berrybrain_client.mjs";
+
+const bb = new BerryBrainClient(process.env.BERRYBRAIN_URL, process.env.BERRYBRAIN_SERVICE_TOKEN);
+const hits = await bb.search("rebuildable derived graph state", { limit: 5 });
+const jsonLd = await bb.exportOntology({ format: "json-ld" });
+```
+
+> **Boundary Contract**: Each BerryBrain deployment is a **single owner-managed shared workspace**. Keep service tokens exclusively on trusted backend servers (never in public browser bundles), handle `HTTP 409` optimistic-concurrency conflicts on `base_content_hash` explicitly, and treat `confidence` as descriptive *evidence support* (`model_weights_updated=false`), not calibrated truth probability.
 
 ---
 
@@ -301,8 +342,6 @@ adaptation evidence, a clean frozen revision, and full Microsoft GraphRAG execut
 
 See [Maturity Model V3](docs/maturity-model.md), [latest benchmark results](docs/benchmark-results.md),
 [evidence-support and uncertainty](docs/confidence-model.md), and [limitations](docs/limitations.md).
-The [documentation authenticity audit](docs/documentation-authenticity-audit-2026-08-25.md)
-records the claim-to-artifact cross-check, citation validation, and remaining publication blockers.
 
 ---
 
@@ -451,13 +490,12 @@ approval and real participants; the repository never substitutes fabricated labe
 Evaluation references:
 
 - [Methodology](docs/evaluation-methodology.md)
-- [Current test and evidence audit](docs/test-evidence-audit-2026-08-27.md)
-- [Human evaluation protocol](docs/human-evaluation-protocol.md)
 - [Benchmark protocol](docs/benchmark-protocol.md)
 - [Dataset registry](docs/datasets.md)
 - [Reproducibility](docs/reproducibility.md)
 - [Feedback-driven learning](docs/learning-and-feedback.md)
 - [Graph ontology and visual semantics](docs/ontology.md)
+- [Architecture integration guide](docs/integrating-berrybrain-architecture.md)
 - [v1.4.8 whole-system plan](docs/planning/v1-4-8.md)
 
 ---
@@ -836,10 +874,13 @@ This avoids showing `0%` when the graph already contains real knowledge artifact
 
 The API is versioned under `/api/v1`.
 
-Other applications can use the architecture independently of the web UI. See the
-[external API integration guide](docs/api.md) and [Python client example](examples/berrybrain_client.py)
-for independent expiring service tokens, note editing with hash conflicts,
-asynchronous processing, graph pagination, and evidence-grounded Ask.
+Other applications can use the architecture independently of the web UI. See
+[Incorporating the BerryBrain Architecture into Your Project](docs/integrating-berrybrain-architecture.md),
+the [external API integration guide](docs/api.md), and the zero-dependency
+[Python](examples/berrybrain_client.py) and [Node.js / ESM](examples/berrybrain_client.mjs)
+reference clients for independent expiring service tokens, note editing with hash
+conflicts, asynchronous processing, graph pagination, ontology export, and
+evidence-grounded Ask.
 The live contract is at `/api/v1/openapi.json`, interactive documentation at
 `/api/v1/docs`, and discovery at `/api/v1`. A `/berrybrain` proxy mount is supported.
 This is one owner-managed shared workspace, not a multi-tenant or per-vault
@@ -848,25 +889,32 @@ authorization API. Administrative actions remain owner-session-only.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/home/summary` | Home state: status, progress, stats, insights, graph summary |
-| `GET /api/v1/notes` | List notes in the vault |
-| `POST /api/v1/notes` | Create a note |
-| `GET /api/v1/notes/{path}` | Read a note |
-| `PUT /api/v1/notes/{path}` | Update a note and queue processing |
+| `GET /api/v1/vault/namespaces` | Registered physical vault namespaces inside the shared workspace |
+| `GET /api/v1/notes` | Paginated notes list (`limit`, `offset`, optional `vault_id`) |
+| `POST /api/v1/notes` | Create a canonical Markdown note and queue Autopilot jobs |
+| `GET /api/v1/notes/{path}` | Read a note with `stableId`, `content_hash`, and `vaultId` |
+| `PUT /api/v1/notes/{path}` | Optimistic-concurrency note update (`base_content_hash`) |
+| `GET /api/v1/notes/{path}/status` | Per-note pipeline readiness, active stage, and median ETA |
 | `POST /api/v1/notes/{path}/reprocess` | Re-run note pipeline |
 | `GET /api/v1/notes/{path}/attachments` | List note attachments |
-| `POST /api/v1/notes/{path}/attachments` | Upload an attachment |
+| `POST /api/v1/notes/{path}/attachments` | Upload and extract cognitive attachment (PDF, OCR, Whisper) |
+| `GET /api/v1/search` | Hybrid lexical + dense + admitted-graph search |
 | `GET /api/v1/graph` | Graph nodes, edges, and stats |
-| `GET /api/v1/graph/nodes`, `/edges`, `/delta` | Progressive graph pages and version delta |
+| `GET /api/v1/graph/nodes`, `/edges`, `/delta` | Progressive snapshot-versioned graph pages and delta |
+| `GET /api/v1/graph/ontology/export` | Export governed knowledge graph as W3C `json-ld` or `turtle` |
 | `GET /api/v1/graph/clusters`, `/palette` | Semantic clusters and explainable color assignments |
 | `GET /api/v1/graph/summary` | Lightweight graph summary |
 | `POST /api/v1/graph/expand` | Expand/rebuild graph artifacts |
-| `POST /api/v1/graph/infer` | Ask the graph with evidence |
+| `POST /api/v1/graph/infer` | Grounded GraphRAG synthesis with citations and support bounds |
+| `POST /api/v1/graph/nodes/{id}/validate-web` | Bounded external web verification (`source_supports`/`expands`/`contradicts`) |
 | `POST /api/v1/graph/research-runs` | Start a graph-wide gap research run |
+| `GET /api/v1/ai/skills` | List and context-match BerryBrain's 1,576 Markdown Agent Skills |
+| `GET /api/v1/ask/action-plans/capabilities` | Inspect supervised Ask Action Plan capabilities |
 | `GET /api/v1/ask/suggestions` | Get immediate graph-grounded questions and start a validated AI refresh |
 | `POST /api/v1/ask/sessions` | Start a persistent grounded Ask Flow |
 | `POST /api/v1/ask/sessions/{id}/turns` | Continue a Flow with another grounded turn |
 | `GET /api/v1/ai/providers` | Provider presets and capabilities |
-| `PUT /api/v1/ai/configuration` | Persist validated Cloud XOR Local configuration |
+| `PUT /api/v1/ai/configuration` | Persist validated Cloud XOR Local configuration (1-click Auto Config or manual) |
 | `GET /api/v1/insights` | List knowledge insights |
 | `POST /api/v1/insights/from-inference` | Save a graph inference as insight |
 | `GET /api/v1/jobs` | List job queue state |
@@ -874,7 +922,7 @@ authorization API. Administrative actions remain owner-session-only.
 | `GET /api/v1/activity` | Human activity timeline |
 | `GET /api/v1/settings` | Read settings |
 | `PUT /api/v1/settings/{key}` | Update a setting |
-| `GET /health` | API health |
+| `GET /health` | API health and schema compatibility check |
 
 ---
 
@@ -884,17 +932,25 @@ authorization API. Administrative actions remain owner-session-only.
 berrybrain/
   apps/
     api/
-      src/berrybrain_api/        FastAPI app, routers, models, graph/cognitive services
-      tests/                     API and service tests
+      src/berrybrain_api/        FastAPI v1 app, routers, ontology/SHACL, graph & RAG services
+      benchmarks/                Reproducible retrieval, generation, and runtime runners
+      regression_tests/          Isolated system, security, and API contract suites
+      tests/                     API and domain unit/integration tests
     web/
-      src/                       Next.js app, components, contexts, UI
+      src/                       Next.js 15 app, workspace shell, canvas graph, public site & docs
+      e2e/                       Playwright E2E, WCAG 2.2 AA accessibility, and performance gates
       public/                    Runtime public assets
     worker/
-      src/berrybrain_worker/     Async worker and provider execution
+      src/berrybrain_worker/     Async pipeline supervisor, Judge/enrichment jobs, 24h monitor
       tests/                     Worker integration tests
-  prompts/                       Versioned AI prompts
-  vault/                         Local Markdown vault
-  docker-compose.yml             Local orchestration
+  benchmarks/                    Dataset manifests, workload definitions, and benchmark schemas
+  docs/                          Architecture, REST API v1, integration guide, releases, and audits
+  examples/                      Zero-dependency Python & Node.js/ESM reference API clients
+  packages/                      Architectural layer boundary contracts (domain, application, infra, ui)
+  prompts/                       Versioned AI and Judge prompts (e.g., artifact-judge.v3.md)
+  skills/                        1,576 standardized Markdown Agent Skills (.md)
+  vault/                         Canonical local Markdown vault
+  docker-compose.yml             Self-hosted service orchestration
 ```
 
 ---

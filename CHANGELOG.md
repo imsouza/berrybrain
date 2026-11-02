@@ -4,29 +4,49 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
-## 1.5.0 - 2026-10-26
+## 1.5.0 - 2026-11-01
 
 - Add first-class Vault entities (`vaults` table, schema migrations 15–25) with
   `All Vaults` workspace selector, vault-scoped filtering across Notes, Graph,
-  Home, Ask, Activity, and Monitor, plus non-destructive `Legacy / Unassigned`
-  fallback and manual/AI vault assignment.
+  Home, Ask, Activity, and Monitor, sidebar Vault/Note sort order toggle
+  (`Recent` vs. `A–Z`), non-destructive `Legacy / Unassigned` fallback, and
+  manual/AI vault assignment.
+- Add 1-click **Auto Config** in AI Setup with live step-by-step compatibility
+  test progress bar, automatic capability-aware slot resolution for Local
+  (Ollama) and Cloud OpenAI-compatible providers, and resilient rate-limit
+  handling.
+- Add standardized library of **1,576 Markdown Agent Skills** (`skills/`,
+  `GET /api/v1/ai/skills`) combining 15 priority-1 BerryBrain core skills,
+  177 scientific skills, 1,100 scientific reference modules, 265 Fabric
+  cognitive patterns, and 19 Anthropic workflow skills under BerryBrain's
+  vault-first epistemic citation contract.
 - Add typed Ask references (`@note`, `@folder`, `@vault`, `@node`) with composer
   autocomplete, automatic title/path disambiguation in the question body, scoped
   retrieval filters, and `Focus in Graph` (`/brain?graph=open&focusNode=<id>`)
   that centers and selects the referenced node on the visual canvas.
 - Add supervised Ask Action Plans (`create_note`, `create_vault_and_note`,
-  `enrich_note`) with full-plan approval (`approve_full`) and step-by-step
-  approval (`ask_for_approval`: `create_vault` then `create_note` with empty-vault
-  compensation on cancellation), audit trail in `automation_logs`, and Editor
-  Ask context scope (`selected_block`, `current_section`, `entire_note`) with
-  line-level diff preview before applying changes.
+  `enrich_note`) with exact Markdown preview, full-plan approval (`approve_full`),
+  step-by-step approval (`ask_for_approval`: `create_vault` then `create_note`
+  with empty-vault compensation on cancellation), audit trail in
+  `automation_logs`, and Editor Ask context scope (`selected_block`,
+  `current_section`, `entire_note`) with line-level diff preview before applying
+  changes.
+- Add 24-hour continuous Enrich AI web-source validation
+  (`VALIDATE_GRAPH_NODE_WITH_WEB`, `POST /api/v1/graph/nodes/{id}/validate-web`)
+  recording traceable external stances (`source_supports`, `source_expands`,
+  `source_contradicts`) without overwriting canonical user Markdown.
 - Add interactive Markdown tasks in Note Preview and Split Mode that toggle the
   underlying `- [ ]` / `- [x]` source line with conflict protection when unsaved
-  editor changes exist, plus deterministic folder move synchronization (`POST /notes/{id}/move`).
+  editor changes exist, plus deterministic folder move synchronization (`PUT /notes/{path}/move`).
 - Add structured user profile context (`display_name`, `role_or_field`,
   `primary_goals`, `preferred_language`, `study_style`, `response_preferences`,
   `ai_personalization_enabled`) injected only as bounded untrusted preferences
   that never override canonical note evidence.
+- Add external architecture integration documentation
+  (`docs/integrating-berrybrain-architecture.md`, `docs/releases/v1.5.0.md`),
+  zero-dependency Node.js/ESM reference client (`examples/berrybrain_client.mjs`),
+  upgraded Python reference client (`examples/berrybrain_client.py`), and
+  updated Landing Page, `/docs`, `/faq`, and in-app Guide.
 - Add operational notifications and Activity timeline filters by category,
   severity, and vault, plus interactive graph canvas layout refinements and
   bounded polling safeguards.

@@ -3,7 +3,11 @@
 BerryBrain is an architecture with an HTTP interface, not a web UI dependency.
 An editor, content tool, study application, or automation can create Markdown
 notes, observe asynchronous processing, retrieve knowledge, and query the graph
-without importing the Next.js frontend or accessing SQLite directly.
+without importing the Next.js frontend or accessing SQLite directly. For end-to-end
+architectural incorporation patterns—headless sidecar deployment, custom Markdown
+Agent Skills, and adopting BerryBrain's 5 core invariants in your own stack—see
+[Incorporating the BerryBrain Architecture into Your Project](integrating-berrybrain-architecture.md)
+and the zero-dependency reference clients in [`examples/`](../examples/README.md).
 
 The supported deployment model is **one owner-managed shared workspace**.
 Service tokens are for trusted server applications. They are not tenant, user,
@@ -163,6 +167,8 @@ state, not disposable caches. Back up both the vault and database.
 | Graph nodes | `GET /graph/nodes?cursor=0&limit=250` | Follow `nextCursor` (maximum limit 2000). |
 | Graph edges | `GET /graph/edges?cursor=0&limit=500` | Follow `nextCursor` (maximum limit 5000). |
 | Ask | `POST /graph/infer` | JSON `question`; inspect `status`, `answer`, `evidence`, `routes`, and `inferenceId`. |
+| Agent skills | `GET /ai/skills?query=...&task_type=ask` | Inspects the 1,576 standardized Markdown skills under `skills/` and returns context-matched skills (`matchedSkills`). |
+| Node web validation | `POST /graph/nodes/{id}/validate-web` | Queues bounded external web verification (`source_supports`, `source_expands`, `source_contradicts`) without promoting unverified text to canonical notes. |
 | Jobs | `GET /jobs?limit=50` | Limit 1–200; internal handlers require claim ownership where applicable. |
 | Activity | `GET /activity?limit=50` | Limit 1–200. |
 | Ontology | `GET /graph/ontology` and `/graph/ontology/export` | Semantic vocabulary and export; not a replacement for runtime control state. |
@@ -247,16 +253,17 @@ as an answer. Grounding checks reduce unsupported answers; they do not prove
 incur that provider's costs. Web research is a separate explicit workflow, not
 permission for ordinary Ask to silently use arbitrary web content.
 
-### Ask-assisted note draft (limited 1.5 work in progress)
+### Supervised Ask action plans and editor diffs (v1.5)
 
 `GET /api/v1/ask/action-plans/capabilities` lets an authenticated external
 client inspect the current action contract. It reports the shared-workspace
-model, supported and currently available actions, one-note-per-approval mode,
+model, supported and currently available actions (`create_note`,
+`create_vault_and_note`, `enrich_note`), one-note-per-approval mode,
 `supportedApprovalModes` (`ask_for_approval` and `approve_full`),
-allowed folders, content limit, and whether an independent vault can be
+allowed folders, content limit, and whether an independent named physical vault can be
 created. A trusted service token can read the contract but receives an empty
 `availableActions` list: it cannot propose or approve a human Ask plan.
-The installed browser session receives `create_note` as available. This route
+The installed browser session receives the interactive human actions as available. This route
 does not grant permission by itself; the write endpoints recheck session,
 CSRF, plan ownership, expiry, and the approved arguments hash.
 
@@ -351,12 +358,12 @@ server-to-server creation API. The action-plan catalog currently contains only
 it does not create isolated vaults, edit
 existing notes, change settings, or grant agents a general write capability.
 The review acknowledgement marks the note as user-reviewed, **not factually
-verified**. Broader action planning, auditable per-source review history, and
-security tests for the declared shared-workspace boundary remain release gates
-for 1.5.0. Per-user or per-vault isolation is **not** a feature of this contract.
+verified**. Per-user or per-vault ACL isolation is **not** a feature of this contract.
 The note editor also opens Ask beside the current note without unmounting the
-editor. Its title is only prefilled into the question; unsaved text is not sent
-to the model automatically.
+editor, supporting explicit context scopes (`selected_block`, `current_section`,
+`entire_note`) and line-level diff previews before applying any user-approved edit
+to the active editor buffer. Unsaved text is never sent to the model or written
+to disk without an explicit user action.
 
 ## Job health and dashboard counts
 
@@ -431,16 +438,19 @@ acknowledgement. Failed counts include jobs that exhausted their attempts (`dead
 the separate `dead_letter` count is a subset, not an additional failure count.
 The Home can finish current work while still showing historical failures.
 
-Releases 1.4.9 and 1.4.10 use database schema 14. The in-progress 1.5 tree
-targets schema 24: migration 21 adds Flow ownership and an evaluation lookup
-index; migration 22 backfills blank canonical graph labels and indexes node
-type plus canonical label for bounded upserts; migration 23 registers the default
-vault and assigns stable vault IDs to notes while preserving old paths;
-migration 24 records the owner/scope of persisted graph answers. These
-changes preserve rows and
-the HTTP API remains `/api/v1`. Older binaries enforce schema compatibility,
-so an image-only rollback after migration is not sufficient. None of these
-migrations has been applied to the active installation by this worktree.
+Releases 1.4.9 through 1.4.14 use database schema 14. Release 1.5.0 uses
+database schema 25 (non-destructive additive migrations 15–25): Ask action plans
+and stable target bindings (migrations 15–20), Flow ownership and evaluation
+lookup index (migration 21), canonical graph label backfill and composite upsert
+index (migration 22), default and named physical vault registry with note/node
+`vault_id` propagation (migration 23), persisted graph-answer owner scope
+(migration 24), and structured user profile preferences plus action-plan step
+tracking (migration 25). All existing notes, graph artifacts, service-token
+digests, and operational records are preserved, and the HTTP API remains
+`/api/v1`. Older binaries enforce schema compatibility, so always verify a
+manifest-backed backup before upgrading; rolling back across schema versions
+requires restoring the matching backup rather than downgrading container images
+alone.
 
 ## Operational history and model alerts
 
@@ -475,19 +485,23 @@ Notifications remain historical until marked read; current warnings and unread
 history are different views. No automatic model replacement, paid availability
 probe, or bulk job retry is performed.
 
-## Python example
+## Reference clients (Python & Node.js / ESM)
 
-See [the standard-library client](../examples/berrybrain_client.py), with no
-third-party runtime dependency. It rejects redirects, supplies timeouts, retains
-HTTP errors/correlation IDs, and never blindly retries writes.
+See the zero-dependency reference clients in [`examples/`](../examples/README.md):
+- [Python 3.11+ standard-library client](../examples/berrybrain_client.py)
+- [Node.js 20+ / TypeScript-friendly ESM client](../examples/berrybrain_client.mjs)
+
+Both reject HTTP redirects, supply bounded timeouts, retain HTTP status codes and
+`X-Correlation-ID` headers, and never blindly retry conflicting writes.
 
 ```bash
 export BERRYBRAIN_URL='http://127.0.0.1:8000'
 export BERRYBRAIN_SERVICE_TOKEN='YOUR_PRIVATE_SERVICE_TOKEN'
-python examples/berrybrain_client.py
+python3 examples/berrybrain_client.py
+node examples/berrybrain_client.mjs
 ```
 
-Running that file only lists notes. A write workflow in your application:
+Running either file directly only lists notes. A write and retrieval workflow in Python:
 
 ```python
 from examples.berrybrain_client import BerryBrainClient, APIError

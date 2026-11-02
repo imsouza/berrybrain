@@ -5,8 +5,10 @@
 The versioned HTTP API is the reusable boundary of this architecture. The Next.js
 application is one client; external editors, study tools, and automations can use
 the same note, retrieval, graph, and job workflows without importing the frontend
-or writing SQLite directly. See the [API integration contract](api.md), live
-`/api/v1/openapi.json`, and [reference Python client](../examples/berrybrain_client.py).
+or writing SQLite directly. See [Incorporating the BerryBrain Architecture into Your Project](integrating-berrybrain-architecture.md),
+the [API integration contract](api.md), live `/api/v1/openapi.json`, and the
+zero-dependency reference clients in [`examples/`](../examples/README.md)
+([Python](../examples/berrybrain_client.py) and [Node.js / ESM](../examples/berrybrain_client.mjs)).
 
 Service credentials are independently issued and revocable, with explicit expiry.
 They grant trusted application access to a shared workspace, not tenant isolation.
@@ -112,15 +114,51 @@ used as knowledge or calibration evidence; it establishes transport and schema c
 
 System UI, API messages, prompts, generated metadata, and generated answers are English. User input and quoted source excerpts retain their original language. Production runtime contains no seeded or mock records.
 
-## Agent Runtime
+## Agent Runtime, Skills Library & 24h Continuous Enrichment
 
-Worker heartbeats schedule due graph enrichment, insight and gap discovery, Judge evaluation, and semantic clustering. Enrichment jobs capture the current evidence fingerprint, discard stale or already-completed work before a model call, and apply a cooldown after provider dead letters to prevent retry storms.
+Worker heartbeats schedule due graph enrichment, insight and gap discovery, Judge evaluation,
+24-hour web-grounded node verification (`RESEARCH_GRAPH`, `VALIDATE_GRAPH_NODE_WITH_WEB`,
+`ENRICH_GRAPH_NODE`), and semantic clustering. Enrichment jobs capture the current evidence
+fingerprint, discard stale or already-completed work before a model call, and apply a cooldown
+after provider dead letters to prevent retry storms. External web verification attaches traceable
+epistemic stances (`source_supports`, `source_expands`, `source_contradicts`) as untrusted
+external evidence without overwriting canonical user Markdown.
+
+BerryBrain v1.5 also includes a standardized library of **1,576 Markdown Agent Skills** under
+[`skills/`](../skills/README.md) (15 priority-1 BerryBrain core skills, 177 scientific skills,
+1,100 scientific reference modules, 265 Fabric cognitive patterns, and 19 Anthropic workflow
+skills), exposed for inspection via `GET /api/v1/ai/skills`. When Ask or synthesis tasks match a
+skill's YAML triggers and task types, the runtime applies its structural template under BerryBrain's
+Mandatory Epistemic Protocol: canonical vault and admitted graph evidence always take precedence
+over parametric model priors, and factual claims must cite `[Title](bbref:<evidenceId>)`.
+
+First-run AI setup supports **1-Click Auto Config** alongside manual per-role configuration: the
+backend probes available Local (Ollama) or Cloud OpenAI-compatible models, ranks capability-compatible
+main, embedding, Judge, and HippoRAG slots, and streams real-time compatibility progress before
+activating the configuration gate.
 
 Semantic clustering uses node profiles, lexical evidence, and active validated edges. Global jobs
 omit `scope_node_ids`; scoped jobs send an explicit list that expands to all current members of the
 affected clusters. Cluster identity is reused by membership overlap so local changes do not rotate
 colors unnecessarily. Weakly connected assignments are split, color and cluster state are committed
 together, and the previous valid color remains visible while enrichment is pending.
+
+## Incorporating BerryBrain Architecture into External Projects
+
+External teams can adopt BerryBrain at three levels (documented in full in
+[integrating-berrybrain-architecture.md](integrating-berrybrain-architecture.md)):
+
+1. **Headless Cognitive Sidecar (`Docker Compose + REST API v1`)**: Run `api` + `worker` (+ optional
+   `hipporag`) and connect external backends via expiring `ServiceBearer` tokens and the reference
+   adapters in [`examples/`](../examples/README.md).
+2. **Domain Skill Extension (`skills/*.md`)**: Drop custom YAML-frontmatter Markdown skills into
+   `skills/` so domain-specific synthesis inherits vault-first citation enforcement automatically.
+3. **5-Invariant Blueprint Adoption**: Replicate BerryBrain's five core invariants—(i) canonical
+   sources vs. rebuildable projections, (ii) ontology + Judge admission gate with descriptive
+   evidence-support intervals, (iii) dependency-propagating provenance invalidation on edits and
+   deletions, (iv) append-only scoped reversible human feedback (`model_weights_updated=false`),
+   and (v) corpus-aware two-tier retrieval (fast Hybrid-RRF lookup vs. candidate-pool expansion +
+   Cross-Encoder reranking + explicit link traversal)—in any custom RAG or agent-memory stack.
 
 ## Feedback Adaptation Architecture
 
@@ -163,6 +201,9 @@ flowchart LR
 
 ## Active Specifications
 
+- [Incorporating BerryBrain Architecture into External Projects](integrating-berrybrain-architecture.md)
+- [REST API v1 Integration Contract](api.md)
+- [Release 1.5.0 Notes](releases/v1.5.0.md)
 - [Version 1.4.0](planning/v1-4-0.md)
 - [Version 1.4.2 graph interaction and confidence](planning/v1-4-2-graph-interaction-confidence.md)
 - [Version 1.4.3 Ask and agent workspace](planning/v1-4-3-ask-agent-workspace.md)
