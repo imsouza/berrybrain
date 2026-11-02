@@ -29,6 +29,7 @@ from berrybrain_api.ai_configuration import (
     ModelSlot,
     configuration_gate,
     detect_provider_from_key_or_url,
+    is_gemini_endpoint_url,
     load_configuration,
     load_provider_credentials,
     normalize_provider_endpoint,
@@ -587,11 +588,7 @@ def _rank_candidate_models(
     catalog_models: list[str],
     capability: Literal["chat", "embeddings"],
 ) -> list[str]:
-    effective_provider = (
-        "gemini"
-        if "generativelanguage.googleapis.com" in endpoint.lower()
-        else provider_id
-    )
+    effective_provider = "gemini" if is_gemini_endpoint_url(endpoint) else provider_id
     preferred = (
         PREFERRED_EMBEDDING_MODELS.get(effective_provider, ())
         if capability == "embeddings"
@@ -1091,7 +1088,7 @@ def _probe_model_capability(
     base = normalize_provider_endpoint(provider_id, endpoint).rstrip("/")
     is_gemini = (
         provider_id == "gemini"
-        or "generativelanguage.googleapis.com" in base.lower()
+        or is_gemini_endpoint_url(base)
         or "gemini" in model.lower()
     )
     if capability == "embeddings":

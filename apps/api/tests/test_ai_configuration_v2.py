@@ -493,7 +493,41 @@ class AIConfigurationV2Test(unittest.TestCase):
         self.assertIn("nvidia-nim", job.idempotency_key)
 
     def test_detect_provider_from_api_key_or_url(self) -> None:
-        from berrybrain_api.ai_configuration import detect_provider_from_key_or_url
+        from berrybrain_api.ai_configuration import (
+            detect_provider_from_key_or_url,
+            is_gemini_endpoint_url,
+            normalize_provider_endpoint,
+        )
+
+        self.assertFalse(is_gemini_endpoint_url(""))
+        self.assertTrue(
+            is_gemini_endpoint_url("generativelanguage.googleapis.com/v1beta")
+        )
+        self.assertTrue(
+            is_gemini_endpoint_url("https://generativelanguage.googleapis.com/v1beta")
+        )
+        self.assertFalse(
+            is_gemini_endpoint_url(
+                "https://evil.example/generativelanguage.googleapis.com"
+            )
+        )
+        self.assertEqual(
+            normalize_provider_endpoint(
+                "custom-cloud",
+                "https://evil.example/generativelanguage.googleapis.com",
+            ),
+            "https://evil.example/generativelanguage.googleapis.com",
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(
+                endpoint_url="https://evil.example/generativelanguage.googleapis.com"
+            ),
+            (
+                "custom-cloud",
+                "https://evil.example/generativelanguage.googleapis.com",
+                "cloud",
+            ),
+        )
 
         self.assertEqual(
             detect_provider_from_key_or_url(api_key="AIzaSyTestKey123"),

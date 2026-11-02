@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from berrybrain_api.ai_configuration import (
     PROVIDERS,
+    is_gemini_endpoint_url,
     load_configuration,
     provider_api_key,
     provider_endpoint,
@@ -830,8 +831,7 @@ def _cloud_json(
         raise GraphAIUnavailable("Cloud provider is not configured")
     effective_max_tokens = (
         max(max_tokens, 256)
-        if "generativelanguage.googleapis.com" in api_url.lower()
-        or "gemini" in model.lower()
+        if is_gemini_endpoint_url(api_url) or "gemini" in model.lower()
         else max_tokens
     )
     request = urllib.request.Request(

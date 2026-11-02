@@ -171,7 +171,7 @@ class AskCurrentEvidenceTests(unittest.IsolatedAsyncioTestCase):
             )
         retrieve.assert_called_once_with(self.session, question)
         self.assertEqual(result["status"], "answered")
-        self.assertEqual(self.generate.await_args.kwargs["max_tokens"], 3072)
+        self.assertEqual(self.generate.await_args.kwargs["max_tokens"], 4096)
         prompt = json.loads(self.generate.await_args.args[1])
         self.assertEqual(prompt["question"], question)
 

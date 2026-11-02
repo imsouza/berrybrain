@@ -5,6 +5,7 @@ import json
 import secrets
 from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
@@ -174,11 +175,17 @@ PREFERRED_EMBEDDING_MODELS: dict[str, tuple[str, ...]] = {
 }
 
 
+def is_gemini_endpoint_url(endpoint_url: str) -> bool:
+    raw = endpoint_url.strip()
+    if not raw:
+        return False
+    candidate = raw if "://" in raw else f"https://{raw}"
+    return urlparse(candidate).hostname == "generativelanguage.googleapis.com"
+
+
 def normalize_provider_endpoint(provider_id: str, endpoint_url: str) -> str:
     url = endpoint_url.strip().rstrip("/")
-    if "generativelanguage.googleapis.com" in url.lower() and not url.lower().endswith(
-        "/openai"
-    ):
+    if is_gemini_endpoint_url(url) and not url.lower().endswith("/openai"):
         return "https://generativelanguage.googleapis.com/v1beta/openai"
     if not url and provider_id in PROVIDERS:
         return str(PROVIDERS[provider_id]["url"]).rstrip("/")
@@ -196,7 +203,7 @@ def detect_provider_from_key_or_url(
         return "ollama", url, "local"
     key = api_key.strip()
     url = normalize_provider_endpoint(provider_id, endpoint_url)
-    if key.startswith("AIza") or "generativelanguage.googleapis.com" in url.lower():
+    if key.startswith("AIza") or is_gemini_endpoint_url(url):
         target_id = "custom-cloud" if provider_id == "custom-cloud" else "gemini"
         return target_id, url or str(PROVIDERS["gemini"]["url"]), "cloud"
     if key.startswith("nvapi-"):
