@@ -12,6 +12,11 @@ from typing import Any
 
 TOKEN_RE = re.compile(r"[\w-]{3,}", flags=re.UNICODE)
 CONFIDENCE_METHOD = "evidence-support-mean-v2"
+# Canonical documents and namespaces are sources, not AI-derived hypotheses.
+# An allowlist also keeps legacy or unknown graph types from exposing stale scores.
+DERIVED_NODE_CONFIDENCE_TYPES = frozenset(
+    {"concept", "entity", "topic", "context", "insight", "gap", "study_path"}
+)
 PROVENANCE_SIGNAL_PREFIXES = (
     "connection-evidence:",
     "edge-evidence:",
@@ -42,6 +47,17 @@ class ConfidenceEstimate:
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def parse_unit_confidence(value: object) -> float | None:
+    """Reject missing, nonfinite, boolean and out-of-contract model scores."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else None
 
 
 def serialize_estimate(estimate: ConfidenceEstimate) -> dict[str, Any]:
@@ -271,6 +287,8 @@ def persist_judge_confidence(
     None means no measured verdict (e.g. policy-only mode or evaluator error),
     not a negative score. A genuine zero verdict remains a scored observation.
     """
+    if _is_graph_node(target) and not node_confidence_applicable(target.type):
+        return
     signals = [
         signal
         for signal in stored_confidence_signals(target)
@@ -283,6 +301,26 @@ def persist_judge_confidence(
 
 
 def serialize_confidence(target: Any, *, compact: bool = False) -> dict[str, Any]:
+    if _is_graph_node(target) and not node_confidence_applicable(target.type):
+        return {
+            "score": None,
+            "lower": None,
+            "upper": None,
+            "sampleSize": 0,
+            "method": "not_applicable",
+            "applicability": "not_applicable",
+            "needsRecalculation": False,
+            **(
+                {}
+                if compact
+                else {
+                    "factors": [],
+                    "observations": [],
+                    "interpretation": "not_applicable",
+                }
+            ),
+            "computedAt": None,
+        }
     sample_size = int(getattr(target, "confidence_sample_size", 0) or 0)
     score = getattr(target, "confidence", None) if sample_size else None
     details = {} if compact else _stored_details(target)
@@ -317,6 +355,20 @@ def serialize_percentage_confidence(target: Any) -> dict[str, Any]:
     score = payload.get("score")
     payload["score"] = (float(score) / 100) if isinstance(score, int | float) else None
     return payload
+
+
+def node_confidence_applicable(node_type: str) -> bool:
+    return str(node_type or "").strip().lower() in DERIVED_NODE_CONFIDENCE_TYPES
+
+
+def active_node_confidence(node: Any) -> float | None:
+    if not node_confidence_applicable(getattr(node, "type", "")):
+        return None
+    return node.confidence if getattr(node, "confidence_sample_size", 0) else None
+
+
+def _is_graph_node(target: Any) -> bool:
+    return getattr(target, "__tablename__", None) == "graph_nodes"
 
 
 def _json_list(raw: str) -> list[Any]:

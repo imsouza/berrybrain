@@ -5,6 +5,7 @@ import json
 import secrets
 from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
@@ -22,6 +23,11 @@ PROVIDERS = {
         "label": "NVIDIA NIM",
         "mode": "cloud",
         "url": "https://integrate.api.nvidia.com/v1",
+    },
+    "gemini": {
+        "label": "Google Gemini",
+        "mode": "cloud",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai",
     },
     "openai": {
         "label": "OpenAI",
@@ -61,6 +67,164 @@ PROVIDERS = {
     },
 }
 
+PREFERRED_CHAT_MODELS: dict[str, tuple[str, ...]] = {
+    "gemini": (
+        "models/gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "models/gemini-2.0-flash",
+        "gemini-2.0-flash",
+        "models/gemini-2.5-flash-lite",
+        "gemini-2.5-flash-lite",
+        "models/gemini-flash-latest",
+        "gemini-flash-latest",
+        "models/gemini-flash-lite-latest",
+        "gemini-flash-lite-latest",
+        "models/gemini-2.5-pro",
+        "gemini-2.5-pro",
+        "models/gemini-1.5-flash",
+        "gemini-1.5-flash",
+    ),
+    "nvidia-nim": (
+        "nvidia/nemotron-3-super-120b-a12b",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "meta/llama-3.3-70b-instruct",
+        "meta/llama-3.1-70b-instruct",
+        "meta/llama-3.1-8b-instruct",
+        "mistralai/mistral-small-24b-instruct",
+        "qwen/qwen2.5-72b-instruct",
+    ),
+    "openai": (
+        "gpt-4o-mini",
+        "gpt-4.1-mini",
+        "gpt-4o",
+        "gpt-4.1",
+        "gpt-4-turbo",
+        "gpt-3.5-turbo",
+    ),
+    "openrouter": (
+        "google/gemini-2.5-flash",
+        "google/gemini-2.0-flash-001",
+        "openai/gpt-4o-mini",
+        "meta-llama/llama-3.3-70b-instruct",
+    ),
+    "opencode-zen": (
+        "big-pickle",
+        "glm-5",
+        "kimi-k2.5",
+        "minimax-m2.5",
+        "deepseek-v3",
+    ),
+    "groq": (
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768",
+    ),
+    "deepseek": (
+        "deepseek-chat",
+        "deepseek-reasoner",
+    ),
+    "ollama": (
+        "qwen3:14b",
+        "qwen2.5:14b",
+        "qwen2.5:7b",
+        "gemma3:4b",
+        "llama3.2:latest",
+        "llama3.1:latest",
+        "mistral:latest",
+    ),
+}
+
+PREFERRED_EMBEDDING_MODELS: dict[str, tuple[str, ...]] = {
+    "gemini": (
+        "models/gemini-embedding-001",
+        "gemini-embedding-001",
+        "models/text-embedding-004",
+        "text-embedding-004",
+        "models/gemini-embedding-exp-03-07",
+        "gemini-embedding-exp-03-07",
+        "models/gemini-embedding-2",
+        "gemini-embedding-2",
+        "models/embedding-001",
+        "embedding-001",
+    ),
+    "nvidia-nim": (
+        "nvidia/nemotron-3-embed-1b",
+        "nvidia/llama-3.2-nv-embedqa-1b-v2",
+        "nvidia/nv-embedqa-e5-v5",
+        "baai/bge-m3",
+    ),
+    "openai": (
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "text-embedding-ada-002",
+    ),
+    "openrouter": (
+        "openai/text-embedding-3-small",
+        "baai/bge-m3",
+        "thenlper/gte-base",
+    ),
+    "ollama": (
+        "bge-m3",
+        "bge-m3:latest",
+        "nomic-embed-text",
+        "nomic-embed-text:latest",
+        "mxbai-embed-large",
+        "all-minilm",
+    ),
+}
+
+
+def is_gemini_endpoint_url(endpoint_url: str) -> bool:
+    raw = endpoint_url.strip()
+    if not raw:
+        return False
+    candidate = raw if "://" in raw else f"https://{raw}"
+    return urlparse(candidate).hostname == "generativelanguage.googleapis.com"
+
+
+def normalize_provider_endpoint(provider_id: str, endpoint_url: str) -> str:
+    url = endpoint_url.strip().rstrip("/")
+    if is_gemini_endpoint_url(url) and not url.lower().endswith("/openai"):
+        return "https://generativelanguage.googleapis.com/v1beta/openai"
+    if not url and provider_id in PROVIDERS:
+        return str(PROVIDERS[provider_id]["url"]).rstrip("/")
+    return url
+
+
+def detect_provider_from_key_or_url(
+    api_key: str = "",
+    provider_id: str = "",
+    endpoint_url: str = "",
+    mode: Literal["cloud", "local"] = "cloud",
+) -> tuple[str, str, Literal["cloud", "local"]]:
+    if mode == "local" or provider_id == "ollama":
+        url = endpoint_url.strip() or str(PROVIDERS["ollama"]["url"])
+        return "ollama", url, "local"
+    key = api_key.strip()
+    url = normalize_provider_endpoint(provider_id, endpoint_url)
+    if key.startswith("AIza") or is_gemini_endpoint_url(url):
+        target_id = "custom-cloud" if provider_id == "custom-cloud" else "gemini"
+        return target_id, url or str(PROVIDERS["gemini"]["url"]), "cloud"
+    if key.startswith("nvapi-"):
+        return "nvidia-nim", str(PROVIDERS["nvidia-nim"]["url"]), "cloud"
+    if key.startswith("gsk_"):
+        return "groq", str(PROVIDERS["groq"]["url"]), "cloud"
+    if key.startswith("sk-or-"):
+        return "openrouter", str(PROVIDERS["openrouter"]["url"]), "cloud"
+    if key.startswith("sk-opencode-"):
+        return "opencode-zen", str(PROVIDERS["opencode-zen"]["url"]), "cloud"
+    if key.startswith("sk-"):
+        if provider_id in {"deepseek", "openrouter", "opencode-zen", "custom-cloud"}:
+            return provider_id, url or str(PROVIDERS[provider_id]["url"]), "cloud"
+        return "openai", str(PROVIDERS["openai"]["url"]), "cloud"
+    if provider_id in PROVIDERS and PROVIDERS[provider_id]["mode"] == "cloud":
+        return provider_id, url or str(PROVIDERS[provider_id]["url"]), "cloud"
+    if url:
+        detected = _provider_id_for_url(url)
+        return detected, url, "cloud"
+    return "nvidia-nim", str(PROVIDERS["nvidia-nim"]["url"]), "cloud"
+
 
 class ModelSlot(BaseModel):
     provider_id: str = ""
@@ -80,6 +244,7 @@ class AIConfiguration(BaseModel):
     schema_version: Literal[2] = AI_CONFIGURATION_SCHEMA_VERSION
     mode: Literal["cloud", "local"]
     main: ModelSlot
+    fallback_main: ModelSlot | None = None
     embedding: ModelSlot
     judge: JudgeSlot
     hipporag: HippoRagSlot
@@ -118,6 +283,20 @@ class AIConfiguration(BaseModel):
             provider = PROVIDERS[self.main.provider_id]
             if not provider["url"]:
                 raise ValueError("A provider endpoint URL is required")
+        if self.fallback_main is not None:
+            fallback = self.fallback_main
+            provider = PROVIDERS.get(fallback.provider_id)
+            if provider is None or provider["mode"] != self.mode:
+                raise ValueError("Fallback provider must match the selected AI mode")
+            if not fallback.model_id.strip():
+                raise ValueError("A fallback chat model is required")
+            if fallback.provider_id == "custom-cloud":
+                raise ValueError("Custom fallback endpoints are not supported")
+            if (
+                fallback.provider_id == self.main.provider_id
+                and fallback.model_id == self.main.model_id
+            ):
+                raise ValueError("Fallback must differ from the main model")
         return self
 
 
@@ -125,6 +304,10 @@ def configuration_fingerprint(
     configuration: AIConfiguration, key_revision: str = ""
 ) -> str:
     payload = configuration.model_dump(mode="json")
+    if configuration.fallback_main is None:
+        # Preserve fingerprints of saved v2 configurations created before this
+        # optional field existed; upgrades must not invalidate their AI gate.
+        payload.pop("fallback_main", None)
     payload["validated_at"] = None
     payload["configuration_fingerprint"] = ""
     payload["key_revision"] = key_revision

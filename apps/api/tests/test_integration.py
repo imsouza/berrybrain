@@ -23,6 +23,7 @@ SESSIONLOCAL_MODULES = (
     "berrybrain_api.routers.cognitive",
     "berrybrain_api.routers.concepts",
     "berrybrain_api.routers.connections",
+    "berrybrain_api.routers.folders",
     "berrybrain_api.routers.graph",
     "berrybrain_api.routers.insights",
     "berrybrain_api.routers.jobs",
@@ -1453,15 +1454,24 @@ class IntegrationTest(unittest.TestCase):
                 .filter(NoteRecord.path.in_((first["path"], second["path"])))
                 .all()
             )
-            session.add(
-                GraphNodeRecord(
-                    type="topic",
-                    label="Retrieval Systems",
-                    source_note_ids=json.dumps([record.id for record in records]),
-                    confidence=0.91,
-                    quality_gate_status="passed",
-                )
+            topic = GraphNodeRecord(
+                type="topic",
+                label="Retrieval Systems",
+                source_note_ids=json.dumps([record.id for record in records]),
+                confidence=0.91,
+                quality_gate_status="passed",
             )
+            session.add(topic)
+            session.commit()
+            topic_id = topic.id
+
+        unmeasured = self.client.post(f"/api/v1/notes/{first['path']}/organize")
+        self.assertEqual(unmeasured.status_code, 200)
+        self.assertEqual(unmeasured.json()["status"], "insufficient_evidence")
+        with notes_router.SessionLocal() as session:
+            topic = session.get(GraphNodeRecord, topic_id)
+            topic.confidence_sample_size = 3
+            topic.confidence_method = "evidence-support-mean-v2"
             session.commit()
 
         response = self.client.post(f"/api/v1/notes/{first['path']}/organize")

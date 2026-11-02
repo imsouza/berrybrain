@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Home } from "lucide-react";
+import { ArrowLeft, Focus, Home } from "lucide-react";
 import { apiFetch, appPath, useWorkspace } from "@/contexts/workspace-context";
 import { humanNodeType, humanOrigin, humanStatus } from "./graph-formatters";
 
@@ -130,6 +130,11 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
     window.location.replace(appPath(`/brain?${query.toString()}`));
   }
 
+  function focusInGraph() {
+    const query = new URLSearchParams({ graph: "open", focusNode: String(nodeId) });
+    window.location.assign(appPath(`/brain?${query.toString()}`));
+  }
+
   function editCurrent() {
     if (!node) return;
     if (node.type === "note" && node.notes?.[0]?.path) {
@@ -232,13 +237,16 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
   if (loading) return <main className="min-h-0 flex-1 overflow-y-auto p-6 text-sm text-muted">Loading node...</main>;
   if (!node) return <main className="min-h-0 flex-1 overflow-y-auto p-6 text-sm text-danger">{feedback || "Node unavailable."}</main>;
 
-  const confidence = node.confidenceInterval;
+  const confidence: ConfidenceInterval | undefined = ["concept", "entity", "topic", "context", "insight", "gap", "study_path"].includes(node.type)
+    ? node.confidenceInterval
+    : { method: "not_applicable" };
   return (
     <main className="min-h-0 flex-1 overflow-y-auto bg-background">
       <header className="border-b border-border/60 px-5 py-5 sm:px-8">
         <div className="mx-auto max-w-7xl">
-          <nav className="mb-5 flex items-center gap-2" aria-label="Node navigation">
+          <nav className="mb-5 flex flex-wrap items-center gap-2" aria-label="Node navigation">
             <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => backToGraph()}><ArrowLeft className="size-4" />Back to Graph</button>
+            <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={focusInGraph}><Focus className="size-4" />Focus in Graph</button>
             <button className="bb-action flex h-9 items-center gap-2 px-3 text-xs" onClick={() => { window.location.href = appPath("/brain"); }}><Home className="size-4" />Back to Home</button>
           </nav>
           <div className="flex flex-col items-start justify-between gap-5 sm:flex-row">
@@ -294,7 +302,7 @@ export function GraphNodeDetail({ nodeId }: { nodeId: number }) {
         </div>
 
         <aside className="space-y-6 border-t border-border/60 pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-          <section><h2 className="mb-3 text-sm font-semibold text-foreground">Evidence support</h2>{confidence?.method === "empirical-bernstein-bounded-signals-v1" ? <p className="text-xs text-muted">Legacy interval midpoint. Recalculate from recorded observations before interpreting this value.</p> : confidence?.sampleSize && typeof confidence.score === "number" ? <><div className="text-2xl font-semibold text-foreground">{Math.round(confidence.score * 100)}%</div><p className="mt-1 text-xs text-muted">Mean of recorded signals, not probability of truth.</p>{confidence.lower != null && confidence.upper != null && <div className="mt-1 text-xs text-muted">Descriptive uncertainty: {Math.round(confidence.lower * 100)}%–{Math.round(confidence.upper * 100)}%. Coverage is not calibrated.</div>}<div className="mt-2 text-[11px] text-muted">{confidence.method} · {confidence.sampleSize} signals</div>{confidence.observations?.map(signal => <div key={signal.source} className="mt-1 break-words text-[11px] text-muted">{signal.source}: {Math.round(signal.score * 100)}%</div>)}</> : <p className="text-xs text-muted">No scored evaluation available. This does not mean a job is queued. Check Analysis state below.</p>}</section>
+          {confidence?.method !== "not_applicable" && <section><h2 className="mb-3 text-sm font-semibold text-foreground">Evidence support</h2>{confidence?.method === "empirical-bernstein-bounded-signals-v1" ? <p className="text-xs text-muted">Legacy interval midpoint. Recalculate from recorded observations before interpreting this value.</p> : confidence?.sampleSize && typeof confidence.score === "number" ? <><div className="text-2xl font-semibold text-foreground">{Math.round(confidence.score * 100)}%</div><p className="mt-1 text-xs text-muted">Mean of recorded signals, not probability of truth.</p>{confidence.lower != null && confidence.upper != null && <div className="mt-1 text-xs text-muted">Descriptive uncertainty: {Math.round(confidence.lower * 100)}%–{Math.round(confidence.upper * 100)}%. Coverage is not calibrated.</div>}<div className="mt-2 text-[11px] text-muted">{confidence.method} · {confidence.sampleSize} signals</div>{confidence.observations?.map(signal => <div key={signal.source} className="mt-1 break-words text-[11px] text-muted">{signal.source}: {Math.round(signal.score * 100)}%</div>)}</> : <p className="text-xs text-muted">No scored evaluation available. This does not mean a job is queued. Check Analysis state below.</p>}</section>}
           <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Ontology</h2><dl className="space-y-2 text-xs"><Row label="Class" value={node.ontology?.class || "Unmapped"} /><Row label="Canonical label" value={node.ontology?.canonicalLabel || node.label} /><Row label="Semantic status" value={node.semanticStatus || "active"} /><Row label="Cluster" value={node.colorReason || "Pending recalculation"} /></dl></section>
           {node.feedback && <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Adaptive feedback</h2><dl className="space-y-2 text-xs"><Row label="Decision" value={humanStatus(node.feedback.action)} /><Row label="Scope" value="Matching source context" /><Row label="Policy record" value={`#${node.feedback.recordId}`} /></dl></section>}
           <section className="border-t border-border/60 pt-5"><h2 className="mb-3 text-sm font-semibold text-foreground">Analysis state</h2><p className="text-xs text-muted">{semanticAnalysis?.state || node.semanticState || "pending"}</p>{["failed", "stale", "not_configured", "needs_review"].includes(semanticAnalysis?.state || node.semanticState || "") && <><p className="mt-2 text-xs leading-5 text-muted">{semanticAnalysis?.state === "failed" ? "The last analysis failed." : "Semantic analysis requires attention."}</p><button className="bb-action mt-3 px-3 py-1.5 text-xs" onClick={retrySemanticAnalysis}>Retry analysis</button></>}</section>

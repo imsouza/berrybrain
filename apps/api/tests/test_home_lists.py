@@ -1,6 +1,6 @@
 import unittest
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.database import Base
@@ -75,6 +75,23 @@ class HomeListServicesTest(unittest.TestCase):
         self.assertGreater(interval["upper"], interval["score"])
         self.assertEqual(connections[0]["source"]["title"], "Observability")
         self.assertEqual(connections[0]["target"]["title"], "Edge Computing")
+
+        note_queries: list[str] = []
+
+        def capture_query(
+            _conn, _cursor, statement, _parameters, _context, _executemany
+        ):
+            if "FROM notes" in statement:
+                note_queries.append(statement)
+
+        bind = self.session.get_bind()
+        event.listen(bind, "before_cursor_execute", capture_query)
+        try:
+            list_recent_connections(self.session, limit=5)
+        finally:
+            event.remove(bind, "before_cursor_execute", capture_query)
+        self.assertEqual(len(note_queries), 1)
+        self.assertIn("WHERE notes.id IN", note_queries[0])
 
     def test_legacy_connection_confidence_backfill_is_calculated_and_idempotent(
         self,

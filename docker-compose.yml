@@ -16,6 +16,7 @@ services:
       BERRYBRAIN_PUBLIC_APP_URL: "${BERRYBRAIN_PUBLIC_APP_URL:-http://localhost:3000}"
       BERRYBRAIN_HIPPORAG_URL: "http://hipporag:8000"
       BERRYBRAIN_HIPPORAG_SERVICE_TOKEN: "${HIPPORAG_SERVICE_TOKEN:-}"
+      BERRYBRAIN_VAULT_LOCK_DIR: /app/data/locks
     env_file:
       - ${BERRYBRAIN_ENV_FILE:-.env}
     ports:
@@ -25,6 +26,7 @@ services:
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
+      - ./skills:/app/skills:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
@@ -73,6 +75,7 @@ services:
     environment:
       BERRYBRAIN_API_URL: http://api:8000
       BERRYBRAIN_PROMPT_DIR: "${BERRYBRAIN_PROMPT_DIR:-/app/prompts}"
+      BERRYBRAIN_VAULT_LOCK_DIR: /app/data/locks
       HIPPORAG_URL: "http://hipporag:8000"
       PYTHONDONTWRITEBYTECODE: "1"
     extra_hosts:
@@ -80,6 +83,7 @@ services:
     volumes:
       - berrybrain_data:/app/data
       - ${BERRYBRAIN_HOST_VAULT_PATH:-./vault}:/app/vault
+      - ./skills:/app/skills:ro
     depends_on:
       api:
         condition: service_healthy

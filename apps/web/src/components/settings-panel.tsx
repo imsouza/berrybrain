@@ -12,6 +12,7 @@ import { LangKind, getLang, t, tf } from "../i18n";
 import { readCsrf } from "./public-site/user-menu";
 import { judgeSelectionIssues } from "../lib/judge-selection";
 import { SettingsLogs } from "./settings-logs";
+import { apiFetch } from "@/contexts/workspace-context";
 
 type ThemeKind = "light" | "dark";
 
@@ -413,9 +414,93 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
   const [activeArea, setActiveAreaState] = useState<SettingsArea>("General");
   const [settingsQuery, setSettingsQuery] = useState("");
   const [dirtyAreas, setDirtyAreas] = useState<Set<SettingsArea>>(new Set());
+  const [autoConfigApiKey, setAutoConfigApiKey] = useState("");
+  const [autoConfigProvider, setAutoConfigProvider] = useState("");
+  const [autoConfigEndpoint, setAutoConfigEndpoint] = useState("");
+  const [autoConfigBusy, setAutoConfigBusy] = useState(false);
+  const [autoConfigProgress, setAutoConfigProgress] = useState(0);
+  const [autoConfigPhase, setAutoConfigPhase] = useState("");
+  const [autoConfigError, setAutoConfigError] = useState("");
+  const [autoConfigSuccess, setAutoConfigSuccess] = useState("");
   const committeeIssues = judgeConfiguration.mode === "committee"
     ? judgeSelectionIssues(judgeConfiguration.committee, judgeConfiguration.committee_size, judgeProvider, generatorModel)
     : [];
+
+  useEffect(() => {
+    if (!autoConfigBusy || autoConfigProgress <= 0 || autoConfigProgress >= 100) return;
+    const stages: Array<{ until: number; label: string }> = [
+      { until: 30, label: "1/5 Detecting provider & discovering model catalog..." },
+      { until: 55, label: "2/5 Testing Main chat model..." },
+      { until: 75, label: "3/5 Testing Embeddings vector model..." },
+      { until: 92, label: "4/5 Testing Judge & HippoRAG compatibility (anti-429)..." },
+      { until: 96, label: "5/5 Saving 100% compatible AI configuration..." },
+    ];
+    const timer = window.setInterval(() => {
+      setAutoConfigProgress((prev) => {
+        if (prev >= 96) return prev;
+        const next = Math.min(96, prev + 7);
+        const stage = stages.find((item) => next <= item.until) || stages[stages.length - 1];
+        setAutoConfigPhase(stage.label);
+        return next;
+      });
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [autoConfigBusy, autoConfigProgress]);
+
+  async function runQuickAutoConfig() {
+    if (apiUrl === "__demo__") {
+      setAutoConfigError("Auto Config is disabled in demo mode.");
+      return;
+    }
+    setAutoConfigBusy(true);
+    setAutoConfigError("");
+    setAutoConfigSuccess("");
+    setAutoConfigProgress(15);
+    setAutoConfigPhase("1/5 Detecting provider & discovering model catalog...");
+    try {
+      const selectedMode = autoConfigProvider === "ollama" ? "local" : "cloud";
+      const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/auto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: autoConfigApiKey.trim(),
+          provider_id: autoConfigProvider,
+          endpoint_url: autoConfigEndpoint.trim(),
+          mode: selectedMode,
+          save: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.failures?.[0]?.reason ||
+              (detail?.code === "provider_key_required"
+                ? `An API key is required for ${String(detail.provider || "the selected provider")}.`
+                : "Auto configuration failed. Check your API key and retry.");
+        throw new Error(message);
+      }
+      const nextCfg = payload.configuration as ActiveAiConfiguration | null;
+      if (nextCfg) setActiveAiConfiguration(nextCfg);
+      setAutoConfigApiKey("");
+      setAutoConfigProgress(100);
+      setAutoConfigPhase("100% — Compatibility test passed & configuration saved!");
+      setAutoConfigSuccess(
+        `Auto Config completed (100% compatibility pass): Main=${nextCfg?.main?.model_id || "verified"}, Embeddings=${nextCfg?.embedding?.model_id || "verified"}, Judge=${nextCfg?.judge?.model_id || "verified"}, HippoRAG=${nextCfg?.hipporag?.model_id || "verified"}.`,
+      );
+      await refreshProviderStatus();
+      setAiConfigurationRevision((revision) => revision + 1);
+      window.dispatchEvent(new Event("bb:ai-configuration-changed"));
+    } catch (error) {
+      setAutoConfigProgress(0);
+      setAutoConfigPhase("");
+      setAutoConfigError(error instanceof Error ? error.message : "Auto configuration failed.");
+    } finally {
+      setAutoConfigBusy(false);
+    }
+  }
 
   useEffect(() => {
     const reload = () => setAiConfigurationRevision((revision) => revision + 1);
@@ -711,7 +796,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     );
     if (!confirmed) return;
     setSaveStatus("Wiping BerryBrain data...");
-    const response = await fetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/settings/danger/wipe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reset_settings: resetSettings }),
@@ -742,7 +827,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     if (!confirmed) return;
     setMaintenanceStatus(`${labels[action]} running...`);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/maintenance/${action}`, { method: "POST" });
+      const response = await apiFetch(`${apiUrl}/api/v1/maintenance/${action}`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setMaintenanceStatus(payload.detail || `${labels[action]} failed.`);
@@ -764,7 +849,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       return;
     }
     setMaintenanceStatus("Inspecting semantic graph migration...");
-    const previewResponse = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+    const previewResponse = await apiFetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dry_run: true, batch_size: 100 }),
@@ -783,7 +868,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
       return;
     }
     setMaintenanceStatus("Preparing semantic graph...");
-    const response = await fetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
+    const response = await apiFetch(`${apiUrl}/api/v1/maintenance/prepare-semantic-graph`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dry_run: false, confirm: true, batch_size: 100 }),
@@ -804,7 +889,7 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
     setDiagClearing(true);
     setDiagClearResult("");
     try {
-      const r = await fetch(`${apiUrl}/api/v1/jobs/recover-stale`, { method: "POST" });
+      const r = await apiFetch(`${apiUrl}/api/v1/jobs/recover-stale`, { method: "POST" });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setDiagClearResult(t("clearedFail")); return; }
       setDiagClearResult(tf("clearedOk", { count: d.recovered ?? 0 }));
@@ -965,12 +1050,100 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
           <Section title="AI / Provider" description="Choose which provider BerryBrain uses for AI processing.">
             <ReadOnlyValue value={providerStatus ? `${providerStatus.providerMode === "cloud" ? "Cloud" : "Local"} · ${providerStatus.provider} · ${providerStatus.state}` : "Loading configuration status..."} />
             <ActiveModelStack configuration={activeAiConfiguration} />
-            <button
-              className="bb-action h-9 px-4 text-xs font-semibold"
-              onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
-            >
-              Configure AI providers and models
-            </button>
+            <div className="space-y-3 rounded-xl border border-border bg-panel p-3.5">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Quick API Key & Auto Config (100% Automatic)</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted">
+                  Paste only your API key and click Auto Config. BerryBrain automatically detects the provider, selects the best predefined models for Main, Embeddings, Judge, and HippoRAG, runs the compatibility test, and saves the configuration.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="API key" description="Paste your key (e.g. AIza... for Gemini, nvapi-... for NVIDIA, sk-... for OpenAI) or leave blank to use saved key.">
+                  <TextInput
+                    type="password"
+                    value={autoConfigApiKey}
+                    onChange={(value) => {
+                      setAutoConfigApiKey(value);
+                      if (value.trim().startsWith("AIza") && !autoConfigProvider) {
+                        setAutoConfigProvider("gemini");
+                      }
+                    }}
+                    placeholder="Paste API key for automatic setup"
+                  />
+                </Field>
+                <Field label="Provider (optional)" description="Auto-detected from key prefix when left on Auto-detect.">
+                  <Select value={autoConfigProvider} onChange={setAutoConfigProvider}>
+                    <option value="">Auto-detect from API key / current provider</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="nvidia-nim">NVIDIA NIM</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="groq">Groq</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="opencode-zen">OpenCode Zen</option>
+                    <option value="custom-cloud">Custom OpenAI-compatible</option>
+                    <option value="ollama">Local / Ollama</option>
+                  </Select>
+                </Field>
+              </div>
+              {autoConfigProvider === "custom-cloud" && (
+                <Field label="Custom Endpoint URL" description="OpenAI-compatible base URL (for example https://generativelanguage.googleapis.com/v1beta/openai).">
+                  <TextInput
+                    value={autoConfigEndpoint}
+                    onChange={setAutoConfigEndpoint}
+                    placeholder="https://generativelanguage.googleapis.com/v1beta/openai"
+                  />
+                </Field>
+              )}
+              {autoConfigProgress > 0 && (
+                <div className="space-y-1.5 rounded-lg border border-border bg-background p-2.5">
+                  <div className="flex items-center justify-between text-[11px] font-medium text-foreground">
+                    <span>{autoConfigPhase || "Testing configuration..."}</span>
+                    <span>{autoConfigProgress}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Auto configuration compatibility progress"
+                    aria-valuenow={autoConfigProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-surface"
+                  >
+                    <div
+                      className={`h-full transition-all duration-300 ${autoConfigProgress === 100 ? "bg-emerald-600" : "bg-accent"}`}
+                      style={{ width: `${autoConfigProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {autoConfigSuccess && (
+                <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700" role="status">
+                  {autoConfigSuccess}
+                </p>
+              )}
+              {autoConfigError && (
+                <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger" role="alert">
+                  {autoConfigError}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-accent px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  onClick={() => void runQuickAutoConfig()}
+                  disabled={autoConfigBusy}
+                >
+                  {autoConfigBusy ? "Testing & Auto Configuring..." : "Auto Config & Test"}
+                </button>
+                <button
+                  type="button"
+                  className="bb-action h-9 px-4 text-xs font-semibold"
+                  onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
+                >
+                  Configure AI providers and models
+                </button>
+              </div>
+            </div>
             <p className="text-xs leading-relaxed text-muted">
               Main, embeddings, Judge, and HippoRAG are validated and saved together. BerryBrain never mixes Cloud and Local providers silently.
             </p>
@@ -978,12 +1151,24 @@ export function SettingsPanel({ open, onClose, apiUrl }: { open: boolean; onClos
 
           <Section title="Cloud AI" description="OpenAI-compatible provider used for graph inference, insights, and knowledge expansion.">
             <ProviderConnectionStatus status={providerStatus} loading={settingsLoading} />
-            <button
-              className="bb-action h-9 px-4 text-xs font-semibold"
-              onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
-            >
-              Open unified AI setup
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md bg-accent px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                onClick={() => {
+                  setActiveArea("AI & execution");
+                }}
+              >
+                Quick API Key & Auto Config
+              </button>
+              <button
+                type="button"
+                className="bb-action h-9 px-4 text-xs font-semibold"
+                onClick={() => window.dispatchEvent(new Event("bb:open-ai-setup"))}
+              >
+                Open unified AI setup
+              </button>
+            </div>
           </Section>
 
           <Section title="Cognitive Layer" description="Configure the BerryBrain Knowledge System: Knowledge Base, Knowledge Graph, semantic state, and retrieval orchestration.">

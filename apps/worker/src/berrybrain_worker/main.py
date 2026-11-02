@@ -1195,7 +1195,7 @@ async def process_enrich_graph_node(
 
     filled = json.dumps(
         {
-            "task": "Explain what BerryBrain understands about this node in context.",
+            "task": "Explain what BerryBrain understands about this node in context, validating and completing with verified research evidence when available.",
             "node": {
                 "label": node_data.get("label", ""),
                 "type": node_data.get("type", ""),
@@ -1205,13 +1205,15 @@ async def process_enrich_graph_node(
                 "whyThisExists": node_data.get("whyThisExists", ""),
                 "sourceEvidence": node_data.get("sourceEvidence", ""),
                 "sourceNotes": json.loads(source_notes),
+                "externalResearch": (node_data.get("externalResearch") or [])[:6],
                 "connections": json.loads(connections),
             },
             "rules": [
-                "Use source notes and connection evidence, not general knowledge.",
+                "Use source notes, connection evidence, and supplied externalResearch (verified web/academic sources), not ungrounded general knowledge.",
+                "Prioritize primary vault notes (sourceNotes) as canonical truth; use externalResearch to validate, contextualize, and complete missing definitions or gaps.",
                 "Mark co-occurrence as co-occurrence unless semantic evidence is stronger.",
                 "Lower confidence when evidence is scarce.",
-                "Keep internal note references in evidence.",
+                "Keep internal note references and verified externalResearch URLs/titles in evidence.",
                 "No generic claims, loading messages, or empty required fields.",
             ],
             "output_contract": {

@@ -10,6 +10,7 @@ import {
   CircleDashed,
   Clock3,
   FileText,
+  Home,
   RefreshCw,
   Wrench,
 } from "lucide-react";
@@ -257,13 +258,14 @@ export default function ActivityPage() {
     [activity, filter],
   );
 
-  if (loading) return <ActivitySkeleton />;
+  if (loading) return <ActivitySkeleton onHome={() => router.push(appPath("/brain") as Route)} />;
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <header className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
+            <button type="button" className="bb-action mb-3 inline-flex h-8 items-center gap-1.5 px-2.5 text-xs" onClick={() => router.push(appPath("/brain") as Route)}><Home className="size-3.5" />Home</button>
             <p className="flex items-center gap-2 text-xs font-semibold text-accent"><Activity className="size-4" />Knowledge processing</p>
             <h1 className="mt-2 text-2xl font-semibold text-foreground">{t("activityTitle")}</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{t("activityDesc")}</p>
@@ -353,10 +355,11 @@ export default function ActivityPage() {
   );
 }
 
-function ActivitySkeleton() {
+function ActivitySkeleton({ onHome }: { onHome: () => void }) {
   return (
     <div className="flex-1 overflow-y-auto bg-background" aria-busy="true" aria-label="Loading activity">
       <div className="mx-auto w-full max-w-6xl animate-pulse px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <button type="button" className="bb-action mb-4 inline-flex h-8 items-center gap-1.5 px-2.5 text-xs" onClick={onHome}><Home className="size-3.5" />Home</button>
         <div className="h-6 w-44 rounded-md bg-surface" />
         <div className="mt-3 h-4 w-full max-w-xl rounded-md bg-surface" />
         <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((item) => <div key={item} className="h-24 rounded-md border border-border bg-panel" />)}</div>

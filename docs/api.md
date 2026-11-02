@@ -3,12 +3,32 @@
 BerryBrain is an architecture with an HTTP interface, not a web UI dependency.
 An editor, content tool, study application, or automation can create Markdown
 notes, observe asynchronous processing, retrieve knowledge, and query the graph
-without importing the Next.js frontend or accessing SQLite directly.
+without importing the Next.js frontend or accessing SQLite directly. For end-to-end
+architectural incorporation patterns—headless sidecar deployment, custom Markdown
+Agent Skills, and adopting BerryBrain's 5 core invariants in your own stack—see
+[Incorporating the BerryBrain Architecture into Your Project](integrating-berrybrain-architecture.md)
+and the zero-dependency reference clients in [`examples/`](../examples/README.md).
 
 The supported deployment model is **one owner-managed shared workspace**.
 Service tokens are for trusted server applications. They are not tenant, user,
 or vault permission boundaries. Do not distribute one in a public browser bundle,
 mobile binary, repository, or URL. Keep it on your application's backend.
+Profiles and their `vaultSubpath` field are currently administrative metadata:
+creating a profile does **not** create an independent vault, relocate Markdown,
+partition the graph, or grant access to a separate set of notes. New profile
+subpaths must be relative names; traversal and absolute paths are rejected.
+The canonical Markdown root is still the configured `vault_path`. Applications
+can list named physical sub-vaults with `GET /api/v1/vault/namespaces`. A named
+vault has a stable ID and a `vaults/<name>--ask-<id>` Markdown directory inside
+that root; note documents expose `vaultId`. It is an organizational namespace,
+**not** a separate access-control or graph partition. The default namespace
+retains ID `default` and an empty relative path. Only the browser Ask approval
+flow currently creates a named vault, together with its first note.
+Applications
+that require tenant or vault isolation need separate BerryBrain deployments,
+credentials, and storage roots until an explicit resource-authorization model
+is implemented and validated. Browser Flow history and Ask action plans are
+bound to their initiating user, but ordinary workspace knowledge is shared.
 
 ## Discovery and contract
 
@@ -77,6 +97,49 @@ requirements distinguish these from integration routes. Browser mutations use
 both a session cookie and CSRF protection; a valid Bearer token does not require
 CSRF. A token that is expired/revoked returns HTTP 401.
 
+Owner-only `POST /api/v1/backups` publishes a backup ID only after the database
+snapshot, vault copy, metadata, and checksum manifest finish. A failed new
+backup is not listed as a usable copy; its temporary staging directory is
+removed. The SQLite snapshot has a 300-second **progress** deadline. This is
+not a hard wall-clock limit when the operating system is blocked in I/O, and a
+successful backup still needs restore verification before a migration/deploy.
+API and worker containers must share `BERRYBRAIN_VAULT_LOCK_DIR`; the supplied
+Compose file sets it to `/app/data/locks` on their common data volume. This
+only coordinates builds using that setting. The currently running installation
+must not be assumed to have the new lock placement until both services have
+been rebuilt and restarted together.
+
+Flow conversation-history endpoints under `/ask/sessions` require a browser
+session and are scoped to the user who created each conversation. A service
+token cannot create or access those private browser conversations. Migration 21
+assigns older conversations only when the database has exactly one user. With
+multiple users, older conversations remain stored but unassigned and inaccessible
+through the API; the migration does not guess their owner.
+
+Persisted `POST /graph/infer` answers follow the same browser owner when seeded
+into Flow, given feedback, or converted to an insight by inference ID. A browser
+cannot use another user's answer or an answer created with a service token.
+Trusted service tokens share the installation's service-answer scope; they
+cannot use browser-owned answers. Migration 24 assigns legacy answers to a
+browser only when exactly one user exists. Ambiguous older answers remain
+stored but inaccessible by inference ID, including to service tokens.
+
+Flow assistant turns and `POST /graph/infer` responses return a `references`
+array with verified resource `kind` (`note`, `graph_node`, `attachment`, or
+`vault` for registered named physical vaults), ID, `stableId`, current
+path/title, `vaultId` (plus `vaultName` and `vaultPath` when the source belongs
+to a named vault), and `evidenceIds`. When multiple verified references share
+the same title, appended or follow-up `bbref:resolved:<kind>:<id>` labels are
+disambiguated with their resource kind, named vault, and folder path. A
+follow-up asking to link earlier sources may put `bbref:resolved:<kind>:<id>`
+markers in the answer text. These
+are internal reference markers, **not URLs**: clients should turn one into a
+navigation link only when the same turn's `references` contains that exact
+kind and ID, and should use the current path/ID from that record. If a note or
+named vault is deleted or loses eligibility, its reference is omitted on the
+next resolution.
+Generated HTTP links in model text are not authoritative resource links.
+
 ## Core workflow
 
 ```text
@@ -95,8 +158,8 @@ state, not disposable caches. Back up both the vault and database.
 
 | Operation | Route | Integration rule |
 | --- | --- | --- |
-| List notes | `GET /notes?limit=50&offset=0` | Follow `nextOffset` until `null`; `total` is also returned. Limit 1–200. |
-| Create | `POST /notes` | JSON `title`, `content`, optional `folder`; returns 201 and the note identity/hash. |
+| List notes | `GET /notes?limit=50&offset=0` | Follow `nextOffset` until `null`; `total` is also returned. Limit 1–200. Optional `vault_id` filters one registered namespace; each summary has `vaultId`. |
+| Create | `POST /notes` | JSON `title`, `content`, optional `folder` and `vault_id`; returns 201, `vaultId`, and the note identity/hash. |
 | Read | `GET /notes/{path}` | URL-encode path segments; keep `/` separators. |
 | Update | `PUT /notes/{path}` | Send `content` and the last `base_content_hash`; stale edits return 409. |
 | Processing | `GET /notes/{path}/status` | The note exists before AI jobs finish. Inspect job states and failures. |
@@ -104,12 +167,23 @@ state, not disposable caches. Back up both the vault and database.
 | Graph nodes | `GET /graph/nodes?cursor=0&limit=250` | Follow `nextCursor` (maximum limit 2000). |
 | Graph edges | `GET /graph/edges?cursor=0&limit=500` | Follow `nextCursor` (maximum limit 5000). |
 | Ask | `POST /graph/infer` | JSON `question`; inspect `status`, `answer`, `evidence`, `routes`, and `inferenceId`. |
+| Agent skills | `GET /ai/skills?query=...&task_type=ask` | Inspects the 1,576 standardized Markdown skills under `skills/` and returns context-matched skills (`matchedSkills`). |
+| Node web validation | `POST /graph/nodes/{id}/validate-web` | Queues bounded external web verification (`source_supports`, `source_expands`, `source_contradicts`) without promoting unverified text to canonical notes. |
 | Jobs | `GET /jobs?limit=50` | Limit 1–200; internal handlers require claim ownership where applicable. |
 | Activity | `GET /activity?limit=50` | Limit 1–200. |
 | Ontology | `GET /graph/ontology` and `/graph/ontology/export` | Semantic vocabulary and export; not a replacement for runtime control state. |
 
 Paths in this table are relative to `/api/v1`. Creation folders are `inbox`,
 `study`, `permanent`, `review`, or `templates`; path moves have a separate API.
+Omit `vault_id` or use `default` for the original root. For a named vault,
+use an ID returned by `GET /vault/namespaces`; an unknown ID returns 404 and
+an unavailable/symlinked namespace returns 409. The server derives the
+directory from the registered ID, not from a caller-supplied filesystem path.
+Ask plans may also target an existing named vault with `vault_id`. The folder
+API reports registered vault boundaries as `protected` and rejects renaming or
+deleting those directories (and their `vaults` ancestor); ordinary subfolders
+inside a vault remain editable. Manual filesystem renames are not reconciled
+into vault identities automatically.
 The compatibility notes list with no limit still returns the whole vault and
 scans Markdown files: external clients should always request a page. Its paging
 is positional, not a snapshot; concurrent inserts/moves can shift offsets.
@@ -178,6 +252,122 @@ as an answer. Grounding checks reduce unsupported answers; they do not prove
 100% factual correctness. Ask can call the configured local or cloud model and
 incur that provider's costs. Web research is a separate explicit workflow, not
 permission for ordinary Ask to silently use arbitrary web content.
+
+### Supervised Ask action plans and editor diffs (v1.5)
+
+`GET /api/v1/ask/action-plans/capabilities` lets an authenticated external
+client inspect the current action contract. It reports the shared-workspace
+model, supported and currently available actions (`create_note`,
+`create_vault_and_note`, `enrich_note`), one-note-per-approval mode,
+`supportedApprovalModes` (`ask_for_approval` and `approve_full`),
+allowed folders, content limit, and whether an independent named physical vault can be
+created. A trusted service token can read the contract but receives an empty
+`availableActions` list: it cannot propose or approve a human Ask plan.
+The installed browser session receives the interactive human actions as available. This route
+does not grant permission by itself; the write endpoints recheck session,
+CSRF, plan ownership, expiry, and the approved arguments hash.
+
+The Ask UI can turn an answer into an editable Markdown draft in the current
+vault or a **new named physical vault**. The latter is still part of the shared
+workspace; no per-vault ACL is implied. It does not silently write on a model
+response. The browser
+first calls `POST /ask/action-plans` with `title`, `folder`, `content`, an
+optional `approval_mode` (`ask_for_approval` or `approve_full`), and an
+optional UUID `request_key`. To create a named vault and its first note in the
+same plan, include `new_vault_name` (1–160 characters, no slash, backslash,
+colon, or control characters).
+For a subsequent note in an existing named vault, send `vault_id` from
+`GET /vault/namespaces` instead; `new_vault_name` and `vault_id` are mutually
+exclusive. The plan captures the registered target path and approval checks
+that it still belongs to the same ID and is a real directory.
+The response contains the exact preview, `argumentsHash`, `steps`, a 15-minute
+expiry, and a plan ID. The user then sends
+`POST /ask/action-plans/{id}/approve` with `arguments_hash` (and optional
+`step`: `"create_vault"` or `"create_note"` for step-by-step supervised
+execution of a 2-step vault+note plan), or rejects via
+`POST /ask/action-plans/{id}/cancel` (which compensates and removes an empty
+vault created in step 1 if step 2 has not executed). `GET /ask/action-plans/{id}` retrieves its
+state. Approval writes canonical Markdown once as an **unreviewed draft**; it
+does not enqueue graph/embedding jobs or make the draft citable by Ask. The
+returned `resultPath` links to the created note, and `vaultId` identifies the
+registered namespace. A named vault's directory is derived from the immutable
+plan ID, so replay cannot create another vault. After checking its claims and
+links, the user explicitly calls `POST /ask/action-plans/{id}/review-draft`
+with `{"reviewed":true,"content_hash":"<current SHA-256>"}` after displaying
+the current `GET /notes/{path}` content and `content_hash`. Only then is the
+note eligible for retrieval and normal note processing. Plan approval
+(`APPROVE_ASK_PLAN`, `APPROVE_ASK_PLAN_STEP`), cancellation (`CANCEL_ASK_PLAN`), orphan reconciliation
+(`RECONCILE_ASK_DRAFT`), and draft release (`REVIEW_ASK_DRAFT`) are recorded in
+the automation audit log with the plan ID, user ID, and hashes/metadata, but
+never the private note body. If the file changes
+after display, the review returns HTTP 409; reload and review its current
+content. The hash is checked again after database sync, so an edit during
+review also returns HTTP 409 without promoting the draft. An edited draft can
+be reviewed without discarding the edits. A
+repeated approval or review is idempotent.
+The plan binds the saved result to the note's database ID and stable ID. Its
+`resultPath` resolves the **current** path after a rename or move. If the note
+was deleted, `resultPath` becomes `null` and review is refused, even if another
+note now occupies the old path. Migration 19 backfills older plans only when
+the deterministic plan path and original content still match; it never treats
+a path alone as proof of identity.
+If another editor changes the file between write and database sync, the plan
+becomes `partial`: its current `resultPath` is shown, the edited content is
+preserved as an uncitable draft, and the user must review its current hash. A
+successful review completes the plan. Unknown execution failures may resume
+once after the stale-running interval; `attempts` is capped at two by migration
+20, and an exhausted plan becomes `failed` with a safe `errorCode`. Because a
+filesystem write may predate a database failure, clients must check the target
+folder before starting a new plan after such a failure. `orphanPath` identifies
+an existing, non-symlink file at the plan's exact deterministic path. If its
+contents still match the approved preview, `recoveryPath` also identifies it;
+the original user may call `POST /ask/action-plans/{id}/reconcile` without a
+body to attach it as an uncitable draft. If the file changed, `recoveryPath` is
+`null`: show the current `GET /notes/{orphanPath}` content first, then send
+`{"reviewed":true,"content_hash":"<current SHA-256>"}` to `/reconcile`.
+The server rechecks the hash, does not overwrite the Markdown, and leaves the
+file uncitable until a separate `/review-draft` call. Missing, symlinked,
+already-released, or concurrently changed files return HTTP 409. Successful
+reconciliation is audited without the note body. It requires the same signed-in
+user, a browser session, and CSRF.
+Vault scanning keeps the exact path of an interrupted or failed approved Ask
+write as a draft even if another editor changed its contents; this does not
+authorize automatic reconciliation or evidence release.
+`GET /ask/action-plans/reviewable?limit=20&offset=0` pages through the signed-in
+user's unreviewed saved drafts, with their current paths. `limit` accepts 1–100
+and defaults to 20; ordering is newest first with ID as the tie-breaker. A new browser session for
+that **same user** can retrieve a completed or partial plan and submit its review using
+the current note content hash, or discard the unreviewed draft via
+`DELETE /ask/action-plans/{id}/draft` (which requires a browser session and CSRF,
+removes the unreviewed draft file and record without enqueuing graph maintenance jobs,
+compensates any now-empty vault created by that plan, and returns HTTP 409 if the note
+was already reviewed and released). This supports recovery after session expiry;
+the list does not expose draft bodies or grant access to another user's plans.
+`GET /ask/action-plans/failed?limit=20&offset=0` similarly lists only that
+user's approved failed `create_note` plans (title, error code, timestamp and
+optional `orphanPath`; no note body). This lets a later browser session reopen
+the plan ID and inspect a possible saved file. An item with no `orphanPath`
+still represents a failed operation, not a saved note.
+An approved plan in `executing` state can be polled and resumed after a stale
+execution; expiry applies to a new approval, not to recovery of an approval
+already started. A path occupied by different content is never overwritten.
+
+Proposing, approving, and cancelling a plan require the **same authenticated
+browser session and CSRF token**. Reading a saved completed or partial plan allows a new
+authenticated session for its original user; reviewing it additionally requires
+CSRF and the exact current content hash. A service Bearer token alone cannot approve
+or review a human action. The ordinary `POST /notes` route remains the trusted
+server-to-server creation API. The action-plan catalog currently contains only
+`create_note` in a fixed folder, optionally with a new named physical vault;
+it does not create isolated vaults, edit
+existing notes, change settings, or grant agents a general write capability.
+The review acknowledgement marks the note as user-reviewed, **not factually
+verified**. Per-user or per-vault ACL isolation is **not** a feature of this contract.
+The note editor also opens Ask beside the current note without unmounting the
+editor, supporting explicit context scopes (`selected_block`, `current_section`,
+`entire_note`) and line-level diff previews before applying any user-approved edit
+to the active editor buffer. Unsaved text is never sent to the model or written
+to disk without an explicit user action.
 
 ## Job health and dashboard counts
 
@@ -252,9 +442,19 @@ acknowledgement. Failed counts include jobs that exhausted their attempts (`dead
 the separate `dead_letter` count is a subset, not an additional failure count.
 The Home can finish current work while still showing historical failures.
 
-Releases 1.4.9 and 1.4.10 use database schema 14. The additive index migration preserves
-history; the HTTP API remains `/api/v1`. Older binaries enforce schema
-compatibility, so an image-only rollback after migration is not sufficient.
+Releases 1.4.9 through 1.4.14 use database schema 14. Release 1.5.0 uses
+database schema 25 (non-destructive additive migrations 15–25): Ask action plans
+and stable target bindings (migrations 15–20), Flow ownership and evaluation
+lookup index (migration 21), canonical graph label backfill and composite upsert
+index (migration 22), default and named physical vault registry with note/node
+`vault_id` propagation (migration 23), persisted graph-answer owner scope
+(migration 24), and structured user profile preferences plus action-plan step
+tracking (migration 25). All existing notes, graph artifacts, service-token
+digests, and operational records are preserved, and the HTTP API remains
+`/api/v1`. Older binaries enforce schema compatibility, so always verify a
+manifest-backed backup before upgrading; rolling back across schema versions
+requires restoring the matching backup rather than downgrading container images
+alone.
 
 ## Operational history and model alerts
 
@@ -289,19 +489,23 @@ Notifications remain historical until marked read; current warnings and unread
 history are different views. No automatic model replacement, paid availability
 probe, or bulk job retry is performed.
 
-## Python example
+## Reference clients (Python & Node.js / ESM)
 
-See [the standard-library client](../examples/berrybrain_client.py), with no
-third-party runtime dependency. It rejects redirects, supplies timeouts, retains
-HTTP errors/correlation IDs, and never blindly retries writes.
+See the zero-dependency reference clients in [`examples/`](../examples/README.md):
+- [Python 3.11+ standard-library client](../examples/berrybrain_client.py)
+- [Node.js 20+ / TypeScript-friendly ESM client](../examples/berrybrain_client.mjs)
+
+Both reject HTTP redirects, supply bounded timeouts, retain HTTP status codes and
+`X-Correlation-ID` headers, and never blindly retry conflicting writes.
 
 ```bash
 export BERRYBRAIN_URL='http://127.0.0.1:8000'
 export BERRYBRAIN_SERVICE_TOKEN='YOUR_PRIVATE_SERVICE_TOKEN'
-python examples/berrybrain_client.py
+python3 examples/berrybrain_client.py
+node examples/berrybrain_client.mjs
 ```
 
-Running that file only lists notes. A write workflow in your application:
+Running either file directly only lists notes. A write and retrieval workflow in Python:
 
 ```python
 from examples.berrybrain_client import BerryBrainClient, APIError

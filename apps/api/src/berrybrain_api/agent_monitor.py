@@ -182,6 +182,43 @@ def ensure_agent_monitoring(session: Session) -> dict:
         if created:
             queued.append({"type": job.type, "id": job.id, "nodeId": node.id})
 
+    if (
+        _setting_value(session, "research_mode_enabled", "false").lower() == "true"
+        and _setting_value(session, "remote_content_consent", "false").lower() == "true"
+    ):
+        from berrybrain_api.graph_research import create_research_run
+        from berrybrain_api.models import GraphResearchRunRecord
+
+        latest_run = session.execute(
+            select(GraphResearchRunRecord)
+            .order_by(GraphResearchRunRecord.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        run_due = True
+        if latest_run is not None:
+            if latest_run.status in {"pending", "running"}:
+                run_due = False
+            elif latest_run.created_at is not None:
+                latest_at = latest_run.created_at
+                if latest_at.tzinfo is None:
+                    latest_at = latest_at.replace(tzinfo=UTC)
+                if now - latest_at < timedelta(hours=insight_hours):
+                    run_due = False
+        if run_due:
+            needs_web_research = session.scalar(
+                select(GraphNodeRecord.id)
+                .where(
+                    processable_node_clause(),
+                    GraphNodeRecord.validation_status.in_(
+                        ("unvalidated", "needs_review", "conflict_found")
+                    ),
+                )
+                .limit(1)
+            )
+            if needs_web_research is not None:
+                run = create_research_run(session)
+                queued.append({"type": "RESEARCH_GRAPH", "researchRunId": run.id})
+
     return {"status": "monitoring", "jobs": queued, "ai": "active"}
 
 

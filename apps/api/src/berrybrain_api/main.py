@@ -31,6 +31,7 @@ from berrybrain_api.request_limits import RequestSizeLimitMiddleware
 from berrybrain_api.routers import (
     ai_configuration,
     ask,
+    ask_actions,
     auth,
     automation,
     backup,
@@ -260,6 +261,7 @@ app.include_router(notes.router)
 app.include_router(auth.router)
 app.include_router(ai_configuration.router)
 app.include_router(ask.router)
+app.include_router(ask_actions.router)
 app.include_router(bootstrap.router)
 app.include_router(jobs.router)
 app.include_router(maintenance.router)

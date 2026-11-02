@@ -27,15 +27,20 @@ class RuntimeContentContractTest(unittest.TestCase):
                     violations.append(str(path.relative_to(REPOSITORY_ROOT)))
         self.assertEqual(violations, [])
 
-    def test_generation_gate_requires_english_and_preserves_user_quotes(self) -> None:
-        for relative_path in (
-            "apps/api/src/berrybrain_api/ai_gateway.py",
-            "apps/worker/src/berrybrain_worker/main.py",
-        ):
-            text = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
-            self.assertIn("system-generated label", text)
-            self.assertIn("in English", text)
-            self.assertIn("verbatim user excerpts", text)
+    def test_generation_language_policy_preserves_user_quotes(self) -> None:
+        gateway = (
+            REPOSITORY_ROOT / "apps/api/src/berrybrain_api/ai_gateway.py"
+        ).read_text(encoding="utf-8")
+        worker = (
+            REPOSITORY_ROOT / "apps/worker/src/berrybrain_worker/main.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "Follow the language instruction of the explicit system task", gateway
+        )
+        self.assertIn("verbatim user excerpts", gateway)
+        self.assertIn("system-generated label", worker)
+        self.assertIn("in English", worker)
+        self.assertIn("verbatim user excerpts", worker)
 
     def test_unspecified_source_language_is_not_invented(self) -> None:
         model_source = (

@@ -1,5 +1,6 @@
 import json
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from berrybrain_api.backup import (
+    _copy_sqlite_snapshot,
     _create_manifest,
     _is_sensitive_setting,
     _json_object,
@@ -19,6 +21,7 @@ from berrybrain_api.backup import (
     create_backup,
     delete_backup,
     export_full,
+    list_backups,
     restore_backup,
 )
 from berrybrain_api.database import Base
@@ -37,6 +40,87 @@ from berrybrain_api.schema_migrations import (
 
 
 class BackupPortabilityTest(unittest.TestCase):
+    def test_snapshot_progress_deadline_and_success(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            source = base / "source.db"
+            with sqlite3.connect(source) as connection:
+                connection.execute("CREATE TABLE sample (value TEXT)")
+                connection.execute("INSERT INTO sample (value) VALUES ('preserved')")
+
+            with self.assertRaisesRegex(TimeoutError, "progress deadline"):
+                _copy_sqlite_snapshot(source, base / "timed-out.db", timeout_seconds=0)
+
+            complete = base / "complete.db"
+            _copy_sqlite_snapshot(source, complete, timeout_seconds=5)
+            with sqlite3.connect(complete) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT value FROM sample").fetchone()[0],
+                    "preserved",
+                )
+
+    def test_online_backup_uses_one_pass_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            database_path = base / "berrybrain.db"
+            engine = create_engine(f"sqlite:///{database_path}")
+            Base.metadata.create_all(engine)
+            apply_schema_migrations(engine)
+            session_factory = sessionmaker(bind=engine)
+            vault = base / "vault"
+            vault.mkdir()
+            settings = SimpleNamespace(
+                vault_path=vault,
+                backup_path=base / "backups",
+                database_url=f"sqlite:///{database_path}",
+            )
+            with (
+                patch("berrybrain_api.backup.SessionLocal", session_factory),
+                patch("berrybrain_api.backup.get_settings", return_value=settings),
+                patch("berrybrain_api.backup.database_engine", engine),
+                patch(
+                    "berrybrain_api.backup._copy_sqlite_snapshot",
+                    wraps=_copy_sqlite_snapshot,
+                ) as snapshot,
+            ):
+                create_backup()
+
+            self.assertEqual(snapshot.call_count, 1)
+            self.assertEqual(snapshot.call_args.kwargs, {})
+            self.assertEqual(Path(snapshot.call_args.args[0]), database_path)
+
+    def test_failed_backup_does_not_publish_or_keep_partial_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            source = base / "source.db"
+            source.write_bytes(b"test fixture")
+            vault = base / "vault"
+            vault.mkdir()
+            settings = SimpleNamespace(
+                vault_path=vault,
+                backup_path=base / "backups",
+                database_url=f"sqlite:///{source}",
+            )
+
+            def fail_after_partial_copy(
+                _source: Path, destination: Path, **_kwargs
+            ) -> None:
+                destination.write_bytes(b"incomplete")
+                self.assertEqual(list_backups(), [])
+                raise TimeoutError("simulated snapshot timeout")
+
+            with (
+                patch("berrybrain_api.backup.get_settings", return_value=settings),
+                patch(
+                    "berrybrain_api.backup._copy_sqlite_snapshot",
+                    side_effect=fail_after_partial_copy,
+                ),
+                self.assertRaisesRegex(TimeoutError, "simulated snapshot timeout"),
+            ):
+                create_backup()
+
+            self.assertEqual(list(settings.backup_path.iterdir()), [])
+
     def test_backup_paths_and_legacy_manifests_fail_safely(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             root_path = Path(root)

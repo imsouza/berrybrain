@@ -15,32 +15,65 @@ const DOC_SECTIONS: DocSection[] = [
     md: `## API & external applications
 
 BerryBrain is a reusable architecture. The web interface is one client of its
-versioned HTTP API; editors, study apps, and trusted automations can use the same
-note, graph, retrieval, and asynchronous processing workflows.
+versioned HTTP API; editors, study apps, AI agents, and trusted automations can
+incorporate the same note, graph, retrieval, skill-routing, and asynchronous
+processing workflows in **three complementary ways**:
+
+1. **Headless Cognitive Sidecar (\`Docker Compose + REST API v1\`)** — run \`api\` +
+   \`worker\` (+ optional \`hipporag\`) alongside your Python, Node.js/TypeScript, Go,
+   or CLI backend using expiring \`ServiceBearer\` tokens.
+2. **Domain Agent Skill Extension (\`skills/*.md\`)** — add custom YAML-frontmatter
+   Markdown skills alongside BerryBrain's **1,576 standardized Agent Skills** and
+   query contextual matches via **GET /api/v1/ai/skills?query=...&task_type=ask**.
+3. **5-Invariant Architectural Blueprint** — adopt BerryBrain's canonical-vs-derived
+   separation, ontology + Judge admission gate, dependency-propagating provenance
+   repair, reversible feedback ledger (\`model_weights_updated=false\`), and
+   corpus-aware two-tier retrieval inside your own RAG or agent-memory stack.
+
+### Discovery & OpenAPI
 
 - Discovery: **GET /api/v1**.
 - Machine-readable contract: **GET /api/v1/openapi.json**.
 - Interactive documentation: **GET /api/v1/docs**.
+- Health & schema check (\`schema 25\` in v1.5.0): **GET /health**.
 - Through the web proxy, prepend your mount (for example **/berrybrain**).
+
+### Authentication & core integration workflow
 
 Use an independent, expiring **Bearer service token** on your application's
 backend. The owner issues it with **POST /api/v1/security/service-tokens** using
 an authenticated browser session and its CSRF header. Issuing a token does not
 rotate the worker token. Never put a service token in a public browser bundle.
 
-Create/read notes through **/notes**, then update with **base_content_hash** to
-detect conflicting edits (HTTP 409). Poll **/notes/{path}/status** for processing.
-Use **/search**, paginated **/graph/nodes** and **/graph/edges**, and
-**POST /graph/infer** for evidence-grounded questions. Paths are relative to
-**/api/v1**. Inspect Ask status and citations: HTTP 200 is not proof of truth.
+- Discover physical vault namespaces via **GET /vault/namespaces** and filter or
+  target notes with \`vault_id\`.
+- Create/read notes through **/notes**, then update with **base_content_hash** to
+  detect conflicting edits (HTTP 409 — never blindly overwrite).
+- Poll **/notes/{path}/status** with bounded backoff for background assimilation.
+- Use **/search**, snapshot-versioned **/graph/nodes**, **/graph/edges?compact=true**,
+  **/graph/delta?since_version=**, W3C **/graph/ontology/export?format=json-ld|turtle**,
+  and **POST /graph/infer** for evidence-grounded synthesis. Paths are relative to
+  **/api/v1**. Inspect Ask status and citations: HTTP 200 is not proof of truth.
+
+\`\`\`python
+from examples.berrybrain_client import BerryBrainClient
+
+bb = BerryBrainClient("http://127.0.0.1:8000", SERVICE_TOKEN)
+note = bb.create_note("ADR-07", "# ADR-07\\nDerived state stays rebuildable.")
+bb.wait_until_ready(note["path"], timeout_seconds=60)
+ans = bb.ask("Why keep canonical Markdown separate from derived graphs?")
+\`\`\`
 
 This is one owner-managed **shared workspace**, not a multi-tenant platform.
-Tokens do not isolate vaults; administrative actions still require the owner.
-Some response schemas remain generic. No general webhook or idempotency-key
-contract is promised.
+Tokens do not isolate vaults, and service tokens cannot approve human Ask action
+plans (\`GET /ask/action-plans/capabilities\` returns \`availableActions: []\` for
+service tokens); administrative actions still require the owner. Some response
+schemas remain generic. No general webhook or idempotency-key contract is promised.
 
-See the [complete integration guide](${GITHUB_URL}/blob/main/docs/api.md) and
-[Python client example](${GITHUB_URL}/blob/main/examples/berrybrain_client.py)
+See the [complete integration guide](${GITHUB_URL}/blob/main/docs/api.md),
+[architecture incorporation guide](${GITHUB_URL}/blob/main/docs/integrating-berrybrain-architecture.md),
+[Python client example](${GITHUB_URL}/blob/main/examples/berrybrain_client.py), and
+[Node.js / ESM client example](${GITHUB_URL}/blob/main/examples/berrybrain_client.mjs)
 for authentication, pagination, errors, limits, and deployment details.`,
   },
   {
@@ -342,34 +375,45 @@ Security behavior:
     title: "Configuring AI providers",
     md: `## Configuring AI providers
 
-### Local (Ollama) — step by step
-1. Install Ollama for your OS.
-2. Start it: \`ollama serve\`.
-3. Pull the local model configured for this instance.
-4. In BerryBrain AI setup, choose **Local**.
-5. Keep the Docker default URL \`http://host.docker.internal:11434\`, or enter an address
-   reachable from the API and Worker containers.
-6. Enter the installed model name. Nothing leaves your machine; no API key is required.
+### 1-Click Auto Config (recommended in v1.5)
+Both Local (Ollama) and Cloud OpenAI-compatible setup flows support **1-Click Auto Config**:
 
-### Cloud API — step by step
+1. Choose **Local / Ollama** or **Cloud**, select a provider preset (or custom URL), and supply
+   your API key when using Cloud.
+2. Click **Auto Config**. BerryBrain discovers available models from the active endpoint, assigns
+   capability-appropriate **Main**, **Embeddings**, **Judge**, and **HippoRAG** slots automatically,
+   handles provider rate-limit fallbacks cleanly, and displays a live step-by-step compatibility
+   progress bar while verifying chat, embedding, and structured-output contracts.
+3. Review the verified slots and click **Finish setup** (or switch to manual per-role selection at
+   any time).
+
+### Local (Ollama) — manual step by step
+1. Install Ollama for your OS and start it (\`ollama serve\`).
+2. Pull your desired generation and embedding models.
+3. In BerryBrain AI setup, choose **Local / Ollama**.
+4. Keep the Docker default URL \`http://host.docker.internal:11434\`, or enter an address
+   reachable from the API and Worker containers.
+5. Run **Auto Config** or manually assign each model slot, run compatibility tests, and finish.
+   Nothing leaves your machine; no API key is required.
+
+### Cloud API — manual step by step
 1. Get an API key from an OpenAI-compatible provider such as NVIDIA NIM, OpenAI,
-   OpenRouter, Groq, or DeepSeek.
-2. In AI setup, choose **Cloud API**.
-3. Choose the provider in the dropdown. BerryBrain fills the compatible base URL automatically.
-4. Paste your **API key**.
-5. Click **Load models**, then select a model returned by your provider.
-6. Finish.
+   OpenRouter, Groq, Gemini (OpenAI-compatible endpoint), or DeepSeek.
+2. In AI setup, choose **Cloud**.
+3. Choose the provider preset (which fills the base URL automatically) and paste your **API key**.
+4. Click **Auto Config** for one-click verified slot assignment, or click **Load models** to choose
+   each role's model manually and run compatibility tests.
+5. Click **Finish setup**.
 
 If the provider returns models as strings, OpenAI-style \`data[].id\`, or another common
 \`id/name/model\` object shape, BerryBrain normalizes the list before rendering the model
-selector. Presets store provider base URLs, while the selected provider and model are persisted
-in Settings. Custom OpenAI-compatible endpoints remain editable.
+selector. Presets store provider base URLs, while the selected provider and model slots are
+persisted in Settings. Custom OpenAI-compatible endpoints remain editable.
 
 ### Provider setup is required
-BerryBrain does not allow onboarding to finish without an explicit Local or Cloud choice.
-Local mode requires an installed Ollama model name. Cloud mode requires a provider URL, API
-key, and model. This prevents the cognitive pipeline from appearing ready while no inference
-provider is available.`,
+BerryBrain does not allow onboarding to finish without a validated Local or Cloud configuration.
+Cloud and Local execution remain strictly mutually exclusive so private vault content never crosses
+into a cloud endpoint silently.`,
   },
   {
     id: "rag-judge",
@@ -653,6 +697,43 @@ external facts, but unnecessary when local evidence is sufficient.
 
 Automatic enrichment handles graph artifacts internally. Use Research gaps only when the graph
 needs evidence beyond the local vault. Research progress and failures remain visible in Monitor.`,
+  },
+  {
+    id: "vaults-skills-actions",
+    title: "Vaults, 1,576 Agent Skills & Action Plans",
+    md: `## Vaults, 1,576 Agent Skills & supervised Action Plans
+
+### First-class physical Vaults & sorting
+BerryBrain v1.5 organizes notes across **named physical vaults** (\`GET /api/v1/vault/namespaces\`)
+within the single owner-managed shared workspace:
+
+- Switch between **All Vaults** and any specific vault to filter Notes, Home, Graph, Ask,
+  Activity, and Monitor consistently, while legacy or unassigned notes remain accessible.
+- Toggle sidebar ordering between **Recent** and **A–Z** without altering filesystem paths.
+- Named vaults are organizational Markdown namespaces, not multi-user ACL boundaries.
+
+### Typed \`@\` references & supervised Ask Action Plans
+- **Typed mentions**: reference \`@note\`, \`@folder\`, \`@vault\`, or \`@node\` directly in Ask with
+  composer autocomplete, automatic duplicate-title disambiguation, and **Focus in Graph** centering.
+- **Supervised writes**: Ask never writes to disk silently. Proposed plans (\`create_note\`,
+  \`create_vault_and_note\`, \`enrich_note\`) display the exact Markdown preview and require explicit
+  human session + CSRF approval in either **Approve Full** (\`approve_full\`) or step-by-step
+  **Ask for Approval** (\`ask_for_approval\`, with automatic empty-vault rollback on cancellation).
+  Saved Ask drafts remain uncitable by RAG until you review and confirm their current SHA-256 hash.
+- **Editor Ask line-level diffs**: open Ask beside the active note editor, scope assistance to
+  \`selected_block\`, \`current_section\`, or \`entire_note\`, and inspect a line-level diff before
+  applying changes to your editor buffer.
+
+### 1,576 Markdown Agent Skills & 24h Enrich AI
+- **Context-routed skills (\`skills/\`)**: 15 core BerryBrain priority-1 skills (IMRaD/JBCS/IEEE
+  scientific articles, PRISMA systematic reviews, theses/TCC, RFCs/ADRs, study guides, formal proofs),
+  177 scientific skills, 1,100 scientific reference modules, 265 Fabric patterns, and 19 Anthropic
+  workflow skills activate automatically by prompt intent (\`GET /api/v1/ai/skills\`). Every skill is
+  bound by BerryBrain's Mandatory Epistemic Protocol: canonical vault evidence always overrides
+  parametric model memory, and claims must cite \`[Title](bbref:<evidenceId>)\`.
+- **24h web-grounded validation**: continuous 24-hour background enrichment verifies unresolved or
+  low-support graph claims against external web sources and records explicit stances
+  (\`source_supports\`, \`source_expands\`, \`source_contradicts\`) without overwriting canonical Markdown.`,
   },
   {
     id: "graph-performance",
@@ -1089,8 +1170,8 @@ confirmatory release certificate.`,
     title: "Research use",
     md: `## Research use
 
-The candidate research theme evaluates ontology-aware graph-augmented retrieval and continuous
-knowledge enrichment in a local-first personal knowledge system. The mixed-method design combines
+The architecture can be evaluated for ontology-aware graph-augmented retrieval and continuous
+knowledge enrichment in a local-first personal knowledge system. A mixed-method design combines
 paired technical ablations, external datasets, task-level comparison, and an optional longitudinal
 study. Primary hypotheses, smallest effect of interest, exclusions, metrics, and statistical tests
 must be preregistered after pilot work and before confirmatory collection.
@@ -1341,7 +1422,15 @@ const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "Is there an API?",
-    a: "Yes — a REST API powers the web app (auth, notes, jobs, graph, insights, connections). External API access should be restricted to trusted origins.",
+    a: "Yes — a versioned REST API (`/api/v1`) powers the web app and external backend integrations, with machine-readable OpenAPI (`/api/v1/openapi.json`), Swagger UI (`/api/v1/docs`), and expiring owner-issued `ServiceBearer` tokens.",
+  },
+  {
+    q: "How can I incorporate the BerryBrain Architecture into my own project?",
+    a: "In three ways: (1) run BerryBrain `api` + `worker` as a **headless cognitive sidecar** via Docker Compose and connect with our zero-dependency Python (`examples/berrybrain_client.py`) or Node.js/ESM (`examples/berrybrain_client.mjs`) clients; (2) add custom domain **Markdown Agent Skills** (`skills/*.md`) alongside the 1,576 built-in skills; or (3) adopt BerryBrain's **5 core architectural invariants** (canonical-vs-derived split, ontology + Judge admission gate, dependency-propagating provenance invalidation, reversible feedback ledger with `model_weights_updated=false`, and corpus-aware two-tier retrieval) in your own RAG or agent stack.",
+  },
+  {
+    q: "How do 1-click Auto Config and the 1,576 Agent Skills work?",
+    a: "During AI Setup, **Auto Config** probes your Local Ollama or Cloud OpenAI-compatible endpoint, verifies live compatibility across Main, Embeddings, Judge, and HippoRAG slots with a real-time progress bar, and saves a validated configuration. Once active, BerryBrain automatically routes complex Ask and synthesis tasks through **1,576 standardized Markdown Agent Skills** (`GET /api/v1/ai/skills`) while enforcing vault-first `[Title](bbref:<id>)` citations.",
   },
 ];
 

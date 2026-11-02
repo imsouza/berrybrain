@@ -78,7 +78,11 @@ def semantic_data_state(session: Session) -> dict[str, Any]:
         ).all()
     )
     notes = list(session.execute(select(NoteRecord)).scalars())
-    processable_notes = [note for note in notes if (note.content or "").strip()]
+    processable_notes = [
+        note
+        for note in notes
+        if note.evidence_status != "draft" and (note.content or "").strip()
+    ]
     embedding_note_ids = set(session.execute(select(EmbeddingRecord.note_id)).scalars())
     graph_node_count = session.scalar(select(func.count(GraphNodeRecord.id))) or 0
     graph_edge_count = session.scalar(select(func.count(GraphEdgeRecord.id))) or 0

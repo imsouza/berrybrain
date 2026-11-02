@@ -118,7 +118,11 @@ def _load_judge_prompt() -> str:
 def _with_judge_route(config: dict[str, str]) -> dict[str, str]:
     from berrybrain_api.ai_configuration import PROVIDERS
 
-    routed = dict(config)
+    # The main chat fallback is not a Judge/committee member. Reusing it here
+    # would silently change the evaluator set after a provider failure.
+    routed = {
+        key: value for key, value in config.items() if not key.startswith("fallback_")
+    }
     provider = routed.get("judge_provider") or ""
     model = routed.get("judge_model") or ""
     if provider in {"cloud", "local"}:
@@ -183,7 +187,10 @@ def _judge_source_context(session, artifact: object, artifact_type: str) -> dict
         )
     notes = (
         session.query(NoteRecord)
-        .filter(NoteRecord.id.in_(sorted(source_note_ids)))
+        .filter(
+            NoteRecord.id.in_(sorted(source_note_ids)),
+            NoteRecord.evidence_status != "draft",
+        )
         .order_by(NoteRecord.id)
         .limit(6)
         .all()

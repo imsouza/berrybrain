@@ -13,6 +13,7 @@ from berrybrain_api.models import (
     GraphNodeRecord,
     JobRecord,
     NoteRecord,
+    VaultRecord,
 )
 from berrybrain_api.vault_scan import scan_vault
 
@@ -91,6 +92,111 @@ class VaultScanTest(unittest.TestCase):
         self.assertEqual(notes[0].path, "archive/renamed.md")
         self.assertEqual(len(graph_nodes), 1)
         self.assertEqual(graph_nodes[0].source_id, original_id)
+
+    def test_missing_named_vault_cannot_delete_indexed_notes(self) -> None:
+        namespace = "vaults/ideas--ask-123456789abc"
+        self.session.add(VaultRecord(id="named-vault", name="Ideas", path=namespace))
+        self.session.add(
+            NoteRecord(
+                path=f"{namespace}/study/idea.md",
+                vault_id="named-vault",
+                slug="idea",
+                title="Idea",
+                content_hash="original",
+            )
+        )
+        self.session.commit()
+
+        with self.assertRaisesRegex(RuntimeError, "Registered vault.*unavailable"):
+            scan_vault(self.session, self.vault_path)
+        self.assertEqual(
+            self.session.scalar(select(NoteRecord)).vault_id, "named-vault"
+        )
+
+    def test_missing_root_cannot_erase_existing_index(self) -> None:
+        self.session.add(
+            NoteRecord(
+                path="inbox/existing.md",
+                slug="existing",
+                title="Existing",
+                content_hash="original",
+            )
+        )
+        self.session.commit()
+        missing_root = Path(self.temp_dir.name) / "disconnected-mount"
+
+        with self.assertRaisesRegex(RuntimeError, "Vault root is unavailable"):
+            scan_vault(self.session, missing_root)
+        self.assertFalse(missing_root.exists())
+        self.assertIsNotNone(self.session.scalar(select(NoteRecord)))
+
+    def test_empty_replacement_root_without_marker_cannot_erase_index(self) -> None:
+        self.session.add(
+            NoteRecord(
+                path="inbox/existing.md",
+                slug="existing",
+                title="Existing",
+                content_hash="original",
+            )
+        )
+        self.session.commit()
+
+        with self.assertRaisesRegex(RuntimeError, "no known notes or root marker"):
+            scan_vault(self.session, self.vault_path)
+        self.assertIsNotNone(self.session.scalar(select(NoteRecord)))
+
+        (self.vault_path / "inbox" / "unrelated.md").write_text(
+            "# Unrelated replacement", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(RuntimeError, "no known notes or root marker"):
+            scan_vault(self.session, self.vault_path)
+        self.assertIsNotNone(self.session.scalar(select(NoteRecord)))
+
+    def test_invalid_registered_vault_path_cannot_leave_root(self) -> None:
+        self.session.add(VaultRecord(id="invalid", name="Invalid", path="/tmp"))
+        self.session.commit()
+
+        with self.assertRaisesRegex(RuntimeError, "invalid path"):
+            scan_vault(self.session, self.vault_path)
+
+    def test_unregistered_ask_vault_is_quarantined_until_registered(self) -> None:
+        namespace = "vaults/ideas--ask-123456789abc"
+        folder = self.vault_path / namespace / "study"
+        folder.mkdir(parents=True)
+        (folder / "idea.md").write_text("# Idea\n\nPrivate draft.", encoding="utf-8")
+
+        first = scan_vault(self.session, self.vault_path)
+        self.assertEqual(first["quarantined"], 1)
+        self.assertEqual(first["created"], 0)
+        self.assertIsNone(self.session.scalar(select(NoteRecord)))
+
+        self.session.add(VaultRecord(id="named-vault", name="Ideas", path=namespace))
+        self.session.commit()
+        second = scan_vault(self.session, self.vault_path)
+        self.assertEqual(second["created"], 1)
+        self.assertEqual(
+            self.session.scalar(select(NoteRecord)).vault_id, "named-vault"
+        )
+
+    def test_move_between_vaults_does_not_recycle_note_identity(self) -> None:
+        source = self.vault_path / "inbox" / "source.md"
+        source.write_text("# Original\n\nSame content.", encoding="utf-8")
+        scan_vault(self.session, self.vault_path)
+        old_id = self.session.scalar(select(NoteRecord)).id
+
+        namespace = "vaults/ideas--ask-123456789abc"
+        destination = self.vault_path / namespace / "study"
+        destination.mkdir(parents=True)
+        self.session.add(VaultRecord(id="named-vault", name="Ideas", path=namespace))
+        self.session.commit()
+        source.rename(destination / "source.md")
+        result = scan_vault(self.session, self.vault_path)
+
+        note = self.session.scalar(select(NoteRecord))
+        self.assertEqual(result["moved"], 0)
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(note.vault_id, "named-vault")
+        self.assertNotEqual(note.id, old_id)
 
     def test_edit_and_delete_detach_graph_provenance(self) -> None:
         first_path = self.vault_path / "inbox" / "first.md"

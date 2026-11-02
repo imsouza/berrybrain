@@ -36,6 +36,10 @@ class NoteSummary(BaseModel):
     title: str
     path: str
     folder: str
+    vaultId: str = "default"
+    updatedAt: str | None = None
+    createdAt: str | None = None
+    sizeBytes: int | None = None
 
 
 class NotePage(BaseModel):
@@ -57,6 +61,7 @@ class NoteDocument(BaseModel):
     id: int | None = None
     stableId: str | None = None
     sourceVersion: int | None = None
+    vaultId: str | None = None
 
 
 class SearchResult(BaseModel):

@@ -38,7 +38,11 @@ class RetrievalEvidence:
 def cognitive_status(session: Session) -> dict[str, Any]:
     note_rows = list(session.execute(select(NoteRecord)).scalars())
     notes = len(note_rows)
-    processable_notes = [note for note in note_rows if (note.content or "").strip()]
+    processable_notes = [
+        note
+        for note in note_rows
+        if note.evidence_status != "draft" and (note.content or "").strip()
+    ]
     embeddings = session.query(func.count(EmbeddingRecord.id)).scalar() or 0
     nodes = session.query(func.count(GraphNodeRecord.id)).scalar() or 0
     edges = session.query(func.count(GraphEdgeRecord.id)).scalar() or 0

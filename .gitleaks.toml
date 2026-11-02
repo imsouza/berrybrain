@@ -23,3 +23,20 @@ id = "generic-api-key"
   [[rules.allowlists]]
   description = "Public distro signing keys embedded in generated Trivy reports"
   paths = ['''^docs/reports/security/trivy-(api|hipporag|web|worker)\.json$''']
+
+  [[rules.allowlists]]
+  description = "Synthetic provider-prefix fixtures in AI configuration unit tests"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^(AIzaSyTestKey123|nvapi-test-123)$''']
+  paths = ['''^apps/api/tests/test_ai_configuration_v2\.py$''']
+
+[[rules]]
+id = "curl-auth-header"
+
+  [[rules.allowlists]]
+  description = "Documentation placeholder token in NOAA reference skill"
+  condition = "AND"
+  regexTarget = "secret"
+  regexes = ['''^YOUR_TOKEN$''']
+  paths = ['''^skills/scientific-references/database-lookup-noaa\.md$''']

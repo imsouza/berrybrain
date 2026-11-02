@@ -47,6 +47,8 @@ def note_assimilation_map(
     session: Session,
     notes: list[NoteRecord],
     jobs: list[JobRecord] | None = None,
+    *,
+    complete_job_signals: bool = True,
 ) -> dict[int, dict[str, Any]]:
     """Return per-note assimilation state based on durable knowledge signals.
 
@@ -54,6 +56,9 @@ def note_assimilation_map(
     useful graph/metadata output. Conversely, older rows may miss
     last_processed_at even though they already have graph nodes and edges. This
     helper uses the generated artifacts themselves as the source of truth.
+    Home needs only the final assimilated flag, so it may skip the historical
+    jobs query for notes already proved by a cheaper durable signal. Callers
+    requesting complete signals retain the original full audit by default.
     """
 
     if not notes:
@@ -117,7 +122,21 @@ def note_assimilation_map(
                 connected_note_ids.add(target_note_id)
 
     completed_job_note_ids: set[int] = set()
-    if jobs is None:
+    unresolved_notes = [
+        note
+        for note in notes
+        if complete_job_signals
+        or (
+            (note.content or "").strip()
+            and note.status not in {"processed", "assimilated"}
+            and note.id not in metadata_note_ids
+            and note.id not in embedding_note_ids
+            and note.id not in connected_note_ids
+        )
+    ]
+    unresolved_ids = {note.id for note in unresolved_notes}
+    if jobs is None and unresolved_notes:
+        unresolved_by_path = {note.path: note for note in unresolved_notes}
         valid_payload = case(
             (func.json_valid(JobRecord.payload), JobRecord.payload), else_="{}"
         )
@@ -131,7 +150,7 @@ def note_assimilation_map(
             select(NoteRecord.id)
             .join(JobRecord, JobRecord.note_id == NoteRecord.id)
             .where(
-                NoteRecord.id.in_(note_ids),
+                NoteRecord.id.in_(unresolved_ids),
                 JobRecord.status == COMPLETED,
                 JobRecord.type.in_(ASSIMILATION_JOB_TYPES),
                 or_(effective_hash == "", effective_hash == NoteRecord.content_hash),
@@ -154,13 +173,15 @@ def note_assimilation_map(
                 JobRecord.note_id == 0,
                 JobRecord.status == COMPLETED,
                 JobRecord.type.in_(ASSIMILATION_JOB_TYPES),
-                legacy_path.in_(note_by_path),
-                effective_hash.in_({"", *note_hash_by_id.values()}),
+                legacy_path.in_(unresolved_by_path),
+                effective_hash.in_(
+                    {"", *(note.content_hash for note in unresolved_notes)}
+                ),
             )
             .distinct()
         )
         for path, content_hash in legacy_pairs:
-            note = note_by_path[path]
+            note = unresolved_by_path[path]
             if not content_hash or content_hash == note.content_hash:
                 completed_job_note_ids.add(note.id)
     for job in jobs or []:
@@ -190,7 +211,11 @@ def note_assimilation_map(
             "metadata": note.id in metadata_note_ids,
             "embedding": note.id in embedding_note_ids,
             "connectedGraphNode": note.id in connected_note_ids,
-            "completedPipelineJob": note.id in completed_job_note_ids,
+            "completedPipelineJob": (
+                note.id in completed_job_note_ids
+                if complete_job_signals or note.id in unresolved_ids
+                else None
+            ),
         }
         result[note.id] = {
             "assimilated": has_content and any(signals.values()),

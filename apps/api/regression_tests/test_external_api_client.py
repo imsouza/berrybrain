@@ -71,3 +71,45 @@ class ExternalClientTest(unittest.TestCase):
                 client_module.BerryBrainClient(url, "token")
         with self.assertRaises(ValueError):
             self.client.request("GET", "/../admin")
+
+    def test_v15_vaults_skills_graph_and_ontology_helpers(self):
+        self.client.list_vaults()
+        req = self.client.opener.open.call_args.args[0]
+        self.assertEqual(
+            req.full_url, "https://example.test/berrybrain/api/v1/vault/namespaces"
+        )
+
+        self.client.list_notes(limit=10, offset=5, vault_id="research")
+        req = self.client.opener.open.call_args.args[0]
+        self.assertEqual(
+            req.full_url,
+            "https://example.test/berrybrain/api/v1/notes?limit=10&offset=5&vault_id=research",
+        )
+
+        self.client.match_skills("systematic review", task_type="ask")
+        req = self.client.opener.open.call_args.args[0]
+        self.assertEqual(
+            req.full_url,
+            "https://example.test/berrybrain/api/v1/ai/skills?query=systematic+review&task_type=ask",
+        )
+
+        self.client.graph_nodes(limit=100, cursor="n-10")
+        req = self.client.opener.open.call_args.args[0]
+        self.assertEqual(
+            req.full_url,
+            "https://example.test/berrybrain/api/v1/graph/nodes?limit=100&cursor=n-10&includeProvisional=false",
+        )
+
+        turtle_response = MagicMock()
+        turtle_response.__enter__.return_value.read.return_value = (
+            b"@prefix skos: <http://www.w3.org/2004/02/skos/core#> ."
+        )
+        turtle_response.__enter__.return_value.headers = {"Content-Type": "text/turtle"}
+        self.client.opener.open.return_value = turtle_response
+        exported = self.client.export_ontology(output_format="turtle")
+        self.assertIn("@prefix skos:", exported)
+
+        with self.assertRaises(ValueError):
+            self.client.export_ontology(output_format="xml")
+        with self.assertRaises(ValueError):
+            self.client.inference_feedback(42, "invalid-action")

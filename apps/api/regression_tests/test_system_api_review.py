@@ -314,6 +314,8 @@ class SystemApiReviewTest(unittest.TestCase):
                     type="topic",
                     label="Mathematics",
                     confidence=0.9,
+                    confidence_sample_size=20,
+                    confidence_method="weighted_evidence",
                     quality_gate_status="passed",
                     source_note_ids=json.dumps([first["id"], second["id"]]),
                 )

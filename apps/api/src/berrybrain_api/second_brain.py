@@ -34,8 +34,10 @@ from berrybrain_api.concept_extraction import (  # noqa: F401
 )
 from berrybrain_api.confidence import (
     ConfidenceSignal,
+    active_node_confidence,
     estimate_confidence,
     evidence_coverage_signal,
+    node_confidence_applicable,
     persist_confidence,
     serialize_confidence,
     serialize_estimate,
@@ -114,7 +116,10 @@ STOPWORDS = {
 
 def _ensure_graph_node_context(session: Session) -> int:
     notes_by_id = {
-        note.id: note for note in session.execute(select(NoteRecord)).scalars()
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
     }
     changed = 0
     from berrybrain_api.graph_write_service import GraphWriteService
@@ -273,7 +278,10 @@ def _ensure_graph_edge_traceability(session: Session) -> int:
         node.id: node for node in session.execute(select(GraphNodeRecord)).scalars()
     }
     notes_by_id = {
-        note.id: note for note in session.execute(select(NoteRecord)).scalars()
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
     }
     changed = 0
     from berrybrain_api.graph_write_service import GraphWriteService
@@ -358,7 +366,12 @@ def _migrate_active_ai_edge_evidence(session: Session) -> dict[str, int]:
     nodes = {
         node.id: node for node in session.execute(select(GraphNodeRecord)).scalars()
     }
-    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    notes = {
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    }
     recovered = 0
     stale = 0
     for edge in session.execute(
@@ -445,7 +458,11 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
     if not tokens:
         return _insufficient(question)
 
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     note_by_id = {note.id: note for note in notes}
     connections = list(
         session.execute(
@@ -572,7 +589,11 @@ def infer_from_graph(session: Session, question: str) -> dict[str, Any]:
 
 def _generate_deterministic_insights(session: Session) -> int:
     """Create learner-facing insights only when note evidence is concrete."""
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     note_by_id = {note.id: note for note in notes}
     concepts = list(session.execute(select(ConceptRecord)).scalars())
     created_or_updated = 0
@@ -1062,7 +1083,11 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
         ).scalars()
     )
     if not nodes:
-        notes = list(session.execute(select(NoteRecord)).scalars())
+        notes = list(
+            session.execute(
+                select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+            ).scalars()
+        )
         if not notes:
             return _insufficient(question)
         note_evidence = [f"Note: {note.title} ({note.path})" for note in notes[:12]]
@@ -1147,7 +1172,7 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
             "label": node.label,
             "summary": node.summary,
             "status": node.status,
-            "confidence": node.confidence,
+            "confidence": active_node_confidence(node),
             "sourceNoteIds": _parse_json_list(node.source_note_ids),
             "aiNotes": getattr(node, "ai_notes", ""),
         }
@@ -1178,7 +1203,7 @@ def _build_graph_context_for_ai(session: Session, question: str) -> dict[str, An
     confidence_signals = [
         ConfidenceSignal(node.confidence, f"graph-node:{node.id}")
         for node in matched_nodes
-        if node.confidence_sample_size
+        if node_confidence_applicable(node.type) and node.confidence_sample_size
     ]
     confidence_signals.extend(
         ConfidenceSignal(edge.confidence, f"graph-edge:{edge.id}")
@@ -1308,6 +1333,20 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         source_note_ids=node_source_note_ids(node),
     )
 
+    from berrybrain_api.models import GraphResearchResultRecord
+
+    external_research = list(
+        session.execute(
+            select(GraphResearchResultRecord)
+            .where(
+                GraphResearchResultRecord.node_id == node.id,
+                GraphResearchResultRecord.status.in_(["suggested", "confirmed"]),
+            )
+            .order_by(GraphResearchResultRecord.id.desc())
+            .limit(8)
+        ).scalars()
+    )
+
     return {
         "id": node.id,
         "stableId": node.stable_id,
@@ -1320,7 +1359,7 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
         "source": node.source,
         "sourceNoteIds": note_ids,
         "sourceFingerprint": source_fingerprint(session, node),
-        "confidence": node.confidence if node.confidence_sample_size else None,
+        "confidence": active_node_confidence(node),
         "confidenceInterval": serialize_confidence(node),
         "createdBy": node.created_by,
         "createdByModel": node.created_by_model,
@@ -1358,8 +1397,20 @@ def get_node_summary(session: Session, node_id: int) -> dict[str, Any]:
                 "sourceVersion": note.source_version,
                 "title": note.title,
                 "path": note.path,
+                "snippet": (note.content or "")[:600],
             }
             for note in note_records
+        ],
+        "externalResearch": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "sourceUrl": item.source_url,
+                "evidence": item.evidence,
+                "query": item.query,
+                "status": item.status,
+            }
+            for item in external_research
         ],
         "connections": [_serialize_edge(edge) for edge in edges],
         "whyThisExists": _why_node_exists(node, note_records),
@@ -1597,9 +1648,16 @@ def _extract_topics_from_metadata(
     seen: set[tuple[int, str]] = set()
     note_titles = {
         note.id: normalize_concept_name(note.title)
-        for note in session.execute(select(NoteRecord)).scalars()
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
     }
-    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    notes = {
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    }
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "topics":
@@ -1664,9 +1722,16 @@ def _extract_entities_from_metadata(
     seen: set[tuple[int, str]] = set()
     note_titles = {
         note.id: normalize_concept_name(note.title)
-        for note in session.execute(select(NoteRecord)).scalars()
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
     }
-    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    notes = {
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    }
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "entities":
@@ -1726,7 +1791,12 @@ def _extract_context_from_metadata(
 ) -> int:
     count = 0
     seen: set[tuple[int, str]] = set()
-    notes = {note.id: note for note in session.execute(select(NoteRecord)).scalars()}
+    notes = {
+        note.id: note
+        for note in session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    }
     for note_id, records in metadata_by_note.items():
         for record in records:
             if record.generation_type != "context":

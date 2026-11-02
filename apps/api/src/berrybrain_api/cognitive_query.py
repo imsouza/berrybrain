@@ -15,12 +15,17 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from berrybrain_api.agent_skills import (
+    format_active_skills_prompt,
+    select_skills_for_context,
+)
 from berrybrain_api.ai_gateway import (
     GraphAIUnavailable,
     generate_graph_answer,
     get_ai_config,
 )
 from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
+from berrybrain_api.confidence import active_node_confidence, node_confidence_applicable
 from berrybrain_api.evidence_selection import query_aware_excerpt
 from berrybrain_api.learning import build_learning_guidance
 from berrybrain_api.models import (
@@ -134,6 +139,47 @@ def _query_tokens(question: str) -> set[str]:
         "estudo",
         "plano",
         "roteiro",
+        "artigo",
+        "artigos",
+        "cientifico",
+        "cientifica",
+        "paper",
+        "imrad",
+        "abnt",
+        "ieee",
+        "sbc",
+        "revisao",
+        "literatura",
+        "sistematica",
+        "bibliografica",
+        "tcc",
+        "monografia",
+        "dissertacao",
+        "tese",
+        "documentacao",
+        "rfc",
+        "adr",
+        "especificacao",
+        "resumo",
+        "executivo",
+        "briefing",
+        "relatorio",
+        "sintese",
+        "didatica",
+        "feynman",
+        "aula",
+        "escreva",
+        "escrever",
+        "redija",
+        "redigir",
+        "gere",
+        "gerar",
+        "produza",
+        "produzir",
+        "estruturado",
+        "estruturada",
+        "completo",
+        "completa",
         "create",
         "make",
         "write",
@@ -153,6 +199,13 @@ def _query_tokens(question: str) -> set[str]:
         "study",
         "guide",
         "plan",
+        "scientific",
+        "article",
+        "academic",
+        "review",
+        "documentation",
+        "summary",
+        "report",
         "according",
         "based",
         "context",
@@ -213,11 +266,19 @@ async def answer_cognitive_query(
         }
 
     config = get_config_fn(session)
+    active_skills = select_skills_for_context(question, task_type="ask", max_skills=2)
+    active_skill_summaries = [skill.to_summary() for skill in active_skills]
+    skills_prompt_block = format_active_skills_prompt(active_skills)
     system = (
         "You are BerryBrain's assistant. Respond in the user's language and fulfill "
         "the user's actual request using the supplied note content and verified graph evidence. "
-        "You may synthesize explanations, study guides, outlines and learning activities "
+        "You may synthesize explanations, study guides, scientific articles, literature reviews, "
+        "technical documentation, outlines and learning activities "
         "from that content; a ready-made answer need not exist in a note. "
+        "If asked to save a document, draft it in the answer. This model call cannot "
+        "write files. The user can choose Save answer as note, select the current "
+        "vault or a new named vault, then approve the exact proposal. Never claim "
+        "a note or vault was saved until that separate approval succeeds. "
         "Label proposed activities and inferred connections as suggestions, not source facts. "
         "Do not invent factual claims absent from the evidence. If only part of the request "
         "is supported, answer that part and state the limits. Inspect graph labels, types "
@@ -227,6 +288,8 @@ async def answer_cognitive_query(
         "use insufficient_evidence only when the supplied content cannot support the request. "
         "Return evidence IDs before the answer field and keep the JSON complete."
     )
+    if skills_prompt_block:
+        system = f"{system}\n\n{skills_prompt_block}"
     # Optional indexes can lag behind the canonical vault. One stale result must
     # not veto current evidence from the other retrievers. Filter before bounding
     # so an invalid result cannot consume the prompt's evidence budget.
@@ -260,6 +323,7 @@ async def answer_cognitive_query(
         {
             "question": question,
             "conversationContext": conversation_context,
+            "activeSkills": active_skill_summaries,
             "routes": orchestrated["routes"],
             "semanticState": orchestrated["semanticState"],
             "evidence": prompt_evidence,
@@ -272,6 +336,8 @@ async def answer_cognitive_query(
                 "Do not invent facts.",
                 "Cite only the supplied evidenceId values.",
                 "Return evidence as a list of objects containing evidenceId. Do not invent IDs or quotes.",
+                "When naming a supplied note or graph node in the answer, link its title with Markdown [title](bbref:<evidenceId>) using that exact supplied evidenceId. Never invent a BerryBrain link or use a numeric ID as a URL.",
+                "When activeSkills are present, strictly follow the document structure, section headings, and methodological rigor defined in those skills using the supplied evidence.",
                 "For study guides, provide a practical ordered guide with topics and proposed exercises grounded in the notes, not just instructions to consult a map.",
                 "Use complementary evidence when the question requires multiple hops.",
                 "Keep the answer useful for learning and graph navigation.",
@@ -292,9 +358,22 @@ async def answer_cognitive_query(
             "detalhado",
             "detalhada",
             "detailed",
+            "artigo",
+            "cientifico",
+            "paper",
+            "revisao",
+            "tcc",
+            "monografia",
+            "dissertacao",
+            "documentacao",
+            "relatorio",
         }
         else 1024
     )
+    if active_skills:
+        max_tokens = max(
+            max_tokens, *(skill.recommended_max_tokens for skill in active_skills)
+        )
     started = time.monotonic()
     try:
         for attempt in range(2):
@@ -368,6 +447,9 @@ async def answer_cognitive_query(
         return _fallback_answer(
             question, orchestrated, "AI returned no answer.", config
         )
+    actual_route = result.get("_berrybrain_route")
+    if not isinstance(actual_route, dict):
+        actual_route = {}
     return {
         "status": "insufficient_evidence"
         if result.get("status") == "insufficient_evidence"
@@ -383,9 +465,19 @@ async def answer_cognitive_query(
         if isinstance(result.get("suggestions"), list)
         else [],
         "confidence": _safe_confidence(result.get("confidence")),
-        "provider": config.get("provider", ""),
-        "model": config.get("cloud_model") or config.get("ollama_model") or "",
+        "provider": actual_route.get("provider")
+        or config.get("cloud_provider")
+        or config.get("provider", ""),
+        "model": actual_route.get("model")
+        or config.get("cloud_model")
+        or config.get("ollama_model")
+        or "",
+        "fallbackUsed": bool(actual_route.get("fallback")),
+        "fallbackReason": str(actual_route.get("reason") or "")
+        if actual_route.get("fallback")
+        else "",
         "retrievers": orchestrated.get("retrievers", []),
+        "activeSkills": active_skill_summaries,
         "embedding_type": orchestrated.get("embedding_type", "unknown"),
         "judge_status": "pending",
         "trace_id": f"query_{int(time.time())}",
@@ -582,7 +674,11 @@ def _retrieve_lexical_kb(
     from berrybrain_api.vault import parse_markdown_note
 
     query_tokens = _query_tokens(query)
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     results: list[RetrievalEvidence] = []
     for note in notes:
         folder_tokens = (
@@ -620,6 +716,8 @@ def _retrieve_lexical_kb(
             )
     attachments = _extracted_attachments(session)
     for attachment, extraction, note in attachments:
+        if note.evidence_status == "draft":
+            continue
         chunks = chunk_markdown(extraction.extracted_text)
         for index, chunk in enumerate(chunks):
             score = _token_score(
@@ -726,10 +824,8 @@ def retrieve_graph(
         score = _token_score(query_tokens, _search_tokens(body))
         if score <= 0:
             continue
-        confidence_floor = (
-            node.confidence_lower if node.confidence_lower is not None else 0.0
-        )
-        score *= confidence_floor
+        # Retrieval relevance is textual; source support is a separate signal.
+        # In particular, legacy confidence on a note/vault must never change rank.
         seed_scores[node.id] = score
         related_nodes.append(f"{node.type}_{node.id}")
         results.append(
@@ -743,10 +839,12 @@ def retrieve_graph(
                 metadata={
                     "nodeId": node.id,
                     "type": node.type,
-                    "confidence": (
-                        node.confidence if node.confidence_sample_size else None
+                    "confidence": active_node_confidence(node),
+                    "confidenceLower": (
+                        node.confidence_lower
+                        if node_confidence_applicable(node.type)
+                        else None
                     ),
-                    "confidenceLower": node.confidence_lower,
                     "status": node.status,
                     "ontologyClass": node.ontology_class,
                     "sourceNoteIds": _json_list(node.source_note_ids),
@@ -1026,7 +1124,7 @@ def _evidence_source_snapshot(
             for raw_id in note_ids:
                 identity = int(raw_id)
                 note = session.get(NoteRecord, identity, populate_existing=True)
-                if note is None:
+                if note is None or note.evidence_status == "draft":
                     return None
                 current = read_note(get_settings().vault_path, note.path)
                 if current["content_hash"] != note.content_hash:

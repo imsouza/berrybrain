@@ -19,6 +19,7 @@ from berrybrain_api.ai_gateway import (
 from berrybrain_api.artifact_state import accepted_node_clause
 from berrybrain_api.confidence import (
     estimate_connection_confidence,
+    parse_unit_confidence,
     persist_percentage_confidence,
 )
 from berrybrain_api.models import (
@@ -157,7 +158,9 @@ async def generate_inferred_graph_connections(
         }
 
     connections = result.get("connections", []) if isinstance(result, dict) else []
-    auto_confirm = float(config.get("auto_confirm_confidence") or "0.9")
+    auto_confirm = parse_unit_confidence(config.get("auto_confirm_confidence"))
+    if auto_confirm is None:
+        auto_confirm = 0.9
     model = config.get("cloud_model") or config.get("ollama_model", "")
     provider = config.get("provider", "local")
     created = 0
@@ -185,11 +188,7 @@ async def generate_inferred_graph_connections(
             continue
         source_chunk, source_note = source_pair
         target_chunk, target_note = target_pair
-        raw_confidence = c.get("confidence")
-        try:
-            conf = float(raw_confidence) if raw_confidence is not None else None
-        except (TypeError, ValueError):
-            conf = None
+        conf = parse_unit_confidence(c.get("confidence"))
         reason = (
             str(c.get("reason", "")).strip()
             or f"Relationship between {src_label} and {tgt_label}."

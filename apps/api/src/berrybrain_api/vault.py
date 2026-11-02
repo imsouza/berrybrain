@@ -3,6 +3,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -33,6 +34,24 @@ def slugify_title(title: str) -> str:
     normalized = re.sub(r"[^a-z0-9\-_ ]+", "", normalized)
     normalized = re.sub(r"\s+", "-", normalized)
     return normalized.strip("-") or "note"
+
+
+def planned_ask_note_path(folder: str, title: str, plan_id: str) -> str:
+    """Stable path shared by Ask writes and vault-scan draft detection."""
+    slug = slugify_title(title)[:80]
+    return f"{folder}/{slug}--ask-{plan_id[:12]}.md"
+
+
+def planned_ask_vault_path(name: str, plan_id: str) -> str:
+    """A stable, visibly named directory for one approved Ask vault proposal."""
+    slug = slugify_title(name)[:64]
+    return f"vaults/{slug}--ask-{plan_id[:12]}"
+
+
+def planned_ask_note_in_vault_path(
+    folder: str, title: str, name: str, plan_id: str
+) -> str:
+    return f"{planned_ask_vault_path(name, plan_id)}/{planned_ask_note_path(folder, title, plan_id)}"
 
 
 def unique_note_path(vault_path: Path, folder: str, slug: str) -> Path:
@@ -156,13 +175,15 @@ def resolve_note_path(vault_path: Path, note_path: str) -> Path:
 
 
 @serialized_vault
-def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
+def list_markdown_notes(vault_path: Path) -> list[dict[str, Any]]:
+    from datetime import UTC, datetime
+
     ensure_vault(vault_path)
 
     if not vault_path.exists():
         return []
 
-    notes: list[dict[str, str]] = []
+    notes: list[dict[str, Any]] = []
     for path in sorted(vault_path.rglob("*.md")):
         if (
             not path.is_file()
@@ -171,11 +192,23 @@ def list_markdown_notes(vault_path: Path) -> list[dict[str, str]]:
         ):
             continue
         relative_path = path.relative_to(vault_path).as_posix()
+        try:
+            stat = path.stat()
+            updated_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
+            created_at = datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat()
+            size_bytes = int(stat.st_size)
+        except OSError:
+            updated_at = None
+            created_at = None
+            size_bytes = 0
         notes.append(
             {
                 "title": path.stem,
                 "path": relative_path,
                 "folder": path.parent.relative_to(vault_path).as_posix(),
+                "updatedAt": updated_at,
+                "createdAt": created_at,
+                "sizeBytes": size_bytes,
             }
         )
     return notes
@@ -201,10 +234,28 @@ def read_note(vault_path: Path, note_path: str) -> dict[str, object]:
 
 @serialized_vault
 def create_note(
-    vault_path: Path, title: str, folder: str, content: str
+    vault_path: Path,
+    title: str,
+    folder: str,
+    content: str,
+    *,
+    namespace_path: str = "",
 ) -> dict[str, object]:
     if folder not in SAFE_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid folder")
+
+    if namespace_path:
+        root = vault_path.resolve()
+        namespace = root / namespace_path
+        if (
+            not namespace_path.startswith("vaults/")
+            or namespace.resolve() != namespace
+            or not namespace.is_dir()
+        ):
+            raise HTTPException(
+                status_code=409, detail="Vault directory is unavailable"
+            )
+        folder = f"{namespace_path}/{folder}"
 
     clean_title = title.strip() or "Untitled note"
     slug = slugify_title(clean_title)

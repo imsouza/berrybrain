@@ -61,7 +61,11 @@ def index_knowledge_base(session: Session) -> dict[str, Any]:
         cognitive.get("kb_chunk_overlap", "120"), 120, 0, chunk_size - 1
     )
     cognitive["kb_chunk_overlap"] = str(overlap)
-    notes = list(session.execute(select(NoteRecord)).scalars())
+    notes = list(
+        session.execute(
+            select(NoteRecord).where(NoteRecord.evidence_status != "draft")
+        ).scalars()
+    )
     processable_notes = [note for note in notes if (note.content or "").strip()]
     attachment_chunks = _attachment_chunks(session, chunk_size, cognitive)
     embeddings = {
@@ -320,6 +324,7 @@ def _extracted_attachments(
             .where(
                 AttachmentExtractionRecord.status == "completed",
                 AttachmentExtractionRecord.extracted_text != "",
+                NoteRecord.evidence_status != "draft",
             )
         ).all()
     )
@@ -697,7 +702,11 @@ def validate_external_evidence(
             note = session.get(
                 NoteRecord, int(metadata.get("noteId")), populate_existing=True
             )
-            if note is None or metadata.get("noteStableId") != note.stable_id:
+            if (
+                note is None
+                or note.evidence_status == "draft"
+                or metadata.get("noteStableId") != note.stable_id
+            ):
                 continue
             if (
                 not metadata.get("contentHash")

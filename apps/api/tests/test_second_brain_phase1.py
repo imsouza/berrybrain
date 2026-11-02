@@ -463,39 +463,38 @@ class SecondBrainPhase1Test(unittest.TestCase):
             model_used="test-model",
         )
 
-        self.session.add(
-            InsightRecord(
-                type="hypothesis",
-                title="Machine learning notes can become a study path",
-                description=(
-                    "ML A and ML B both discuss machine learning and can be "
-                    "organized as a connected study path instead of isolated notes."
-                ),
-                why_it_matters=(
-                    "This helps the learner consolidate repeated concepts and decide "
-                    "which note should become the central entry point."
-                ),
-                suggested_action=(
-                    "Create a permanent machine learning overview note that links ML A "
-                    "and ML B."
-                ),
-                graph_impact=(
-                    "Adds an insight node connected to both source notes and clarifies "
-                    "their shared learning context."
-                ),
-                related_notes=json.dumps([note_a.id, note_b.id]),
-                evidence=json.dumps(
-                    [
-                        "ML A mentions machine learning.",
-                        "ML B mentions machine learning.",
-                    ]
-                ),
-                confidence=0.8,
-                status="suggested",
-                provider="nvidia-nim",
-                model="qwen/qwen3.5",
-            )
+        source_insight = InsightRecord(
+            type="hypothesis",
+            title="Machine learning notes can become a study path",
+            description=(
+                "ML A and ML B both discuss machine learning and can be "
+                "organized as a connected study path instead of isolated notes."
+            ),
+            why_it_matters=(
+                "This helps the learner consolidate repeated concepts and decide "
+                "which note should become the central entry point."
+            ),
+            suggested_action=(
+                "Create a permanent machine learning overview note that links ML A "
+                "and ML B."
+            ),
+            graph_impact=(
+                "Adds an insight node connected to both source notes and clarifies "
+                "their shared learning context."
+            ),
+            related_notes=json.dumps([note_a.id, note_b.id]),
+            evidence=json.dumps(
+                [
+                    "ML A mentions machine learning.",
+                    "ML B mentions machine learning.",
+                ]
+            ),
+            confidence=0.8,
+            status="suggested",
+            provider="nvidia-nim",
+            model="qwen/qwen3.5",
         )
+        self.session.add(source_insight)
         self.session.commit()
 
         from berrybrain_api.second_brain import (
@@ -504,7 +503,11 @@ class SecondBrainPhase1Test(unittest.TestCase):
         )
 
         result = expand_knowledge_graph(self.session)
-        node = self.session.query(GraphNodeRecord).filter_by(type="insight").first()
+        node = (
+            self.session.query(GraphNodeRecord)
+            .filter_by(type="insight", source="insight", source_id=source_insight.id)
+            .one()
+        )
         updated = set_node_user_notes(self.session, node.id, "My manual note")
 
         self.assertEqual(result["insights"], 0)

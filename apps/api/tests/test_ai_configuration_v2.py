@@ -1,4 +1,7 @@
+import hashlib
+import json
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -11,6 +14,7 @@ from berrybrain_api.ai_configuration import (
     HippoRagSlot,
     JudgeSlot,
     ModelSlot,
+    configuration_fingerprint,
     configuration_gate,
     embedding_execution_configuration,
     load_configuration,
@@ -23,10 +27,14 @@ from berrybrain_api.ai_configuration import (
 from berrybrain_api.database import Base
 from berrybrain_api.models import EmbeddingRecord, JobRecord, NoteRecord
 from berrybrain_api.routers.ai_configuration import (
+    ConfigurationPayload,
     _filter_models_by_capability,
     _probe_requested_capabilities,
+    _provider_contexts,
     _queue_embedding_reindex,
+    _slot_specs,
     _validate_provider_endpoint,
+    _validate_requested_models,
 )
 from berrybrain_api.settings_store import set_setting
 
@@ -54,6 +62,44 @@ class AIConfigurationV2Test(unittest.TestCase):
                 endpoint_url="https://api.openai.com/v1",
             )
 
+    def test_optional_chat_fallback_is_validated_without_changing_legacy_fingerprint(
+        self,
+    ) -> None:
+        base = AIConfiguration(
+            mode="cloud",
+            main=ModelSlot(provider_id="nvidia-nim", model_id="primary"),
+            embedding=ModelSlot(provider_id="nvidia-nim", model_id="embed"),
+            judge=JudgeSlot(provider_id="nvidia-nim", model_id="judge"),
+            hipporag=HippoRagSlot(provider_id="nvidia-nim", model_id="rag"),
+        )
+        old_payload = base.model_dump(mode="json", exclude={"fallback_main"})
+        old_payload["validated_at"] = None
+        old_payload["configuration_fingerprint"] = ""
+        old_payload["key_revision"] = ""
+        expected = hashlib.sha256(
+            json.dumps(old_payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        self.assertEqual(configuration_fingerprint(base), expected)
+
+        with_fallback = base.model_copy(
+            update={
+                "fallback_main": ModelSlot(
+                    provider_id="opencode-zen", model_id="backup"
+                )
+            }
+        )
+        self.assertNotEqual(configuration_fingerprint(with_fallback), expected)
+        self.assertIn(
+            "fallback_main", [slot for slot, *_ in _slot_specs(with_fallback)]
+        )
+        with self.assertRaises(ValidationError):
+            AIConfiguration.model_validate(
+                {
+                    **base.model_dump(),
+                    "fallback_main": {"provider_id": "ollama", "model_id": "backup"},
+                }
+            )
+
     def test_disabled_judge_or_hipporag_is_rejected(self) -> None:
         with self.assertRaises(ValidationError):
             AIConfiguration(
@@ -64,6 +110,118 @@ class AIConfigurationV2Test(unittest.TestCase):
                 hipporag=HippoRagSlot(provider_id="ollama", model_id="rag"),
                 endpoint_url="http://ollama:11434",
             )
+
+    def test_saved_primary_can_be_degraded_only_with_verified_alternate(self) -> None:
+        existing = AIConfiguration(
+            mode="cloud",
+            main=ModelSlot(provider_id="nvidia-nim", model_id="old-main"),
+            embedding=ModelSlot(provider_id="openrouter", model_id="embed"),
+            judge=JudgeSlot(provider_id="openrouter", model_id="judge"),
+            hipporag=HippoRagSlot(provider_id="openrouter", model_id="rag"),
+        )
+        save_configuration(self.session, existing, validated=True)
+        self.session.commit()
+        configuration = existing.model_copy(
+            update={
+                "fallback_main": ModelSlot(
+                    provider_id="opencode-zen", model_id="backup"
+                )
+            }
+        )
+
+        def catalog(provider_id, _endpoint, _key):
+            if provider_id == "nvidia-nim":
+                raise urllib.error.HTTPError(
+                    "https://integrate.api.nvidia.com/v1/models",
+                    503,
+                    "Unavailable",
+                    None,
+                    None,
+                )
+            return (
+                ["backup"]
+                if provider_id == "opencode-zen"
+                else ["embed", "judge", "rag"]
+            )
+
+        with (
+            patch(
+                "berrybrain_api.routers.ai_configuration.provider_api_key",
+                return_value="saved-secret",
+            ),
+            patch(
+                "berrybrain_api.routers.ai_configuration._fetch_models",
+                side_effect=catalog,
+            ),
+        ):
+            contexts = _provider_contexts(
+                self.session,
+                configuration,
+                ConfigurationPayload(configuration=configuration),
+            )
+        self.assertTrue(contexts["nvidia-nim"]["catalog_unavailable"])
+        _validate_requested_models(configuration, contexts)
+        with patch(
+            "berrybrain_api.routers.ai_configuration._probe_model_capability",
+            side_effect=lambda **kwargs: {
+                "available": True,
+                "model": kwargs["model"],
+                "capability": kwargs["capability"],
+                "status": 200,
+            },
+        ) as probe:
+            slots = _probe_requested_capabilities(configuration, contexts)
+        self.assertTrue(slots["main"]["degraded"])
+        self.assertTrue(slots["fallback_main"]["available"])
+        self.assertNotIn(
+            "old-main", [call.kwargs["model"] for call in probe.call_args_list]
+        )
+
+    def test_primary_authentication_failure_is_not_degraded(self) -> None:
+        configuration = AIConfiguration(
+            mode="cloud",
+            main=ModelSlot(provider_id="nvidia-nim", model_id="main"),
+            fallback_main=ModelSlot(provider_id="opencode-zen", model_id="backup"),
+            embedding=ModelSlot(provider_id="openrouter", model_id="embed"),
+            judge=JudgeSlot(provider_id="openrouter", model_id="judge"),
+            hipporag=HippoRagSlot(provider_id="openrouter", model_id="rag"),
+        )
+        contexts = {
+            provider: {
+                "endpoint": endpoint,
+                "api_key": "secret",
+                "models": models,
+                "allow_degraded_main": provider == "nvidia-nim",
+            }
+            for provider, endpoint, models in (
+                ("nvidia-nim", "https://integrate.api.nvidia.com/v1", ["main"]),
+                ("opencode-zen", "https://opencode.ai/zen/v1", ["backup"]),
+                (
+                    "openrouter",
+                    "https://openrouter.ai/api/v1",
+                    ["embed", "judge", "rag"],
+                ),
+            )
+        }
+
+        def probe(**kwargs):
+            denied = kwargs["model"] == "main"
+            return {
+                "available": not denied,
+                "model": kwargs["model"],
+                "capability": kwargs["capability"],
+                "status": 401 if denied else 200,
+            }
+
+        with (
+            patch(
+                "berrybrain_api.routers.ai_configuration._probe_model_capability",
+                side_effect=probe,
+            ),
+            self.assertRaises(HTTPException) as error,
+        ):
+            _probe_requested_capabilities(configuration, contexts)
+        self.assertEqual(error.exception.detail["failures"][0]["slot"], "main")
 
     def test_validated_configuration_opens_gate_and_updates_legacy_contract(
         self,
@@ -333,3 +491,237 @@ class AIConfigurationV2Test(unittest.TestCase):
         job = self.session.query(JobRecord).one()
         self.assertEqual(job.type, "GENERATE_EMBEDDING")
         self.assertIn("nvidia-nim", job.idempotency_key)
+
+    def test_detect_provider_from_api_key_or_url(self) -> None:
+        from berrybrain_api.ai_configuration import (
+            detect_provider_from_key_or_url,
+            is_gemini_endpoint_url,
+            normalize_provider_endpoint,
+        )
+
+        self.assertFalse(is_gemini_endpoint_url(""))
+        self.assertTrue(
+            is_gemini_endpoint_url("generativelanguage.googleapis.com/v1beta")
+        )
+        self.assertTrue(
+            is_gemini_endpoint_url("https://generativelanguage.googleapis.com/v1beta")
+        )
+        self.assertFalse(
+            is_gemini_endpoint_url(
+                "https://evil.example/generativelanguage.googleapis.com"
+            )
+        )
+        self.assertEqual(
+            normalize_provider_endpoint(
+                "custom-cloud",
+                "https://evil.example/generativelanguage.googleapis.com",
+            ),
+            "https://evil.example/generativelanguage.googleapis.com",
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(
+                endpoint_url="https://evil.example/generativelanguage.googleapis.com"
+            ),
+            (
+                "custom-cloud",
+                "https://evil.example/generativelanguage.googleapis.com",
+                "cloud",
+            ),
+        )
+
+        self.assertEqual(
+            detect_provider_from_key_or_url(api_key="AIzaSyTestKey123"),
+            (
+                "gemini",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "cloud",
+            ),
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(
+                api_key="AIzaSyTestKey123",
+                provider_id="custom-cloud",
+                endpoint_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            ),
+            (
+                "custom-cloud",
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "cloud",
+            ),
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(api_key="nvapi-test-123")[0],
+            "nvidia-nim",
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(api_key="gsk_test_123")[0],
+            "groq",
+        )
+        self.assertEqual(
+            detect_provider_from_key_or_url(api_key="sk-or-v1-123")[0],
+            "openrouter",
+        )
+
+    def test_auto_resolve_configuration_recovers_rate_limited_and_unavailable_gemini_slots(
+        self,
+    ) -> None:
+        from berrybrain_api.routers.ai_configuration import (
+            _auto_resolve_configuration,
+        )
+
+        configuration = AIConfiguration(
+            mode="cloud",
+            endpoint_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            main=ModelSlot(
+                provider_id="custom-cloud", model_id="models/gemini-4-argon"
+            ),
+            embedding=ModelSlot(
+                provider_id="custom-cloud", model_id="models/gemini-embedding-2"
+            ),
+            judge=JudgeSlot(
+                provider_id="custom-cloud", model_id="models/gemini-3.8-flash"
+            ),
+            hipporag=HippoRagSlot(
+                provider_id="custom-cloud", model_id="models/gemini-3.1-pro-preview"
+            ),
+        )
+        contexts = {
+            "custom-cloud": {
+                "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "api_key": "AIzaSyExample",
+                "models": [
+                    "models/gemini-2.5-flash",
+                    "models/gemini-3.1-pro-preview",
+                    "models/gemini-embedding-2",
+                ],
+            }
+        }
+        probe_calls: list[tuple[str, str]] = []
+
+        def fake_probe(**kwargs):
+            model = kwargs["model"]
+            capability = kwargs["capability"]
+            probe_calls.append((model, capability))
+            if model == "models/gemini-3.1-pro-preview":
+                return {
+                    "available": False,
+                    "model": model,
+                    "capability": capability,
+                    "status": 429,
+                    "reason": "Provider rejected the validation request (HTTP 429).",
+                }
+            if model == "models/gemini-2.5-flash" and capability == "chat":
+                return {
+                    "available": True,
+                    "model": model,
+                    "capability": "chat",
+                    "status": 200,
+                }
+            if model == "models/gemini-embedding-2" and capability == "embeddings":
+                return {
+                    "available": True,
+                    "model": model,
+                    "capability": "embeddings",
+                    "status": 200,
+                    "dimensions": 768,
+                }
+            return {
+                "available": False,
+                "model": model,
+                "capability": capability,
+                "status": 404,
+                "reason": "Model not found",
+            }
+
+        with patch(
+            "berrybrain_api.routers.ai_configuration._probe_model_capability",
+            side_effect=fake_probe,
+        ):
+            resolved_cfg, slot_caps, auto_resolved = _auto_resolve_configuration(
+                configuration, contexts
+            )
+
+        self.assertEqual(resolved_cfg.main.model_id, "models/gemini-2.5-flash")
+        self.assertEqual(resolved_cfg.judge.model_id, "models/gemini-2.5-flash")
+        self.assertEqual(resolved_cfg.hipporag.model_id, "models/gemini-2.5-flash")
+        self.assertEqual(resolved_cfg.embedding.model_id, "models/gemini-embedding-2")
+        self.assertTrue(all(cap.get("available") for cap in slot_caps.values()))
+        self.assertEqual(
+            auto_resolved,
+            {
+                "main": "models/gemini-2.5-flash",
+                "judge": "models/gemini-2.5-flash",
+                "hipporag": "models/gemini-2.5-flash",
+            },
+        )
+        # Ensure models/gemini-2.5-flash was probed only once and reused across slots
+        self.assertEqual(
+            probe_calls.count(("models/gemini-2.5-flash", "chat")),
+            1,
+        )
+
+    def test_auto_configure_with_api_key_only_saves_verified_stack(self) -> None:
+        from berrybrain_api.routers.ai_configuration import (
+            AutoConfigurationPayload,
+            auto_configure,
+        )
+
+        def fake_probe(**kwargs):
+            model = kwargs["model"]
+            cap = kwargs["capability"]
+            if cap == "chat" and model == "models/gemini-2.5-flash":
+                return {
+                    "available": True,
+                    "model": model,
+                    "capability": "chat",
+                    "status": 200,
+                }
+            if cap == "embeddings" and model == "models/gemini-embedding-001":
+                return {
+                    "available": True,
+                    "model": model,
+                    "capability": "embeddings",
+                    "status": 200,
+                    "dimensions": 768,
+                }
+            return {
+                "available": False,
+                "model": model,
+                "capability": cap,
+                "status": 429,
+                "reason": "Rate limited",
+            }
+
+        session_factory = sessionmaker(bind=self.engine)
+        with (
+            patch(
+                "berrybrain_api.routers.ai_configuration.SessionLocal",
+                session_factory,
+            ),
+            patch(
+                "berrybrain_api.routers.ai_configuration._fetch_models",
+                return_value=[
+                    "models/gemini-2.5-flash",
+                    "models/gemini-3.1-pro-preview",
+                    "models/gemini-embedding-001",
+                ],
+            ),
+            patch(
+                "berrybrain_api.routers.ai_configuration._probe_model_capability",
+                side_effect=fake_probe,
+            ),
+        ):
+            response = auto_configure(
+                AutoConfigurationPayload(api_key="AIzaSyAutoConfigKey", save=True)
+            )
+
+        self.assertTrue(response["valid"])
+        self.assertTrue(response["saved"])
+        cfg = response["configuration"]
+        self.assertEqual(cfg["main"]["provider_id"], "gemini")
+        self.assertEqual(cfg["main"]["model_id"], "models/gemini-2.5-flash")
+        self.assertEqual(cfg["embedding"]["model_id"], "models/gemini-embedding-001")
+        self.assertEqual(cfg["judge"]["model_id"], "models/gemini-2.5-flash")
+        self.assertEqual(cfg["hipporag"]["model_id"], "models/gemini-2.5-flash")
+        self.assertTrue(response["configurationGate"]["valid"])
+        self.assertFalse(response["configurationGate"]["required"])

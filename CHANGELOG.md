@@ -4,6 +4,57 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.5.0 - 2026-11-01
+
+- Add first-class Vault entities (`vaults` table, schema migrations 15–25) with
+  `All Vaults` workspace selector, vault-scoped filtering across Notes, Graph,
+  Home, Ask, Activity, and Monitor, sidebar Vault/Note sort order toggle
+  (`Recent` vs. `A–Z`), non-destructive `Legacy / Unassigned` fallback, and
+  manual/AI vault assignment.
+- Add 1-click **Auto Config** in AI Setup with live step-by-step compatibility
+  test progress bar, automatic capability-aware slot resolution for Local
+  (Ollama) and Cloud OpenAI-compatible providers, and resilient rate-limit
+  handling.
+- Add standardized library of **1,576 Markdown Agent Skills** (`skills/`,
+  `GET /api/v1/ai/skills`) combining 15 priority-1 BerryBrain core skills,
+  177 scientific skills, 1,100 scientific reference modules, 265 Fabric
+  cognitive patterns, and 19 Anthropic workflow skills under BerryBrain's
+  vault-first epistemic citation contract.
+- Add typed Ask references (`@note`, `@folder`, `@vault`, `@node`) with composer
+  autocomplete, automatic title/path disambiguation in the question body, scoped
+  retrieval filters, and `Focus in Graph` (`/brain?graph=open&focusNode=<id>`)
+  that centers and selects the referenced node on the visual canvas.
+- Add supervised Ask Action Plans (`create_note`, `create_vault_and_note`,
+  `enrich_note`) with exact Markdown preview, full-plan approval (`approve_full`),
+  step-by-step approval (`ask_for_approval`: `create_vault` then `create_note`
+  with empty-vault compensation on cancellation), individual and bulk deletion
+  of unreviewed drafts in **Saved drafts awaiting review**
+  (`DELETE /api/v1/ask/action-plans/{id}/draft`), audit trail in
+  `automation_logs`, and Editor Ask context scope (`selected_block`,
+  `current_section`, `entire_note`) with line-level diff preview before applying
+  changes.
+- Add 24-hour continuous Enrich AI web-source validation
+  (`VALIDATE_GRAPH_NODE_WITH_WEB`, `POST /api/v1/graph/nodes/{id}/validate-web`)
+  recording traceable external stances (`source_supports`, `source_expands`,
+  `source_contradicts`) without overwriting canonical user Markdown.
+- Add interactive Markdown tasks in Note Preview and Split Mode that toggle the
+  underlying `- [ ]` / `- [x]` source line with conflict protection when unsaved
+  editor changes exist, plus deterministic folder move synchronization (`PUT /notes/{path}/move`).
+- Add structured user profile context (`display_name`, `role_or_field`,
+  `primary_goals`, `preferred_language`, `study_style`, `response_preferences`,
+  `ai_personalization_enabled`) injected only as bounded untrusted preferences
+  that never override canonical note evidence.
+- Add external architecture integration documentation
+  (`docs/integrating-berrybrain-architecture.md`, `docs/releases/v1.5.0.md`),
+  zero-dependency Node.js/ESM reference client (`examples/berrybrain_client.mjs`),
+  upgraded Python reference client (`examples/berrybrain_client.py`), and
+  updated Landing Page, `/docs`, `/faq`, and in-app Guide.
+- Add operational notifications and Activity timeline filters by category,
+  severity, and vault, plus interactive graph canvas layout refinements and
+  bounded polling safeguards.
+- Preserve all existing notes, graph artifacts, service tokens, and user data
+  across schema migrations 14 → 25.
+
 ## 1.4.14 - 2026-10-13
 
 - Replace interval-midpoint confidence with the mean of recorded support signals;
@@ -36,7 +87,7 @@ All notable BerryBrain changes are documented here.
   provider error classification through wrapped HTTP failures.
 - Give heavy graph requests explicit timeouts within bounded job deadlines;
   close expired-lease attempt records so diagnostics do not remain unfinished.
-- Add isolated regression coverage. No schema migration or research experiments.
+- Add isolated regression coverage without a schema migration.
 
 ## 1.4.12 - 2026-10-10
 
@@ -65,11 +116,12 @@ All notable BerryBrain changes are documented here.
   and expose partial-load failures without discarding available nodes.
 - Render note Mermaid diagrams and LaTeX with strict/inert rendering; disable
   microphone input on insecure HTTP. Require patched KaTeX throughout the tree.
-- Preserve schema 14 and all user data; no new research experiments.
+- Preserve schema 14 and all user data.
 
 ## 1.4.10 - 2026-10-07
 
-- Include the product/API changes prepared for 1.4.9.
+- Include the product/API changes prepared for 1.4.9 without changing the
+  existing research evidence.
 - Require source-map-js >= 1.2.2 for GHSA-68fv-2mgg-jv7q; retain the corrected
   Next.js, Sharp and AnyIO dependency requirements.
 - Preserve the existing 1.4.9 tag. Its release pipeline was cancelled before
@@ -82,7 +134,7 @@ All notable BerryBrain changes are documented here.
 
 - External REST API guide, independent Python client, service-token issuance,
   discovery and versioned OpenAPI/Swagger routes with explicit authentication.
-- Isolated product-check runner and CI workflow; no new research benchmarks.
+- Isolated product-check runner and CI workflow.
 - OpenCode Zen capability-aware setup, independent provider configuration for
   generation and embeddings, grounded study-guide answers, and Markdown rendering.
 - Smaller graph nodes with ontology shapes retained, contextual labels, visible
@@ -132,7 +184,7 @@ All notable BerryBrain changes are documented here.
   explicit feedback-learning telemetry in Monitor.
 - Verified BEIR SciFact BM25 baseline context with upstream checksum, 5,183 documents, 300 queries,
   339 qrels, and machine-readable evidence.
-- Ontology, feedback-learning, benchmark, research, limitation, dataset, and reproducibility
+- Ontology, feedback-learning, benchmark, limitation, dataset, and reproducibility
   documentation for the v1.4.8 evidence boundary.
 
 ### Changed
@@ -265,7 +317,7 @@ All notable BerryBrain changes are documented here.
 - Versioned benchmark evidence manifests, raw observations, checksums, schemas, and scale profiles.
 - Executed retrieval ablations, independent retrieval baselines, HTTP/worker/on-disk graph/browser
   runners, instrumentation overhead analysis, and a composed evaluation runner.
-- Evidence-based Maturity V3, dataset registry, research methodology, reproducibility protocol,
+- Evidence-based Maturity V3, dataset registry, evaluation methodology, reproducibility protocol,
   limitations, analysis tables, chart specifications, and documentation freshness checks.
 - Privacy-safe API request correlation, `Server-Timing`, and bounded route performance aggregates.
 

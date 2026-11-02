@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     event,
     inspect,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +36,17 @@ def new_graph_edge_iri() -> str:
     return f"urn:berrybrain:graph-edge:{new_stable_id()}"
 
 
+class VaultRecord(Base):
+    """A named physical Markdown namespace inside the owner-managed workspace."""
+
+    __tablename__ = "vaults"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class NoteRecord(Base):
     __tablename__ = "notes"
 
@@ -46,6 +58,9 @@ class NoteRecord(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
     path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    vault_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, default="default", index=True
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     frontmatter: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -53,6 +68,9 @@ class NoteRecord(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="new")
     language: Mapped[str] = mapped_column(String(20), nullable=False, default="und")
     note_type: Mapped[str] = mapped_column(String(50), nullable=False, default="note")
+    evidence_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="eligible"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -425,6 +443,9 @@ class AIGatewayInvocationRecord(Base):
 
 class ArtifactEvaluationRecord(Base):
     __tablename__ = "artifact_evaluations"
+    __table_args__ = (
+        Index("ix_artifact_evaluations_type_id", "artifact_type", "artifact_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     artifact_type: Mapped[str] = mapped_column(
@@ -546,6 +567,12 @@ class GraphInferenceRecord(Base):
     __tablename__ = "graph_inferences"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    access_scope: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="legacy_unassigned"
+    )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(
@@ -570,6 +597,8 @@ class GraphInferenceRecord(Base):
     suggestions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fallback_reason: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     prompt_version: Mapped[str] = mapped_column(
         String(80), nullable=False, default="graph-inference.v2"
     )
@@ -720,6 +749,9 @@ class ChunkRecord(Base):
 
 class GraphNodeRecord(Base):
     __tablename__ = "graph_nodes"
+    __table_args__ = (
+        Index("ix_graph_nodes_type_canonical_label", "type", "canonical_label"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     stable_id: Mapped[str] = mapped_column(
@@ -1140,6 +1172,9 @@ class AskSessionRecord(Base):
     __tablename__ = "ask_sessions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     mode: Mapped[str] = mapped_column(String(20), nullable=False, default="flow")
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -1153,6 +1188,14 @@ class AskSessionRecord(Base):
 
 class AskTurnRecord(Base):
     __tablename__ = "ask_turns"
+    __table_args__ = (
+        Index(
+            "ux_ask_turns_processing_user_per_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("role = 'user' AND status = 'processing'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     session_id: Mapped[str] = mapped_column(
@@ -1163,14 +1206,49 @@ class AskTurnRecord(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     context_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     evidence_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    references_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     provider: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fallback_reason: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     token_usage: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="completed", index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AskActionPlanRecord(Base):
+    """Immutable, session-bound proposal; approval is a separate human action."""
+
+    __tablename__ = "ask_action_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_stable_id)
+    request_key: Mapped[str | None] = mapped_column(
+        String(36), unique=True, nullable=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("user_sessions.id"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    arguments_json: Mapped[str] = mapped_column(Text, nullable=False)
+    arguments_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    execution_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="proposed")
+    result_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    result_note_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result_note_stable_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, default=""
+    )
+    error_code: Mapped[str] = mapped_column(String(60), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class NotificationRecord(Base):

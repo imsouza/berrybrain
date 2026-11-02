@@ -20,8 +20,24 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  preflight:
+    name: Verify release version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Match tag, packages, source and web lockfile
+        run: python scripts/check-version-sync.py --expected "$RELEASE_TAG"
+
   build:
     name: ${{ matrix.service.name }} ${{ matrix.arch.name }} image
+    needs: preflight
     runs-on: ${{ matrix.arch.runner }}
     timeout-minutes: 30
     permissions:

@@ -20,7 +20,11 @@ from berrybrain_api.job_summary import (
 from berrybrain_api.jobs import utc_now
 from berrybrain_api.models import JobAttemptRecord, JobRecord, NoteRecord
 from berrybrain_api.routers.jobs import jobs_health_endpoint
-from berrybrain_api.schema_migrations import apply_schema_migrations, downgrade_schema
+from berrybrain_api.schema_migrations import (
+    CURRENT_SCHEMA_VERSION,
+    apply_schema_migrations,
+    downgrade_schema,
+)
 
 
 class ReleaseJobDiagnosticsTest(unittest.TestCase):
@@ -228,7 +232,8 @@ class ReleaseJobDiagnosticsTest(unittest.TestCase):
                 connection.execute(text(f"DROP INDEX {name}"))
         result = apply_schema_migrations(self.engine)
         self.assertEqual(result["fromVersion"], 13)
-        self.assertEqual(result["toVersion"], 14)
+        self.assertEqual(result["toVersion"], CURRENT_SCHEMA_VERSION)
+        self.assertIn(14, [item["version"] for item in result["applied"]])
         indexes = {
             item["name"]
             for table in ("jobs", "job_attempts")

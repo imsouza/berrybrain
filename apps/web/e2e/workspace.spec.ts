@@ -145,6 +145,33 @@ test.describe("Public owner entry", () => {
 });
 
 test.describe("Authenticated workspace quality", () => {
+  test("sidebar folder changes carry the browser CSRF token", async ({ page, context }) => {
+    await openWorkspace(page, context);
+    const folderName = `e2e-csrf-${Date.now()}`;
+    page.once("dialog", (dialog) => dialog.accept(folderName));
+    const created = page.waitForResponse((response) =>
+      response.url().endsWith("/api/v1/folders") && response.request().method() === "POST",
+    );
+    await page.getByTitle("Create folder", { exact: true }).click();
+    const createResponse = await created;
+    expect(createResponse.status()).toBe(201);
+    expect(createResponse.request().headers()["x-csrf-token"]).toBeTruthy();
+
+    const folder = page.getByRole("complementary", { name: "Navigation" })
+      .locator(".group", { hasText: folderName });
+    await expect(folder).toBeVisible();
+    await folder.hover();
+    page.once("dialog", (dialog) => dialog.accept());
+    const deleted = page.waitForResponse((response) =>
+      response.url().includes(`/api/v1/folders/${folderName}`) && response.request().method() === "DELETE",
+    );
+    await folder.getByRole("button", { name: "Delete" }).click();
+    const deleteResponse = await deleted;
+    expect(deleteResponse.ok()).toBeTruthy();
+    expect(deleteResponse.request().headers()["x-csrf-token"]).toBeTruthy();
+    await expect(folder).toHaveCount(0);
+  });
+
   test("does not report a recently active worker as offline", async ({ page, context }) => {
     const csrf = await authenticate(context);
     const heartbeat = await context.request.post("/api/v1/worker/heartbeat", {
@@ -456,7 +483,7 @@ test.describe("Authenticated workspace quality", () => {
     await expect(page.getByText("AI setup could not be loaded.")).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Navigation" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Ask", exact: true }).first().click();
+    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" }).click();
     await expect(page).toHaveURL(/\/ask$/, { timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Mode" })).toHaveCount(0);
@@ -469,7 +496,7 @@ test.describe("Authenticated workspace quality", () => {
       (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation = "retained";
     });
 
-    await page.getByRole("button", { name: "Ask", exact: true }).first().click();
+    await page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" }).click();
     await expect(page).toHaveURL(/\/ask$/);
     await expect(page.getByRole("heading", { name: "Ask BerryBrain" })).toBeVisible();
     expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");
@@ -498,7 +525,7 @@ test.describe("Authenticated workspace quality", () => {
 
     await page.getByRole("button", { name: "Graph", exact: true }).click();
     await expect(page).toHaveURL(/\/brain\?graph=open$/);
-    await expect(page.getByRole("button", { name: "Open Ask workspace" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Navigation" }).getByRole("button", { name: "Open Ask workspace" })).toBeVisible();
     expect(await page.evaluate(() => (window as Window & { __berrybrainClientNavigation?: string }).__berrybrainClientNavigation)).toBe("retained");
   });
 

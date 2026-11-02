@@ -14,6 +14,7 @@ from berrybrain_api.ai_configuration import AIConfiguration, load_configuration
 from berrybrain_api.confidence import (
     ConfidenceSignal,
     estimate_confidence,
+    node_confidence_applicable,
     persist_confidence,
 )
 from berrybrain_api.jobs import ENRICH_GRAPH_NODE, create_job
@@ -247,12 +248,24 @@ def persist_semantic_analysis(
     )
     session.add_all([history, profile])
     node.ai_summary = analysis.meaning_in_context
-    persist_confidence(node, confidence_estimate)
+    if node_confidence_applicable(node.type):
+        persist_confidence(node, confidence_estimate)
     node.ai_context = analysis.why_it_matters_here
     # Analysis evidence belongs to the versioned profile/history. Replacing the
     # source evidence here changes the fingerprint of the input just evaluated
     # and immediately makes a completed analysis appear stale.
     node.semantic_state = "completed"
+    if getattr(node, "validation_status", "unvalidated") == "unvalidated":
+        has_web_research = session.scalar(
+            select(GraphResearchResultRecord.id)
+            .where(
+                GraphResearchResultRecord.node_id == node.id,
+                GraphResearchResultRecord.status.in_(("suggested", "confirmed")),
+            )
+            .limit(1)
+        )
+        if has_web_research is not None:
+            node.validation_status = "validated"
     node.semantic_profile_version = version
     node.provider = analysis.provider
     node.model = analysis.model

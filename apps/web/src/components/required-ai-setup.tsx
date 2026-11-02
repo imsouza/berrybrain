@@ -12,10 +12,20 @@ type Provider = {
   capabilities?: string[];
 };
 type ModelSlot = "main" | "embedding" | "judge" | "hipporag";
+type ModelPickerSlot = ModelSlot | "fallback_main";
 type ConfigurationGate = {
   required: boolean;
   valid: boolean;
   reason?: string;
+};
+type SavedConfiguration = {
+  mode?: Mode;
+  endpoint_url?: string;
+  main?: { provider_id?: string; model_id?: string };
+  fallback_main?: { provider_id?: string; model_id?: string } | null;
+  embedding?: { provider_id?: string; model_id?: string };
+  judge?: { provider_id?: string; model_id?: string };
+  hipporag?: { provider_id?: string; model_id?: string };
 };
 
 const STEPS = [
@@ -58,18 +68,26 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
     judge: "",
     hipporag: "",
   });
+  const [fallbackEnabled, setFallbackEnabled] = useState(false);
+  const [savedMainLoaded, setSavedMainLoaded] = useState(false);
+  const [fallbackProviderId, setFallbackProviderId] = useState("");
+  const [fallbackModel, setFallbackModel] = useState("");
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [initializationError, setInitializationError] = useState("");
   const [error, setError] = useState("");
   const [capabilities, setCapabilities] = useState<Record<string, unknown>>({});
+  const [testProgress, setTestProgress] = useState(0);
+  const [testPhase, setTestPhase] = useState("");
+  const [autoResolvedNotice, setAutoResolvedNotice] = useState("");
 
   const activeProviders = useMemo(
     () => providers.filter((provider) => provider.mode === mode),
     [mode, providers],
   );
   const activeProvider = providers.find((provider) => provider.id === providerId);
+  const primaryDegraded = Boolean((capabilities.slots as Record<string, { degraded?: boolean }> | undefined)?.main?.degraded);
   const required = Boolean(gate.required);
   const open = !demo && (required || forcedOpen);
 
@@ -107,8 +125,38 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       }
       const providerPayload = await providerResponse.json();
       const nextProviders = providerPayload.providers || [];
-      setProviders(nextProviders);
       if (!nextProviders.length) throw new Error("No AI providers are available.");
+      const configurationResponse = await apiFetch(`${apiUrl}/api/v1/ai/configuration`);
+      if (!configurationResponse.ok) {
+        throw new Error("Saved AI configuration could not be loaded.");
+      }
+      const configurationPayload = await configurationResponse.json();
+      const saved = configurationPayload.configuration as SavedConfiguration | null;
+      if (saved && (saved.mode === "cloud" || saved.mode === "local")) {
+        const mainProvider = nextProviders.find((item: Provider) => item.id === saved.main?.provider_id && item.mode === saved.mode);
+        if (mainProvider) {
+          setMode(saved.mode);
+          setProviderId(mainProvider.id);
+          setEndpointUrl(saved.endpoint_url || mainProvider.url);
+          setSlotProviders({
+            main: mainProvider.id,
+            embedding: saved.embedding?.provider_id || mainProvider.id,
+            judge: saved.judge?.provider_id || mainProvider.id,
+            hipporag: saved.hipporag?.provider_id || mainProvider.id,
+          });
+          setSlots({
+            main: saved.main?.model_id || "",
+            embedding: saved.embedding?.model_id || "",
+            judge: saved.judge?.model_id || "",
+            hipporag: saved.hipporag?.model_id || "",
+          });
+          setFallbackEnabled(Boolean(saved.fallback_main));
+          setSavedMainLoaded(true);
+          setFallbackProviderId(saved.fallback_main?.provider_id || nextProviders.find((item: Provider) => item.mode === saved.mode && item.id !== mainProvider.id && item.id !== "custom-cloud")?.id || mainProvider.id);
+          setFallbackModel(saved.fallback_main?.model_id || "");
+        }
+      }
+      setProviders(nextProviders);
     } catch (caught) {
       setInitializationError(
         caught instanceof Error ? caught.message : "AI setup could not be loaded.",
@@ -164,6 +212,12 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       hipporag: provider.id,
     });
     setSlots({ main: "", embedding: "", judge: "", hipporag: "" });
+    setFallbackEnabled(false);
+    setSavedMainLoaded(false);
+    setFallbackProviderId(
+      providers.find((item) => item.mode === provider.mode && item.id !== provider.id && item.id !== "custom-cloud")?.id || provider.id,
+    );
+    setFallbackModel("");
     setCapabilities({});
     setError("");
   }
@@ -182,9 +236,120 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   function setProviderKey(nextProviderId: string, value: string) {
     setApiKeys((current) => ({ ...current, [nextProviderId]: value }));
     if (nextProviderId === providerId) setApiKey(value);
+    const trimmed = value.trim();
+    if (mode === "cloud" && trimmed.startsWith("AIza") && providerId !== "gemini" && providerId !== "custom-cloud") {
+      const geminiProvider = providers.find((item) => item.id === "gemini");
+      if (geminiProvider) {
+        setProviderId(geminiProvider.id);
+        setEndpointUrl(geminiProvider.url);
+        setApiKey(value);
+        setApiKeys((current) => ({ ...current, [geminiProvider.id]: value }));
+        setSlotProviders({
+          main: geminiProvider.id,
+          embedding: geminiProvider.id,
+          judge: geminiProvider.id,
+          hipporag: geminiProvider.id,
+        });
+      }
+    }
   }
 
-  async function loadModels(targetProviderId = providerId, slot?: ModelSlot) {
+  useEffect(() => {
+    if (!busy || testProgress <= 0 || testProgress >= 100) return;
+    const stages: Array<{ until: number; label: string }> = [
+      { until: 30, label: "1/5 Discovering provider model catalog..." },
+      { until: 55, label: "2/5 Validating Main chat model..." },
+      { until: 75, label: "3/5 Validating Embeddings vector model..." },
+      { until: 92, label: "4/5 Validating Judge & HippoRAG compatibility (anti-429)..." },
+      { until: 96, label: "5/5 Finalizing 100% compatible configuration..." },
+    ];
+    const timer = window.setInterval(() => {
+      setTestProgress((prev) => {
+        if (prev >= 96) return prev;
+        const next = Math.min(96, prev + 7);
+        const stage = stages.find((item) => next <= item.until) || stages[stages.length - 1];
+        setTestPhase(stage.label);
+        return next;
+      });
+    }, 350);
+    return () => window.clearInterval(timer);
+  }, [busy, testProgress]);
+
+  function applyResolvedConfiguration(resolved: SavedConfiguration | null | undefined) {
+    if (!resolved) return;
+    if (resolved.mode === "cloud" || resolved.mode === "local") {
+      setMode(resolved.mode);
+    }
+    if (resolved.endpoint_url) {
+      setEndpointUrl(resolved.endpoint_url);
+    }
+    if (resolved.main?.provider_id) {
+      setProviderId(resolved.main.provider_id);
+    }
+    setSlotProviders((current) => ({
+      main: resolved.main?.provider_id || current.main,
+      embedding: resolved.embedding?.provider_id || current.embedding,
+      judge: resolved.judge?.provider_id || current.judge,
+      hipporag: resolved.hipporag?.provider_id || current.hipporag,
+    }));
+    setSlots((current) => ({
+      main: resolved.main?.model_id || current.main,
+      embedding: resolved.embedding?.model_id || current.embedding,
+      judge: resolved.judge?.model_id || current.judge,
+      hipporag: resolved.hipporag?.model_id || current.hipporag,
+    }));
+  }
+
+  async function autoConfigure(saveImmediately = false) {
+    setBusy(true);
+    setError("");
+    setAutoResolvedNotice("");
+    setTestProgress(15);
+    setTestPhase("1/5 Auto-detecting provider & best predefined models...");
+    try {
+      const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/auto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey.trim() || String(apiKeys[providerId] || "").trim(),
+          provider_id: providerId,
+          endpoint_url: endpointUrl.trim(),
+          mode,
+          save: saveImmediately,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(readError(payload));
+      applyResolvedConfiguration(payload.configuration as SavedConfiguration);
+      if (Array.isArray(payload.catalogModels) && payload.catalogModels.length) {
+        setModels(payload.catalogModels.map((item: unknown) => String(item)));
+      }
+      setCapabilities(payload.capabilitySnapshot || { validated: true });
+      setTestProgress(100);
+      setTestPhase("100% — Auto configuration & compatibility test passed!");
+      setAutoResolvedNotice(
+        "Auto Config selected and verified the best predefined models for Main, Embeddings, Judge, and HippoRAG (100% compatible).",
+      );
+      if (saveImmediately && payload.saved) {
+        setGate(payload.configurationGate || { required: false, valid: true });
+        setForcedOpen(false);
+        setApiKey("");
+        setApiKeys({});
+        await refreshGate();
+        window.dispatchEvent(new Event("bb:ai-configuration-changed"));
+      } else {
+        setStep(7);
+      }
+    } catch (caught) {
+      setTestProgress(0);
+      setTestPhase("");
+      setError(caught instanceof Error ? caught.message : "Auto configuration failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadModels(targetProviderId = providerId, slot?: ModelPickerSlot) {
     const targetProvider = providers.find((provider) => provider.id === targetProviderId);
     const targetEndpoint = targetProviderId === providerId
       ? endpointUrl.trim()
@@ -239,6 +404,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       mode,
       endpoint_url: endpointUrl.trim(),
       main: { provider_id: slotProviders.main, model_id: slots.main.trim() },
+      fallback_main: fallbackEnabled
+        ? { provider_id: fallbackProviderId, model_id: fallbackModel.trim() }
+        : null,
       embedding: { provider_id: slotProviders.embedding, model_id: slots.embedding.trim() },
       judge: {
         enabled: true,
@@ -258,6 +426,9 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
   async function validateConfiguration() {
     setBusy(true);
     setError("");
+    setAutoResolvedNotice("");
+    setTestProgress(15);
+    setTestPhase("1/5 Connecting to provider & checking model catalog...");
     try {
       const response = await apiFetch(`${apiUrl}/api/v1/ai/configuration/validate`, {
         method: "POST",
@@ -266,13 +437,28 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           configuration: configuration(),
           api_key: apiKey.trim(),
           api_keys: apiKeys,
+          auto_resolve: true,
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(readError(payload));
+      applyResolvedConfiguration(payload.configuration as SavedConfiguration);
+      const resolvedMap = (payload.autoResolvedSlots || {}) as Record<string, string>;
+      const resolvedEntries = Object.entries(resolvedMap);
+      if (resolvedEntries.length > 0) {
+        setAutoResolvedNotice(
+          `Auto-adjusted rate-limited or unavailable slots to verified models: ${resolvedEntries
+            .map(([slotName, modelName]) => `${slotName} → ${modelName}`)
+            .join(", ")}.`,
+        );
+      }
       setCapabilities(payload.capabilitySnapshot || {});
+      setTestProgress(100);
+      setTestPhase("100% — Compatibility test passed!");
       setStep(7);
     } catch (caught) {
+      setTestProgress(0);
+      setTestPhase("");
       setError(caught instanceof Error ? caught.message : "Compatibility test failed.");
     } finally {
       setBusy(false);
@@ -293,6 +479,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
           },
           api_key: apiKey.trim(),
           api_keys: apiKeys,
+          auto_resolve: true,
         }),
       });
       const payload = await response.json();
@@ -316,10 +503,13 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
       return Boolean(
         providerId &&
           endpointUrl.trim() &&
-          models.length,
+          (models.length || savedMainLoaded),
       );
     }
-    if (step === 2) return Boolean(slots.main.trim());
+    if (step === 2) return Boolean(slots.main.trim()) && (!fallbackEnabled || Boolean(
+      fallbackProviderId && fallbackModel.trim()
+      && (fallbackProviderId !== slotProviders.main || fallbackModel.trim() !== slots.main.trim()),
+    ));
     if (step === 3) return Boolean(slots.embedding.trim());
     if (step === 4) return Boolean(slots.judge.trim());
     if (step === 5) return Boolean(slots.hipporag.trim());
@@ -464,16 +654,50 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                   </span>
                 </Field>
               )}
-              <button
-                type="button"
-                onClick={() => void loadModels()}
-                disabled={busy || !endpointUrl.trim()}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {busy ? "Testing..." : "Load models"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadModels()}
+                  disabled={busy || !endpointUrl.trim()}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy && testProgress === 0 ? "Testing..." : "Load models"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void autoConfigure(false)}
+                  disabled={busy || !endpointUrl.trim()}
+                  className="rounded-md border border-accent bg-accent-soft px-4 py-2 text-sm font-semibold text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                >
+                  {busy && testProgress > 0 ? "Auto configuring..." : "Auto Config (Best Predefined Models)"}
+                </button>
+              </div>
+              {testProgress > 0 && busy && (
+                <div className="space-y-1.5 rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                    <span>{testPhase || "Testing configuration..."}</span>
+                    <span>{testProgress}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={testProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-surface"
+                  >
+                    <div
+                      className="h-full bg-accent transition-all duration-300"
+                      style={{ width: `${testProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {models.length > 0 && (
                 <p className="text-sm text-success">{models.length} models available.</p>
+              )}
+              {savedMainLoaded && models.length === 0 && (
+                <p className="text-xs text-muted">Saved main model retained. Final validation will verify all available roles and the alternate model.</p>
               )}
             </div>
           )}
@@ -482,6 +706,7 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
             const slot = (["main", "embedding", "judge", "hipporag"] as ModelSlot[])[step - 2];
             const selectedProvider = slotProviders[slot] || providerId;
             return (
+              <div className="space-y-5">
               <SlotModelPicker
                 label={STEPS[step]}
                 slot={slot}
@@ -498,28 +723,108 @@ export function RequiredAiSetup({ demo = false }: { demo?: boolean }) {
                 onLoadModels={() => void loadModels(selectedProvider, slot)}
                 onChange={(value) => setSlot(slot, value)}
               />
+              {step === 2 && <div className="space-y-4 border-t border-border pt-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={fallbackEnabled} onChange={(event) => setFallbackEnabled(event.target.checked)} />
+                  <span>Use a verified alternate chat model if the main provider is temporarily unavailable.</span>
+                </label>
+                {fallbackEnabled && <SlotModelPicker
+                  label="Fallback"
+                  slot="fallback_main"
+                  mode={mode}
+                  providerId={fallbackProviderId}
+                  providers={activeProviders.filter((provider) => provider.id !== "custom-cloud")}
+                  apiKey={apiKeys[fallbackProviderId] || ""}
+                  value={fallbackModel}
+                  models={modelsByProvider[`${fallbackProviderId}:fallback_main`] || []}
+                  busy={busy}
+                  lockProvider={false}
+                  onProviderChange={(value) => { setFallbackProviderId(value); setFallbackModel(""); }}
+                  onApiKeyChange={(value) => setProviderKey(fallbackProviderId, value)}
+                  onLoadModels={() => void loadModels(fallbackProviderId, "fallback_main")}
+                  onChange={setFallbackModel}
+                />}
+                <p className="text-xs text-muted">Fallback stays within the selected local/cloud mode. Cloud content is sent only to the alternate provider you configure and test here; authentication and policy refusals do not trigger a retry.</p>
+              </div>}
+              </div>
             );
           })()}
 
           {step === 6 && (
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
-              <button
-                type="button"
-                onClick={validateConfiguration}
-                disabled={busy}
-                className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {busy ? "Testing configuration..." : "Run compatibility tests"}
-              </button>
+              {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}. It will be used only for eligible primary failures.</p>}
+              {testProgress > 0 && (
+                <div className="space-y-1.5 rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center justify-between text-xs font-medium text-foreground">
+                    <span>{testPhase || "Testing configuration..."}</span>
+                    <span>{testProgress}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={testProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-surface"
+                  >
+                    <div
+                      className="h-full bg-accent transition-all duration-300"
+                      style={{ width: `${testProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={validateConfiguration}
+                  disabled={busy}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busy ? "Testing configuration..." : "Run compatibility tests"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void autoConfigure(false)}
+                  disabled={busy}
+                  className="rounded-md border border-accent bg-accent-soft px-4 py-2 text-sm font-semibold text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                >
+                  {busy ? "Auto configuring..." : "Auto Config & Test"}
+                </button>
+              </div>
             </div>
           )}
 
           {step === 7 && (
             <div className="space-y-4">
               <Summary mode={mode} providers={slotProviders} slots={slots} />
+              {fallbackEnabled && <p className="text-sm text-muted">Alternate chat route: {fallbackProviderId} · {fallbackModel}.</p>}
+              {testProgress > 0 && (
+                <div className="space-y-1.5 rounded-md border border-success/40 bg-success/10 p-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-success">
+                    <span>{testPhase || "100% — Compatibility test passed!"}</span>
+                    <span>100%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Configuration compatibility progress"
+                    aria-valuenow={100}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    className="h-2 w-full overflow-hidden rounded-full bg-background/60"
+                  >
+                    <div className="h-full w-full bg-emerald-600 transition-all duration-300" />
+                  </div>
+                </div>
+              )}
+              {autoResolvedNotice && (
+                <p className="rounded-md border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-foreground">
+                  {autoResolvedNotice}
+                </p>
+              )}
               <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">
-                Provider and model compatibility verified.
+                {primaryDegraded ? "Alternate model verified. The saved primary is currently unavailable; BerryBrain will use the alternate for eligible failures." : "Provider and model compatibility verified."}
               </p>
             </div>
           )}
@@ -592,7 +897,7 @@ function SlotModelPicker({
   onChange,
 }: {
   label: string;
-  slot: ModelSlot;
+  slot: ModelPickerSlot;
   mode: Mode;
   providerId: string;
   providers: Provider[];

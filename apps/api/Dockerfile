@@ -25,6 +25,7 @@ RUN if [ "$BERRYBRAIN_PREFETCH_WHISPER_MODEL" = "true" ]; then \
 
 WORKDIR /app
 COPY prompts ./prompts
+COPY skills ./skills
 COPY scripts/validate-env.sh scripts/prepare-runtime-dirs.sh ./scripts/
 COPY apps/api/scripts/seed_admin.py apps/api/scripts/delete_owner.py ./scripts/
 RUN mkdir -p /app/data/sqlite /app/data/jobs /app/data/logs /app/data/backups /app/vault

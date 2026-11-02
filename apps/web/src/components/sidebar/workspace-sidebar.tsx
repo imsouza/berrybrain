@@ -7,13 +7,32 @@ import { usePathname, useRouter } from "next/navigation";
 import berrylogo from "../../../public/berrylogo.png";
 import { pollResource } from "@/lib/poll-resource";
 import packageMetadata from "../../../package.json";
-import { useWorkspace, appPath } from "@/contexts/workspace-context";
+import { useWorkspace, appPath, apiFetch } from "@/contexts/workspace-context";
 import { AccountMenu } from "@/components/sidebar/account-menu";
 import { t } from "@/i18n";
 import { workerHeartbeatStale } from "@/lib/diagnostics";
-import { Home, MessageSquare, Network, Activity, Settings, Plus } from "lucide-react";
+import { Home, MessageSquare, Network, Activity, Settings, Plus, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 
 const appVersion = process.env.NEXT_PUBLIC_BERRYBRAIN_VERSION || packageMetadata.version;
+
+type VaultSortMode = "recent_desc" | "recent_asc" | "content_desc" | "alpha_asc" | "alpha_desc" | "manual";
+
+const VAULT_SORT_CYCLE: VaultSortMode[] = [
+  "recent_desc",
+  "recent_asc",
+  "content_desc",
+  "alpha_asc",
+  "alpha_desc",
+];
+
+const VAULT_SORT_LABELS: Record<VaultSortMode, string> = {
+  recent_desc: "Most recent first (↓)",
+  recent_asc: "Oldest first (↑)",
+  content_desc: "By content & volume (↓)",
+  alpha_asc: "Alphabetical A–Z (↑)",
+  alpha_desc: "Alphabetical Z–A (↓)",
+  manual: "Manual order",
+};
 
 type FolderInfo = {
   name: string;
@@ -22,7 +41,11 @@ type FolderInfo = {
   depth?: number;
   note_count?: number;
   total_note_count?: number;
+  total_size_bytes?: number;
+  updated_at?: string | null;
   has_subfolders?: boolean;
+  protected?: boolean;
+  kind?: "vault" | "folder";
 };
 function encodeFolder(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
 function encodeVaultPath(path: string) { return path.split("/").map(encodeURIComponent).join("/"); }
@@ -60,6 +83,32 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   });
   const [dragOverFolder, setDragOverFolder] = useState("");
   const [dragOverNote, setDragOverNote] = useState("");
+  const [vaultSort, setVaultSort] = useState<VaultSortMode>(() => {
+    if (typeof window === "undefined") return "recent_desc";
+    try {
+      const saved = localStorage.getItem("bb_vault_sort") as VaultSortMode | null;
+      if (saved && (VAULT_SORT_CYCLE.includes(saved) || saved === "manual")) {
+        return saved;
+      }
+      const hasCustomOrder =
+        JSON.parse(localStorage.getItem("bb_vault_folder_order") || "[]").length > 0 ||
+        JSON.parse(localStorage.getItem("bb_vault_note_order") || "[]").length > 0;
+      return hasCustomOrder ? "manual" : "recent_desc";
+    } catch {
+      return "recent_desc";
+    }
+  });
+
+  function cycleVaultSort() {
+    setVaultSort((current) => {
+      const idx = VAULT_SORT_CYCLE.indexOf(current);
+      const next = VAULT_SORT_CYCLE[(idx + 1) % VAULT_SORT_CYCLE.length];
+      try {
+        localStorage.setItem("bb_vault_sort", next);
+      } catch {}
+      return next;
+    });
+  }
 
   useEffect(() => {
     const refresh = () => setNotificationRevision(value => value + 1);
@@ -87,7 +136,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       return;
     }
     try {
-      const response = await fetch(`${w.api}/api/v1/folders`);
+      const response = await apiFetch(`${w.api}/api/v1/folders`);
       if (!response.ok) return;
       const payload = await response.json();
       setFolders(payload.folders || []);
@@ -98,6 +147,18 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     loadFolders();
   }, [loadFolders, notes.length]);
 
+  useEffect(() => {
+    if (!w.focusedFolder) return;
+    const parts = w.focusedFolder.split("/").filter(Boolean);
+    setExpanded((current) => {
+      const next = { ...current };
+      for (let index = 1; index <= parts.length; index += 1) {
+        next[parts.slice(0, index).join("/")] = true;
+      }
+      return next;
+    });
+  }, [w.focusedFolder]);
+
   const notesByFolder = useMemo(() => {
     const map = new Map<string, typeof notes>();
     for (const note of notes) {
@@ -105,35 +166,163 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
       map.set(folder, [...(map.get(folder) || []), note]);
     }
     const order = new Map(noteOrder.map((path, index) => [path, index]));
+    const parseTs = (val?: string | null) => {
+      if (!val) return 0;
+      const ms = Date.parse(val);
+      return Number.isFinite(ms) ? ms : 0;
+    };
     for (const [folder, items] of map) {
       map.set(folder, [...items].sort((a, b) => {
-        const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
-        const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
-        return left - right || a.title.localeCompare(b.title);
+        if (vaultSort === "manual") {
+          const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
+          const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
+          return left - right || a.title.localeCompare(b.title);
+        }
+        if (vaultSort === "recent_desc") {
+          return (parseTs(b.updatedAt) - parseTs(a.updatedAt)) || a.title.localeCompare(b.title);
+        }
+        if (vaultSort === "recent_asc") {
+          return (parseTs(a.updatedAt) - parseTs(b.updatedAt)) || a.title.localeCompare(b.title);
+        }
+        if (vaultSort === "content_desc") {
+          return ((b.sizeBytes ?? 0) - (a.sizeBytes ?? 0)) || (parseTs(b.updatedAt) - parseTs(a.updatedAt)) || a.title.localeCompare(b.title);
+        }
+        if (vaultSort === "alpha_desc") {
+          return b.title.localeCompare(a.title);
+        }
+        return a.title.localeCompare(b.title);
       }));
     }
     return map;
-  }, [noteOrder, notes]);
+  }, [noteOrder, notes, vaultSort]);
 
   const visibleFolders = useMemo(() => {
     const merged = new Map<string, FolderInfo>();
-    for (const folder of folders) merged.set(folder.path, folder);
+    for (const folder of folders) merged.set(folder.path, { ...folder });
     for (const folder of notesByFolder.keys()) {
-      if (!merged.has(folder)) merged.set(folder, { name: folder.split("/").pop() || folder, path: folder });
+      if (!merged.has(folder)) {
+        const parts = folder.split("/");
+        merged.set(folder, {
+          name: parts[parts.length - 1] || folder,
+          path: folder,
+          parent_path: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
+          depth: Math.max(0, parts.length - 1),
+        });
+      }
     }
+    // Ensure ancestor folders exist in the map so subfolder hierarchy stays intact
+    for (const path of [...merged.keys()]) {
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i += 1) {
+        const ancestorPath = parts.slice(0, i).join("/");
+        if (!merged.has(ancestorPath)) {
+          merged.set(ancestorPath, {
+            name: parts[i - 1],
+            path: ancestorPath,
+            parent_path: i > 1 ? parts.slice(0, i - 1).join("/") : "",
+            depth: i - 1,
+            has_subfolders: true,
+          });
+        } else {
+          merged.get(ancestorPath)!.has_subfolders = true;
+        }
+      }
+    }
+
+    const parseTs = (val?: string | null) => {
+      if (!val) return 0;
+      const ms = Date.parse(val);
+      return Number.isFinite(ms) ? ms : 0;
+    };
+
+    // Compute aggregated metrics per folder (including subfolders and notes)
+    const folderStats = new Map<string, { updatedAtMs: number; totalNotes: number; totalBytes: number }>();
+    for (const folder of merged.values()) {
+      let updatedAtMs = parseTs(folder.updated_at);
+      let totalNotes = 0;
+      let totalBytes = folder.total_size_bytes ?? 0;
+      let computedNotes = 0;
+      let computedBytes = 0;
+      for (const [noteFolder, items] of notesByFolder.entries()) {
+        if (noteFolder === folder.path || noteFolder.startsWith(`${folder.path}/`)) {
+          computedNotes += items.length;
+          for (const item of items) {
+            const itemMs = parseTs(item.updatedAt);
+            if (itemMs > updatedAtMs) updatedAtMs = itemMs;
+            computedBytes += item.sizeBytes ?? 0;
+          }
+        }
+      }
+      totalNotes = Math.max(folder.total_note_count ?? 0, computedNotes);
+      totalBytes = Math.max(totalBytes, computedBytes);
+      folderStats.set(folder.path, { updatedAtMs, totalNotes, totalBytes });
+    }
+
     const order = new Map(folderOrder.map((path, index) => [path, index]));
-    return [...merged.values()].sort((a, b) => {
-      const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
-      const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
-      return left - right || a.path.localeCompare(b.path);
-    });
-  }, [folderOrder, folders, notesByFolder]);
+    const compareFolders = (a: FolderInfo, b: FolderInfo): number => {
+      if (vaultSort === "manual") {
+        const left = order.has(a.path) ? order.get(a.path)! : Number.MAX_SAFE_INTEGER;
+        const right = order.has(b.path) ? order.get(b.path)! : Number.MAX_SAFE_INTEGER;
+        return left - right || a.path.localeCompare(b.path);
+      }
+      const statA = folderStats.get(a.path) ?? { updatedAtMs: 0, totalNotes: 0, totalBytes: 0 };
+      const statB = folderStats.get(b.path) ?? { updatedAtMs: 0, totalNotes: 0, totalBytes: 0 };
+      if (vaultSort === "recent_desc") {
+        return (statB.updatedAtMs - statA.updatedAtMs) || (statB.totalNotes - statA.totalNotes) || a.name.localeCompare(b.name);
+      }
+      if (vaultSort === "recent_asc") {
+        const aTime = statA.updatedAtMs || Number.MAX_SAFE_INTEGER;
+        const bTime = statB.updatedAtMs || Number.MAX_SAFE_INTEGER;
+        return (aTime - bTime) || a.name.localeCompare(b.name);
+      }
+      if (vaultSort === "content_desc") {
+        return (statB.totalNotes - statA.totalNotes) || (statB.totalBytes - statA.totalBytes) || (statB.updatedAtMs - statA.updatedAtMs) || a.name.localeCompare(b.name);
+      }
+      if (vaultSort === "alpha_desc") {
+        return b.name.localeCompare(a.name);
+      }
+      return a.name.localeCompare(b.name);
+    };
+
+    // Hierarchical tree traversal so subfolders always stay nested directly under their parent
+    const childrenByParent = new Map<string, FolderInfo[]>();
+    for (const folder of merged.values()) {
+      const parent = folder.parent_path ?? (folder.path.includes("/") ? folder.path.split("/").slice(0, -1).join("/") : "");
+      const list = childrenByParent.get(parent) || [];
+      list.push(folder);
+      childrenByParent.set(parent, list);
+    }
+    for (const [parent, list] of childrenByParent.entries()) {
+      childrenByParent.set(parent, [...list].sort(compareFolders));
+    }
+
+    const result: FolderInfo[] = [];
+    const visited = new Set<string>();
+    const visit = (parentPath: string) => {
+      for (const child of childrenByParent.get(parentPath) || []) {
+        if (visited.has(child.path)) continue;
+        visited.add(child.path);
+        result.push(child);
+        visit(child.path);
+      }
+    };
+    visit("");
+    // Include any remaining folders whose parent was outside root
+    for (const folder of [...merged.values()].sort(compareFolders)) {
+      if (!visited.has(folder.path)) {
+        visited.add(folder.path);
+        result.push(folder);
+        visit(folder.path);
+      }
+    }
+    return result;
+  }, [folderOrder, folders, notesByFolder, vaultSort]);
 
   async function createFolder(parentPath = "") {
     if (w.demo) return;
     const name = window.prompt(parentPath ? `New folder inside ${parentPath}:` : "Folder name:");
     if (!name?.trim()) return;
-    const response = await fetch(`${w.api}/api/v1/folders`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), parent_path: parentPath }),
@@ -150,7 +339,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const name = window.prompt("New folder name:", currentName);
     if (!name?.trim() || name.trim() === currentName) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim() }),
@@ -167,7 +356,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteFolder(path: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete empty folder "${path}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/folders/${encodeFolder(path)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Only empty folders can be deleted.", "error");
       return;
@@ -207,15 +396,19 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   function persistFolderOrder(paths: string[]) {
     setFolderOrder(paths);
+    setVaultSort("manual");
     try {
       localStorage.setItem("bb_vault_folder_order", JSON.stringify(paths));
+      localStorage.setItem("bb_vault_sort", "manual");
     } catch {}
   }
 
   function persistNoteOrder(paths: string[]) {
     setNoteOrder(paths);
+    setVaultSort("manual");
     try {
       localStorage.setItem("bb_vault_note_order", JSON.stringify(paths));
+      localStorage.setItem("bb_vault_sort", "manual");
     } catch {}
   }
 
@@ -239,7 +432,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
 
   async function moveNoteToFolder(notePath: string, folderPath: string) {
     if (w.demo || !notePath || !folderPath) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/move`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folder: folderPath }),
@@ -257,7 +450,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
     if (w.demo) return;
     const title = window.prompt("New note title:", currentTitle);
     if (!title?.trim() || title.trim() === currentTitle) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}/rename`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: title.trim() }),
@@ -277,7 +470,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
   async function deleteNoteInSidebar(notePath: string, currentTitle: string) {
     if (w.demo) return;
     if (!window.confirm(`Delete note "${currentTitle}"?`)) return;
-    const response = await fetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
+    const response = await apiFetch(`${w.api}/api/v1/notes/${encodeVaultPath(notePath)}`, { method: "DELETE" });
     if (!response.ok) {
       w.toast("Failed to delete note.", "error");
       return;
@@ -355,13 +548,40 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
           <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M17 7h.01M12 17h.01M7 7l5 10m5-10-5 10m-5-10h10" /></svg>
           <span className="flex-1 text-left">Knowledge graph</span>
         </button>
+        <button
+          aria-label="Open Ask workspace"
+          className="bb-action mt-2 flex w-full items-center gap-2 px-3 py-2 text-sm font-medium"
+          onClick={() => { onMobileClose?.(); router.push(appPath("/ask") as Route); }}
+        >
+          <MessageSquare className="size-4" aria-hidden="true" />
+          <span className="flex-1 text-left">Ask</span>
+        </button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-1">
         <div className="mb-3">
           <div className="flex items-center justify-between px-3 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted/40">{t("vault")}</div>
-            <button className="rounded px-1.5 text-[11px] text-muted hover:bg-surface hover:text-foreground" onClick={() => createFolder()} title="Create folder">+</button>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                aria-label="Sort vault"
+                data-testid="vault-sort-toggle"
+                data-sort-mode={vaultSort}
+                className="flex items-center justify-center rounded p-1 text-muted hover:bg-surface hover:text-foreground"
+                onClick={cycleVaultSort}
+                title={`Sort vault: ${VAULT_SORT_LABELS[vaultSort]}`}
+              >
+                {vaultSort === "recent_desc" || vaultSort === "content_desc" || vaultSort === "alpha_desc" ? (
+                  <ArrowDown className="size-3.5" aria-hidden="true" />
+                ) : vaultSort === "recent_asc" || vaultSort === "alpha_asc" ? (
+                  <ArrowUp className="size-3.5" aria-hidden="true" />
+                ) : (
+                  <ArrowUpDown className="size-3.5" aria-hidden="true" />
+                )}
+              </button>
+              <button className="rounded px-1.5 text-[11px] text-muted hover:bg-surface hover:text-foreground" onClick={() => createFolder()} title="Create folder">+</button>
+            </div>
           </div>
           {visibleFolders.filter(folder => folderIsVisible(folder.path)).map(folder => {
             const folderNotes = notesByFolder.get(folder.path) || [];
@@ -372,8 +592,9 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
             return (
               <div key={folder.path} className="mb-1">
                 <div
-                  className={`group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70 ${dragOverFolder === folder.path ? "bg-accent-soft text-foreground" : ""}`}
+                  className={`group flex items-center gap-1 rounded-lg py-1 pr-2 text-xs text-muted hover:bg-surface/70 ${dragOverFolder === folder.path || w.focusedFolder === folder.path ? "bg-accent-soft text-foreground ring-1 ring-accent/40" : ""}`}
                   style={{ paddingLeft: `${8 + depth * 14}px` }}
+                  aria-current={w.focusedFolder === folder.path ? "location" : undefined}
                   draggable
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
@@ -391,7 +612,7 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                   </button>
                   <button className="min-w-0 flex-1 truncate text-left font-medium" onClick={() => setExpanded((current) => ({ ...current, [folder.path]: !isOpen }))}>
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                      <span className="size-2 shrink-0 rounded-full ring-1 ring-black/10" style={{ backgroundColor: folder.kind === "vault" ? "var(--color-brand-red)" : folderColor }} aria-hidden="true" />
                       <span className="truncate" title={folder.path}>{folder.name}</span>
                     </span>
                   </button>
@@ -399,8 +620,8 @@ export function WorkspaceSidebar({ mobileOpen = false, onMobileClose }: Workspac
                     {folder.note_count ?? folderNotes.length}
                   </span>
                   <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => createFolder(folder.path)} title="Create subfolder">+</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>
-                  <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-foreground group-hover:inline" onClick={() => renameFolder(folder.path, folder.name)}>Rename</button>}
+                  {!folder.protected && <button className="hidden rounded px-1 text-[10px] text-muted/60 hover:text-danger group-hover:inline" onClick={() => deleteFolder(folder.path)}>Delete</button>}
                 </div>
                 {isOpen && (
                   <div style={{ marginLeft: `${22 + depth * 14}px` }}>

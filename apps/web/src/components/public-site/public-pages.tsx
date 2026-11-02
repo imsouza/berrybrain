@@ -71,6 +71,7 @@ const legalContent: Record<string, { title: string; body: string[] }> = {
 const nav = [
   ["Product", "/#product"],
   ["Architecture", "/#architecture"],
+  ["Integrate", "/#integrate"],
   ["Reliability", "/#reliability"],
   ["Docs", "/docs"],
   ["FAQ", "/faq"],
@@ -82,6 +83,7 @@ const footerGroups = [
     links: [
       ["Overview", "/"],
       ["Architecture", "/#architecture"],
+      ["Integrate", "/#integrate"],
       ["Reliability", "/#reliability"],
       ["Docs", "/docs"],
       ["Open BerryBrain", "/brain"],
@@ -423,17 +425,144 @@ function CapabilityMark({ value }: { value: CapabilityStatus }) {
   );
 }
 
+const INTEGRATION_TABS = [
+  {
+    id: "python",
+    label: "Python client",
+    badge: "Zero dependencies · examples/berrybrain_client.py",
+    code: `from examples.berrybrain_client import BerryBrainClient
+
+bb = BerryBrainClient("http://127.0.0.1:8000", SERVICE_TOKEN)
+
+# 1. Create canonical Markdown & wait for bounded graph assimilation
+note = bb.create_note("ADR-07", "# ADR-07\\nDerived state stays rebuildable.")
+bb.wait_until_ready(note["path"], timeout_seconds=60)
+
+# 2. Grounded GraphRAG synthesis + reversible feedback policy
+ans = bb.ask("Why keep canonical Markdown separate from derived graphs?")
+if ans["status"] == "answered":
+    print(ans["answer"], "support:", ans["confidence"])
+    bb.inference_feedback(ans["inferenceId"], action="upvoted")`,
+  },
+  {
+    id: "node",
+    label: "Node / TypeScript",
+    badge: "Native fetch · examples/berrybrain_client.mjs",
+    code: `import { BerryBrainClient } from "./examples/berrybrain_client.mjs";
+
+const bb = new BerryBrainClient(process.env.BERRYBRAIN_URL, process.env.BERRYBRAIN_SERVICE_TOKEN);
+
+// Match against 1,576 standardized Markdown Agent Skills
+const skills = await bb.matchSkills("Write a technical RFC on provenance repair");
+
+// Hybrid + admitted-graph search & W3C JSON-LD ontology export
+const hits = await bb.search("dependency-propagating invalidation", { limit: 5 });
+const jsonLd = await bb.exportOntology({ format: "json-ld" });`,
+  },
+  {
+    id: "rest",
+    label: "REST / OpenAPI v1",
+    badge: "Any language · /api/v1/openapi.json",
+    code: `# Inspect live OpenAPI 3.1 contract & physical vault namespaces
+curl -sS http://127.0.0.1:8000/api/v1/openapi.json | jq '.info'
+curl -sS -H "Authorization: Bearer $BERRYBRAIN_SERVICE_TOKEN" \\
+  http://127.0.0.1:8000/api/v1/vault/namespaces
+
+# Optimistic-concurrency update (returns HTTP 409 if base_content_hash changed)
+curl -sS -X PUT http://127.0.0.1:8000/api/v1/notes/inbox/adr-07.md \\
+  -H "Authorization: Bearer $BERRYBRAIN_SERVICE_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"content":"# ADR-07\\nUpdated.","base_content_hash":"<sha256>"}'`,
+  },
+  {
+    id: "blueprint",
+    label: "5 Core Invariants",
+    badge: "Architectural blueprint for custom RAG & agent stacks",
+    code: `1. Canonical vs. Derived Split   -> User files are canonical; chunks, vectors, nodes & triples rebuild cleanly.
+2. Ontology + Judge Gate         -> Validate SKOS/PROV-O/OWL/SHACL domain/range + rubric v3; quarantine noise.
+3. Scoped Provenance Repair      -> On edit/delete, strip stale source provenance, recompute shared support, purge orphans.
+4. Reversible Feedback Ledger    -> Append-only source-scoped policy rules (model_weights_updated=false).
+5. Corpus-Aware Two-Tier RAG     -> Fast Hybrid-RRF lookup; pool expansion + Cross-Encoder reranking + explicit links.`,
+  },
+] as const;
+
+function ArchitectureIntegrationWorkbench() {
+  const [activeTab, setActiveTab] = useState<(typeof INTEGRATION_TABS)[number]["id"]>("python");
+  const current = INTEGRATION_TABS.find((tab) => tab.id === activeTab) ?? INTEGRATION_TABS[0];
+
+  return (
+    <div className="bb-card bb-card--elevated overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3">
+        <div role="tablist" aria-label="BerryBrain integration modes" className="flex flex-wrap gap-2">
+          {INTEGRATION_TABS.map((tab) => {
+            const selected = tab.id === current.id;
+            return (
+              <button
+                key={tab.id}
+                id={`bb-int-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`bb-int-panel-${tab.id}`}
+                onClick={() => setActiveTab(tab.id)}
+                className={`bb-action px-3 py-1.5 text-xs font-semibold ${
+                  selected ? "bb-action--primary" : "text-muted hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="text-xs font-medium text-muted">{current.badge}</span>
+      </div>
+      <div
+        id={`bb-int-panel-${current.id}`}
+        role="tabpanel"
+        aria-labelledby={`bb-int-tab-${current.id}`}
+        className="bg-panel p-5"
+      >
+        <pre className="overflow-x-auto text-xs leading-6 text-foreground">
+          <code>{current.code}</code>
+        </pre>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface/60 px-5 py-3 text-xs text-muted">
+        <span>
+          Boundary: single owner-managed shared workspace · keep service tokens server-side ·{" "}
+          <code className="rounded bg-panel px-1.5 py-0.5 text-foreground">model_weights_updated=false</code>
+        </span>
+        <div className="flex flex-wrap items-center gap-4 font-semibold">
+          <a href={appPath("/docs#api-integration")} className="text-foreground underline-offset-4 hover:text-accent hover:underline">
+            API &amp; integration docs →
+          </a>
+          <a href={appPath("/api/v1/docs")} className="text-foreground underline-offset-4 hover:text-accent hover:underline">
+            OpenAPI Swagger →
+          </a>
+          <a
+            href={`${GITHUB_URL}/blob/main/docs/integrating-berrybrain-architecture.md`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-foreground underline-offset-4 hover:text-accent hover:underline"
+          >
+            Full blueprint guide ↗
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LandingContent() {
   const { state: accessState } = usePublicAccess();
   const primaryPath = accessState === "setup" ? "/setup" : "/brain";
   const primaryLabel = accessState === "setup" ? "Set up BerryBrain" : "Open BerryBrain";
   const featureCards = [
-    { title: "A vault that stays coherent", body: "Create, edit, move, or delete Markdown notes while BerryBrain preserves stable identity and repairs only the affected knowledge neighborhood.", icon: DocsIcon },
-    { title: "An ontology, not a proximity map", body: "Typed nodes and directed predicates are validated by domain, range, provenance, lifecycle state, and supporting evidence.", icon: GraphIcon },
-    { title: "Ask the content or the graph", body: "Use grounded Ask to question source material, node types, relationships, clusters, and gaps with citations and explicit provider failure states.", icon: GraphIcon },
-    { title: "Uncertainty stays calculated", body: "Evidence support, interval, sample size, method, and factors are computed by the system and remain read-only in the interface.", icon: DocsIcon },
-    { title: "Feedback changes future decisions", body: "Confirm, correct, reject, or delete an artifact to create durable policy evidence for later extraction, Judge, retrieval, and graph work.", icon: GraphIcon },
-    { title: "Operations stay visible", body: "Activity, Monitor, queue estimates, retries, dead letters, notifications, and scoped repair status show what automation is doing.", icon: GithubIcon },
+    { title: "First-class vaults that stay coherent", body: "Organize Markdown across named physical vaults with flexible sorting while edits, moves, and deletions preserve stable identity and repair only affected knowledge.", icon: DocsIcon },
+    { title: "An ontology, not a proximity map", body: "Typed nodes and directed predicates are validated by SKOS/PROV-O/OWL/SHACL rules, Judge rubrics, and provenance, with W3C JSON-LD and Turtle export.", icon: GraphIcon },
+    { title: "Supervised Ask, Action Plans & 1,576 skills", body: "Mention @note, @folder, @vault, or @node, route tasks across 1,576 Markdown Agent Skills, and approve exact note drafts or line-level editor diffs explicitly.", icon: GraphIcon },
+    { title: "Evidence support stays calculated", body: "Read-only support means, bounded-signal intervals, and observation counts apply only to derived artifacts—never fabricated on raw notes or claimed as truth probabilities.", icon: DocsIcon },
+    { title: "Reversible feedback & 24h Enrich AI", body: "User confirmations and deletions update scoped admission policy without mutating model weights, while 24h enrichment checks open gaps against verified web stances.", icon: GraphIcon },
+    { title: "1-click AI setup & headless REST API", body: "Use 1-click Auto Config with live compatibility probes for Local Ollama or Cloud providers, and integrate external backends via expiring ServiceBearer tokens.", icon: GithubIcon },
   ];
   const pipeline = [
     ["Capture", "Write Markdown or attach a source. The original file remains the source of truth."],
@@ -501,7 +630,7 @@ function LandingContent() {
               Turn the Markdown you own into an explainable knowledge system.
             </p>
             <p className="mt-6 max-w-2xl text-base leading-8 text-muted md:text-lg">
-              Write in a portable vault while a recoverable pipeline builds a typed graph, validates relationships, retrieves grounded evidence, and adapts future decisions to your feedback. Choose one explicit Cloud or Local AI mode and keep every automated result inspectable.
+              Write across portable Markdown vaults while a recoverable pipeline builds a typed ontology graph, validates relationships, routes 1,576 Markdown Agent Skills, and adapts future decisions to your feedback. Configure Local or Cloud AI in one click—or embed the headless REST API v1 in your own project.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a
@@ -509,6 +638,12 @@ function LandingContent() {
                 className="bb-action bb-action--primary inline-flex items-center justify-center px-5 py-3 text-sm font-semibold"
               >
                 {primaryLabel}
+              </a>
+              <a
+                href="#integrate"
+                className="bb-action inline-flex items-center justify-center px-4 py-3 text-sm font-medium text-foreground"
+              >
+                Integrate architecture
               </a>
               <a
                 href={GITHUB_URL}
@@ -522,10 +657,10 @@ function LandingContent() {
             </div>
             <div className="mt-12 grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                ["Ownership", "Markdown vault"],
-                ["Retrieval", "Hybrid + graph"],
-                ["Automation", "Scoped jobs"],
-                ["AI routing", "Cloud XOR Local"],
+                ["Ownership", "Vaults + Markdown"],
+                ["Retrieval", "Hybrid + reranked"],
+                ["Agent skills", "1,576 .md skills"],
+                ["AI setup", "1-click Auto Config"],
               ].map(([label, value]) => (
                 <div key={label} className="border-l border-border bg-panel/70 px-4 py-3">
                   <div className="text-xs uppercase text-muted">{label}</div>
@@ -673,6 +808,42 @@ function LandingContent() {
               ))}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section id="integrate" className="scroll-mt-24 border-t border-border/70 bg-background">
+        <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 md:px-6">
+          <div className="grid gap-5 md:grid-cols-[0.76fr_1.24fr] md:items-end">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">For developers &amp; teams</p>
+              <h2 className="mt-3 text-3xl font-semibold">Incorporate the BerryBrain Architecture into your own project.</h2>
+            </div>
+            <p className="max-w-2xl text-sm leading-7 text-muted md:justify-self-end">
+              The Next.js workspace is only one client of BerryBrain&apos;s cognitive engine. Run BerryBrain as a headless Docker sidecar over REST API v1, extend its 1,576 Markdown Agent Skills, or adopt its five consistency invariants inside your existing RAG or agent-memory stack.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {[
+              [
+                "01 · Headless Cognitive Sidecar",
+                "Run api + worker via Docker Compose and connect Python, Node.js/TypeScript, Go, CLI, or agent backends using expiring ServiceBearer tokens, optimistic base_content_hash writes, and JSON-LD/Turtle export.",
+              ],
+              [
+                "02 · 1,576 Markdown Agent Skills",
+                "Drop domain .md protocols with YAML triggers into skills/ and query matches via GET /api/v1/ai/skills. Skills structure complex outputs while keeping canonical vault citations ([Title](bbref:<id>)) authoritative.",
+              ],
+              [
+                "03 · 5-Invariant Stack Blueprint",
+                "Port BerryBrain's architecture to any custom stack: canonical-vs-derived split, ontology + Judge gate, dependency-propagating invalidation, reversible feedback ledger, and corpus-aware two-tier retrieval.",
+              ],
+            ].map(([title, body]) => (
+              <article key={title} className="bb-card p-5">
+                <h3 className="text-sm font-semibold">{title}</h3>
+                <p className="mt-3 text-sm leading-6 text-muted">{body}</p>
+              </article>
+            ))}
+          </div>
+          <ArchitectureIntegrationWorkbench />
         </div>
       </section>
 

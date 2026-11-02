@@ -185,10 +185,12 @@ def build_home_summary(session: Session) -> dict[str, Any]:
             reverse=True,
         )[:8]
     ]
-    recent_connections = list_recent_connections(session, limit=5)
+    recent_connections = list_recent_connections(
+        session, limit=5, note_by_id={note.id: note for note in notes}
+    )
 
     graph_summary = _graph_summary(session, notes, connections, graph_edges)
-    assimilation = note_assimilation_map(session, notes)
+    assimilation = note_assimilation_map(session, notes, complete_job_signals=False)
     unassimilated = [
         note for note in notes if not assimilation.get(note.id, {}).get("assimilated")
     ]
@@ -346,9 +348,12 @@ def list_detected_concepts(session: Session, limit: int = 20) -> list[dict[str, 
     return _detected_concepts(concepts, session, limit=limit)
 
 
-def list_recent_connections(session: Session, limit: int = 20) -> list[dict[str, Any]]:
-    notes = list(session.execute(select(NoteRecord)).scalars())
-    note_by_id = {note.id: note for note in notes}
+def list_recent_connections(
+    session: Session,
+    limit: int = 20,
+    *,
+    note_by_id: dict[int, NoteRecord] | None = None,
+) -> list[dict[str, Any]]:
     connections = list(
         session.execute(
             select(ConnectionRecord)
@@ -357,6 +362,22 @@ def list_recent_connections(session: Session, limit: int = 20) -> list[dict[str,
             .limit(limit)
         ).scalars()
     )
+    if note_by_id is None:
+        note_ids = {
+            note_id
+            for connection in connections
+            for note_id in (connection.source_note_id, connection.target_note_id)
+        }
+        note_by_id = (
+            {
+                note.id: note
+                for note in session.execute(
+                    select(NoteRecord).where(NoteRecord.id.in_(note_ids))
+                ).scalars()
+            }
+            if note_ids
+            else {}
+        )
     return [_serialize_connection(connection, note_by_id) for connection in connections]
 
 

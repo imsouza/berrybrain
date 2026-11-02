@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from berrybrain_api.ai_configuration import load_configuration
 from berrybrain_api.ai_gateway import provider_resilience_snapshot
-from berrybrain_api.database import SessionLocal, engine
+from berrybrain_api.database import SessionLocal
 from berrybrain_api.jobs import list_jobs, parse_json, serialize_datetime
 from berrybrain_api.models import (
     ConnectionRecord,
@@ -136,7 +136,7 @@ def monitor_stats() -> dict:
             .limit(1)
         )
         return {
-            "schema": schema_diagnostic(engine),
+            "schema": schema_diagnostic(session.get_bind()),
             "worker": _worker_status_payload(session, worker) if worker else None,
             "notes": session.query(NoteRecord).count(),
             "connections": session.query(ConnectionRecord).count(),

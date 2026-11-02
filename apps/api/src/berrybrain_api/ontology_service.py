@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from berrybrain_api.artifact_state import accepted_edge_clause, accepted_node_clause
+from berrybrain_api.confidence import node_confidence_applicable
 from berrybrain_api.graph_ontology import ontology_class, ontology_property
 from berrybrain_api.models import GraphEdgeRecord, GraphNodeRecord
 
@@ -89,7 +90,7 @@ def build_knowledge_graph(
         graph.add((subject, BB.qualityStatus, Literal(node.quality_gate_status)))
         if node.summary:
             graph.add((subject, DCTERMS.description, Literal(node.summary)))
-        if node.confidence_sample_size:
+        if node_confidence_applicable(node.type) and node.confidence_sample_size:
             graph.add(
                 (subject, BB.confidence, Literal(node.confidence, datatype=XSD.decimal))
             )
