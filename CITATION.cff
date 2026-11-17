@@ -1,26 +1,32 @@
 cff-version: 1.2.0
-message: "If you use BerryBrain, cite this software release."
-title: "BerryBrain: Adaptive Personal Knowledge Management with Semantic Graphs and GraphRAG"
+message: "If you use BerryBrain, cite this software release and the accompanying article."
+title: "BerryBrain: Keeping Derived Knowledge Consistent with Its Sources in Personal Knowledge Management"
 type: software
-version: "1.4.14"
-date-released: 2026-10-13
+version: "1.5.1"
+doi: "10.5281/zenodo.24058185"
+date-released: 2026-11-16
 abstract: >-
-  BerryBrain is a self-hosted personal knowledge management system that transforms Markdown notes
-  into a governed semantic graph, combines lexical, dense, and structural retrieval through
-  GraphRAG, and incorporates provenance, confidence estimates, language-model judges, and
-  reversible human feedback.
+  BerryBrain is a self-hosted personal knowledge management system and RAG architecture that keeps
+  user-authored Markdown canonical, treats semantic graphs, retrieval indexes, and synthesized
+  insights as provenance-linked rebuildable state governed by an operational ontology, an admission
+  gate, and a two-note minimum-support invariant (MIN_INSIGHT_SUPPORT_NOTES = 2), and records human
+  feedback as scoped, reversible policies.
 authors:
   - family-names: "Souza"
     given-names: "Mateus Almeida de"
     affiliation: "Federal University of Espirito Santo, CEUNES"
     orcid: "https://orcid.org/0009-0000-4701-1282"
+  - family-names: "Silvestre"
+    given-names: "Leonardo José"
+    affiliation: "Federal University of Espirito Santo, CEUNES"
+    orcid: "https://orcid.org/0000-0002-8813-7479"
 repository-code: "https://github.com/imsouza/berrybrain"
-url: "https://github.com/imsouza/berrybrain/releases/tag/v1.4.14"
+url: "https://github.com/imsouza/berrybrain/releases/tag/v1.5.1"
 keywords:
   - personal knowledge management
   - personal knowledge graph
   - semantic graph
-  - GraphRAG
-  - information retrieval
+  - retrieval-augmented generation
+  - provenance
+  - source lifecycle
   - human feedback
-  - large language model judge

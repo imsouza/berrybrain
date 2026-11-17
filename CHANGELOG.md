@@ -4,6 +4,17 @@ All notable BerryBrain changes are documented here.
 
 ## Unreleased
 
+## 1.5.1 - 2026-11-16
+
+- Enforce two-note minimum-support invariant (`MIN_INSIGHT_SUPPORT_NOTES = 2`)
+  when pruning stale cross-note `InsightRecord` items during
+  `expand_knowledge_graph` (`apps/api/src/berrybrain_api/graph_expansion.py`,
+  `apps/api/tests/test_insight_minimum_support.py`).
+- Bundle article benchmark scripts and hash-committed evaluation protocols under
+  `apps/api/benchmarks/reproduction/` (`FROZEN_PROTOCOL_HASHES_2026-11-13.txt`).
+- Synchronize `CITATION.cff` to release `1.5.1` and DOI `10.5281/zenodo.24058185`.
+
+
 ## 1.5.0 - 2026-11-01
 
 - Add first-class Vault entities (`vaults` table, schema migrations 15–25) with
