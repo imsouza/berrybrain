@@ -10,7 +10,7 @@ There is no central BerryBrain account, SaaS tenant, billing gate, demo mode, or
 
 ---
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.1-blue)
 ![Python](https://img.shields.io/badge/python-3.12+-3670A0?logo=python)
 ![Next.js](https://img.shields.io/badge/next.js-15-black?logo=next.js)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.140-009688?logo=fastapi)
@@ -106,7 +106,7 @@ The system is designed around one rule:
 - **Interactive Preview Tasks, Bounded Profile Context & Operational Filters**: toggle Markdown task checkboxes (`- [ ]` / `- [x]`) directly from Preview or Split Mode with unsaved-draft conflict protection, configure optional bounded study/language preferences in Settings, and filter Notifications and Activity by category, severity, and vault.
 - **External Architecture Integration Kit**: comprehensive developer guide ([`docs/integrating-berrybrain-architecture.md`](docs/integrating-berrybrain-architecture.md)) and zero-dependency reference clients in Python ([`examples/berrybrain_client.py`](examples/berrybrain_client.py)) and Node.js / ESM ([`examples/berrybrain_client.mjs`](examples/berrybrain_client.mjs)).
 
-See the [release 1.5.0 notes](docs/releases/v1.5.0.md), [architecture integration guide](docs/integrating-berrybrain-architecture.md), [documented REST API](docs/api.md), and [CHANGELOG.md](CHANGELOG.md) for full details.
+See the [release 1.5.1 notes](docs/releases/v1.5.1.md), [release 1.5.0 notes](docs/releases/v1.5.0.md), [architecture integration guide](docs/integrating-berrybrain-architecture.md), [documented REST API](docs/api.md), and [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ---
 

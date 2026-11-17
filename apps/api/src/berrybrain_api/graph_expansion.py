@@ -47,6 +47,8 @@ from berrybrain_api.settings_store import decode_setting_value
 
 # Constants from second_brain
 PROMPT_VERSION = "graph-expand.deterministic.v1"
+# Same threshold used by second_brain._generate_deterministic_insights.
+MIN_INSIGHT_SUPPORT_NOTES = 2
 STOPWORDS = {
     "a",
     "about",
@@ -224,7 +226,18 @@ def expand_knowledge_graph(session: Session) -> dict[str, int]:
         concept_models.pop(normalized, None)
 
     _prune_stale_concepts(session, set(concept_to_note_ids))
-    _prune_stale_graph_insights(session, set(concept_to_note_ids))
+    # Cross-note insights ("Connection pattern: ... links N notes") summarize a
+    # concept shared by several notes. A concept may survive with a single
+    # supporting note after an edit or deletion, so the insight must be pruned
+    # whenever its active support falls below the two-note minimum.
+    _prune_stale_graph_insights(
+        session,
+        {
+            normalized
+            for normalized, note_ids in concept_to_note_ids.items()
+            if len(note_ids) >= MIN_INSIGHT_SUPPORT_NOTES
+        },
+    )
 
     concept_nodes: dict[str, GraphNodeRecord] = {}
     concepts_count = 0

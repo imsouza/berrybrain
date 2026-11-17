@@ -1,6 +1,6 @@
 [project]
 name = "berrybrain-api"
-version = "1.5.0"
+version = "1.5.1"
 description = "BerryBrain local API"
 requires-python = ">=3.11"
 dependencies = [
@@ -26,6 +26,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 berrybrain_api = ["ontology/*.ttl"]
+
+[tool.ruff]
+extend-exclude = ["benchmarks/reproduction"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
