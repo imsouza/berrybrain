@@ -3,8 +3,15 @@ message: "If you use BerryBrain, cite this software release and the accompanying
 title: "BerryBrain: Keeping Derived Knowledge Consistent with Its Sources in Personal Knowledge Management"
 type: software
 version: "1.5.1"
-doi: "10.5281/zenodo.24058185"
-date-released: 2026-11-16
+doi: "10.5281/zenodo.24058184"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.24058184"
+    description: "Zenodo Concept DOI (always resolves to the latest version)"
+  - type: doi
+    value: "10.5281/zenodo.24058185"
+    description: "Zenodo v1 Deposit DOI"
+date-released: 2026-11-17
 abstract: >-
   BerryBrain is a self-hosted personal knowledge management system and RAG architecture that keeps
   user-authored Markdown canonical, treats semantic graphs, retrieval indexes, and synthesized
